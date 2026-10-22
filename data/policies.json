@@ -1,0 +1,17 @@
+{
+  "default": "pickup_mat_cl",
+  "policies": {
+    "pickup_mat_cl": {
+      "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v2_policy",
+      "dataset": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_trimmed_224",
+      "hover": {"offset_m": 0.045, "clearance_m": 0.040, "gripper": 90.0},
+      "notes": "v2, 2026-10-22: 104 gamepad episodes from the closed-loop hover, rows 1-2, idle frames and pre-fix takeover sag trimmed. Picked up first-row tiles reliably 2026-10-23 with the lamp behind the robot on."
+    },
+    "pickup_mat_cl_v1": {
+      "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v1_policy",
+      "dataset": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_224",
+      "hover": {"offset_m": 0.045, "clearance_m": 0.040, "gripper": 90.0},
+      "notes": "v1: same episodes untrimmed. Waits at the hover indefinitely on some attempts (froze 3 of 5); kept for comparison."
+    }
+  }
+}

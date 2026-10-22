@@ -39,7 +39,8 @@ RETURN_EXTRA_CLEARANCE_M = 0.030
 PLACE_DESCEND_TIME_S = 2.0
 RELEASE_TIME_S = 0.6
 
-HOLDING_MARGIN = 5.0          # gripper commanded shut but measured this much wider: something is held
+JOINT_LIMIT_MARGIN_DEG = 3.0
+HOLDING_MARGIN = 5.0         # gripper commanded shut but measured this much wider: something is held
 GRIP_CLOSED_BELOW = 5.0
 
 
@@ -87,6 +88,20 @@ class Arm:
         """(something between the jaws?, commanded gripper, measured gripper)."""
         command, measured = self.commanded()["gripper"], self.measured()["gripper"]
         return command < GRIP_CLOSED_BELOW and measured - command > HOLDING_MARGIN, command, measured
+
+    def joint_limits(self):
+        """Per-joint command limits from the servos' calibrated ranges (less a margin, so a command
+        never drives into a mechanical stop); generic ranges when no calibration is available."""
+        limits = {j: (-100.0, 100.0) for j in config.ARM_JOINTS}
+        limits.update(wrist_roll=(-175.0, 175.0), gripper=(0.0, 100.0))
+        bus = getattr(self.robot, "bus", None)
+        calibration = getattr(bus, "calibration", None)
+        for joint in config.ARM_JOINTS if calibration else ():
+            cal = calibration[joint]
+            max_res = bus.model_resolution_table[bus.motors[joint].model] - 1
+            half = (cal.range_max - cal.range_min) / 2 * 360 / max_res
+            limits[joint] = (-half + JOINT_LIMIT_MARGIN_DEG, half - JOINT_LIMIT_MARGIN_DEG)
+        return limits
 
     def is_at_rest(self):
         command = self.commanded()
