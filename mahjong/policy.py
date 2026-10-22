@@ -45,13 +45,20 @@ def register(policy_id, entry, make_default=False):
 
 
 class Policy:
-    def __init__(self, policy_id=None, device="cuda"):
+    def __init__(self, policy_id=None, device="cuda", source=None, hover=None):
+        """A registered policy by id (default: the registry's default), or any repo/checkpoint path
+        via `source` (e.g. a training checkpoint's pretrained_model folder)."""
         import packaging.version  # noqa: F401 — lerobot's from_pretrained uses it without importing it
         from huggingface_hub import snapshot_download
         from lerobot.policies.act.modeling_act import ACTPolicy, ACTTemporalEnsembler
         from lerobot.policies.factory import make_pre_post_processors
 
-        self.id, self.spec = spec(policy_id)
+        if source is not None:
+            default_hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M,
+                             "gripper": config.HOVER_GRIPPER}
+            self.id, self.spec = str(source), {"repo": str(source), "hover": hover or default_hover}
+        else:
+            self.id, self.spec = spec(policy_id)
         source = self.spec["repo"]
         path = source if Path(source).is_dir() else snapshot_download(source)
         self.act = ACTPolicy.from_pretrained(path)

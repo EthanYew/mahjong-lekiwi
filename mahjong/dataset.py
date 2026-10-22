@@ -1,0 +1,125 @@
+"""Turning a recorded dataset into a training dataset: trims, re-anchoring and the 224 resize.
+
+Trims (each a per-episode frame mask, applied in order):
+- idle: frames where no action dimension (gripper included) changes by IDLE_DELTA within
+  +-IDLE_WINDOW frames. A policy has no clock, so still frames all look alike, and the v1 policy
+  learned to wait at the hover indefinitely from them (30% of the first dataset's frames).
+- takeover sag: in episodes recorded before the 2026-10-22 takeover fix (first action == first state),
+  the opening frames until the pincer tip stops sagging.
+- gripper narrowing (optional): the opening phase where the jaws are narrowed from the hover's 90% to
+  ~21% before descending. Trimming it makes episodes start where that ends, so they can be mixed with
+  episodes recorded from a ~23% hover.
+Deltas (observation.state, action) are re-anchored to each episode's first kept frame, so every
+episode starts from a zero state delta, as deployment does at the hover.
+"""
+import json
+from pathlib import Path
+
+import numpy as np
+
+from . import config, kinematics
+
+IDLE_WINDOW = 7
+IDLE_DELTA = 0.5
+SAG_SETTLE_MM, SAG_SETTLE_FRAMES, SAG_MAX_FRAMES = 0.3, 9, 60
+NARROWING_TOLERANCE = 2.0      # gripper % of its pre-grasp opening that counts as "narrowed"
+GRIP_CLOSED_BELOW = 5.0
+
+
+def idle_mask(actions):
+    n = len(actions)
+    return np.array([np.abs(actions[max(0, i - IDLE_WINDOW):i + IDLE_WINDOW + 1] - actions[i]).max() < IDLE_DELTA
+                     for i in range(n)])
+
+
+def is_pre_takeover_fix(states_raw, actions_raw):
+    return bool(np.abs(actions_raw[0] - states_raw[0]).max() < 1e-3)
+
+
+def takeover_sag_end(states_raw):
+    """First frame from which the pincer tip holds within SAG_SETTLE_MM for SAG_SETTLE_FRAMES."""
+    z = np.array([kinematics.pincer_tip(dict(zip(config.JOINTS, s)))[2] * 1000
+                  for s in states_raw[:SAG_MAX_FRAMES + SAG_SETTLE_FRAMES]])
+    for k in range(min(SAG_MAX_FRAMES, len(z) - SAG_SETTLE_FRAMES)):
+        if np.abs(z[k:k + SAG_SETTLE_FRAMES] - z[k]).max() < SAG_SETTLE_MM:
+            return k
+    return SAG_MAX_FRAMES
+
+
+def narrowing_end(actions_raw):
+    """First frame where the commanded gripper is within NARROWING_TOLERANCE of the opening it held
+    just before closing on the tile (0 if the episode never narrows from a wider start)."""
+    grip = actions_raw[:, 5]
+    close = int(np.argmax(grip < GRIP_CLOSED_BELOW))
+    if close == 0:
+        return 0
+    plateau = float(np.median(grip[max(0, close - 30):max(1, close - 15)]))
+    if grip[0] <= plateau + NARROWING_TOLERANCE:
+        return 0
+    return int(np.argmax(grip <= plateau + NARROWING_TOLERANCE))
+
+
+def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False):
+    drop = idle_mask(actions) if trim_idle else np.zeros(len(actions), bool)
+    if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
+        drop[:takeover_sag_end(states_raw)] = True
+    if trim_narrowing:
+        drop[:narrowing_end(actions_raw)] = True
+    return ~drop
+
+
+def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), log=print):
+    """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. Returns a summary."""
+    import torchvision.transforms.functional as F
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.utils.constants import HF_LEROBOT_HOME
+
+    src = LeRobotDataset(src_repo)
+    if (HF_LEROBOT_HOME / dst_repo).exists():
+        raise FileExistsError(f"{HF_LEROBOT_HOME / dst_repo} exists — choose a new name or delete it")
+    features = {k: dict(v) for k, v in src.meta.features.items()
+                if k in ("observation.state", "action", "observation.state_raw", "action_raw", "observation.images.wrist")}
+    features["observation.images.wrist"]["shape"] = (size[0], size[1], 3)
+    dst = LeRobotDataset.create(repo_id=dst_repo, fps=src.fps, features=features, robot_type=src.meta.robot_type,
+                                use_videos=True)
+    h = src.hf_dataset
+    actions, actions_raw, states_raw = (np.stack(h[k]) for k in ("action", "action_raw", "observation.state_raw"))
+    kept, start_grippers = 0, []
+    for ep in range(src.num_episodes):
+        meta = src.meta.episodes[ep]
+        a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
+        keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trim_idle, trim_sag, trim_narrowing))
+        anchor = states_raw[a + keep[0]]
+        start_grippers.append(float(anchor[5]))
+        for i in keep:
+            item = src[a + int(i)]
+            image = F.resize(item["observation.images.wrist"], list(size), antialias=True)
+            dst.add_frame({
+                "observation.state": (states_raw[a + i] - anchor).astype("float32"),
+                "action": (actions_raw[a + i] - anchor).astype("float32"),
+                "observation.state_raw": states_raw[a + i].astype("float32"),
+                "action_raw": actions_raw[a + i].astype("float32"),
+                "observation.images.wrist": (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8"),
+                "task": item["task"]})
+        dst.save_episode()
+        kept += len(keep)
+        log(f"  episode {ep + 1}/{src.num_episodes}: kept {len(keep)}/{b - a}")
+    dst.finalize()
+    return {"episodes": src.num_episodes, "frames": kept, "source_frames": len(actions),
+            "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root)}
+
+
+def hover_settings(src_repo, built_summary):
+    """The hover a policy trained on the built dataset should be deployed from: offset and clearance
+    as recorded (episode_log.jsonl; config defaults for datasets recorded before it existed), gripper
+    opening as at the trimmed episodes' first frame."""
+    from lerobot.utils.constants import HF_LEROBOT_HOME
+    log = Path(HF_LEROBOT_HOME / src_repo / "episode_log.jsonl")
+    offset, clearance = config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M
+    if log.exists():
+        hovers = [json.loads(line).get("hover") for line in log.read_text().splitlines() if line.strip()]
+        hovers = [h for h in hovers if h]
+        if hovers:
+            offset = float(np.median([h["offset_m"] for h in hovers]))
+            clearance = float(np.median([h["clearance_m"] for h in hovers]))
+    return {"offset_m": offset, "clearance_m": clearance, "gripper": round(built_summary["start_gripper_median"], 1)}
