@@ -75,3 +75,49 @@ class SimRobot:
     def measured_clearance_mm(self):
         tip = kinematics.pincer_tip(self._read("Present_Position"))
         return (tip[2] - config.grasp_z(tip[0], tip[1])) * 1000
+
+
+# --- stand-ins for the rest of the hardware, for `bench.py --sim` ---
+
+SIM_TILES = [("9D", 0.140, 0.200), ("3B", 0.151, 0.018), ("8D", 0.160, -0.165)]
+
+
+class SimPerception:
+    def detect_tiles(self, n_frames=None):
+        return [{"tile_name": n, "confidence": 0.9, "xy": (x, y), "z": config.grasp_z(x, y), "reads": 5, "pixel": (0, 0)}
+                for n, x, y in SIM_TILES]
+
+    def snapshot(self):
+        return np.zeros((480, 848, 3), dtype=np.uint8)
+
+    def close(self):
+        pass
+
+
+class SimCamera:
+    def read(self):
+        return True, np.zeros((480, 640, 3), dtype=np.uint8)
+
+    def flush(self, frames=10):
+        pass
+
+    def release(self):
+        pass
+
+
+class SimPolicy:
+    """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
+    policy.Policy for what bench.py uses."""
+    id = "sim"
+    hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": config.HOVER_GRIPPER}
+
+    def run(self, arm, camera, trace_dir, abort=None, log=print):
+        x, y, _ = kinematics.tool_point(arm.commanded())
+        down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
+        arm.move_to(down, 2.0)
+        arm.move_to({"gripper": 0.0}, 0.5)
+        arm.robot.holding = True
+        up, _ = kinematics.hover_command(x, y, 0.13, 0.0)
+        arm.move_to(up, 2.0)
+        return {"steps": 0, "aborted": False, "stall_warning": False, "descended": True, "floored_steps": 0,
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)]}

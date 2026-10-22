@@ -56,7 +56,8 @@ class Session:
         return record
 
     def attempt_dir(self, label):
-        path = self.dir / f"{datetime.now():%H%M%S}_{label}"
+        self._attempts = getattr(self, "_attempts", 0) + 1
+        path = self.dir / f"{self._attempts:03d}_{datetime.now():%H%M%S}_{label}"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

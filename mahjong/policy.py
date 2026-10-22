@@ -80,6 +80,9 @@ class Policy:
         action = self.act.select_action(self.observation(frame_bgr, state_delta))
         return self.postprocess(action).squeeze(0).cpu().numpy()
 
+    def run(self, arm, camera, trace_dir, abort=None, log=print):
+        return run(self, arm, camera, trace_dir, abort=abort, log=log)
+
     @torch.no_grad()
     def plan(self, frame_bgr, state_delta):
         """The full predicted chunk (chunk_size x 6 deltas), before ensembling — for diagnosis."""
