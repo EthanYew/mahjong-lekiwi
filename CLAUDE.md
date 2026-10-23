@@ -16,6 +16,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
+- Score a policy offline (GPU, minutes): `python scripts/offline_eval.py --policy pickup_mat_cl --against
+  pickup_mat_cl_v1 [--by spot|lighting]`; tables per slice and the gates.
 
 ## Layout
 
@@ -30,6 +32,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `scripts/` | `record`, `collect_corrections`, `bench`, `session_report`, `quality_report`, `make_policy` |
+| `mahjong/layout.py`, `scripts/layout.py` | tile layouts (`data/layouts.json`) drawn on the RealSense view; place tiles to green |
+| `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
 
 ## Invariants (each cost a debugging round on hardware)
 
@@ -67,6 +71,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   different layout or hover.
 - Dataset → policy: `scripts/make_policy.py` (settle its options with `--dry-run` first; training takes
   hours). Uploads are public under `Yewy/` unless `--private`.
+- **Eval episodes are never trained on**: held-out episodes and eval-only recordings in
+  `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).
+  Folding an eval set into training retires it: record the next one. Don't change an existing split
+  (scores stop comparing). Offline scores screen; the bench decides what ships.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
 - Retrospectives / session write-ups: **What changed / What was learned / What's next**.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
@@ -82,3 +90,5 @@ Bigger plans (evaluation set, scorecard, interventions, hover learning from benc
 - RealSense recalibration at table height across the workspace would shrink the correction needed.
 - Recording/deploying at servo I=8 would remove most sag; needs a new dataset and corrections.
 - Autonomous play isn't ported yet.
+- `config.TILE_FACE_M` (35x26mm) is a guess; measure a tile's top face. The layout overlay's outlines and
+  the finder's size filter use it.
