@@ -25,6 +25,15 @@ STALL_MOVE_DEG = 2.0
 GRIP_CLOSED_BELOW = 5.0
 IMAGE_SIZE = (224, 224)
 
+# A pickup is done once the tile is held and lifted, and stays so for HOLD_CONFIRM_S while the policy
+# keeps going (a slip resets it), instead of always running ACT_DURATION_S. Held: gripper commanded
+# shut but measured HOLDING_MARGIN wider — a tile between the jaws reads ~11 above the command
+# (104/104 recorded episodes, all 9 bench attempts on 2026-10-23). Lifted: pincer tip LIFTED_M above
+# the grasp point, ~1.7s after closing on the arm. On those 9 attempts this stops at ~9-11s, not 20s.
+HOLDING_MARGIN = 5.0
+LIFTED_M = 0.060
+HOLD_CONFIRM_S = 1.5
+
 
 def registry():
     return json.loads(config.POLICIES.read_text())
@@ -118,10 +127,12 @@ def tip_floor(command, last_safe):
 
 
 def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATION_S, log=print):
-    """Run `policy` from wherever the arm is (the hover) for up to duration_s, or until `abort` (an
-    Event) is set. Saves act_trace.npz and wrist frames every 100 steps to trace_dir. Returns a
-    summary: steps, aborted, stall_warning, descended, floored_steps, grasp_step, grasp_xy (the tool
-    point where the gripper was first commanded shut — where a return should put the tile)."""
+    """Run `policy` from wherever the arm is (the hover) until the tile is held and lifted for
+    HOLD_CONFIRM_S, `abort` (an Event) is set, or duration_s runs out. Saves act_trace.npz and wrist
+    frames every 100 steps to trace_dir. Returns a summary: stop_reason (done / cap / aborted),
+    duration_s, held_at_s, slipped (held, then lost during the hold check), stall_warning, descended,
+    floored_steps, grasp_step, grasp_xy (the tool point where the gripper was first commanded shut —
+    where a return should put the tile)."""
     trace_dir = Path(trace_dir)
     trace_dir.mkdir(parents=True, exist_ok=True)
     policy.reset()
@@ -130,22 +141,40 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
     anchor_vec = np.array([anchor[j] for j in config.JOINTS], dtype=np.float32)
     limits = arm.joint_limits()
     last_safe = arm.commanded()
-    states, actions, floored_steps, warned, aborted = [], [], 0, False, False
+    states, actions, floored_steps, warned = [], [], 0, False
+    stop_reason, done_since, held_at, slipped = "cap", None, None, False
     stall_step = int(STALL_CHECK_S * config.FPS)
-    log(f"ACT ({policy.id}) for up to {duration_s:.0f}s — Esc stops it")
+    confirm_steps = int(HOLD_CONFIRM_S * config.FPS)
+    log(f"ACT ({policy.id}) for up to {duration_s:.0f}s, stopping once the tile is held and lifted — Esc stops it")
     for step in range(int(duration_s * config.FPS)):
         t0 = time.time()
         if abort is not None and abort.is_set():
-            aborted = True
+            stop_reason = "aborted"
             log(f"  stopped at step {step}")
             break
         ok, frame = camera.read()
         if not ok:
             log(f"  wrist camera read failed at step {step}")
             continue
-        state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
+        measured = arm.measured()
+        state = np.array([measured[j] for j in config.JOINTS], dtype=np.float32)
         if step % 100 == 0:
             cv2.imwrite(str(trace_dir / f"wrist_{step:04d}.jpg"), frame)
+        # Done check, on the state the previous command produced.
+        holding = last_safe["gripper"] < GRIP_CLOSED_BELOW and measured["gripper"] - last_safe["gripper"] > HOLDING_MARGIN
+        tip = kinematics.pincer_tip(measured)
+        lifted = tip[2] - config.grasp_z(tip[0], tip[1]) >= LIFTED_M
+        if holding and lifted:
+            if done_since is None:
+                done_since = step
+                held_at = held_at if held_at is not None else step / config.FPS
+            elif step - done_since >= confirm_steps:
+                stop_reason = "done"
+                log(f"  t={step / config.FPS:4.1f}s tile held and lifted for {HOLD_CONFIRM_S:.1f}s — done")
+                break
+        elif done_since is not None:
+            done_since, slipped = None, True
+            log(f"  t={step / config.FPS:4.1f}s grip or lift lost during the hold check")
         delta = policy.step(frame, state - anchor_vec)
         command = {j: float(np.clip(anchor_vec[i] + delta[i], *limits[j])) for i, j in enumerate(config.JOINTS)}
         command, floored = tip_floor(command, last_safe)
@@ -163,7 +192,7 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
         if step % config.FPS == 0:
             log(f"  t={step / config.FPS:4.1f}s lift {command['shoulder_lift']:+6.1f} elbow {command['elbow_flex']:+6.1f} "
                 f"gripper {command['gripper']:5.1f}" + (" [tip floor]" if floored else ""))
-        time.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
+        arm.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
     policy.reset()
     actions, states = np.array(actions), np.array(states)
     np.savez(trace_dir / "act_trace.npz", state=states, action=actions, anchor=anchor_vec, joints=np.array(config.JOINTS))
@@ -172,5 +201,6 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
     if grasp is not None:
         grasp_xy = [float(v) for v in kinematics.tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
     descended = bool(len(actions)) and float(np.abs(actions[:, 1:3] - anchor_vec[1:3]).max()) >= STALL_MOVE_DEG
-    return {"steps": len(actions), "aborted": aborted, "stall_warning": warned, "descended": descended,
-            "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy}
+    return {"steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
+            "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,
+            "descended": descended, "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy}

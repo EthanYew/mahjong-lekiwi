@@ -60,7 +60,7 @@ HOVER_GRIPPER = 90.0                   # opening at the hover; every dataset so 
 
 # --- ACT ---
 TEMPORAL_ENSEMBLE_COEFF = 0.001        # lerobot: positive weights OLDER plans more
-ACT_DURATION_S = 20.0
+ACT_DURATION_S = 16.0                  # cap; a pickup normally stops itself once the tile is held (policy.py)
 
 # --- files ---
 POLICIES = DATA / "policies.json"
