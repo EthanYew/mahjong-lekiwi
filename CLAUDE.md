@@ -9,10 +9,16 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Python: `~/miniforge3/envs/lerobot/bin/python`, from the repo root (scripts add it to `sys.path`).
 - Fast tests (no hardware, seconds): `python -m pytest -m "not slow"`. Everything: `python -m pytest`
   (slow = loads policies from the HF cache, needs the GPU).
-- No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3`.
+- No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3 --tile 8D` (without
+  `--tile` it asks which tile).
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
-  [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, contact sheet) before
-  asking what happened; `--all` compares every bench session with its setup conditions.
+  [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
+  sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
+- Interventions (`mahjong/interventions.py`, ROADMAP 3): during a bench pickup, → marks the moment
+  without stopping ACT (asked what happened afterwards; Esc still stops it). The bench's `note`
+  logs anything else a person did, and `setup` logs a mid-session change (lamp, battery).
+  Knocked tiles and tiles put back by hand come from the RealSense scans logged around each attempt.
+  The scorecard number is rescues per 10 attempts; resets and overrides are counted apart.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
@@ -29,6 +35,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
+| `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 
 ## Invariants (each cost a debugging round on hardware)

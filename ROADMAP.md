@@ -65,19 +65,55 @@ Contact sheets show what happened. They can't score a new policy. What can is th
 
 ## 3. Logged interventions
 
-Each time a person steps in, it should be an event, not a memory. Candidates:
+Each time a person steps in, it should be an event, not a memory. **Done (2026-10-23):**
+`mahjong/interventions.py`, which bench, record and collect_corrections log into.
+`session_report.py` lists them.
 
-| Intervention | How it's logged today | Make it |
+Only one class measures the policy, so each intervention has a class:
+
+- **rescue**: unplanned; something went wrong and a person fixed it. *The scorecard number:
+  rescues per 10 attempts* (and attempts per rescue).
+- **reset**: part of the protocol (tiles put back after a discard, the mat rearranged). It measures
+  how far autonomous play (8) is, not the policy.
+- **override**: a person's verdict against the gripper's (the success prompt). That's the success
+  check's error.
+- **failure**: a knocked neighbour. Not a step-in, but someone has to fix it.
+- **observation**: listed, not counted.
+
+A person is asked only when something happened. The rest is derived from what's logged anyway.
+
+| Intervention | Class | Captured by |
 |---|---|---|
-| Esc abort | `stop_reason: aborted` | ✓ already |
-| Success overridden by hand | `gripper_says_held` ≠ `success` | ✓ derivable |
-| Tile reset by hand after a discard | — | bench asks "tile back on the mat?" / a key |
-| Neighbouring tile knocked | — | key during an attempt; or compare overview before/after |
-| Re-detection needed (tile missed or merged) | — | log detections per choose() |
-| Arm unstuck / restarted / torque off | — | session_end reason + count |
-| Hover nudged with the gamepad | — | if a pre-ACT nudge is added |
+| Esc abort (+ why) | rescue | `stop_reason`; one question afterwards |
+| **→ during ACT** (a mark: the policy carries on) | from the answer: touched the tile / held the arm or base / caught a drop / other → rescue; "just look" → observation; Enter → `unspecified` rescue | `marks_s`; asked after the attempt, or at the end of a batch of trials |
+| Neighbour knocked | failure | `detections` scans before/after each pickup and return, matched by position |
+| Tiles put back / moved by hand | reset (straightened, if it was a knocked tile: rescue) | scans while idle at the menu |
+| Discard missed the container | rescue | "in the container?" after a discard |
+| Tile not found / unreachable | rescue (cancelled: observation) | `attempt_skipped` |
+| Ctrl-C mid-command, crash, killed | rescue | `intervention`, `session_end.reason`, no `session_end` |
+| Hover rejected in `record.py` (←) | rescue (of the hover) | `intervention` |
+| Success overridden | override | `gripper_says_held` ≠ `success` |
+| Arm not at rest at connect | observation | `connect` |
+| Anything else | as chosen | bench `note` command |
 
-Metric: **interventions per 10 attempts**, and attempts between interventions.
+A success with a rescue-class mark is **assisted**, reported apart from clean successes. Teaching
+the discard pose is setup, not an intervention. A lamp switched on mid-session is the bench `setup`
+command.
+
+The 2026-10-23 log, read again with this: the 7B pickup (far corner) knocked 8D. Its detection
+moved 6.4 mm, and it sits rotated in `overview_after.jpg`. Nobody noticed. Untouched tiles move
+1-1.5 mm scan to scan, so the knock threshold is 5 mm. Tiles were also put back by hand after every
+discard; that session had no after-scans, so it can't show them.
+
+Not yet:
+- A pre-ACT gamepad nudge. It would be a correction sample (1) *and* make the attempt
+  non-autonomous, so it would need its own field and scorecard column.
+- A contact signal from `act_trace` (measured vs commanded beyond the sag band: a hand on the arm).
+  It can be derived offline from saved traces.
+- Return accuracy from the after-return scan.
+
+Still to check on the arm: one session that does each of these on purpose, and `KNOCK_M` against
+that session's scan jitter.
 
 ## 4. A scorecard for ship or revert
 
