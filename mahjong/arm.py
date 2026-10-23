@@ -273,11 +273,12 @@ class Arm:
         released_at = settled["clearance_m"]
         log(f"  setting down: tip {released_at * 1000:.0f}mm above the grasp point "
             f"(commanded {settled['offset_m'] * 1000:.0f}mm)")
-        self.set_gripper(config.GRIPPER_RELEASE)
+        release = min(config.GRIPPER_RELEASE, self.measured()["gripper"] + config.GRIPPER_RELEASE_PAST_HELD)
+        self.set_gripper(release)
         self.sleep(0.3)
         self.move_to({j: above[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
         self.rest()
-        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift}
+        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift, "release_gripper": release}
 
     def go_to_pose(self, pose, duration=MOVE_TIME_S):
         """A taught arm pose (e.g. over the discard container), via the raised rest; gripper untouched."""

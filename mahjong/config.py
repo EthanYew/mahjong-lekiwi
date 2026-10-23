@@ -51,6 +51,9 @@ def grasp_z(x, y):
 
 # --- motion ---
 GRIPPER_RELEASE = 25.0   # p90 of the opening held around a tile in 104 recorded pickups (median 21%)
+# A return opens only this far past the jaws' reading on the tile (~11), not to GRIPPER_RELEASE: the
+# 25% release turned a neighbour on 2026-10-23. Not yet checked on hardware: raise it if a tile sticks.
+GRIPPER_RELEASE_PAST_HELD = 6.0
 TIP_FLOOR_BELOW_TABLE_M = 0.005        # ACT steps putting the pincer tip lower than this get scaled back
 
 # --- defaults for recording and correction collection (a policy's own hover lives in policies.json) ---

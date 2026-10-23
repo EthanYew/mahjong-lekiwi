@@ -75,7 +75,9 @@ def test_return_sets_down_at_grasp_height(tile):
     grips = [c["gripper"] for c in robot.sent]
     release = next(i for i, g in enumerate(grips) if g > 0)
     assert all(g == 0.0 for g in grips[:release])
-    assert max(grips) == pytest.approx(config.GRIPPER_RELEASE)
+    # opened just past the jaws' reading on the tile, not to the wide GRIPPER_RELEASE
+    assert max(grips) == pytest.approx(placed["release_gripper"])
+    assert placed["release_gripper"] <= config.GRIPPER_RELEASE
     # nothing lower than the set-down height before the release
     assert min(robot.clearances[:release]) >= (PLACE_TIP_CLEARANCE_M - CLEARANCE_TOLERANCE_M) * 1000
     assert lowest_tile_near_base(robot) > 0.040
