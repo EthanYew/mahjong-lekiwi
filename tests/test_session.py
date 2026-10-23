@@ -1,5 +1,6 @@
 """Setup questions: structured answers, previous session's answers as defaults, no folder until answered."""
 import builtins
+from contextlib import nullcontext
 
 import pytest
 
@@ -59,3 +60,29 @@ def test_quitting_during_the_questions_leaves_no_folder(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         Session("bench")
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("raise_, reason", [(None, "quit"), (ZeroDivisionError, "ZeroDivisionError"),
+                                             (SystemExit, "quit")])
+def test_session_end_records_why_it_ended(tmp_path, monkeypatch, raise_, reason):
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    s = Session("bench", ask_setup=False)
+    with pytest.raises(raise_) if raise_ else nullcontext():
+        try:
+            if raise_:
+                raise raise_()
+        finally:
+            s.close()
+    end = read_events(s.dir)[-1]
+    assert end["type"] == "session_end" and end["reason"] == reason
+    assert ("error" in end) == (reason != "quit")
+
+
+def test_interventions_are_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    s = Session("bench", ask_setup=False)
+    s.intervention("discard_missed", attempt_dir="002_3D", note="bounced off the rim")
+    s.close()
+    event = read_events(s.dir)[1]
+    assert (event["type"], event["kind"], event["attempt_dir"], event["note"]) == \
+        ("intervention", "discard_missed", "002_3D", "bounced off the rim")

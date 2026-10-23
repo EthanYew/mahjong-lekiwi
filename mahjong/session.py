@@ -45,10 +45,12 @@ def previous_conditions():
     return {}
 
 
-def _ask_one(question, default, ask):
+def ask_one(question, default, ask):
+    """One question ({"ask", "choices": [...] or "yn"}): a number, a unique prefix or y/n; Enter takes
+    `default` (None: skip). Unclear answers are asked again."""
     choices = question["choices"]
     if choices == "yn":
-        shown = {True: "y", False: "n"}.get(default, default)
+        shown = {True: "y", False: "n", None: "skip"}.get(default, default)
         while True:
             answer = ask(f"  {question['ask']}? [y/n] (Enter = {shown}): ").strip().lower()
             if not answer:
@@ -57,7 +59,7 @@ def _ask_one(question, default, ask):
                 return answer[0] == "y"
     menu = " / ".join(f"{i} {c}" for i, c in enumerate(choices, 1))
     while True:
-        answer = ask(f"  {question['ask']} [{menu}] (Enter = {default}): ").strip().lower()
+        answer = ask(f"  {question['ask']} [{menu}] (Enter = {'skip' if default is None else default}): ").strip().lower()
         if not answer:
             return default
         if answer.isdigit() and 1 <= int(answer) <= len(choices):
@@ -81,7 +83,7 @@ def ask_conditions(previous, questions=None, ask=None):
             return defaults
     else:
         print("Setup (Enter takes the default):")
-    return {q["key"]: _ask_one(q, defaults[q["key"]], ask) for q in questions}
+    return {q["key"]: ask_one(q, defaults[q["key"]], ask) for q in questions}
 
 
 def _shown(value):
@@ -99,6 +101,7 @@ class Session:
         self._log = open(self.dir / "session.log", "a")
         self._stdout, self._stderr = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
+        self.conditions = conditions
         self.event("session_start", kind=kind, commit=git_commit(), conditions=conditions, notes=notes, **setup)
         print(f"Session: {self.dir}" + (f"\nSetup: {', '.join(f'{k}={_shown(v)}' for k, v in conditions.items())}"
                                         if conditions else ""))
@@ -115,8 +118,19 @@ class Session:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def close(self):
-        self.event("session_end")
+    def intervention(self, kind, attempt_dir=None, **fields):
+        """A person stepped in (mahjong.interventions.KINDS); attempt_dir: the attempt it belongs to."""
+        return self.event("intervention", kind=kind, attempt_dir=attempt_dir, **fields)
+
+    def close(self, reason=None):
+        """reason: why the session ended. By default "quit", or the exception on its way out when close()
+        runs in a `finally` during one (sys.exc_info() still sees it there), so a crash records itself."""
+        error = sys.exc_info()[1]
+        if error is not None and isinstance(error, SystemExit) and not error.code:
+            error = None
+        if reason is None:
+            reason = "quit" if error is None else type(error).__name__
+        self.event("session_end", reason=reason, **({"error": str(error)} if error is not None else {}))
         sys.stdout, sys.stderr = self._stdout, self._stderr
         self._log.close()
 
