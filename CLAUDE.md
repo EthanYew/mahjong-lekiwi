@@ -17,8 +17,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Interventions (`mahjong/interventions.py`, ROADMAP 3): during a bench pickup, → marks the moment
   without stopping ACT (asked what happened afterwards; Esc still stops it). The bench's `note`
   logs anything else a person did, and `setup` logs a mid-session change (lamp, battery).
-  Knocked tiles and tiles put back by hand come from the RealSense scans logged around each attempt.
-  The scorecard number is rescues per 10 attempts; resets and overrides are counted apart.
+  Knocked tiles and tiles put back by hand come from the RealSense scans logged around each attempt;
+  the bench shows each change and asks (Enter: as the scans say, or "a detection glitch": YOLO
+  flickers, e.g. a 0.59 tile reading 0.68 and "appearing"). The scorecard number is rescues per 10 attempts; resets and overrides are counted apart.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
@@ -51,6 +52,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   neighbours.
 - **Heights are above the grasp point** (`config.grasp_z`, table + 5mm); the tile top is ~15mm higher.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
+- **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
+  ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return
+  was refused. `Arm.place` moves a return up to 15mm toward the shoulder, checking every height down
+  to the release (reachable at the approach alone would drop the tile from there).
 - **Datasets store joint deltas from each episode's first frame** (gripper too). A policy only works from
   the hover its episodes started at — that hover is stored per policy in `data/policies.json` and the
   bench uses it. Changing the hover (e.g. gripper 90% → 23%) means a new dataset, or trimming old
