@@ -9,9 +9,12 @@ helped.
    the 15 eval episodes left out, hover gripper 27.2 % (where the trimmed episodes start). Scored
    offline against v2 (done, see 7); benched paired: not yet. It isolates the hover change, so v3 vs
    v2n measures the jitter alone. v2 stays registered.
-2. Hover jitter in `record.py` (7): done.
+2. Hover jitter in `record.py` (7): done. It shipped crashing on every saved episode (the episode-log
+   row was never written); fixed in the 2026-10-23 post-merge review, with an end-to-end sim test.
+   Before step 3, save one episode on the arm into a scratch dataset and check its log row.
 3. Record the golden eval set `Yewy/mahjong_mat_eval_v1` (2), including the new `jitter` slice. Do this
-   before any jittered training data exists, so it can never leak into training.
+   before any jittered training data exists, so it can never leak into training. Teach its layouts
+   first (none exist yet) and commit `data/layouts.json`.
 4. Check the eval on v2: it should do clearly worse on `jitter` (grasp point off by ~the offset). If
    not, the slice can't detect memorisation.
 5. Record the jittered training set from v2n's hover (`--hover-gripper 27.2`, or v3 vs v2n measures
@@ -103,8 +106,9 @@ Next:
 
   Steps:
   1. ~~Measure a tile's top face~~: 35 × 26 mm, confirmed 2026-10-23; teach and view checked on hardware.
-  2. Teach the layouts: `layout.py --name eval_familiar --teach`, then `--add T1 --like S2 --yaw 15` for the
-     tilted spots.
+  2. Teach the layouts: `layout.py --name eval_familiar --teach` (d detects, t saves), then
+     `--add T1 --like S2 --yaw 15` for the tilted spots. Commit `data/layouts.json` (the spots); the ghost
+     photos in `data/layouts/` stay local. (The scratch `angle_check` grid was dropped 2026-10-23.)
   3. Record: `record.py --dataset Yewy/mahjong_mat_eval_v1 --slice familiar --layout eval_familiar`;
      the jitter slice: `--slice jitter --layout eval_new --hover-offsets-mm 6x,-6y`.
   4. Register it: `offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1`.
@@ -164,8 +168,10 @@ Not yet:
   It can be derived offline from saved traces.
 - Return accuracy from the after-return scan.
 
-Still to check on the arm: one session that does each of these on purpose, and `KNOCK_M` against
-that session's scan jitter.
+Checked on the arm 2026-10-23 (test sessions run from the interventions worktree, not kept): the knock
+detection and the confirm-at-the-bench flow work; marking "touched tile" on a descent that needed no
+help is what led to the separate `collided` mark. Still to check: one session that does each row above
+on purpose, and `KNOCK_M` against that session's scan jitter.
 
 ## 4. A scorecard for ship or revert
 
@@ -187,12 +193,17 @@ A fixed protocol, so numbers compare across sessions and policies.
   small gains; compare policies **paired**, alternating them on the same positions in one session
   (5), so lighting and battery are the same for both.
 - `session_report.py --all` is the start. It would grow into a per-policy table over all sessions.
+- **Draft format (2026-10-23):** a scorecard page with a rationale per criterion and a glossary
+  (EXTEND renamed RETEST; guardrails split into hard and soft), drafted outside the repo (plan
+  `~/.claude/plans/reviewing-item-4-in-soft-blanket.md`). Not yet in the repo: write it up as
+  `docs/scorecard.md` once settled, then build it into `session_report.py`.
 
 ## 5. Bench features those need
 
 **Done (2026-10-23)**, checked in `--sim` only; still needs a session on the arm:
 - `--policy a,b`: trials run in rounds, each policy once per round from the same hover offset and
   its own hover, alternating order (a b, b a) so a drift over the session doesn't favour one.
+  `--trials N` counts rounds: N × policies × spots pickups with `--layout`.
 - `--layout NAME` (instead of `--positions`): trials walk the spots of a layout taught with
   `scripts/layout.py`, picking the tile detected nearest each spot. An empty spot is skipped (an
   observation) and the walk goes on. `session_report.py` prints success per spot x policy.
@@ -208,7 +219,15 @@ placing anyway.
 ## 6. Housekeeping
 
 - ~~A pre-commit hook that runs the fast tests~~ Done: `scripts/hooks/pre-commit` (~20 s), on with
-  `git config core.hooksPath scripts/hooks`.
+  `git config core.hooksPath scripts/hooks`; `pre-merge-commit` runs it on merges too.
+- ~~Review the merged state after the 2026-10-23 worktree merges~~ Done (8 commits): the `record.py`
+  save crash, one copy of each duplicated helper/constant (episode-log reader, gripper thresholds,
+  held check, `grasp_point`, default hover), `bench.parse_args` for tests, `--help` and docs vs code.
+  How to avoid a repeat is in CLAUDE.md "Worktrees and merging" (`data/hover_corrections.jsonl` now
+  merges by union).
+- End-to-end sim tests for the user-run scripts that have none (they're what catch a merge that's
+  clean but broken): `collect_corrections.py`, `layout.py` teach/view/capture, `make_policy.py` (a
+  `--skip-build/--skip-train` path), `offline_eval.py --make-split/--add-eval-set`; `mahjong/quality.py`.
 - Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
   the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
   interventions and the CLAUDE.md says to run it first.
@@ -234,6 +253,8 @@ placing anyway.
   **Built 2026-10-23:** `record.py --hover-jitter-mm R` (uniform over the disc, `--jitter-zero-fraction`
   0.2 kept clean, `--jitter-seed`); an episode keeps its offset through ← and discards. Each log row
   has `hover_jitter_xy`. Jittered demos stay valid hover-correction samples (grasp − detection).
+  Record from v2n's hover (`--hover-gripper 27.2`); `make_policy.py --version v3` registers
+  `pickup_mat_cl_v3`.
   Open: how many of v2's clean episodes to mix in; they carry the memorised per-position move.
 - More episodes at the edges and on the second row. No pauses mid-episode.
 - Consider an absolute gripper value instead of a delta (CLAUDE.md, Open items).
