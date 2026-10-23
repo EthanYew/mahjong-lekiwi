@@ -25,8 +25,8 @@ import numpy as np
 
 from mahjong import config, hardware
 from mahjong.hover_correction import HoverCorrection
-from mahjong.perception import choose_tile
-from mahjong.session import Session
+from mahjong.perception import choose_tile, drain_stdin
+from mahjong.session import Session, ask_one
 
 JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
 FEATURES = {
@@ -37,6 +37,7 @@ FEATURES = {
     "observation.images.wrist": {"dtype": "video", "shape": (480, 640, 3), "names": ["h", "w", "c"]},
 }
 EPISODE_LOG = "episode_log.jsonl"
+DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
 
 
 def parse_args():
@@ -85,6 +86,7 @@ def main():
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s)
+    session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
     dataset = open_dataset(args.dataset)
@@ -98,16 +100,19 @@ def main():
             if arm.holding()[0]:
                 print("Releasing the tile from the last episode at rest.")
                 arm.set_gripper(hover["gripper"])
-            tile = choose_tile(realsense.detect_tiles())
+            tiles = realsense.detect_tiles()
+            tile = choose_tile(tiles)
             if tile is None:
                 if input("No tile chosen. q to quit, Enter to scan again: ").strip().lower() == "q":
                     break
+                session.event("attempt_skipped", reason="cancelled" if tiles else "no_tiles")
                 continue
             x, y = tile["xy"]
             hx, hy = correction.apply(x, y) if correction else (x, y)
             result = arm.hover(hx, hy, hover["offset_m"], hover["clearance_m"], hover["gripper"])
             if result is None:
                 print("Unreachable from the closed-loop hover — choose another tile.")
+                session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
                 continue
             session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], **result)
 
@@ -117,7 +122,9 @@ def main():
                 time.sleep(dt)
             if events["stop_recording"]:
                 break
-            if events["rerecord_episode"]:
+            if events["rerecord_episode"]:     # the hover looked wrong: worth knowing how often (ROADMAP 1, 3)
+                session.intervention("hover_rejected", tile=tile["tile_name"], detection_xy=[x, y],
+                                     hover_xy=result["hover_xy"], clearance_m=result["clearance_m"])
                 continue
             events["exit_early"] = False
 
@@ -141,7 +148,11 @@ def main():
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
-                session.event("episode_discarded", tile=tile["tile_name"], frames=frames)
+                reason = None
+                if not events["stop_recording"]:
+                    drain_stdin()
+                    reason = ask_one({"ask": "Why discard it", "choices": DISCARD_REASONS}, None, input)
+                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason)
                 if events["stop_recording"]:
                     break
                 continue
@@ -157,8 +168,9 @@ def main():
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s)")
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:          # Esc and q are the ways out; Ctrl-C is stepping in
         print("Interrupted.")
+        session.intervention("interrupted", command="record")
     finally:
         if dataset.has_pending_frames():
             dataset.clear_episode_buffer()

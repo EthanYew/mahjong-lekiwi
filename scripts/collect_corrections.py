@@ -35,6 +35,7 @@ def main():
         "device": args.device, "commit_s": 0.0, "locked_sticks": {"rx"}, "locked_buttons": {"l", "r"}})
     arm, realsense, gamepad = devices["arm"], devices["realsense"], devices["gamepad"]
     session = Session("corrections")
+    session.event("connect", **arm.at_connect)
     listener, events = init_keyboard_listener()
     correction = HoverCorrection.load()
     print(f"Hover correction: {'off (--raw)' if args.raw else correction.summary()}")
@@ -52,6 +53,7 @@ def main():
                 hover = arm.hover(hx, hy, config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, config.HOVER_GRIPPER)
                 if hover is None:
                     print("  unreachable — skipped")
+                    session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
                     continue
                 for k in ("exit_early", "rerecord_episode", "stop_recording"):
                     events[k] = False
@@ -68,6 +70,8 @@ def main():
                     break
                 if events["rerecord_episode"]:
                     print("  skipped")
+                    session.event("correction_skipped", tile=tile["tile_name"], detection_xy=[x, y],
+                                  hover_target_xy=[hx, hy])
                     continue
                 aligned = kinematics.tool_point(commanded)
                 delta = [float(aligned[0] - x), float(aligned[1] - y)]
@@ -88,8 +92,9 @@ def main():
             drain_stdin()
             if input(f"\n{recorded} recorded. Rearrange tiles and Enter to scan again, q to finish: ").strip().lower() == "q":
                 break
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:          # Esc and q are the ways out; Ctrl-C is stepping in
         print("Interrupted.")
+        session.intervention("interrupted", command="collect_corrections")
     finally:
         arm.rest()
         arm.disconnect()
