@@ -91,5 +91,3 @@ Bigger plans (evaluation set, scorecard, interventions, hover learning from benc
 - RealSense recalibration at table height across the workspace would shrink the correction needed.
 - Recording/deploying at servo I=8 would remove most sag; needs a new dataset and corrections.
 - Autonomous play isn't ported yet.
-- `config.TILE_FACE_M` (35x26mm) is a guess; measure a tile's top face. The layout overlay's outlines and
-  the finder's size filter use it.

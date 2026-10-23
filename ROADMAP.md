@@ -50,7 +50,7 @@ up for it — the margin it has left for a harder position.
   | tilt | 2 familiar spots, ±15° and ±30° | bright | 2 × 4 (reported, not gated) |
 
   Steps:
-  1. Measure a tile's top face and set `config.TILE_FACE_M`.
+  1. ~~Measure a tile's top face~~: 35 × 26 mm, confirmed 2026-10-23; teach and view checked on hardware.
   2. Teach the layouts: `layout.py --name eval_familiar --teach`, then `--add T1 --like S2 --yaw 15` for the
      tilted spots.
   3. Record: `record.py --dataset Yewy/mahjong_mat_eval_v1 --slice familiar --layout eval_familiar`.

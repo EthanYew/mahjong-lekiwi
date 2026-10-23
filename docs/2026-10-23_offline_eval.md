@@ -100,10 +100,11 @@ the open item to measure `TILE_FACE_M`) and ROADMAP 2.
 
 ## What's next
 
-1. **Measure a tile's top face** and set `config.TILE_FACE_M`. 35 × 26 mm is a guess; the camera
+1. ~~**Measure a tile's top face**~~ — done: 35 × 26 mm is right (confirmed by hand, 2026-10-23); the camera
    reads ~38 × 29.5 mm including the visible side faces.
-2. **Try the live view on the hardware**: `python scripts/layout.py --name test --teach`, then view
-   it. Check that a tile placed to green is re-detected within ~4 mm.
+2. ~~**Try the live view on the hardware**~~ — done 2026-10-23: teaching and viewing a layout work.
+   Still worth a glance during the first recording: the episode log's `placed_xy` against the YOLO
+   `detection_xy` for tiles placed to green (expect within ~4 mm).
 3. **Record `Yewy/mahjong_mat_eval_v1`** (~36 episodes, 90 % hover, never trained on). Spend episodes on
    spots, not repeats: one offline score already averages ~200 frames.
 

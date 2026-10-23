@@ -39,8 +39,8 @@ TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one phy
 TABLE_Z0, TABLE_SLOPE_X, TABLE_SLOPE_Y = -0.0678, -0.143, -0.002
 GRASP_POINT_ABOVE_TABLE_M = 0.005      # tile heights and clearances are measured from here
 TILE_THICKNESS_M = 0.020               # so the tile's top face is ~15mm above the grasp point
-TILE_FACE_M = (0.035, 0.026)           # top face, long x short side (long side along x when square). A guess:
-                                       # RealSense frames (~1.5mm/px, side faces included) read ~38x29.5 — measure
+TILE_FACE_M = (0.035, 0.026)           # top face, long x short side (long side along x when square); measured
+                                       # 2026-10-23 (the RealSense reads ~38x29.5: side faces + ~1px per edge)
 
 
 def table_z(x, y):
