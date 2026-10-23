@@ -62,6 +62,41 @@ def act_seconds(attempt):
     return attempt.get("duration_s", attempt.get("steps", 0) / config.FPS)
 
 
+def perturbation_slopes(attempts):
+    """For attempts from a deliberately offset hover (bench.py --hover-perturb-mm): per axis, how far
+    the grasp point moved per mm of hover offset. ~0: the policy goes to the tile wherever it starts;
+    ~1: it repeats a fixed move from the hover. Measured on successful grasps, against the detection.
+    Returns {axis: (slope, attempts used)} for the axes that were offset both ways (or offset and not)."""
+    slopes = {}
+    for axis, other in ((0, 1), (1, 0)):
+        used = [a for a in attempts if a.get("hover_perturb_xy") is not None and a.get("grasp_xy")
+                and a["success"] and a["hover_perturb_xy"][other] == 0]
+        offsets = np.array([a["hover_perturb_xy"][axis] for a in used])
+        if len(set(offsets.tolist())) < 2:
+            continue
+        moved = np.array([a["grasp_xy"][axis] - a["detection_xy"][axis] for a in used])
+        slope = float(np.sum((offsets - offsets.mean()) * (moved - moved.mean())) / np.sum((offsets - offsets.mean()) ** 2))
+        slopes["xy"[axis]] = (slope, len(used))
+    return slopes
+
+
+def perturbation_report(attempts):
+    tested = sorted({(a["policy"], a["tile"]) for a in attempts if any(a.get("hover_perturb_xy") or ())})
+    if not tested:
+        return
+    print("\nhover perturbation (does the policy go to the tile, or repeat a move from the hover?)")
+    for policy, tile in tested:
+        group = [a for a in attempts if (a["policy"], a["tile"]) == (policy, tile) and a.get("hover_perturb_xy") is not None]
+        per_offset = defaultdict(list)
+        for a in group:
+            per_offset[tuple(round(v * 1000) for v in a["hover_perturb_xy"])].append(a["success"])
+        print(f"  {policy} {tile}: " + ", ".join(f"({dx:+d},{dy:+d})mm {sum(r)}/{len(r)}"
+                                                  for (dx, dy), r in sorted(per_offset.items())))
+        for axis, (slope, n) in perturbation_slopes(group).items():
+            verdict = "follows the tile" if slope < 0.3 else "partly repeats a fixed move" if slope < 0.7 else "repeats a fixed move"
+            print(f"    {axis}: grasp moved {slope:+.2f} mm per mm of hover offset ({n} grasps) — {verdict}")
+
+
 def all_sessions():
     print(f"{'session':<24} {'ok':>6} {'ACT s':>6}  setup")
     for folder in sorted(p for p in config.SESSIONS.glob("*_bench") if (p / "events.jsonl").exists()):
@@ -106,6 +141,7 @@ def main():
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
+        perturbation_report(attempts)
         sheet = contact_sheet(session_dir, attempts)
         if sheet:
             print(f"\ncontact sheet: {sheet}")

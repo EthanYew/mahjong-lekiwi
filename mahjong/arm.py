@@ -92,6 +92,10 @@ class Arm:
         above_grasp = float(tip[2] - config.grasp_z(tip[0], tip[1]))
         return above_grasp, above_grasp - (config.TILE_THICKNESS_M - config.GRASP_POINT_ABOVE_TABLE_M)
 
+    def tool_sag(self):
+        """Measured minus commanded tool point (x, y, z), m: how far the servos sit from their command."""
+        return [float(v) for v in kinematics.tool_point(self.measured()) - kinematics.tool_point(self.commanded())]
+
     def holding(self):
         """(something between the jaws?, commanded gripper, measured gripper)."""
         command, measured = self.commanded()["gripper"], self.measured()["gripper"]
@@ -182,9 +186,10 @@ class Arm:
         """From a hover at commanded `offset` over (x, y), correct the commanded offset from the
         measured clearance until it is target_m (within CLEARANCE_TOLERANCE_M), at most MAX_ADJUSTS
         times, within [min_offset, max_offset]. Going up overshoots by APPROACH_M and comes back
-        down, so every arrival is from above; near full reach a raise takes as much as fits."""
+        down, so every arrival is from above; near full reach a raise takes as much as fits. The sag
+        (Arm.tool_sag) is logged before and after each adjust, to track it over battery level and time."""
         clearance, gap = self.tip_clearance()
-        adjusts, tilt = [], None
+        adjusts, tilt, first_sag = [], None, self.tool_sag()
         for _ in range(MAX_ADJUSTS):
             error = target_m - clearance              # > 0: too low
             if abs(error) <= CLEARANCE_TOLERANCE_M:
@@ -210,9 +215,9 @@ class Arm:
             self.sleep(SETTLE_S)
             offset = new_offset
             clearance, gap = self.tip_clearance()
-            adjusts.append({"offset_m": offset, "clearance_m": clearance})
+            adjusts.append({"offset_m": offset, "clearance_m": clearance, "sag_xyz_m": self.tool_sag()})
         return {"offset_m": offset, "clearance_m": clearance, "tile_top_gap_m": gap, "adjusts": adjusts,
-                "tilt_deg": tilt}
+                "tilt_deg": tilt, "first_sag_xyz_m": first_sag, "sag_xyz_m": self.tool_sag()}
 
     def place(self, x, y, approach_offset_m, log=print):
         """Set a held tile down with the tool point over (x, y): approach from above (extra height for
