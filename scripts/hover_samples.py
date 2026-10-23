@@ -16,7 +16,6 @@ current setup's first gamepad correction are imported (older ones may predate a 
     python -m mahjong.hover_correction --sources gamepad,demo     # what the hover would become
 """
 import argparse
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,20 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from mahjong import config
+from mahjong.dataset import EPISODE_LOGS, episode_log
 from mahjong.hover_correction import append_record, grasp_record, load_records, read_all, source_of
 from mahjong.policy import grasp_point
 from mahjong.session import read_events
-
-EPISODE_LOGS = ("episode_log.jsonl", "episode_teleop_log.jsonl")   # record.py's; the older recorder's
-
-
-def episode_log(root):
-    """{episode_index: the episode's log row} from whichever log the dataset has."""
-    for name in EPISODE_LOGS:
-        path = Path(root) / name
-        if path.exists():
-            return {r["episode_index"]: r for r in map(json.loads, filter(str.strip, path.read_text().splitlines()))}
-    raise SystemExit(f"{root} has no episode log ({' / '.join(EPISODE_LOGS)}): no detections to compare against")
 
 
 def row_time(row):
@@ -66,8 +55,9 @@ def demo_records(repo, actions_by_episode, log):
 
 def load_demos(repo):
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    from lerobot.utils.constants import HF_LEROBOT_HOME
-    log = episode_log(HF_LEROBOT_HOME / repo)
+    log = episode_log(repo)
+    if not log:
+        raise SystemExit(f"{repo} has no episode log ({' / '.join(EPISODE_LOGS)}): no detections to compare against")
     src = LeRobotDataset(repo)
     actions = np.stack(src.hf_dataset["action_raw"])
     by_episode = {}

@@ -27,6 +27,8 @@ IDLE_DELTA = 0.5
 SAG_SETTLE_MM, SAG_SETTLE_FRAMES, SAG_MAX_FRAMES = 0.3, 9, 60
 NARROWING_TOLERANCE = 2.0      # gripper % of its pre-grasp opening that counts as "narrowed"
 GRIP_CLOSED_BELOW = 5.0
+EPISODE_LOG = "episode_log.jsonl"                          # record.py's sidecar log: one row per saved episode
+EPISODE_LOGS = (EPISODE_LOG, "episode_teleop_log.jsonl")   # ...and the pre-rebuild recorder's
 
 
 def idle_mask(actions):
@@ -119,11 +121,11 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
 
 
 def episode_log(repo_id):
-    """{episode index: record} from a recorded dataset's sidecar log (episode_log.jsonl; the pre-rebuild
-    episode_teleop_log.jsonl too), or {}."""
+    """{episode index: record} from a recorded dataset's sidecar log (EPISODE_LOGS: record.py's, and the
+    pre-rebuild recorder's), or {}."""
     from lerobot.utils.constants import HF_LEROBOT_HOME
     records = {}
-    for name in ("episode_log.jsonl", "episode_teleop_log.jsonl"):
+    for name in EPISODE_LOGS:
         path = Path(HF_LEROBOT_HOME) / repo_id / name
         if path.exists():
             for line in path.read_text().splitlines():
@@ -137,13 +139,9 @@ def hover_settings(src_repo, built_summary):
     """The hover a policy trained on the built dataset should be deployed from: offset and clearance
     as recorded (episode_log.jsonl; config defaults for datasets recorded before it existed), gripper
     opening as at the trimmed episodes' first frame."""
-    from lerobot.utils.constants import HF_LEROBOT_HOME
-    log = Path(HF_LEROBOT_HOME / src_repo / "episode_log.jsonl")
     offset, clearance = config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M
-    if log.exists():
-        hovers = [json.loads(line).get("hover") for line in log.read_text().splitlines() if line.strip()]
-        hovers = [h for h in hovers if h]
-        if hovers:
-            offset = float(np.median([h["offset_m"] for h in hovers]))
-            clearance = float(np.median([h["clearance_m"] for h in hovers]))
+    hovers = [r["hover"] for r in episode_log(src_repo).values() if r.get("hover")]
+    if hovers:
+        offset = float(np.median([h["offset_m"] for h in hovers]))
+        clearance = float(np.median([h["clearance_m"] for h in hovers]))
     return {"offset_m": offset, "clearance_m": clearance, "gripper": round(built_summary["start_gripper_median"], 1)}

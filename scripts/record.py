@@ -43,6 +43,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, layout
+from mahjong.dataset import EPISODE_LOG
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.session import Session, ask_one
@@ -55,7 +56,6 @@ FEATURES = {
     "action_raw": {"dtype": "float32", "shape": (6,), "names": JOINT_NAMES},
     "observation.images.wrist": {"dtype": "video", "shape": (480, 640, 3), "names": ["h", "w", "c"]},
 }
-EPISODE_LOG = "episode_log.jsonl"
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
 

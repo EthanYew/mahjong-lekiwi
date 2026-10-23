@@ -1,6 +1,8 @@
+import json
+
 import numpy as np
 
-from mahjong import config, kinematics
+from mahjong import config, dataset, kinematics
 from mahjong.dataset import idle_mask, is_pre_takeover_fix, keep_mask, narrowing_end, takeover_sag_end
 
 
@@ -53,3 +55,31 @@ def test_keep_mask_starts_after_narrowing_when_asked():
     keep = keep_mask(states, actions, deltas, trim_narrowing=True)
     assert np.flatnonzero(keep)[0] >= 55
     assert keep[110:130].all()
+
+
+def write_log(root, name, rows):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_episode_log_reads_either_recorders_log(tmp_path, monkeypatch):
+    import lerobot.utils.constants
+    monkeypatch.setattr(lerobot.utils.constants, "HF_LEROBOT_HOME", tmp_path)
+    write_log(tmp_path / "u/new", dataset.EPISODE_LOG, [{"episode_index": 0, "tile_name": "8D"}])
+    write_log(tmp_path / "u/old", "episode_teleop_log.jsonl", [{"episode_index": 3, "tile_name": "4D"}])
+    assert dataset.episode_log("u/new") == {0: {"episode_index": 0, "tile_name": "8D"}}
+    assert dataset.episode_log("u/old")[3]["tile_name"] == "4D"
+    assert dataset.episode_log("u/none") == {}
+
+
+def test_hover_settings_are_the_recorded_hover_and_the_trimmed_start_gripper(tmp_path, monkeypatch):
+    import lerobot.utils.constants
+    monkeypatch.setattr(lerobot.utils.constants, "HF_LEROBOT_HOME", tmp_path)
+    hover = {"offset_m": 0.05, "clearance_m": 0.035, "gripper": 90.0}
+    write_log(tmp_path / "u/new", dataset.EPISODE_LOG, [{"episode_index": i, "hover": hover} for i in range(3)])
+    assert dataset.hover_settings("u/new", {"start_gripper_median": 27.24}) == \
+        {"offset_m": 0.05, "clearance_m": 0.035, "gripper": 27.2}
+    # the pre-rebuild log has no hover: config defaults (how v2 and v2n were registered)
+    write_log(tmp_path / "u/old", "episode_teleop_log.jsonl", [{"episode_index": 0, "hover_offset_m": 0.06}])
+    assert dataset.hover_settings("u/old", {"start_gripper_median": 90.0}) == \
+        {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": 90.0}
