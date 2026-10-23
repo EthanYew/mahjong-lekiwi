@@ -14,7 +14,7 @@ from mahjong.quality import DEFAULT_FLAG_SCORE, dataset_root, quality_table
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--dataset", required=True)
     p.add_argument("--worst", type=int, default=15)
     p.add_argument("--flag", type=float, default=DEFAULT_FLAG_SCORE)

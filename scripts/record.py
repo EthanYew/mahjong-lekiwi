@@ -61,7 +61,7 @@ SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for tr
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--dataset", required=True, help="repo id to create or append to, e.g. Yewy/mahjong_mat_pickup_v3")
     p.add_argument("--task", default="Pick up the mahjong tile from the mat")
     p.add_argument("--episodes", type=int, default=200, help="stop after this many saved episodes")

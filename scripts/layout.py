@@ -35,7 +35,7 @@ WINDOW = "layout"
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--name", help="layout name, e.g. eval_v1")
     p.add_argument("--teach", action="store_true", help="save the tiles on the mat as the layout's spots")
     p.add_argument("--append", action="store_true", help="with --teach: add to the layout instead of replacing it")

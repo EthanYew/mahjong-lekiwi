@@ -35,7 +35,7 @@ FREEZE_FRAMES = ["180956_8D_step0300.jpg", "181050_8D_step0300.jpg", "181145_8D_
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--source", required=True, help="recorded dataset repo id")
     p.add_argument("--version", required=True, help="e.g. v3; used in the output names")
     p.add_argument("--policy-id", default=None, help="registry id (default: pickup_mat_cl_<version>, like the "
@@ -46,7 +46,8 @@ def parse_args():
     p.add_argument("--private", action="store_true", help="upload the dataset and policy as private")
     p.add_argument("--default", action="store_true", help="make it the registry's default policy")
     p.add_argument("--skip-build", action="store_true", help="the training dataset already exists locally")
-    p.add_argument("--skip-upload", action="store_true")
+    p.add_argument("--skip-upload", action="store_true",
+                   help="don't push the training dataset (training still pushes the policy)")
     p.add_argument("--skip-train", action="store_true", help="evaluate/register an existing training run")
     p.add_argument("--dry-run", action="store_true", help="print the plan and stop")
     return p.parse_args()

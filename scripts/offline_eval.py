@@ -1,11 +1,11 @@
 """Score policies on recorded episodes they never trained on, without the arm (mahjong/offline_eval.py).
 
 data/eval_split.json lists the eval episodes: held-out episodes of training recordings (make_policy.py
-leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt).
+leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter).
 Scores are per slice — never averaged into one number — and optionally per spot or lighting.
 
     python scripts/offline_eval.py --show
-    python scripts/offline_eval.py --make-split Yewy/mahjong_mat_pickup_lekiwi_cl_hover   # hold out ~10%
+    python scripts/offline_eval.py --make-split Yewy/mahjong_mat_pickup_lekiwi_cl_hover   # 1+ per spot, >= 10%
     python scripts/offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1
     python scripts/offline_eval.py --policy pickup_mat_cl
     python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1 --by spot
@@ -25,18 +25,21 @@ from mahjong.dataset import episode_log
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--show", action="store_true", help="print the eval split")
     p.add_argument("--make-split", metavar="REPO", help="hold out episodes of this training recording")
-    p.add_argument("--fraction", type=float, default=offline_eval.HELDOUT_FRACTION)
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--fraction", type=float, default=offline_eval.HELDOUT_FRACTION,
+                   help="with --make-split: hold out one episode per spot with 3+ episodes, topped up to this share "
+                        "(default %(default)s)")
+    p.add_argument("--seed", type=int, default=0, help="with --make-split: random seed, so the split can be remade")
     p.add_argument("--force", action="store_true", help="with --make-split: replace an existing split for REPO")
     p.add_argument("--add-eval-set", metavar="REPO", help="add an eval-only recording (never trained on)")
     p.add_argument("--policy", help="registered policy id, or a checkpoint's pretrained_model folder")
     p.add_argument("--against", help="reference policy for the gates (e.g. the current default)")
     p.add_argument("--by", choices=["slice", "spot", "lighting"], default="slice", help="extra breakdown")
     p.add_argument("--max-episodes", type=int, default=None, help="per source, for a quick look")
-    p.add_argument("--stride", type=int, default=offline_eval.EVAL_STRIDE)
+    p.add_argument("--stride", type=int, default=offline_eval.EVAL_STRIDE,
+                   help="score every Nth frame of each episode (default %(default)s)")
     return p.parse_args()
 
 

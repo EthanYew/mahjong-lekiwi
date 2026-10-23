@@ -110,7 +110,7 @@ def import_records(records, path=None, since=None):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--dataset", action="append", default=[], help="recorded (not trimmed) dataset repo id; repeatable")
     p.add_argument("--sessions", nargs="*", type=Path, default=None, help="bench session folders (none given: all)")
     args = p.parse_args()

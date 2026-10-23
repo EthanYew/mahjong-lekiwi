@@ -26,9 +26,9 @@ from mahjong.session import Session
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--raw", action="store_true", help="hover over the raw detection, not the current correction")
-    p.add_argument("--device", default=None)
+    p.add_argument("--device", default=None, help="gamepad evdev path (default: the first gamepad found)")
     args = p.parse_args()
     from lerobot.common.control_utils import init_keyboard_listener
     devices = hardware.connect(["arm", "realsense", "gamepad"], gamepad_kwargs={

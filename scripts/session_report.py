@@ -172,7 +172,7 @@ def all_sessions():
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("session", nargs="?", type=Path, default=None)
     p.add_argument("--all", action="store_true", help="one line per bench session, with its setup")
     args = p.parse_args()

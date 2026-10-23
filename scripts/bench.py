@@ -447,7 +447,7 @@ COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--policy", default=None,
                    help="policy id from data/policies.json (default: its 'default'); a,b compares them paired in trials")
     p.add_argument("--trials", type=int, default=None,
