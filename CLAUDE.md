@@ -26,10 +26,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
-| `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`) |
+| `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
-| `scripts/` | `record`, `collect_corrections`, `bench`, `session_report`, `quality_report`, `make_policy` |
+| `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 
 ## Invariants (each cost a debugging round on hardware)
 
@@ -56,6 +56,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
   records daylight / lamp / ceiling lights as structured `conditions`
   (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
+- **A policy's x/y correction is learned from mat position as much as from the image.** The demos'
+  hover→grasp shift is systematic per position (affine/23 misses ~12mm RMS in a pattern), so v2 may
+  repeat "move +13mm here" rather than look for the tile. Changing the live hover (`data/hover_model.json`)
+  waits for the perturbation test (`bench.py --hover-perturb-mm`, ROADMAP 1). Compare bench and demo
+  shifts per position, never against a mat-wide median.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 

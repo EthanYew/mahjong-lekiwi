@@ -6,19 +6,43 @@ helped.
 
 ## 1. Every bench run improves the hover
 
-Each attempt already logs the detection, the hover target (`hover_xy`) and where ACT closed the
-gripper (`grasp_xy`). On 2026-10-23 ACT moved **+6 to +10 mm in x and +1 to +11 mm in y** from the
-hover before grasping, every time (one 3D attempt: +14/+26). In the recorded demos the same shift is
-a median of **0 / +3.5 mm**. So the hover probably still sits ~5-8 mm off, and ACT quietly makes
-up for it — the margin it has left for a harder position.
+Each attempt logs the detection, the hover target (`hover_xy`) and where ACT closed the gripper
+(`grasp_xy`). On 2026-10-23 ACT moved +6 to +10 mm in x and +1 to +11 mm in y from the hover before
+grasping. That looked like a drifted hover against the demos' *overall* median (0 / +3.5 mm), but
+compared **position by position** it isn't: the demos were recorded from the same correction
+(`affine/23`) and moved the same way at the same places (near 4D: demos +11/+11, bench +9/+9).
+The affine correction misses by ~12 mm RMS, in a pattern that depends on where the tile is on the mat,
+and the operator corrected for it in every demo, so ACT learned to as well.
 
-- Turn each *successful* attempt into a hover-correction sample: target = `grasp_xy` minus the demos'
-  typical hover→grasp shift. Store them as `source: "bench"` in `hover_corrections.jsonl`, weighted
-  below gamepad samples. Refit when there are enough, and keep the leave-one-out check so a bad batch
-  can't make it worse.
-- Also log the settle itself (commanded vs measured tip at each step), so sag can be tracked over
-  battery level and time.
-- Caveat: most of the data so far is one position (4D). It needs attempts across the mat (5).
+**Would a better hover confuse v2?** The policy only learns where it started from the wrist image
+(its state input is relative to the hover). If it steers by the tile in the image, a better hover just
+means a smaller move. But in the demos, the correction goes with mat position, so it may have learned
+"here, move +13 mm" from the background instead. Then it would overshoot exactly where the hover improves most.
+Trimming can't fix that (the offset is in every frame, unlike the gripper narrowing in 7); the cure is
+a new dataset recorded with deliberate hover jitter.
+
+Done (2026-10-23):
+- Correction samples carry a `source` (gamepad / demo / bench); `data/hover_model.json` says which the
+  live hover is fitted from (gamepad only). The check behind a fit leaves out a whole position at a
+  time, so repeated attempts at one tile can't vouch for each other.
+- `scripts/hover_samples.py` imported the 104 v2 demos and the 9 bench grasps; the bench saves a sample
+  per success itself. `python -m mahjong.hover_correction --sources gamepad,demo,bench` shows the
+  candidate, its change from the live hover (up to ~9 mm at the corners), and what the live hover misses
+  per position and source. No drift between demo and bench so far.
+- The hover settle logs sag (measured − commanded tool point) at each step.
+- Caveat: where the operator didn't steer (x ≥ 0.21 in the demos: exactly 0/0), a demo sample only says
+  "close enough", so it pulls a refit toward the current hover. Weight demos below bench.
+
+Next:
+1. **Sensitivity test** (~20 min, gates the rest): `bench.py --trials 15 --tile 4D --hover-perturb-mm
+   0,6x,-6x,6y,-6y`, and once at an x ≥ 0.21 tile. `session_report.py` prints how far the grasp moved
+   per mm of hover offset: ≲ 0.3 means v2 goes to the tile and a better hover is safe; near 1 means
+   keep today's hover until a jittered dataset (7).
+2. **Paired A/B** of the candidate vs the live hover on the same tiles (`--correction a,b`, the same
+   alternation as `--policy a,b` in 5). Judge by the hover→grasp shift in mm (repeatable to ~1 mm)
+   as well as success.
+3. **Switch** by editing `data/hover_model.json` in one commit that cites the A/B session.
+4. Bench attempts across the mat (5): most bench data so far is one position (4D).
 
 ## 2. An offline evaluation set
 
@@ -94,7 +118,11 @@ A fixed protocol, so numbers compare across sessions and policies.
 ## 7. The next dataset
 
 - Hover with the jaws at ~23 % instead of 90 % (skips ~3.5 s of narrowing per episode). The hover is
-  per policy, so this is a data change.
+  per policy, so this is a data change. Because the narrowing is a time prefix, trimming the v2
+  episodes (`trim_narrowing`) and retraining also works without new recordings. A/B it against v2
+  at the current hover before changing the hover too.
+- Record with deliberate random hover jitter (±~6 mm), so the policy has to find the tile in
+  the image rather than in the mat position. Hover improvements (1) are then safe without a retrain.
 - More episodes at the edges and on the second row. No pauses mid-episode.
 - Consider an absolute gripper value instead of a delta (see the CLAUDE.md conventions).
 - Leave the eval split (2) out from the start.
