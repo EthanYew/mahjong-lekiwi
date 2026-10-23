@@ -11,7 +11,7 @@ the session's setup answers (lighting etc.) and the episode's --slice, so offlin
 scores down by them.
 
 With --layout NAME (taught with scripts/layout.py), the RealSense view shows where the next tile goes —
-an outline that turns green once the tile is within 4mm / 5° — and the tile at that spot is picked
+an outline that turns green once the tile is within 5mm / 6° — and the tile at that spot is picked
 without asking. Each spot is recorded --repeats times in a row; the episode log stores the spot and
 where the tile actually was.
 

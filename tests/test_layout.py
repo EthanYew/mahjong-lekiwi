@@ -47,7 +47,7 @@ def test_status_by_position_and_yaw():
     spot = {"xy": (0.2, 0.0), "yaw_deg": 15.0}
     assert layout.status(spot, None) == "missing"
     assert layout.status(spot, {"xy": (0.202, 0.001), "yaw_deg": 17.0}) == "ok"
-    assert layout.status(spot, {"xy": (0.206, 0.0), "yaw_deg": 15.0}) == "close"
+    assert layout.status(spot, {"xy": (0.207, 0.0), "yaw_deg": 15.0}) == "close"
     assert layout.status(spot, {"xy": (0.2, 0.0), "yaw_deg": 30.0}) == "off"
     assert layout.status({"xy": (0.2, 0.0), "yaw_deg": 88.0}, {"xy": (0.2, 0.0), "yaw_deg": -89.0}) == "ok"   # 180° symmetric
 
@@ -114,6 +114,45 @@ def test_nearest_tile_within_the_merge_radius():
     assert layout.nearest_tile(tiles, (0.153, 0.06))["tile_name"] == "2B"
     assert layout.nearest_tile(tiles, (0.22, -0.10)) is None
     assert layout.nearest_tile([], (0.15, 0.0)) is None
+
+
+def test_green_holds_through_jitter_at_the_tolerance_edge():
+    spot = {"id": "S1", "xy": (0.2, 0.0), "yaw_deg": 0.0}
+    assert layout.status(spot, {"xy": (0.2055, 0.0), "yaw_deg": 0.0}) == "close"
+    assert layout.status(spot, {"xy": (0.2055, 0.0), "yaw_deg": 0.0}, previous="ok") == "ok"      # hysteresis
+    assert layout.status(spot, {"xy": (0.2085, 0.0), "yaw_deg": 0.0}, previous="ok") == "close"   # past 1.5x
+    smoother, states = layout.Smoother(), []
+    for k in range(30):        # per-frame yaw jumping 4.5 / 7.5 / 5 / 6.5 around a tile at the 6° edge
+        _, state = smoother.update(spot, {"xy": (0.2, 0.0), "yaw_deg": [4.5, 7.5, 5.0, 6.5][k % 4], "size_mm": (35, 26)})
+        states.append(state)
+    assert len(set(states[5:])) == 1                       # settles on one colour instead of flickering
+
+
+def test_smoother_drops_a_tile_that_is_gone():
+    spot = {"id": "S1", "xy": (0.2, 0.0), "yaw_deg": 0.0}
+    smoother = layout.Smoother()
+    for _ in range(10):
+        smoother.update(spot, {"xy": (0.2, 0.0), "yaw_deg": 0.0, "size_mm": (35, 26)})
+    for _ in range(6):
+        found, state = smoother.update(spot, None)
+    assert found is None and state == "missing"
+
+
+def test_capture_measures_every_spot_and_the_yaw_drift():
+    spots = [{"id": f"{r}{i}", "xy": (x, y), "yaw_deg": 0.0}
+             for r, x in (("A", 0.15), ("B", 0.22)) for i, y in enumerate([0.15, 0.05, -0.05, -0.12], 1)]
+    # tiles turned 5° per 10cm of y (+ to the left), the pattern a perspective bias would give; B4 missing
+    image = layout.render([(s["xy"][0], s["xy"][1], 50 * s["xy"][1]) for s in spots if s["id"] != "B4"], INTRINSICS, T)
+    rows = layout.capture(lambda: image, spots, INTRINSICS, T, frames=3)
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["B4"]["found_frames"] == 0 and "yaw_deg" not in by_id["B4"]
+    assert abs(by_id["A1"]["yaw_deg"] - 7.5) < 2.5 and by_id["A1"]["found_frames"] == 3
+    trend = layout.yaw_trend(rows)
+    assert abs(trend["per_10cm_y"] - 5.0) < 1.0 and abs(trend["per_10cm_x"]) < 3.0
+    narrow = layout.yaw_trend([r for r in rows if r["id"].startswith("A")])      # one row: no x span
+    assert narrow["per_10cm_x"] is None and narrow["per_10cm_y"] is not None
+    text = layout.capture_report(rows, trend)
+    assert "B4" in text and "no tile found" in text and "per 10cm of y" in text
 
 
 def test_schedule_repeats_each_spot_in_a_row():

@@ -1,22 +1,28 @@
 """Tile layouts on the RealSense view: teach one from tiles on the mat, view it live, edit spots.
 
 A layout is a list of target spots (x, y, yaw) in data/layouts.json (mahjong/layout.py). The live view
-draws each spot as a tile outline: green when the tile there is within 4mm / 5°, amber within twice
-that, red otherwise. `record.py --layout NAME` walks through the spots one episode at a time.
+draws each spot as a tile outline: green when the tile there is within 5mm / 6° (and stays green up to
+1.5x that, so it doesn't flicker), amber within twice that, red otherwise. `record.py --layout NAME` walks through the spots one episode at a time.
 
     python scripts/layout.py --name eval_v1 --teach            # place tiles, t saves them (+ a ghost photo)
     python scripts/layout.py --name eval_v1 --teach --append --prefix N   # more spots, ids N1, N2, ...
-    python scripts/layout.py --name eval_v1                    # live view: n/p spot, a all, g ghost, q quit
+    python scripts/layout.py --name eval_v1                    # live view: n/p spot, a all, g ghost, c capture, q quit
     python scripts/layout.py --name eval_v1 --add T1 --like S2 --yaw 15   # a tilted copy of a spot
     python scripts/layout.py --name eval_v1 --add N7 0.24 0.17
     python scripts/layout.py --name eval_v1 --remove N7
     python scripts/layout.py --list
 
+In the live view, c captures every spot's reading at once (averaged over 30 frames): offset, yaw,
+their frame-to-frame spread, and whether the yaw error drifts across the mat. It's printed and saved
+to data/layouts/<name>_capture_<time>.json.
+
 The ghost photo is only valid while the RealSense stays where it was; the spots themselves are in the
 arm's base frame and survive a recalibration.
 """
 import argparse
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -109,14 +115,17 @@ def view(realsense, args):
     spots = layout.load(args.name)["spots"]
     ghost = layout.load_ghost(args.name)
     ids = [s["id"] for s in spots]
-    active, use_ghost = None, False
-    print("n/p: next/previous spot, a: all spots, g: ghost photo on/off, q: quit")
+    active, use_ghost, smoother = None, False, layout.Smoother()
+    print("n/p: next/previous spot, a: all spots, g: ghost photo on/off, c: capture all readings, q: quit")
     while True:
         image = realsense.snapshot()
-        found = {s["id"]: layout.find_tile(image, s, realsense.intrinsics, realsense.T_cam_to_base) for s in spots}
+        found, states = {}, {}
+        for s in spots:
+            found[s["id"]], states[s["id"]] = smoother.update(
+                s, layout.find_tile(image, s, realsense.intrinsics, realsense.T_cam_to_base))
         out = layout.draw(image, spots, realsense.intrinsics, realsense.T_cam_to_base, found=found, active=active,
-                          ghost=ghost if use_ghost else None)
-        ok = sum(layout.status(s, found[s["id"]]) == "ok" for s in spots)
+                          ghost=ghost if use_ghost else None, states=states)
+        ok = sum(state == "ok" for state in states.values())
         cv2.putText(out, f"{ok}/{len(spots)} placed", (10, out.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (255, 255, 255), 1)
         cv2.imshow(WINDOW, out)
@@ -126,12 +135,27 @@ def view(realsense, args):
             active = ids[(k + (1 if key == ord("n") else -1)) % len(ids)]
         elif key == ord("a"):
             active = None
+        elif key == ord("c"):
+            capture(realsense, args.name, spots)
         elif key == ord("g"):
             if ghost is None:
                 print("  no ghost photo for this layout (taught with --teach saves one)")
             use_ghost = ghost is not None and not use_ghost
         elif key in (ord("q"), 27):
             return
+
+
+def capture(realsense, name, spots):
+    print(f"Capturing {layout.CAPTURE_FRAMES} frames — keep hands off the mat...")
+    rows = layout.capture(realsense.snapshot, spots, realsense.intrinsics, realsense.T_cam_to_base)
+    trend = layout.yaw_trend(rows)
+    print(layout.capture_report(rows, trend))
+    path = config.DATA / "layouts" / f"{name}_capture_{datetime.now():%Y%m%d_%H%M%S}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"layout": name, "time": datetime.now().isoformat(timespec="seconds"),
+                                "intrinsics": realsense.intrinsics, "tile_face_m": list(config.TILE_FACE_M),
+                                "spots": rows, "yaw_trend": trend}, indent=2) + "\n")
+    print(f"  saved {path}")
 
 
 def main():

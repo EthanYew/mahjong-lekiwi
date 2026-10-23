@@ -6,7 +6,8 @@ to the mat, long side along x, as in every dataset so far), stored in data/layou
 drawn as the outline of a tile's top face, projected through the hand-eye transform — the reverse of
 detection. The tile actually there is found by its white face on the dark mat (brightness, low
 saturation), and its centre and yaw are measured on the table plane, so each outline turns
-amber/green as the tile gets close. What matters most is repeatability: as long as the RealSense
+amber/green as the tile gets close (smoothed
+over a few frames). What matters most is repeatability: as long as the RealSense
 doesn't move, a spot lands on the same tiles-worth of mat every session.
 
 Positions from pixels use the table plane at the tile's top face, not depth, so the finder needs only a
@@ -21,8 +22,12 @@ import numpy as np
 
 from . import config
 
-POSITION_TOLERANCE_MM = 4.0
-YAW_TOLERANCE_DEG = 5.0
+POSITION_TOLERANCE_MM = 5.0        # green within 5mm / 6° (4mm / 5° felt tight on hardware: the yaw reading
+YAW_TOLERANCE_DEG = 6.0            # alone can be ~2.5° off, see find_tile)
+HYSTERESIS = 1.5                   # once green, stays green up to 1.5x the tolerance
+SMOOTH_FRAMES = 10                 # live view: median over the last 10 frames (~1/3s)
+CAPTURE_FRAMES = 30                # capture: readings averaged over 30 frames
+TREND_MIN_SPAN_M = 0.05            # fit a yaw drift along an axis only if the spots span this much
 SEARCH_RADIUS_M = 0.035            # around a spot's centre, where the finder looks for its tile
 FACE_MIN_V, FACE_MAX_S = 150, 80   # HSV: a tile's white face; the mat and the tiles' green backs fail one
 FACE_AREA_RANGE = (0.4, 2.0)       # of the expected face area, for a blob to count as a tile
@@ -110,6 +115,9 @@ def find_tile(image_bgr, spot, intrinsics, T_cam_to_base, size=None):
         distance = math.hypot(centre[0] - x, centre[1] - y)
         if distance > SEARCH_RADIUS_M or (best is not None and distance >= best[0]):
             continue
+        # A tile is only ~24x18px, so this reads a perfectly square tile up to ~2.5° off (median ~1°;
+        # fitting the face's principal axis or its edges did no better on rendered tiles). The error is
+        # fixed per spot, so placements still repeat; it's why the yaw tolerance isn't tighter.
         long_edge = e1 if np.linalg.norm(e1) >= np.linalg.norm(e2) else e2
         yaw = wrap_yaw(math.degrees(math.atan2(long_edge[1], long_edge[0])))
         best = (distance, {"xy": (float(centre[0]), float(centre[1])), "yaw_deg": float(yaw),
@@ -126,27 +134,112 @@ def placement_error(spot, found):
             wrap_yaw(found["yaw_deg"] - spot.get("yaw_deg", 0.0)))
 
 
-def status(spot, found):
-    """ok (within tolerance) / close (within twice it) / off / missing."""
+def status(spot, found, previous=None):
+    """ok (within tolerance) / close (within twice it) / off / missing. A spot that was ok stays ok up to
+    HYSTERESIS x the tolerance, so a tile sitting at the edge doesn't flicker green/amber."""
     error = placement_error(spot, found)
     if error is None:
         return "missing"
     worst = max(math.hypot(error[0], error[1]) / POSITION_TOLERANCE_MM, abs(error[2]) / YAW_TOLERANCE_DEG)
-    return "ok" if worst <= 1 else "close" if worst <= 2 else "off"
+    return "ok" if worst <= (HYSTERESIS if previous == "ok" else 1) else "close" if worst <= 2 else "off"
+
+
+class Smoother:
+    """Per-spot median of the last SMOOTH_FRAMES finds, and status with hysteresis. A tile is ~24x18px,
+    so a single frame's centre/yaw jitters by about a pixel (~1.5mm, ~3°) — the size of the tolerance."""
+
+    def __init__(self, frames=None):
+        self.frames = frames or SMOOTH_FRAMES
+        self.history, self.states = {}, {}
+
+    def update(self, spot, found):
+        """Add this frame's find for `spot`; returns (smoothed find or None, status)."""
+        history = self.history.setdefault(spot["id"], [])
+        history.append(found)
+        del history[:-self.frames]
+        seen = [f for f in history if f is not None]
+        if len(seen) * 2 <= len(history):          # missing in most recent frames
+            smoothed = None
+        else:
+            yaws = np.array([f["yaw_deg"] for f in seen])
+            yaws = seen[-1]["yaw_deg"] + np.array([wrap_yaw(y - seen[-1]["yaw_deg"]) for y in yaws])   # across ±90
+            smoothed = {"xy": tuple(np.median([f["xy"] for f in seen], axis=0)), "yaw_deg": wrap_yaw(float(np.median(yaws))),
+                        "size_mm": seen[-1]["size_mm"]}
+        self.states[spot["id"]] = status(spot, smoothed, self.states.get(spot["id"]))
+        return smoothed, self.states[spot["id"]]
+
+
+def capture(snapshot, spots, intrinsics, T_cam_to_base, frames=CAPTURE_FRAMES):
+    """Every spot's reading averaged over `frames` frames: one row per spot with the mean offset (mm),
+    yaw (deg), their frame-to-frame spread, and how many frames found the tile."""
+    finds = {s["id"]: [] for s in spots}
+    for _ in range(frames):
+        image = snapshot()
+        for s in spots:
+            f = find_tile(image, s, intrinsics, T_cam_to_base)
+            if f is not None:
+                finds[s["id"]].append(f)
+    rows = []
+    for s in spots:
+        fs = finds[s["id"]]
+        row = {"id": s["id"], "xy": [float(v) for v in s["xy"]], "yaw_target": float(s.get("yaw_deg", 0.0)),
+               "found_frames": len(fs), "frames": frames}
+        if fs:
+            errors = np.array([placement_error(s, f) for f in fs])
+            row.update(dx_mm=float(errors[:, 0].mean()), dy_mm=float(errors[:, 1].mean()),
+                       yaw_deg=float(np.mean([s.get("yaw_deg", 0.0) + e for e in errors[:, 2]])),
+                       dx_sd=float(errors[:, 0].std()), dy_sd=float(errors[:, 1].std()), yaw_sd=float(errors[:, 2].std()),
+                       size_mm=[float(v) for v in np.mean([f["size_mm"] for f in fs], axis=0)],
+                       status=status(s, {"xy": (s["xy"][0] + errors[:, 0].mean() / 1000, s["xy"][1] + errors[:, 1].mean() / 1000),
+                                         "yaw_deg": s.get("yaw_deg", 0.0) + float(errors[:, 2].mean())}))
+        rows.append(row)
+    return rows
+
+
+def yaw_trend(rows):
+    """Does the measured yaw error drift across the mat? Mean and spread, and the drift in deg per 10cm of
+    y and of x from a plane fit — each only if the found spots span TREND_MIN_SPAN_M that way (else None).
+    None with fewer than 4 spots found."""
+    found = [r for r in rows if "yaw_deg" in r]
+    if len(found) < 4:
+        return None
+    errors = np.array([wrap_yaw(r["yaw_deg"] - r["yaw_target"]) for r in found])
+    axes = [k for k in (1, 0) if np.ptp([r["xy"][k] for r in found]) >= TREND_MIN_SPAN_M]
+    A = np.c_[np.ones(len(found)), *[[r["xy"][k] for r in found] for k in axes]]
+    slopes = dict(zip(axes, np.linalg.lstsq(A, errors, rcond=None)[0][1:]))
+    return {"mean_deg": float(errors.mean()), "spread_deg": float(errors.std()),
+            "per_10cm_y": float(slopes[1] * 0.1) if 1 in slopes else None,
+            "per_10cm_x": float(slopes[0] * 0.1) if 0 in slopes else None}
+
+
+def capture_report(rows, trend):
+    lines = [f"  {'spot':<5} {'found':>6} {'dx mm':>7} {'dy mm':>7} {'yaw':>6} {'±':>4} {'size mm':>12}  status"]
+    for r in rows:
+        if "yaw_deg" not in r:
+            lines.append(f"  {r['id']:<5} {r['found_frames']:>3}/{r['frames']:<2}  no tile found")
+            continue
+        lines.append(f"  {r['id']:<5} {r['found_frames']:>3}/{r['frames']:<2} {r['dx_mm']:+7.1f} {r['dy_mm']:+7.1f} {r['yaw_deg']:+6.1f} "
+                     f"{r['yaw_sd']:4.1f} {r['size_mm'][0]:5.1f}x{r['size_mm'][1]:<5.1f}  {r['status']}")
+    if trend:
+        drift = [f"{trend[k]:+.1f}° per 10cm of {axis} ({side} +)" for k, axis, side in
+                 (("per_10cm_y", "y", "left"), ("per_10cm_x", "x", "away")) if trend[k] is not None]
+        lines.append(f"  yaw error: mean {trend['mean_deg']:+.1f}°, spread {trend['spread_deg']:.1f}°"
+                     + (f"; drift {', '.join(drift)}" if drift else ""))
+    return "\n".join(lines)
 
 
 # --- drawing ---
 
-def draw(image_bgr, spots, intrinsics, T_cam_to_base, found=None, active=None, ghost=None):
-    """A copy of the frame with each spot's outline (coloured by status) and, for the active spot (or
-    all, if none is active), the error as text. ghost: a reference frame blended in."""
+def draw(image_bgr, spots, intrinsics, T_cam_to_base, found=None, active=None, ghost=None, states=None):
+    """A copy of the frame with each spot's outline (coloured by status — `states`, e.g. a Smoother's, or
+    computed from `found`) and, for the active spot, the error as text. ghost: a reference frame blended in."""
     out = image_bgr.copy()
     if ghost is not None:
         out = cv2.addWeighted(out, 1 - GHOST_ALPHA, ghost, GHOST_ALPHA, 0)
     found = found or {}
     for spot in spots:
         corners = table_to_pixel(tile_corners(*spot["xy"], spot.get("yaw_deg", 0.0)), intrinsics, T_cam_to_base)
-        state = status(spot, found.get(spot["id"]))
+        state = (states or {}).get(spot["id"]) or status(spot, found.get(spot["id"]))
         colour = COLOURS[state] if active in (None, spot["id"]) else COLOURS["dim"]
         cv2.polylines(out, [np.round(corners).astype(np.int32)], True, colour, 2 if active == spot["id"] else 1)
         u, v = corners.mean(axis=0)
@@ -170,23 +263,23 @@ def place(snapshot, spots, spot_id, intrinsics, T_cam_to_base, ghost=None, show=
     show = show or (lambda image: cv2.imshow(window, image))
     wait_key = wait_key or (lambda: cv2.waitKey(30) & 0xFF)
     spot = next(s for s in spots if s["id"] == spot_id)
-    use_ghost = False
+    use_ghost, smoother = False, Smoother()
     while True:
         image = snapshot()
-        found = find_tile(image, spot, intrinsics, T_cam_to_base)
+        found, state = smoother.update(spot, find_tile(image, spot, intrinsics, T_cam_to_base))
         out = draw(image, spots, intrinsics, T_cam_to_base, found={spot_id: found}, active=spot_id,
-                   ghost=ghost if use_ghost else None)
+                   ghost=ghost if use_ghost else None, states={spot_id: state})
         cv2.putText(out, PLACE_HELP, (10, out.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         show(out)
         key = wait_key()
         if key in (13, 10, 32):
-            return {"action": "accept", "found": found, "status": status(spot, found)}
+            return {"action": "accept", "found": found, "status": state}
         if key == ord("g") and ghost is not None:
             use_ghost = not use_ghost
         elif key == ord("s"):
-            return {"action": "skip", "found": found, "status": status(spot, found)}
+            return {"action": "skip", "found": found, "status": state}
         elif key in (ord("q"), 27):
-            return {"action": "quit", "found": found, "status": status(spot, found)}
+            return {"action": "quit", "found": found, "status": state}
 
 
 # --- layouts file ---
