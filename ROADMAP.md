@@ -33,15 +33,19 @@ Done (2026-10-23):
 - Caveat: where the operator didn't steer (x ≥ 0.21 in the demos: exactly 0/0), a demo sample only says
   "close enough", so it pulls a refit toward the current hover. Weight demos below bench.
 
+**Sensitivity test result (2026-10-23 12:35, `20261023_123549_bench`): v2 repeats a fixed move.**
+At 4D it moved ~+10/+10 mm from the hover whatever the hover offset; the grasp followed the hover at
+1.26 (x) / 0.88 (y) mm per mm. It went 15/15 only because the jaws tolerate ±6 mm. So for v2 the live
+hover stays as it is, and bench samples are circular (grasp = hover + fixed move): don't fit them.
+Write-up: `docs/retrospectives/2026-10-23_hover_learning.md`.
+
 Next:
-1. **Sensitivity test** (~20 min, gates the rest): `bench.py --trials 15 --tile 4D --hover-perturb-mm
-   0,6x,-6x,6y,-6y`, and once at an x ≥ 0.21 tile. `session_report.py` prints how far the grasp moved
-   per mm of hover offset: ≲ 0.3 means v2 goes to the tile and a better hover is safe; near 1 means
-   keep today's hover until a jittered dataset (7).
-2. **Paired A/B** of the candidate vs the live hover on the same tiles (`--correction a,b`, the same
-   alternation as `--policy a,b` in 5). Judge by the hover→grasp shift in mm (repeatable to ~1 mm)
-   as well as success.
-3. **Switch** by editing `data/hover_model.json` in one commit that cites the A/B session.
+1. The same test at an x ≥ 0.21 tile, returning the tile to the grasp point minus the offset, so it
+   doesn't drift into its neighbours.
+2. A jittered dataset (7). Rerun this test on the policy trained from it; expect a slope near 0.
+3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
+   alternation as `--policy a,b` in 5), judged by the hover→grasp shift in mm as well as success,
+   and **switching** by editing `data/hover_model.json` in one commit that cites the A/B session.
 4. Bench attempts across the mat (5): most bench data so far is one position (4D).
 
 ## 2. An offline evaluation set

@@ -56,11 +56,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
   records daylight / lamp / ceiling lights as structured `conditions`
   (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
-- **A policy's x/y correction is learned from mat position as much as from the image.** The demos'
-  hover→grasp shift is systematic per position (affine/23 misses ~12mm RMS in a pattern), so v2 may
-  repeat "move +13mm here" rather than look for the tile. Changing the live hover (`data/hover_model.json`)
-  waits for the perturbation test (`bench.py --hover-perturb-mm`, ROADMAP 1). Compare bench and demo
-  shifts per position, never against a mat-wide median.
+- **v2 repeats a memorised x/y move instead of steering to the tile** (measured at 4D on 2026-10-23:
+  the grasp followed a deliberately offset hover at ~1 mm per mm). The demos' hover→grasp move is
+  systematic per position (affine/23 misses ~12mm RMS in a pattern), and v2 learned it per position. So
+  for v2: don't change the live hover (`data/hover_model.json`), and don't fit bench samples (grasp =
+  hover + fixed move). Success rate hides this, since the jaws tolerate ±6mm; check a policy with
+  `bench.py --hover-perturb-mm`. Compare bench and demo shifts per position, never against a mat-wide median.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 
@@ -73,7 +74,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Dataset → policy: `scripts/make_policy.py` (settle its options with `--dry-run` first; training takes
   hours). Uploads are public under `Yewy/` unless `--private`.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
-- Retrospectives / session write-ups: **What changed / What was learned / What's next**.
+- Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
+  `docs/retrospectives/<date>_<topic>.md` with a timeline and the session folders they draw on.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items
