@@ -41,8 +41,11 @@ setup questions (daylight, lamp, ceiling lights...), then write a session folder
 | Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
+| Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
+| Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 20` |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl`; also `pickup_mat_cl_v1`).
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl`; also `pickup_mat_cl_v1`, and
+`pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval episodes left out).
 
 ---
 
@@ -56,11 +59,13 @@ python scripts/bench.py --policy pickup_mat_cl_v1         # interactive, another
 python scripts/bench.py --trials 5 --tile 8D              # 5 pickup→return trials on 8D, then quit
 python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated (no hardware)
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
+python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 20   # paired, across the mat
 ```
 
 | Option | What it does |
 |---|---|
-| `--policy ID` | policy from `data/policies.json` (default: the registry's default) |
+| `--policy ID` | policy from `data/policies.json` (default: the registry's default). `a,b` compares two, paired: rounds alternate a b / b a from the same hover |
+| `--layout NAME` | trials walk this layout's spots (`scripts/layout.py`); the report shows success by spot and policy |
 | `--trials N` | run N pickup/return trials then quit (without `--tile`, it asks which tile) |
 | `--tile NAME` | tile for `--trials`, e.g. `8D` |
 | `--sim` | simulated arm, cameras, detection and policy |
@@ -74,7 +79,8 @@ python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 
 **During a pickup:** `Esc` stops the policy. `→` marks "something happened here" without stopping it
 (a hand on the tile, a caught drop, the arm bumping a neighbour); you're asked what afterwards. A
-pickup stops itself once the tile has been held and lifted for 1.5s (max 16s).
+pickup stops itself once the tile has been held and lifted for 1.5s (max 16s). Every attempt saves the
+full wrist video (`wrist.mp4`) in its folder, so a new policy can be replayed on it.
 
 After each attempt the RealSense rescans the mat. If tiles moved, the bench shows the change and
 asks: Enter = "as the scan says", or mark it a detection glitch.
@@ -99,6 +105,8 @@ The arm hovers over a tile, then you take over with the gamepad. `→` starts re
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 --repeats 2
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
+python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
+python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
 ```
 
 | Option | What it does |
@@ -106,7 +114,10 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout
 | `--dataset REPO` | **required**. Always a new name for a new layout/hover; never append to a different one |
 | `--task TEXT` | task string stored with the episodes |
 | `--episodes N` | stop after N saved episodes (default 200) |
-| `--slice` | `train` (default), or an eval-only set: `familiar`, `new`, `dim`, `tilt`. Eval sets are never trained on |
+| `--slice` | `train` (default), or an eval-only set: `familiar`, `new`, `dim`, `tilt`, `jitter`. Eval sets are never trained on |
+| `--hover-jitter-mm R` | move each episode's hover by a random offset within R mm (training data: the policy has to steer to the tile). An episode keeps its offset through re-hovers and discards |
+| `--jitter-zero-fraction F`, `--jitter-seed N` | with `--hover-jitter-mm`: share of episodes left at the clean hover (default 0.2); random seed |
+| `--hover-offsets-mm LIST` | cycle fixed offsets instead, e.g. `6x,-6y` — for the `jitter` eval slice, so it can be recorded again identically |
 | `--layout NAME` | guides you to place each tile on a taught spot (outline turns green when it's right) |
 | `--repeats N` | with `--layout`: episodes per spot (default 2) |
 | `--start-spot ID` | with `--layout`: start at this spot |
@@ -198,6 +209,11 @@ python scripts/layout.py --name eval_v1 --add N7 0.24 0.17        # a spot at x 
 python scripts/layout.py --name eval_v1 --remove N7
 ```
 
+In the live view, `c` captures every spot at once (averaged over 30 frames): offset, yaw, how much each
+wobbles, and whether the yaw reading drifts across the mat. It prints a table and saves
+`data/layouts/<name>_capture_<time>.json`. Outlines are smoothed over ~10 frames, and a green spot
+stays green up to 1.5× the tolerance, so a tile at the edge doesn't flicker.
+
 `--sim` uses a rendered frame instead of the camera; `--note` describes the layout when teaching.
 
 ## Tests
@@ -206,6 +222,9 @@ python scripts/layout.py --name eval_v1 --remove N7
 python -m pytest -m "not slow"    # fast: motion, kinematics, correction, dataset trims, bench (no hardware)
 python -m pytest                  # everything; slow tests load policies and need the GPU
 ```
+
+A pre-commit hook runs the fast tests (~15 s) so a broken invariant can't be committed. Turn it on once
+per clone: `git config core.hooksPath scripts/hooks`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or
 `dataset.py` changed). See `CLAUDE.md` for the rules the code follows and why.

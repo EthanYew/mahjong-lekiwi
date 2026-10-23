@@ -14,7 +14,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `--tile` it asks which tile). Paired comparison across the mat: `--policy a,b --layout NAME --trials N`
   (rounds alternate a b / b a from the same hover offset; each attempt saves `wrist.mp4`).
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
-  learned a fixed move per position). Eval recordings stay at 0.
+  learned a fixed move per position). Eval recordings have no random jitter; the golden set's `jitter`
+  slice uses a fixed list (`--hover-offsets-mm 6x,-6y`) so it can be recorded again identically.
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
   [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
   sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
