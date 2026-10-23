@@ -58,6 +58,7 @@ def demo_records(repo, actions_by_episode, log):
             continue
         records.append(grasp_record("demo", row["detection_xy"], grasp_xy, timestamp=row_time(row),
                                     tile_name=row.get("tile_name"), hover_xy=row.get("hover_xy"),
+                                    hover_jitter_xy=row.get("hover_jitter_xy"),
                                     hover_correction=row.get("hover_correction"), dataset=repo, episode_index=ep))
     return records
 
