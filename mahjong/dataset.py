@@ -11,6 +11,9 @@ Trims (each a per-episode frame mask, applied in order):
   episodes recorded from a ~23% hover.
 Deltas (observation.state, action) are re-anchored to each episode's first kept frame, so every
 episode starts from a zero state delta, as deployment does at the hover.
+
+`episodes` picks which source episodes go in: make_policy.py leaves out the held-out ones
+(data/eval_split.json), offline_eval.py builds only those.
 """
 import json
 from pathlib import Path
@@ -68,8 +71,11 @@ def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, t
     return ~drop
 
 
-def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), log=print):
-    """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. Returns a summary."""
+def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), episodes=None,
+          log=print):
+    """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. episodes: the source
+    episode indices to include (default all). Returns a summary; its source_episodes maps each built
+    episode back to its source index (and so to the source's episode log)."""
     import torchvision.transforms.functional as F
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from lerobot.utils.constants import HF_LEROBOT_HOME
@@ -84,8 +90,9 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
                                 use_videos=True)
     h = src.hf_dataset
     actions, actions_raw, states_raw = (np.stack(h[k]) for k in ("action", "action_raw", "observation.state_raw"))
+    episodes = list(range(src.num_episodes)) if episodes is None else sorted(int(e) for e in episodes)
     kept, start_grippers = 0, []
-    for ep in range(src.num_episodes):
+    for n, ep in enumerate(episodes, start=1):
         meta = src.meta.episodes[ep]
         a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
         keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trim_idle, trim_sag, trim_narrowing))
@@ -103,10 +110,27 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
                 "task": item["task"]})
         dst.save_episode()
         kept += len(keep)
-        log(f"  episode {ep + 1}/{src.num_episodes}: kept {len(keep)}/{b - a}")
+        log(f"  episode {ep} ({n}/{len(episodes)}): kept {len(keep)}/{b - a}")
     dst.finalize()
-    return {"episodes": src.num_episodes, "frames": kept, "source_frames": len(actions),
+    source_frames = sum(int(src.meta.episodes[e]["dataset_to_index"]) - int(src.meta.episodes[e]["dataset_from_index"])
+                        for e in episodes)
+    return {"episodes": len(episodes), "source_episodes": episodes, "frames": kept, "source_frames": source_frames,
             "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root)}
+
+
+def episode_log(repo_id):
+    """{episode index: record} from a recorded dataset's sidecar log (episode_log.jsonl; the pre-rebuild
+    episode_teleop_log.jsonl too), or {}."""
+    from lerobot.utils.constants import HF_LEROBOT_HOME
+    records = {}
+    for name in ("episode_log.jsonl", "episode_teleop_log.jsonl"):
+        path = Path(HF_LEROBOT_HOME) / repo_id / name
+        if path.exists():
+            for line in path.read_text().splitlines():
+                if line.strip():
+                    record = json.loads(line)
+                    records[record["episode_index"]] = record
+    return records
 
 
 def hover_settings(src_repo, built_summary):
