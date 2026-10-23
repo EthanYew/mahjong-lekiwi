@@ -6,9 +6,17 @@ and starts recording from exactly that pose; → again saves, ← discards and r
 
 The hover settings (offset, clearance, gripper opening) are written per episode to
 <dataset>/episode_log.jsonl; make_policy.py stores them with the trained policy so it's deployed from
-the same hover. Only the wrist camera is recorded (the policy's only input).
+the same hover. Only the wrist camera is recorded (the policy's only input). Each record also carries
+the session's setup answers (lighting etc.) and the episode's --slice, so offline evaluation can break
+scores down by them.
+
+With --layout NAME (taught with scripts/layout.py), the RealSense view shows where the next tile goes —
+an outline that turns green once the tile is within 4mm / 5° — and the tile at that spot is picked
+without asking. Each spot is recorded --repeats times in a row; the episode log stores the spot and
+where the tile actually was.
 
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
+    python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
 """
 import argparse
 import json
@@ -22,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware
+from mahjong import config, hardware, layout
 from mahjong.hover_correction import HoverCorrection
 from mahjong.perception import choose_tile
 from mahjong.session import Session
@@ -36,6 +44,7 @@ FEATURES = {
     "observation.images.wrist": {"dtype": "video", "shape": (480, 640, 3), "names": ["h", "w", "c"]},
 }
 EPISODE_LOG = "episode_log.jsonl"
+SLICES = ["train", "familiar", "new", "dim", "tilt"]     # train: for training; the rest: eval-only (offline_eval.py)
 
 
 def parse_args():
@@ -50,6 +59,12 @@ def parse_args():
                         "~21%% before descending; ~23 starts where that narrowing ends")
     p.add_argument("--stick-commit-s", type=float, default=0.1)
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
+    p.add_argument("--slice", choices=SLICES, default="train",
+                   help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
+                        "tilted tiles) — eval datasets are never trained on")
+    p.add_argument("--layout", default=None, help="place tiles to this layout's spots (scripts/layout.py)")
+    p.add_argument("--repeats", type=int, default=2, help="with --layout: episodes per spot")
+    p.add_argument("--start-spot", default=None, help="with --layout: start at this spot id")
     p.add_argument("--device", default=None, help="gamepad evdev path")
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
     return p.parse_args()
@@ -79,11 +94,17 @@ def main():
     args = parse_args()
     from lerobot.common.control_utils import init_keyboard_listener
     hover = {"offset_m": args.hover_offset_mm / 1000, "clearance_m": args.clearance_mm / 1000, "gripper": args.hover_gripper}
+    spots, todo, ghost = [], [], None
+    if args.layout:            # before connecting anything, so a typo fails fast
+        spots = layout.load(args.layout)["spots"]
+        todo = layout.schedule(spots, args.repeats, args.start_spot)
+        ghost = layout.load_ghost(args.layout)
     devices = hardware.connect(["arm", "wrist_camera", "realsense", "gamepad"],
                                gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
-    session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s)
+    session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
+                      slice=args.slice, layout=args.layout)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
     dataset = open_dataset(args.dataset)
@@ -97,7 +118,36 @@ def main():
             if arm.holding()[0]:
                 print("Releasing the tile from the last episode at rest.")
                 arm.set_gripper(hover["gripper"])
-            tile = choose_tile(realsense.detect_tiles())
+            placement = {}
+            if args.layout:
+                if not todo:
+                    print(f"Every spot of layout {args.layout} recorded.")
+                    break
+                spot = next(s for s in spots if s["id"] == todo[0])
+                print(f"Spot {spot['id']} ({len(todo)} episodes to go): {layout.PLACE_HELP}")
+                placed = layout.place(realsense.snapshot, spots, spot["id"], realsense.intrinsics,
+                                      realsense.T_cam_to_base, ghost=ghost)
+                cv2.destroyWindow("layout")
+                for k in ("exit_early", "rerecord_episode", "stop_recording"):   # keys pressed while placing
+                    events[k] = False
+                if placed["action"] == "quit":
+                    break
+                if placed["action"] == "skip":
+                    todo = [s for s in todo if s != spot["id"]]
+                    continue
+                found = placed["found"]
+                tile = layout.nearest_tile(realsense.detect_tiles(), found["xy"] if found else spot["xy"])
+                if tile is None:
+                    print(f"No tile detected at {spot['id']} — place it again.")
+                    continue
+                if placed["status"] != "ok":
+                    print(f"  (placed {placed['status']}, not within tolerance — logged)")
+                placement = {"layout": args.layout, "spot": spot["id"], "spot_xy": spot["xy"],
+                             "spot_yaw_deg": spot.get("yaw_deg", 0.0), "placement_status": placed["status"],
+                             "placed_xy": found["xy"] if found else None,
+                             "placed_yaw_deg": found["yaw_deg"] if found else None}
+            else:
+                tile = choose_tile(realsense.detect_tiles())
             if tile is None:
                 if input("No tile chosen. q to quit, Enter to scan again: ").strip().lower() == "q":
                     break
@@ -150,11 +200,14 @@ def main():
             record = {"episode_index": episode, "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
-                      "frames": frames, "session": session.dir.name}
+                      "frames": frames, "session": session.dir.name, "slice": args.slice,
+                      "conditions": session.conditions, **placement}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s)")
+            if placement:
+                todo.pop(0)
     except KeyboardInterrupt:
         print("Interrupted.")
     finally:

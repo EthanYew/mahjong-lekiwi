@@ -47,6 +47,7 @@ def test_session_stores_conditions_and_the_next_session_defaults_to_them(tmp_pat
     assert start["conditions"] == {"daylight": "none", "lamp": False, "ceiling_lights": True, "moved": "nothing",
                                    "tiles": "one", "battery": "mid"}
     assert start["notes"] == "dusk"
+    assert s.conditions == start["conditions"] and s.notes == "dusk"        # record.py copies them per episode
     assert previous_conditions() == start["conditions"]
 
 
