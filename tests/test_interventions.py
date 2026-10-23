@@ -31,7 +31,7 @@ def kinds(events):
 def test_a_clean_session_has_no_interventions():
     events = session(scan("choose", MAT), scan("after_pickup", MAT[1:], attempt_dir="001_WW", target_xy=MAT[0]["xy"]),
                      attempt(1), {"type": "return", "tile": "WW"},
-                     scan("after_return", MAT, attempt_dir="001_WW", return_xy=MAT[0]["xy"]), scan("choose", MAT))
+                     scan("after_return", MAT, attempt_dir="001_WW", target_xy=MAT[0]["xy"]), scan("choose", MAT))
     assert iv.derive(events) == []
 
 
@@ -110,9 +110,55 @@ def test_a_reset_both_noted_and_seen_counts_once():
 def test_moving_a_knocked_tile_back_is_straightening():
     knocked = [tile("2D", 0.225, -0.027), MAT[2]]
     events = session(scan("choose", MAT), scan("after_pickup", knocked, attempt_dir="001_WW", target_xy=MAT[0]["xy"]),
-                     attempt(1), scan("after_return", [MAT[0]] + knocked, attempt_dir="001_WW", return_xy=MAT[0]["xy"]),
+                     attempt(1), scan("after_return", [MAT[0]] + knocked, attempt_dir="001_WW", target_xy=MAT[0]["xy"]),
                      scan("choose", MAT))
     assert kinds(events) == [("knocked", "failure"), ("straightened", "rescue")]
+
+
+def test_the_returned_tile_is_left_out_where_the_camera_saw_it():
+    """2026-10-23, 8D returned: detected at (0.211, 0.135), back at (0.217, 0.138); the arm's return
+    target (0.256, 0.142) is ~40mm off, and left out there the returned tile read as "8D appeared"."""
+    before = [tile("9D", 0.214, 0.075), tile("WW", 0.222, 0.021)]
+    after = [tile("8D", 0.217, 0.138), tile("9D", 0.223, 0.068), tile("WW", 0.222, 0.021)]
+    events = session(scan("after_pickup", before, attempt_dir="003_8D"),
+                     scan("after_return", after, attempt_dir="003_8D", target_xy=[0.211, 0.135]))
+    (knock,) = iv.derive(events)
+    assert iv.changes_text(knock["changes"]) == "9D moved 11mm"
+
+
+def test_a_change_a_person_calls_a_glitch_is_only_an_observation():
+    """2026-10-23: 2B (missing, then 0.59) read 0.68 after a pickup, "appeared" — a flicker, not a knock."""
+    flicker = MAT + [tile("2B", 0.152, 0.078, confidence=0.68)]
+    events = session(scan("choose", MAT, scan=1), scan("after_pickup", flicker[1:], attempt_dir="001_WW", scan=2,
+                                                      target_xy=MAT[0]["xy"]),
+                     {"type": "scan_review", "scan": 2, "proposed": "knocked", "kinds": ["scan_glitch"]}, attempt(1),
+                     scan("choose", flicker[1:], scan=3))
+    (glitch,) = iv.derive(events)
+    assert (glitch["kind"], glitch["class"], glitch["source"]) == ("scan_glitch", "observation", "confirmed")
+    assert iv.summary([glitch], [attempt(1)])["failures"] == 0
+
+
+def test_a_person_can_say_a_change_was_both_a_reset_and_straightening():
+    knocked = [tile("2D", 0.225, -0.027), MAT[2]]
+    events = session(scan("choose", MAT, scan=1),
+                     scan("after_pickup", knocked, attempt_dir="001_WW", scan=2, target_xy=MAT[0]["xy"]), attempt(1),
+                     {"type": "discard", "tile": "WW"}, scan("choose", MAT, scan=3),
+                     {"type": "scan_review", "scan": 3, "proposed": "straightened", "kinds": ["straightened", "tile_reset"]})
+    assert [(i["kind"], i["source"]) for i in iv.derive(events)] == [
+        ("knocked", "scans"), ("straightened", "confirmed"), ("tile_reset", "confirmed")]
+
+
+def test_asking_about_a_scan():
+    knock = ("knocked", {"moved": [{"tile_name": "9D", "moved_m": 0.012}], "appeared": [], "gone": []})
+    after_return = {"label": "after_return", "attempt_dir": "003_8D"}
+    asked = []
+    assert iv.ask_scan(after_return, knock, ask=lambda p: asked.append(p) or "") == ["knocked"]
+    assert "003_8D: the scans say 9D moved 12mm during the return" in asked[0]
+    assert iv.ask_scan(after_return, knock, ask=answering("2")) == ["scan_glitch"]
+    put_back = ("tile_reset", {"moved": [], "appeared": [{"tile_name": "4D"}], "gone": []})
+    assert iv.ask_scan({"label": "choose"}, put_back, ask=answering("")) == ["tile_reset"]
+    assert iv.ask_scan({"label": "choose"}, put_back, ask=answering("3")) == ["straightened", "tile_reset"]
+    assert iv.ask_scan({"label": "choose"}, put_back, ask=answering("no")) == ["scan_glitch"]
 
 
 def test_how_a_session_ended():

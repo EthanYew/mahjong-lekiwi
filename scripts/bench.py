@@ -16,7 +16,8 @@ stopping it ("something happened here": a hand on the tile or the base, a caught
 at this"); you're asked what afterwards, or at the end of a batch of trials. Clean attempts ask
 nothing extra. Everything goes in a session folder (sessions/<time>_bench/): the terminal log,
 events.jsonl (with a RealSense scan before and after each pickup, return and discard, so knocked
-tiles and tiles put back by hand show up without anyone saying so), and per attempt the wrist
+tiles and tiles put back by hand show up without anyone saying so; when a scan shows the mat changed
+you're asked whether it really did, Enter for yes), and per attempt the wrist
 frames, act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
 summarises the latest one, interventions included (mahjong/interventions.py).
 
@@ -98,10 +99,14 @@ class Bench:
             self.session.event("connect", **self.arm.at_connect)
         self.last_attempt = None    # attempt_dir of the latest attempt: what a note or an interruption belongs to
         self.to_review = []         # (attempt_dir, tile, run) marked or aborted during trials, asked at the end
+        self.mat, self.scan_n = interventions.MatWatch(), 0
+        self.scan_checks = []       # (detections event, proposal): changes on the mat a person hasn't confirmed yet
+        self.batch = False          # during trials: questions wait for the end
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
-        self.held = None        # {"tile_name", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
+        # {"tile_name", "detection_xy", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
+        self.held = None
         print(f"Policy: {self.policy.id}, hover {self.policy.hover}\nHover correction: {self.correction.summary()}")
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
                            correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
@@ -110,16 +115,32 @@ class Bench:
 
     def scan(self, label, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
-        mat (interventions.derive)."""
+        mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans)."""
         tiles = self.realsense.detect_tiles()
-        self.session.event("detections", label=label, **fields,
-                           tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads")} for t in tiles])
+        self.scan_n += 1
+        scan = self.session.event("detections", label=label, scan=self.scan_n, **fields,
+                                  tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads")} for t in tiles])
+        proposal = self.mat.propose(scan)
+        if proposal:
+            self.scan_checks.append((scan, proposal))
+        self.mat.advance(scan, proposal, [proposal[0]] if proposal else [])
         return tiles
+
+    def check_scans(self):
+        """What the scans saw change, one question each (Enter: as they say; or a detection glitch)."""
+        if self.scan_checks:
+            drain_stdin()
+        for scan, proposal in self.scan_checks:
+            kinds = interventions.ask_scan(scan, proposal)
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=kinds)
+        self.scan_checks = []
 
     def choose(self, tile_name=None):
         if not self.arm.is_at_rest():
             self.arm.rest()
         tiles = self.scan("choose")
+        if not self.batch:
+            self.check_scans()          # before the arm moves, while what happened is in front of you
         if not tiles:
             print("No tiles detected.")
             self.session.event("attempt_skipped", reason="no_tiles", tile=tile_name)
@@ -204,7 +225,8 @@ class Bench:
                 sample["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
             append_record(sample, self.samples_path)
         if holding:
-            self.held = {"tile_name": tile["tile_name"], "return_xy": run["grasp_xy"] or hover["hover_xy"],
+            self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
+                         "return_xy": run["grasp_xy"] or hover["hover_xy"],
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
@@ -230,7 +252,8 @@ class Bench:
         released_at = self.arm.place(x, y, self.held["approach_offset_m"])
         if released_at is not None:
             self.session.event("return", tile=self.held["tile_name"], xy=[x, y], released_at_m=released_at)
-            self.scan("after_return", attempt_dir=self.held["attempt_dir"], return_xy=[x, y])
+            # the returned tile, where the camera saw it (return_xy is the arm's target, ~40mm from that)
+            self.scan("after_return", attempt_dir=self.held["attempt_dir"], target_xy=self.held["detection_xy"])
             self.held = None
 
     def discard(self, ask=True):
@@ -279,6 +302,7 @@ class Bench:
             tile_name = input("Which tile (name)? ").strip() or None
         results = []
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
+        self.batch = True
         try:
             for i in range(n):
                 perturb = offsets[i % len(offsets)]
@@ -294,7 +318,9 @@ class Bench:
             rate = f"{sum(results)}/{len(results)}"
             self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=results)
             print(f"\n{tile_name or 'trials'}: {rate} picked up")
+            self.batch = False
             self.review_queued()
+            self.check_scans()
 
     def review_queued(self):
         """The marked or aborted trials, one question each (clean ones ask nothing)."""
@@ -333,6 +359,7 @@ class Bench:
         except KeyboardInterrupt:
             print("\ninterrupted — holding position")
             self.session.intervention("interrupted", attempt_dir=self.last_attempt, command=name)
+        self.check_scans()
 
     def close(self):
         try:

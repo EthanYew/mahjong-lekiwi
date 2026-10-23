@@ -10,7 +10,8 @@ Classes, because only one of them measures the policy:
 
 Most are derived (derive()) from what a session logs anyway: attempts, the `detections` scans around
 each attempt, session_end. A person is asked only after marking an attempt (→ during ACT), aborting it
-(Esc), answering a discard went wide, or with the bench's `note` command.
+(Esc), answering a discard went wide, with the bench's `note` command, or when a scan shows the mat
+changed (the bench asks then, so a detection glitch isn't logged as a knock: `scan_review`).
 """
 import math
 from collections import Counter
@@ -43,6 +44,7 @@ KINDS = {
     "hover_rejected": ("rejected the hover (←)", RESCUE),
     "success_overridden": ("answered against the gripper's verdict", OVERRIDE),
     "knocked": ("a tile other than the target moved", FAILURE),
+    "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),
     "arm_moved_while_off": ("arm not at rest at connect (fell, or moved while off)", OBSERVATION),
 }
 MARK_KINDS = ["touched_tile", "helped_arm", "caught_drop", "look", "other"]
@@ -64,11 +66,11 @@ def class_of(kind):
     return KINDS.get(kind, (kind, RESCUE))[1]
 
 
-def ask_kind(prompt, kinds, labels=None, ask=None):
-    """One numbered menu line; returns the chosen kind, or None on Enter."""
+def ask_kind(prompt, kinds, labels=None, ask=None, default=None):
+    """One numbered menu line; returns the chosen kind, or `default` on Enter."""
     labels = labels or {k: KINDS[k][0] for k in kinds}
     shown = [labels[k] for k in kinds]
-    choice = session.ask_one({"ask": prompt, "choices": shown}, None, ask or input)
+    choice = session.ask_one({"ask": prompt, "choices": shown}, labels.get(default), ask or input)
     return None if choice is None else kinds[shown.index(choice)]
 
 
@@ -82,6 +84,26 @@ def ask_mark(what, ask=None):
 
 def ask_abort(what, ask=None):
     return ask_kind(f"{what}: why stop it", list(ABORT_REASONS), labels=ABORT_REASONS, ask=ask)
+
+
+SCAN_ANSWERS = {"knocked": {"knocked": "yes, a tile moved", "scan_glitch": "no, nothing moved (a detection glitch)"},
+                "between": {"straightened": KINDS["straightened"][0], "tile_reset": KINDS["tile_reset"][0],
+                            "both": "both", "scan_glitch": "nothing moved (a detection glitch)"}}
+
+
+def ask_scan(scan, proposal, ask=None):
+    """The kinds that stand for a scan's proposed change (MatWatch.propose), from a person who was
+    there: Enter accepts the proposal."""
+    kind, diff = proposal
+    where = scan.get("attempt_dir") or "the mat"
+    if kind == "knocked":
+        prompt = f"{where}: the scans say {changes_text(diff)} during the {scan['label'].removeprefix('after_')}. Right"
+        answers = SCAN_ANSWERS["knocked"]
+    else:
+        prompt = f"{where}, since the last scan: {changes_text(diff)}. What was it"
+        answers = SCAN_ANSWERS["between"]
+    answer = ask_kind(prompt, list(answers), labels=answers, ask=ask, default=kind)
+    return ["straightened", "tile_reset"] if answer == "both" else [answer]
 
 
 # --- what changed on the mat between two scans ---
@@ -127,6 +149,13 @@ def _changed(diff):
     return any(diff.values())
 
 
+def changes_text(diff):
+    """"9D moved 12mm; 8D appeared" """
+    return "; ".join([f"{m['tile_name']} moved {m['moved_m'] * 1000:.0f}mm" for m in diff["moved"]]
+                     + [f"{t['tile_name']} appeared" for t in diff["appeared"]]
+                     + [f"{t['tile_name']} gone" for t in diff["gone"]])
+
+
 def _from_points(diff):
     return [m["from"] for m in diff["moved"]] + [t["xy"] for t in diff["gone"]]
 
@@ -140,12 +169,42 @@ def _to_points(diff):
 ATTEMPT_SCANS = ("after_pickup", "after_return")      # the arm handled tiles on the mat since the last scan
 
 
+class MatWatch:
+    """What the scans say changed on the mat, scan by scan. derive() replays a session through it; the
+    bench feeds it live, so a person can confirm or correct a change (ask_scan) while it's in front of them."""
+    def __init__(self):
+        self.previous, self.knocked_to = None, []
+
+    def propose(self, scan):
+        """(kind, diff) the scans suggest for this `detections` event against the previous one, or None.
+        knocked: the arm handled tiles since the previous scan (the tile it handled, at target_xy, is
+        left out); otherwise nothing on the arm touched the mat, so a person did: straightened if it
+        moved a tile a knock had left, else tile_reset."""
+        if self.previous is None:
+            return None
+        if scan["label"] in ATTEMPT_SCANS:
+            ignore = [scan["target_xy"]] if scan.get("target_xy") else []
+            diff = scene_diff(self.previous["tiles"], scan["tiles"], ignore)
+            return ("knocked", diff) if _changed(diff) else None
+        diff = scene_diff(self.previous["tiles"], scan["tiles"])
+        if not _changed(diff):
+            return None
+        fixed = any(math.dist(p, k) <= config.TILE_MERGE_RADIUS_M for p in _from_points(diff) for k in self.knocked_to)
+        return ("straightened" if fixed else "tile_reset", diff)
+
+    def advance(self, scan, proposal, kinds):
+        """Move on to `scan`, with the kinds that stand for its proposal."""
+        if proposal and "knocked" in kinds:
+            self.knocked_to += _to_points(proposal[1]) + [t["xy"] for t in proposal[1]["gone"]]
+        self.previous = scan
+
+
 def derive(events):
     """Every intervention in a session's events, logged or derived, in order:
     [{kind, class, attempt_dir, source, time, ...}]. source: logged (an intervention event or a logged
     fact), mark (asked after → during ACT), derived (from attempt fields / session_end), scans (from
-    consecutive `detections` events). Each is attributed to the attempt it belongs to, or the most
-    recent one; session-level ones to None."""
+    consecutive `detections` events), confirmed (scans a person answered for: `scan_review`). Each is
+    attributed to the attempt it belongs to, or the most recent one; session-level ones to None."""
     out = []
 
     def add(kind, attempt_dir, source, time, **fields):
@@ -153,7 +212,8 @@ def derive(events):
                     "time": time, **{k: v for k, v in fields.items() if v not in (None, "")}})
 
     reviews = {e["attempt_dir"]: e for e in events if e["type"] == "attempt_review"}
-    last_attempt, previous_scan, knocked_to, ended = None, None, [], False
+    scan_reviews = {e["scan"]: e["kinds"] for e in events if e["type"] == "scan_review"}
+    last_attempt, mat, ended = None, MatWatch(), False
     for e in events:
         kind, time = e["type"], e.get("time")
         if kind == "attempt":
@@ -177,21 +237,14 @@ def derive(events):
         elif kind == "connect" and e.get("arm_at_rest") is False:
             add("arm_moved_while_off", None, "logged", time, off_rest_deg=e.get("off_rest_deg"))
         elif kind == "detections":
-            if previous_scan is not None:
-                if e["label"] in ATTEMPT_SCANS:
-                    ignore = [e[k] for k in ("target_xy", "return_xy") if e.get(k)]
-                    diff = scene_diff(previous_scan["tiles"], e["tiles"], ignore)
-                    if _changed(diff):
-                        add("knocked", e.get("attempt_dir") or last_attempt, "scans", time,
-                            during=e["label"].removeprefix("after_"), changes=diff)
-                        knocked_to += _to_points(diff) + [t["xy"] for t in diff["gone"]]
-                else:      # nothing on the arm touched the mat since the previous scan: a person did
-                    diff = scene_diff(previous_scan["tiles"], e["tiles"])
-                    if _changed(diff):
-                        fixed = any(math.dist(p, k) <= config.TILE_MERGE_RADIUS_M
-                                    for p in _from_points(diff) for k in knocked_to)
-                        add("straightened" if fixed else "tile_reset", last_attempt, "scans", time, changes=diff)
-            previous_scan = e
+            proposal = mat.propose(e)
+            confirmed = proposal is not None and e.get("scan") in scan_reviews
+            kinds = scan_reviews[e["scan"]] if confirmed else [proposal[0]] if proposal else []
+            during = e["label"].removeprefix("after_") if e["label"] in ATTEMPT_SCANS else None
+            for k in kinds:
+                add(k, (e.get("attempt_dir") if during else None) or last_attempt,
+                    "confirmed" if confirmed else "scans", time, during=during, changes=proposal[1])
+            mat.advance(e, proposal, kinds)
         elif kind == "session_end":
             ended = True
             reason = e.get("reason", "quit")
@@ -202,7 +255,7 @@ def derive(events):
         add("killed", last_attempt, "derived", events[-1].get("time"))
     # a person who noted what the scans also saw (tiles put back, straightened) did it once
     noted = {(i["kind"], i["attempt_dir"]) for i in out if i["source"] == "logged"}
-    return [i for i in out if not (i["source"] == "scans" and (i["kind"], i["attempt_dir"]) in noted)]
+    return [i for i in out if not (i["source"] in ("scans", "confirmed") and (i["kind"], i["attempt_dir"]) in noted)]
 
 
 def summary(interventions, attempts):

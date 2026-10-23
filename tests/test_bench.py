@@ -91,16 +91,47 @@ def test_scans_around_each_trial_and_a_clean_run_needs_no_one(tmp_path, monkeypa
 
 
 def test_a_neighbour_nudged_during_a_trial_is_knocked(tmp_path, monkeypatch):
+    import builtins
     from mahjong import interventions
     b = sim_bench(tmp_path, monkeypatch, trials=1)
     after_each_run(b, lambda: b.realsense.nudge("3B", 0.008, 0.0))
+    asked = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: asked.append(prompt) or "")   # Enter: as the scans say
     try:
         b.trials(1, "8D")
     finally:
         b.close()
-    (knock,) = interventions.derive(read_events(b.session.dir))
-    assert (knock["kind"], knock["during"]) == ("knocked", "pickup")
+    events = read_events(b.session.dir)
+    assert len(asked) == 1 and "3B moved 8mm during the pickup" in asked[0]
+    assert events.index(next(e for e in events if e["type"] == "scan_review")) > \
+        events.index(next(e for e in events if e["type"] == "trials_done"))        # asked once the batch is done
+    (knock,) = interventions.derive(events)
+    assert (knock["kind"], knock["during"], knock["source"]) == ("knocked", "pickup", "confirmed")
     assert [m["tile_name"] for m in knock["changes"]["moved"]] == ["3B"]
+
+
+def test_a_change_between_commands_is_asked_about_before_the_arm_moves(tmp_path, monkeypatch):
+    import builtins
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch)
+    moves = []
+    asked = []
+
+    def answer(prompt):
+        asked.append((prompt, len(b.arm.robot.sent)))
+        return "4" if "since the last scan" in prompt else ""     # the 3B "move": a detection glitch
+    monkeypatch.setattr(builtins, "input", answer)
+    try:
+        b.scan("choose")
+        b.realsense.nudge("3B", 0.008, 0.0)
+        moves.append(len(b.arm.robot.sent))
+        b.pickup("8D")
+    finally:
+        b.close()
+    (glitch,) = interventions.derive(read_events(b.session.dir))
+    assert (glitch["kind"], glitch["class"]) == ("scan_glitch", "observation")
+    question = next((p, sent) for p, sent in asked if "since the last scan" in p)
+    assert "3B moved 8mm" in question[0] and question[1] == moves[0]    # before the arm moved for the pickup
 
 
 def test_marked_trials_are_asked_about_once_at_the_end(tmp_path, monkeypatch):
