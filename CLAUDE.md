@@ -47,8 +47,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **Idle frames teach waiting.** A policy has no clock; still frames all look the same, so it learns to
   wait at the hover forever (v1). Training datasets drop idle frames (`dataset.build`); new
   recordings should avoid pauses before the descent.
-- **Lighting is part of the policy's input.** v2 was recorded with the lamp behind the robot on; it
-  fails on the first row without it. Note lighting in the session setup prompt.
+- **Lighting is part of the policy's input.** v2 was recorded with the lamp behind the robot on and
+  froze on the first row in a dim evening room without it — but went 9/9 in daylight with the lamp
+  off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
+  records daylight / lamp / ceiling lights as structured `conditions`
+  (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 

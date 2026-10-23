@@ -49,20 +49,22 @@ class Abort:
 class Bench:
     def __init__(self, args):
         self.args = args
-        self.session = Session("bench", ask_notes=not args.sim, policy=args.policy or "default", sim=args.sim)
         if args.sim:
             from mahjong.sim import SimCamera, SimPerception, SimPolicy, SimRobot
             self.arm = Arm(SimRobot(), sleep=lambda s: None)
             self.camera, self.realsense, self.policy = SimCamera(), SimPerception(), SimPolicy()
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
             self.listener = None
+            self.session = Session("bench", ask_setup=False, policy="sim", sim=True)
         else:
             from lerobot.common.control_utils import init_keyboard_listener
-            from mahjong.camera import WristCamera
-            from mahjong.perception import RealSense
+            from mahjong import hardware
             from mahjong.policy import Policy
+            # hardware first: nothing (not even the session folder) is created until it's all there
+            devices = hardware.connect(["arm", "wrist_camera", "realsense"])
+            self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
+            self.session = Session("bench", policy=args.policy or "default", sim=False)
             self.policy = Policy(args.policy)
-            self.arm, self.camera, self.realsense = Arm.connect(), WristCamera(), RealSense()
             self.listener, self.events = init_keyboard_listener()
         self.abort = Abort(self.events)
         self.correction = HoverCorrection.load()
@@ -163,9 +165,12 @@ class Bench:
         self.held = None
 
     def teach_discard(self):
-        from mahjong.gamepad import GamepadTeleop
+        from mahjong import hardware
         import time
-        gamepad = GamepadTeleop(self.args.device, commit_s=0.0)
+        try:
+            gamepad = hardware.connect(["gamepad"], gamepad_kwargs={"device": self.args.device, "commit_s": 0.0})["gamepad"]
+        except SystemExit:
+            return print("teach-discard cancelled")
         self.arm.raise_from_rest()
         gamepad.start(self.arm)
         self.abort.clear()

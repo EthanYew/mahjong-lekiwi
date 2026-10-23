@@ -22,12 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config
-from mahjong.arm import Arm
-from mahjong.camera import WristCamera
-from mahjong.gamepad import GamepadTeleop
+from mahjong import config, hardware
 from mahjong.hover_correction import HoverCorrection
-from mahjong.perception import RealSense, choose_tile
+from mahjong.perception import choose_tile
 from mahjong.session import Session
 
 JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
@@ -82,10 +79,11 @@ def main():
     args = parse_args()
     from lerobot.common.control_utils import init_keyboard_listener
     hover = {"offset_m": args.hover_offset_mm / 1000, "clearance_m": args.clearance_mm / 1000, "gripper": args.hover_gripper}
-    session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s)
-    gamepad = GamepadTeleop(args.device, commit_s=args.stick_commit_s)
+    devices = hardware.connect(["arm", "wrist_camera", "realsense", "gamepad"],
+                               gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s})
+    arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
-    arm, camera, realsense = Arm.connect(), WristCamera(), RealSense()
+    session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
     dataset = open_dataset(args.dataset)

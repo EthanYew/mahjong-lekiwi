@@ -18,11 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import config, kinematics
-from mahjong.arm import Arm, ADJUST_TIME_S
-from mahjong.gamepad import GamepadTeleop
+from mahjong import config, hardware, kinematics
+from mahjong.arm import ADJUST_TIME_S
 from mahjong.hover_correction import HoverCorrection, append_record
-from mahjong.perception import RealSense, drain_stdin
+from mahjong.perception import drain_stdin
 from mahjong.session import Session
 
 
@@ -32,9 +31,10 @@ def main():
     p.add_argument("--device", default=None)
     args = p.parse_args()
     from lerobot.common.control_utils import init_keyboard_listener
+    devices = hardware.connect(["arm", "realsense", "gamepad"], gamepad_kwargs={
+        "device": args.device, "commit_s": 0.0, "locked_sticks": {"rx"}, "locked_buttons": {"l", "r"}})
+    arm, realsense, gamepad = devices["arm"], devices["realsense"], devices["gamepad"]
     session = Session("corrections")
-    gamepad = GamepadTeleop(args.device, commit_s=0.0, locked_sticks={"rx"}, locked_buttons={"l", "r"})
-    arm, realsense = Arm.connect(), RealSense()
     listener, events = init_keyboard_listener()
     correction = HoverCorrection.load()
     print(f"Hover correction: {'off (--raw)' if args.raw else correction.summary()}")

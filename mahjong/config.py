@@ -70,3 +70,16 @@ HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
 XLEROBOT_EXAMPLES = Path.home() / "Projects" / "XLeRobot" / "software" / "examples"
 XLEROBOT_MODEL = Path.home() / "Projects" / "XLeRobot" / "software" / "plugins" / "xlerobot_model"
+
+# --- session setup questions: asked at the start of every hardware session and stored as `conditions`
+# on session_start, so sessions compare (scripts/session_report.py --all). Choices are a list, or "yn".
+# sticky: Enter keeps the previous session's answer; otherwise Enter means the first choice.
+SETUP_QUESTIONS = [
+    {"key": "daylight", "ask": "Daylight in the room", "choices": ["bright", "dim", "none"], "sticky": True},
+    {"key": "lamp", "ask": "Lamp behind the robot on", "choices": "yn", "sticky": True},
+    {"key": "ceiling_lights", "ask": "Ceiling lights on", "choices": "yn", "sticky": True},
+    {"key": "moved", "ask": "Moved since the last session",
+     "choices": ["nothing", "realsense", "mat", "lekiwi", "several"], "sticky": False},
+    {"key": "tiles", "ask": "Tiles on the mat", "choices": ["one", "few spread", "rows"], "sticky": True},
+    {"key": "battery", "ask": "LeKiwi battery", "choices": ["full", "mid", "low"], "sticky": True},
+]

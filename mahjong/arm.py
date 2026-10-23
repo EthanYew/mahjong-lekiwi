@@ -53,7 +53,15 @@ class Arm:
     def connect(cls):
         from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
         robot = SO101Follower(SO101FollowerConfig(port=config.FOLLOWER_PORT, id=config.FOLLOWER_ID))
-        robot.connect(calibrate=False)
+        try:
+            robot.connect(calibrate=False)
+        except Exception:
+            # lerobot leaves the port open when the motors don't answer; close it so a retry can reopen it
+            try:
+                robot.bus.port_handler.closePort()
+            except Exception:
+                pass
+            raise
         arm = cls(robot)
         arm.hold_measured()
         return arm
