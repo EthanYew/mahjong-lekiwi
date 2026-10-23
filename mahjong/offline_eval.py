@@ -29,7 +29,7 @@ from datetime import datetime
 import numpy as np
 
 from . import config, kinematics
-from .dataset import GRIP_CLOSED_BELOW, episode_log, narrowing_end
+from .dataset import episode_log, narrowing_end
 
 EVAL_STRIDE = 3
 DESCENT_DEG = 2.0              # lift/elbow movement that counts as "descending" (as the freeze probe)
@@ -81,7 +81,7 @@ def score_episode(plan, frame, states, actions, actions_raw, fps=config.FPS, str
     arm_mae = float(np.abs(first[:, :5] - target[:, :5]).mean())
     grip_mae = float(np.abs(first[:, 5] - target[:, 5]).mean())
 
-    demo_close = first_below(actions_raw[:, 5], GRIP_CLOSED_BELOW)
+    demo_close, demo_xy = kinematics.grasp_point(actions_raw)
 
     start = narrowing_end(actions_raw)
     probe = chunk_at(start)
@@ -93,13 +93,12 @@ def score_episode(plan, frame, states, actions, actions_raw, fps=config.FPS, str
     if demo_close is not None:
         p = max(0, demo_close - int(GRASP_PROBE_S * fps))
         grasp_plan = anchor + chunk_at(p)
-        c = first_below(grasp_plan[:, 5], GRIP_CLOSED_BELOW)
+        c = first_below(grasp_plan[:, 5], config.GRIP_CLOSED_BELOW)
         plan_closes = c is not None
         close_err_s = (p + c - demo_close) / fps if plan_closes else None
         at = grasp_plan[c if plan_closes else -1]
         predicted_tool = kinematics.tool_point(dict(zip(config.JOINTS, at)))
-        demo_tool = kinematics.tool_point(dict(zip(config.JOINTS, actions_raw[demo_close])))
-        grasp_mm = float(np.hypot(*(np.asarray(predicted_tool[:2]) - demo_tool[:2])) * 1000)
+        grasp_mm = float(np.hypot(*(np.asarray(predicted_tool[:2]) - demo_xy)) * 1000)
         roll_err = float(at[4] - actions_raw[demo_close][4])
         demo_roll = float(actions[demo_close][4])
     return {"frames": n, "arm_mae": arm_mae, "grip_mae": grip_mae, "demo_close_s": None if demo_close is None else demo_close / fps,

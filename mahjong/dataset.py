@@ -26,7 +26,6 @@ IDLE_WINDOW = 7
 IDLE_DELTA = 0.5
 SAG_SETTLE_MM, SAG_SETTLE_FRAMES, SAG_MAX_FRAMES = 0.3, 9, 60
 NARROWING_TOLERANCE = 2.0      # gripper % of its pre-grasp opening that counts as "narrowed"
-GRIP_CLOSED_BELOW = 5.0
 EPISODE_LOG = "episode_log.jsonl"                          # record.py's sidecar log: one row per saved episode
 EPISODE_LOGS = (EPISODE_LOG, "episode_teleop_log.jsonl")   # ...and the pre-rebuild recorder's
 
@@ -55,7 +54,7 @@ def narrowing_end(actions_raw):
     """First frame where the commanded gripper is within NARROWING_TOLERANCE of the opening it held
     just before closing on the tile (0 if the episode never narrows from a wider start)."""
     grip = actions_raw[:, 5]
-    close = int(np.argmax(grip < GRIP_CLOSED_BELOW))
+    close = int(np.argmax(grip < config.GRIP_CLOSED_BELOW))
     if close == 0:
         return 0
     plateau = float(np.median(grip[max(0, close - 30):max(1, close - 15)]))

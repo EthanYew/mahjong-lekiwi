@@ -19,18 +19,16 @@ import torch
 import torchvision.transforms.functional as F
 
 from . import config, kinematics
+from .arm import holds_tile
 
 STALL_CHECK_S = 4.0
 STALL_MOVE_DEG = 2.0
-GRIP_CLOSED_BELOW = 5.0
 IMAGE_SIZE = (224, 224)
 
 # A pickup is done once the tile is held and lifted, and stays so for HOLD_CONFIRM_S while the policy
-# keeps going (a slip resets it), instead of always running ACT_DURATION_S. Held: gripper commanded
-# shut but measured HOLDING_MARGIN wider — a tile between the jaws reads ~11 above the command
-# (104/104 recorded episodes, all 9 bench attempts on 2026-10-23). Lifted: pincer tip LIFTED_M above
-# the grasp point, ~1.7s after closing on the arm. On those 9 attempts this stops at ~9-11s, not 20s.
-HOLDING_MARGIN = 5.0
+# keeps going (a slip resets it), instead of always running ACT_DURATION_S. Held: arm.holds_tile.
+# Lifted: pincer tip LIFTED_M above the grasp point, ~1.7s after closing on the arm. On the 9 bench
+# attempts of 2026-10-23 this stops at ~9-11s, not 20s.
 LIFTED_M = 0.060
 HOLD_CONFIRM_S = 1.5
 
@@ -63,9 +61,7 @@ class Policy:
         from lerobot.policies.factory import make_pre_post_processors
 
         if source is not None:
-            default_hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M,
-                             "gripper": config.HOVER_GRIPPER}
-            self.id, self.spec = str(source), {"repo": str(source), "hover": hover or default_hover}
+            self.id, self.spec = str(source), {"repo": str(source), "hover": hover or dict(config.DEFAULT_HOVER)}
         else:
             self.id, self.spec = spec(policy_id)
         source = self.spec["repo"]
@@ -104,15 +100,6 @@ class Policy:
         """The full predicted chunk (chunk_size x 6 deltas), before ensembling — for diagnosis."""
         chunk = self.act.predict_action_chunk(self.observation(frame_bgr, state_delta))
         return np.stack([self.postprocess(chunk[:, k]).squeeze(0).cpu().numpy() for k in range(chunk.shape[1])])
-
-
-def grasp_point(actions):
-    """(step, tool-point xy) of the first command with the gripper shut — where the jaws closed on the
-    tile — or (None, None). actions: steps x JOINTS, absolute."""
-    grasp = next((k for k in range(len(actions)) if actions[k][5] < GRIP_CLOSED_BELOW), None)
-    if grasp is None:
-        return None, None
-    return grasp, [float(v) for v in kinematics.tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
 
 
 def _tip_below_floor(command):
@@ -183,7 +170,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
             if step % 100 == 0:
                 cv2.imwrite(str(trace_dir / f"wrist_{step:04d}.jpg"), frame)
             # Done check, on the state the previous command produced.
-            holding = last_safe["gripper"] < GRIP_CLOSED_BELOW and measured["gripper"] - last_safe["gripper"] > HOLDING_MARGIN
+            holding = holds_tile(last_safe["gripper"], measured["gripper"])
             tip = kinematics.pincer_tip(measured)
             lifted = tip[2] - config.grasp_z(tip[0], tip[1]) >= LIFTED_M
             if holding and lifted:
@@ -221,7 +208,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     policy.reset()
     actions, states = np.array(actions), np.array(states)
     np.savez(trace_dir / "act_trace.npz", state=states, action=actions, anchor=anchor_vec, joints=np.array(config.JOINTS))
-    grasp, grasp_xy = grasp_point(actions)
+    grasp, grasp_xy = kinematics.grasp_point(actions)
     descended = bool(len(actions)) and float(np.abs(actions[:, 1:3] - anchor_vec[1:3]).max()) >= STALL_MOVE_DEG
     return {"steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
             "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,

@@ -57,11 +57,17 @@ GRIPPER_RELEASE = 25.0   # p90 of the opening held around a tile in 104 recorded
 # 25% release turned a neighbour on 2026-10-23. Not yet checked on hardware: raise it if a tile sticks.
 GRIPPER_RELEASE_PAST_HELD = 6.0
 TIP_FLOOR_BELOW_TABLE_M = 0.005        # ACT steps putting the pincer tip lower than this get scaled back
+# The gripper counts as shut when commanded below GRIP_CLOSED_BELOW (policies grip by commanding 0), and as
+# holding a tile when shut but measured HOLDING_MARGIN wider: a tile between the jaws reads ~11 above the
+# command (104/104 recorded episodes, all 9 bench attempts on 2026-10-23).
+GRIP_CLOSED_BELOW = 5.0
+HOLDING_MARGIN = 5.0
 
 # --- defaults for recording and correction collection (a policy's own hover lives in policies.json) ---
 HOVER_OFFSET_M = 0.045                 # pincer tip commanded this far above the grasp point
 HOVER_CLEARANCE_M = 0.040              # ...then settled until it measures this far above it
 HOVER_GRIPPER = 90.0                   # opening at the hover; every dataset so far started here
+DEFAULT_HOVER = {"offset_m": HOVER_OFFSET_M, "clearance_m": HOVER_CLEARANCE_M, "gripper": HOVER_GRIPPER}
 
 # --- ACT ---
 TEMPORAL_ENSEMBLE_COEFF = 0.001        # lerobot: positive weights OLDER plans more

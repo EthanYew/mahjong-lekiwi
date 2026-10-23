@@ -41,8 +41,11 @@ PLACE_DESCEND_TIME_S = 2.0
 RELEASE_TIME_S = 0.6
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
-HOLDING_MARGIN = 5.0         # gripper commanded shut but measured this much wider: something is held
-GRIP_CLOSED_BELOW = 5.0
+
+
+def holds_tile(command_gripper, measured_gripper):
+    """Something between the jaws: the gripper commanded shut but measured config.HOLDING_MARGIN wider."""
+    return command_gripper < config.GRIP_CLOSED_BELOW and measured_gripper - command_gripper > config.HOLDING_MARGIN
 
 
 def place_point(x, y, approach_offset_m, gripper):
@@ -122,7 +125,7 @@ class Arm:
     def holding(self):
         """(something between the jaws?, commanded gripper, measured gripper)."""
         command, measured = self.commanded()["gripper"], self.measured()["gripper"]
-        return command < GRIP_CLOSED_BELOW and measured - command > HOLDING_MARGIN, command, measured
+        return holds_tile(command, measured), command, measured
 
     def joint_limits(self):
         """Per-joint command limits from the servos' calibrated ranges (less a margin, so a command

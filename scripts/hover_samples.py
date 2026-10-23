@@ -27,7 +27,7 @@ import numpy as np
 from mahjong import config
 from mahjong.dataset import EPISODE_LOGS, episode_log
 from mahjong.hover_correction import append_record, grasp_record, load_records, read_all, source_of
-from mahjong.policy import grasp_point
+from mahjong.kinematics import grasp_point
 from mahjong.session import read_events
 
 

@@ -73,6 +73,15 @@ def tool_point(q):
     return forward(q)[0]
 
 
+def grasp_point(actions):
+    """(step, tool-point xy) of the first command with the gripper shut — where the jaws closed on the
+    tile — or (None, None). actions: steps x config.JOINTS, absolute."""
+    grasp = next((k for k in range(len(actions)) if actions[k][5] < config.GRIP_CLOSED_BELOW), None)
+    if grasp is None:
+        return None, None
+    return grasp, [float(v) for v in tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
+
+
 def pincer_tip(q):
     """The fixed jaw's tip: what clearances, set-down heights and the table floor are measured on."""
     position, rotation = forward(q)

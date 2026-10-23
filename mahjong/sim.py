@@ -146,7 +146,7 @@ class SimPolicy:
     policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it
     (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s."""
     id = "sim"
-    hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": config.HOVER_GRIPPER}
+    hover = dict(config.DEFAULT_HOVER)
 
     def __init__(self, mat=None, policy_id="sim"):
         self.mat, self.id = mat, policy_id
