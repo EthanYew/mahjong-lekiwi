@@ -1,0 +1,4 @@
+# Append-only logs: every branch that runs the bench or collects corrections appends lines, so a merge keeps
+# both sides' lines instead of conflicting (2026-10-23: 9 + 15 lines were unioned by hand). Each record has
+# its own timestamp, so line order doesn't matter.
+data/hover_corrections.jsonl merge=union

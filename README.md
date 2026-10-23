@@ -234,8 +234,9 @@ python -m pytest -m "not slow"    # fast: motion, kinematics, correction, datase
 python -m pytest                  # everything; slow tests load policies and need the GPU
 ```
 
-A pre-commit hook runs the fast tests (~20 s) so a broken invariant can't be committed. Turn it on once
-per clone: `git config core.hooksPath scripts/hooks`.
+Git hooks run the fast tests (~20 s) on every commit and every merge, so a broken invariant, or two
+branches that break each other, can't be committed. Turn them on once per clone:
+`git config core.hooksPath scripts/hooks`. Merging worktrees: see "Worktrees and merging" in `CLAUDE.md`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or
 `dataset.py` changed). See `CLAUDE.md` for the rules the code follows and why.

@@ -116,6 +116,37 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   don't need it.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
+## Worktrees and merging
+
+Several worktrees run in parallel. On 2026-10-23 seven merged in one evening, and every bug that cost
+time merged *without a conflict*: two `--hover-jitter-mm` options (record.py wouldn't start), a log row
+built after its offset was cleared, and two copies each of an episode-log reader and the gripper
+constants. Git catches overlapping lines, not overlapping intent. So:
+
+- **Before starting parallel work**: a helper, constant or option that more than one task will need
+  lands on `main` first (a small commit), and the branches build on it. Two branches shouldn't both
+  change `bench.py`, `record.py` or `config.py`: do those tasks one after the other, or merge the first
+  before the second starts on the shared file.
+- **In a branch**: touch CLAUDE.md, ROADMAP.md and README.md only for that branch's own items; the merge
+  reconciles them (they took 14, 11 and 3 commits from separate branches that day and drifted). Run
+  hardware from the main checkout (sessions are per-checkout).
+- **Handing a branch back**: merge or rebase the latest `main` into it, rerun the tests, push, and open a
+  draft PR (`gh pr create --draft`) whose body says what changed and why, which files it touched, what
+  it overlaps with on `main` or other open branches, and what's unverified on the arm. The merging
+  session reads that instead of guessing intent from a diff.
+- **Merging**: one branch at a time into `main`, each followed by the fast tests (the
+  `pre-merge-commit` hook runs them; a conflicted merge's `git commit` runs `pre-commit`). Never
+  `--no-verify` a merge. Before merging, compare what the branch adds with what `main` gained since
+  the branch point (`git diff main...BRANCH` vs `git log BRANCH..main`): a new function, constant or
+  option with the same purpose on both sides is a duplicate to resolve, conflict or not.
+- **After a batch of merges**: one review pass over the merged range (duplicates, docs vs `--help`)
+  before the next hardware session.
+- **Tests that catch a clean-but-broken merge** are end-to-end sim runs of a script's main path
+  (`tests/test_bench.py`, `tests/test_record.py`). A new user-run script gets one.
+- **Closing**: once merged, `git worktree remove <path>` and `git branch -d <branch>` (and the
+  `origin/` branch). `data/hover_corrections.jsonl` merges by union (`.gitattributes`): both sides'
+  samples are kept.
+
 ## Open items
 
 The sequence to v3 (golden eval set, jittered dataset), the scorecard, autonomous play and DAgger are

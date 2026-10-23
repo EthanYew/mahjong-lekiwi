@@ -1,0 +1,6 @@
+#!/bin/sh
+# A merge without conflicts never runs pre-commit, and two branches that each pass their tests can still
+# break each other (2026-10-23: an option added on both sides merged into a parser that wouldn't start, and
+# a merge was committed with --no-verify). So a merge runs the same fast tests on the merged tree.
+# A merge with conflicts is finished with `git commit`, which runs pre-commit itself.
+exec "$(dirname "$0")/pre-commit"
