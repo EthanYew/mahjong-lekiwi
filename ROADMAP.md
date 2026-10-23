@@ -4,6 +4,20 @@ Bigger steps after the 2026-10-23 bench improvements (early stop, preflight, set
 Roughly in order: the evaluation pieces first, because they decide whether everything after them
 helped.
 
+**Sequence from here (decided 2026-10-23):**
+1. Trimmed-v2 baseline `pickup_mat_cl_v2n` (7): v2's episodes with the gripper narrowing trimmed,
+   the 15 eval episodes left out, hover gripper ~23 %. Scored offline against v2, then benched paired.
+   It isolates the hover change, so v3 vs v2n measures the jitter alone. v2 stays registered.
+2. Hover jitter in `record.py` (7): done.
+3. Record the golden eval set `Yewy/mahjong_mat_eval_v1` (2), including the new `jitter` slice. Do this
+   before any jittered training data exists, so it can never leak into training.
+4. Check the eval on v2: it should do clearly worse on `jitter` (grasp point off by ~the offset). If
+   not, the slice can't detect memorisation.
+5. Record the jittered training set, train v3, score it offline, bench it with the perturbation test
+   (expect slope ~0) and paired against v2n.
+6. DAgger on v3 (9): needs a takeover feature first.
+7. Only then the hover A/B (1, Next 3).
+
 ## 1. Every bench run improves the hover
 
 Each attempt logs the detection, the hover target (`hover_xy`) and where ACT closed the gripper
@@ -42,7 +56,8 @@ Write-up: `docs/retrospectives/2026-10-23_hover_learning.md`.
 Next:
 1. The same test at an x ≥ 0.21 tile, returning the tile to the grasp point minus the offset, so it
    doesn't drift into its neighbours.
-2. A jittered dataset (7). Rerun this test on the policy trained from it; expect a slope near 0.
+2. A jittered dataset (7; `record.py --hover-jitter-mm` built 2026-10-23). Rerun this test on the
+   policy trained from it; expect a slope near 0.
 3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
    alternation as `--policy a,b` in 5), judged by the hover→grasp shift in mm as well as success,
    and **switching** by editing `data/hover_model.json` in one commit that cites the A/B session.
@@ -76,12 +91,19 @@ Next:
   | new | 6 new spots: between row-1 spots, row 2 left/right, reachable edges | bright, square | 6 × 2 |
   | dim | the 4 familiar spots | evening, lamp off, ceiling off (the freeze condition) | 4 × 2 |
   | tilt | 2 familiar spots, ±15° and ±30° | bright | 2 × 4 (reported, not gated) |
+  | jitter | the 6 new spots | bright, square, hover moved `--hover-offsets-mm 6x,-6y` | 6 × 2 |
+
+  Why a jitter slice: offline scores compare predictions with the demo. From a clean hover, v2's
+  memorised per-position move *is* the demo's move, so it scores well there. Only a demo that had to
+  steer from an offset hover can tell "steers to the tile" from "repeats a move". The offsets are a
+  fixed list, not random, so the slice can be recorded again identically.
 
   Steps:
   1. ~~Measure a tile's top face~~: 35 × 26 mm, confirmed 2026-10-23; teach and view checked on hardware.
   2. Teach the layouts: `layout.py --name eval_familiar --teach`, then `--add T1 --like S2 --yaw 15` for the
      tilted spots.
-  3. Record: `record.py --dataset Yewy/mahjong_mat_eval_v1 --slice familiar --layout eval_familiar`.
+  3. Record: `record.py --dataset Yewy/mahjong_mat_eval_v1 --slice familiar --layout eval_familiar`;
+     the jitter slice: `--slice jitter --layout eval_new --hover-offsets-mm 6x,-6y`.
   4. Register it: `offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1`.
   5. Check the dim slice predicts the hardware freeze: v2 should start descending late there.
 
@@ -198,8 +220,16 @@ A fixed protocol, so numbers compare across sessions and policies.
   per policy, so this is a data change. Because the narrowing is a time prefix, trimming the v2
   episodes (`trim_narrowing`) and retraining also works without new recordings. A/B it against v2
   at the current hover before changing the hover too.
+  **In progress 2026-10-23:** `pickup_mat_cl_v2n` (`make_policy.py --source
+  Yewy/mahjong_mat_pickup_lekiwi_cl_hover --version v2n --trim-narrowing`): 89 episodes, the 15 eval
+  episodes left out, so unlike v2 its offline scores are honest. It is the baseline for v3. If it does
+  worse than v2, record v3 at 90 % instead.
 - Record with deliberate random hover jitter (±~6 mm), so the policy has to find the tile in
   the image rather than in the mat position. Hover improvements (1) are then safe without a retrain.
+  **Built 2026-10-23:** `record.py --hover-jitter-mm R` (uniform over the disc, `--jitter-zero-fraction`
+  0.2 kept clean, `--jitter-seed`); an episode keeps its offset through ← and discards. Each log row
+  has `hover_jitter_xy`. Jittered demos stay valid hover-correction samples (grasp − detection).
+  Open: how many of v2's clean episodes to mix in; they carry the memorised per-position move.
 - More episodes at the edges and on the second row. No pauses mid-episode.
 - Consider an absolute gripper value instead of a delta (see the CLAUDE.md conventions).
 - Leave the eval split (2) out from the start.
@@ -208,3 +238,18 @@ A fixed protocol, so numbers compare across sessions and policies.
 
 Detect → pick → place / discard as a loop on top of the bench's pieces (hover, `policy.run`,
 place, discard). Do this after 4, so it builds on a policy the scorecard has shipped.
+
+## 9. DAgger: corrections on the policy's own mistakes
+
+Comes after v3 (sequence step 6), not before 8: DAgger fixes the situations the *deployed* policy gets
+itself into, so doing it on v2 would teach fixes for a policy that's being replaced. Today → only marks
+a moment and ACT carries on; DAgger needs a **takeover**: the operator takes the gamepad mid-pickup, and
+the frames from then on are recorded with the operator's actions as labels. Constraints:
+
+- Seed the gamepad from `Arm.commanded()`, never the measured pose (the takeover drop).
+- Hold the policy's gripper command until the operator changes it.
+- Store deltas from the attempt's hover (its first frame), not the takeover frame, or the labels mean
+  something different from every other episode. The pre-takeover frames are the policy's own and
+  shouldn't be trained on as demos (keep them, flagged).
+- Log each takeover as a rescue (3), so the scorecard still counts it.
+- DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
