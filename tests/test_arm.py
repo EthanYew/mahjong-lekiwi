@@ -68,8 +68,9 @@ def test_return_sets_down_at_grasp_height(tile):
     x, y = TILES[tile]
     start = {**config.REST_POSE, "gripper": 0.0}
     arm, robot = make_arm(start=start, holding=True)
-    released_at = arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None)
-    assert released_at == pytest.approx(PLACE_TIP_CLEARANCE_M, abs=CLEARANCE_TOLERANCE_M)
+    placed = arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None)
+    assert placed["released_at_m"] == pytest.approx(PLACE_TIP_CLEARANCE_M, abs=CLEARANCE_TOLERANCE_M)
+    assert placed["shift_m"] == 0 and placed["xy"] == pytest.approx([x, y])
     assert_no_jumps(robot, start)
     grips = [c["gripper"] for c in robot.sent]
     release = next(i for i, g in enumerate(grips) if g > 0)
@@ -79,6 +80,29 @@ def test_return_sets_down_at_grasp_height(tile):
     assert min(robot.clearances[:release]) >= (PLACE_TIP_CLEARANCE_M - CLEARANCE_TOLERANCE_M) * 1000
     assert lowest_tile_near_base(robot) > 0.040
     assert arm.is_at_rest()
+
+
+@pytest.mark.parametrize("grasp_xy", [(0.249, 0.196), (0.253, 0.200)])
+def test_a_grasp_beyond_reach_is_returned_a_little_closer(grasp_xy):
+    """2026-10-23: the policy closed on 4D at these points, past the IK's reach; both returns refused."""
+    x, y = grasp_xy
+    start = {**config.REST_POSE, "gripper": 0.0}
+    arm, robot = make_arm(start=start, holding=True)
+    placed = arm.place(x, y, approach_offset_m=0.050, log=lambda *a: None)
+    assert 0 < placed["shift_m"] <= 0.015
+    px, py = placed["xy"]
+    assert np.hypot(px - x, py - y) == pytest.approx(placed["shift_m"], abs=1e-6)
+    assert np.hypot(px - kinematics.SHOULDER_PAN_X, py) < np.hypot(x - kinematics.SHOULDER_PAN_X, y)
+    assert placed["released_at_m"] == pytest.approx(PLACE_TIP_CLEARANCE_M, abs=CLEARANCE_TOLERANCE_M)
+    assert_no_jumps(robot, start)
+    assert arm.is_at_rest()
+
+
+def test_a_return_far_out_of_reach_does_not_move():
+    start = {**config.REST_POSE, "gripper": 0.0}
+    arm, robot = make_arm(start=start, holding=True)
+    assert arm.place(0.40, 0.25, approach_offset_m=0.050, log=lambda *a: None) is None
+    assert robot.sent == []
 
 
 def test_rest_does_not_reconfigure_at_the_folded_pose():

@@ -36,12 +36,30 @@ AT_REST_TOLERANCE_DEG = 3.0
 
 PLACE_TIP_CLEARANCE_M = 0.010     # recorded grasps closed with the tip at 7mm (median)
 RETURN_EXTRA_CLEARANCE_M = 0.030
+PLACE_MAX_SHIFT_M = 0.015         # a return may move this far toward the shoulder to fit the reach (place_point)
 PLACE_DESCEND_TIME_S = 2.0
 RELEASE_TIME_S = 0.6
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
 HOLDING_MARGIN = 5.0         # gripper commanded shut but measured this much wider: something is held
 GRIP_CLOSED_BELOW = 5.0
+
+
+def place_point(x, y, approach_offset_m, gripper):
+    """(x, y), or the nearest point toward the shoulder (at most PLACE_MAX_SHIFT_M in), from which the
+    whole set-down is reachable: every height from the release up to the approach. (x, y, shift_m), or
+    None. 2026-10-23: the policy closed on 4D 11-12mm beyond its hover, ~0.29m from the shoulder and
+    outside the IK's envelope (15 deg tilt, 10 deg joint margins), though the policy got there; 7 and
+    13mm in fit. Tiles sit 57mm+ apart, so 15mm still clears the neighbours. Reaching the approach
+    height alone isn't enough: 4mm in reached 50mm up but not the release, and would drop the tile."""
+    r = np.hypot(x - kinematics.SHOULDER_PAN_X, y)
+    heights = np.append(np.arange(PLACE_TIP_CLEARANCE_M, approach_offset_m, 0.005), approach_offset_m)
+    for shift in np.arange(0.0, PLACE_MAX_SHIFT_M + 1e-9, 0.001):
+        k = 1 - shift / r
+        px, py = kinematics.SHOULDER_PAN_X + (x - kinematics.SHOULDER_PAN_X) * k, y * k
+        if all(kinematics.hover_command(px, py, h, gripper)[0] is not None for h in heights):
+            return float(px), float(py), float(shift)
+    return None
 
 
 class Arm:
@@ -231,18 +249,23 @@ class Arm:
     def place(self, x, y, approach_offset_m, log=print):
         """Set a held tile down with the tool point over (x, y): approach from above (extra height for
         the swing), measure the sag, descend until the measured tip is PLACE_TIP_CLEARANCE_M above the
-        grasp point, release, lift, rest. Returns the measured clearance at release, or None if out of
-        reach (nothing moved)."""
+        grasp point, release, lift, rest. Beyond reach, (x, y) moves toward the shoulder (place_point).
+        Returns {released_at_m (the measured clearance at release), xy, shift_m}, or None if out of reach
+        even so (nothing moved)."""
         held = self.commanded()["gripper"]
-        above = None
+        point = place_point(x, y, approach_offset_m, held)
+        if point is None:
+            log(f"  ({x:.3f}, {y:+.3f}) is out of reach, even {PLACE_MAX_SHIFT_M * 1000:.0f}mm closer — not moving")
+            return None
+        if point[2]:
+            log(f"  ({x:.3f}, {y:+.3f}) is out of reach: setting down {point[2] * 1000:.0f}mm closer, "
+                f"at ({point[0]:.3f}, {point[1]:+.3f})")
+        x, y, shift = point
         for extra in (SETTLE_FROM_ABOVE_M + RETURN_EXTRA_CLEARANCE_M, SETTLE_FROM_ABOVE_M, 0.0):
             above_offset = approach_offset_m + extra
             above, _ = kinematics.hover_command(x, y, above_offset, held)
-            if above is not None:
+            if above is not None:       # at the latest with extra 0: place_point checked that height
                 break
-        if above is None:
-            log(f"  ({x:.3f}, {y:+.3f}) is out of reach — not moving")
-            return None
         self.raise_from_rest()
         self.move_to(above, MOVE_TIME_S)
         self.sleep(SETTLE_S)
@@ -254,7 +277,7 @@ class Arm:
         self.sleep(0.3)
         self.move_to({j: above[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
         self.rest()
-        return released_at
+        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift}
 
     def go_to_pose(self, pose, duration=MOVE_TIME_S):
         """A taught arm pose (e.g. over the discard container), via the raised rest; gripper untouched."""

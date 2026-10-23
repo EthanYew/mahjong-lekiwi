@@ -2,7 +2,8 @@
 
     1 hover          detect, choose a tile, hover over it (corrected, settled from above)
     2 pickup         hover, then the policy picks it up; parks at rest holding it
-    3 return         put the held tile back where the jaws closed on it, then rest
+    3 return         put the held tile back where the jaws closed on it (or up to 15mm closer, if that's
+                     beyond reach), then rest
     4 discard        carry the held tile to the taught discard pose and release it, then rest
     5 teach-discard  drive the arm over the discard container with the gamepad and save that pose
     6 trials         pickup -> success check -> return, N times on one tile; prints the success rate
@@ -249,12 +250,16 @@ class Bench:
             return print("Not holding a tile.")
         x, y = self.held["return_xy"]
         print(f"Returning {self.held['tile_name']} to ({x:.3f}, {y:+.3f})")
-        released_at = self.arm.place(x, y, self.held["approach_offset_m"])
-        if released_at is not None:
-            self.session.event("return", tile=self.held["tile_name"], xy=[x, y], released_at_m=released_at)
-            # the returned tile, where the camera saw it (return_xy is the arm's target, ~40mm from that)
-            self.scan("after_return", attempt_dir=self.held["attempt_dir"], target_xy=self.held["detection_xy"])
-            self.held = None
+        placed = self.arm.place(x, y, self.held["approach_offset_m"])
+        if placed is None:
+            print("Still holding it — discard it instead.")
+            self.session.event("return_skipped", reason="unreachable", tile=self.held["tile_name"], xy=[x, y],
+                               attempt_dir=self.held["attempt_dir"])
+            return
+        self.session.event("return", tile=self.held["tile_name"], asked_xy=[x, y], **placed)
+        # the returned tile, where the camera saw it (return_xy is the arm's target, ~40mm from that)
+        self.scan("after_return", attempt_dir=self.held["attempt_dir"], target_xy=self.held["detection_xy"])
+        self.held = None
 
     def discard(self, ask=True):
         if not config.DISCARD_POSE.exists():
@@ -314,6 +319,9 @@ class Bench:
                 results.append(success)
                 if self.held:
                     self.return_tile()
+                if self.held:
+                    print("Couldn't return it — stopping the trials.")
+                    break
         finally:        # even when interrupted: what you marked is still worth a word
             rate = f"{sum(results)}/{len(results)}"
             self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=results)
