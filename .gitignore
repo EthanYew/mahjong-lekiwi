@@ -3,5 +3,7 @@ __pycache__/
 .pytest_cache/
 sessions/
 outputs/
+# layout ghost photos and captures: valid only for the current camera placement (data/layouts.json is committed)
+data/layouts/
 *.rrd
 .DS_Store
