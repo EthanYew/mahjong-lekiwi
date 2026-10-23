@@ -67,9 +67,13 @@ A fixed protocol, so numbers compare across sessions and policies.
   - *ship* if the offline gates pass, no position gets worse by more than noise, and there's no new
     failure type;
   - *revert* if success falls on any position or interventions rise.
-- **Be honest about sample size.** 9/9 has a 95 % lower bound of ~66 %. 20 attempts can tell 95 %
-  from 70 %, not 95 % from 90 %. Compare policies **paired**, alternating them on the same
-  positions in one session (5), so lighting and battery are the same for both.
+- **Be honest about sample size** (exact binomial, 95 %). 9/9 → true rate 66-100 %; 19/20 → 75-100 %;
+  48/50 → 86-100 %. Against a fixed bar, 20 attempts of a 95 % policy clear "> 70 %" only 74 % of the
+  time (50 attempts: always). Comparing two policies is harder: at 20 attempts each, a real 95 % vs
+  70 % difference is detected 45 % of the time (40 each: 82 %), and 95 % vs 90 % is out of reach
+  (2 %; 41 % even at 200 each). So use the bench to catch big regressions and failure modes, not
+  small gains; compare policies **paired**, alternating them on the same positions in one session
+  (5), so lighting and battery are the same for both.
 - `session_report.py --all` is the start. It would grow into a per-policy table over all sessions.
 
 ## 5. Bench features those need
