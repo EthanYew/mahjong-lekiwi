@@ -179,18 +179,28 @@ A fixed protocol, so numbers compare across sessions and policies.
 
 ## 5. Bench features those need
 
-- `--policy a,b`: alternate two policies on the same tile, for paired comparisons.
-- `--positions`: walk a list of tiles or positions (the standard eval in 4), with a success map over
-  the mat.
-- Full wrist video per attempt (for 2).
-- Auto-return / re-detect when a trial's tile isn't where it was.
+**Done (2026-10-23)**, checked in `--sim` only; still needs a session on the arm:
+- `--policy a,b`: trials run in rounds, each policy once per round from the same hover offset and
+  its own hover, alternating order (a b, b a) so a drift over the session doesn't favour one.
+- `--layout NAME` (instead of `--positions`): trials walk the spots of a layout taught with
+  `scripts/layout.py`, picking the tile detected nearest each spot. An empty spot is skipped (an
+  observation) and the walk goes on. `session_report.py` prints success per spot x policy.
+- `wrist.mp4` per attempt: every frame `policy.run` saw (for replaying a new policy, 2). Check on the
+  arm that encoding keeps the loop at 30 Hz.
+- Re-detect: already the case. Every trial scans before choosing, and the scans around it flag moved
+  tiles (3).
+
+Left, moved to 8: return accuracy. The bench puts a tile back where the jaws closed, so it drifts
+with a perturbed hover (the item-1 test at x ≥ 0.21 needs this). Autonomous play needs accurate
+placing anyway.
 
 ## 6. Housekeeping
 
-- A pre-commit hook that runs the 5 s fast tests, so a motion change that breaks an invariant can't
-  be committed.
-- A Claude Code skill / slash command: "review the latest session". It runs `session_report`, reads
-  the contact sheet and compares the run with `--all`.
+- ~~A pre-commit hook that runs the fast tests~~ Done: `scripts/hooks/pre-commit` (~13 s), on with
+  `git config core.hooksPath scripts/hooks`.
+- Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
+  the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
+  interventions and the CLAUDE.md says to run it first.
 
 ## 7. The next dataset
 
@@ -200,6 +210,7 @@ A fixed protocol, so numbers compare across sessions and policies.
   at the current hover before changing the hover too.
 - Record with deliberate random hover jitter (±~6 mm), so the policy has to find the tile in
   the image rather than in the mat position. Hover improvements (1) are then safe without a retrain.
+  `record.py --hover-jitter-mm 6` (logged per episode as `hover_jitter_xy`); leave eval recordings at 0.
 - More episodes at the edges and on the second row. No pauses mid-episode.
 - Consider an absolute gripper value instead of a delta (see the CLAUDE.md conventions).
 - Leave the eval split (2) out from the start.
@@ -207,4 +218,6 @@ A fixed protocol, so numbers compare across sessions and policies.
 ## 8. Autonomous play
 
 Detect → pick → place / discard as a loop on top of the bench's pieces (hover, `policy.run`,
-place, discard). Do this after 4, so it builds on a policy the scorecard has shipped.
+place, discard). Do this after 4, so it builds on a policy the scorecard has shipped. The bench's
+`--layout` walk is the same loop shape. Return accuracy (from 5) belongs here: place where the tile
+was detected, not where the jaws closed.

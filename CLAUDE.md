@@ -11,7 +11,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   (slow = loads policies from the HF cache, needs the GPU). A pre-commit hook runs the fast tests
   (~13 s); turn it on once per clone with `git config core.hooksPath scripts/hooks`.
 - No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3 --tile 8D` (without
-  `--tile` it asks which tile).
+  `--tile` it asks which tile). Paired comparison across the mat: `--policy a,b --layout NAME --trials N`
+  (rounds alternate a b / b a from the same hover offset; each attempt saves `wrist.mp4`).
+- Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
+  learned a fixed move per position). Eval recordings stay at 0.
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
   [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
   sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
