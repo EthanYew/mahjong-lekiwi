@@ -1,5 +1,4 @@
 """Preflight: missing hardware is reported with a retry / quit choice, before any session exists."""
-import argparse
 import sys
 from pathlib import Path
 
@@ -65,5 +64,5 @@ def test_bench_creates_no_session_when_you_quit_at_preflight(tmp_path, monkeypat
     monkeypatch.setitem(hardware.OPENERS, "realsense", lambda **k: Device("rs"))
     monkeypatch.setattr("builtins.input", lambda _: "q")
     with pytest.raises(SystemExit):
-        bench.Bench(argparse.Namespace(policy=None, trials=None, tile=None, sim=False, device=None))
+        bench.Bench(bench.parse_args([]))
     assert list(tmp_path.iterdir()) == []

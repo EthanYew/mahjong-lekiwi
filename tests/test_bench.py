@@ -1,5 +1,4 @@
 """The bench end to end on simulated hardware: trials write a complete, reportable session."""
-import argparse
 import sys
 from pathlib import Path
 
@@ -15,8 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 def test_sim_trials_write_a_complete_session(tmp_path, monkeypatch):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    args = argparse.Namespace(policy=None, trials=2, tile="8D", sim=True, device=None, hover_perturb_mm=None)
-    b = bench.Bench(args)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "2", "--tile", "8D"]))
     try:
         b.arm.rest()
         b.trials(2, "8D")
@@ -38,9 +36,8 @@ def test_sim_trials_write_a_complete_session(tmp_path, monkeypatch):
 def test_perturbed_trials_offset_the_hover_and_set_their_samples_aside(tmp_path, monkeypatch):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    offsets = bench.parse_perturb("0,6x")
-    assert offsets == [(0.0, 0.0), (0.006, 0.0)]
-    args = argparse.Namespace(policy=None, trials=2, tile="8D", sim=True, device=None, hover_perturb_mm=offsets)
+    args = bench.parse_args(["--sim", "--trials", "2", "--tile", "8D", "--hover-perturb-mm", "0,6x"])
+    assert args.hover_perturb_mm == [(0.0, 0.0), (0.006, 0.0)]
     b = bench.Bench(args)
     try:
         b.arm.rest()
@@ -59,8 +56,7 @@ def test_perturbed_trials_offset_the_hover_and_set_their_samples_aside(tmp_path,
 def sim_bench(tmp_path, monkeypatch, trials=2):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    args = argparse.Namespace(policy=None, trials=trials, tile="8D", sim=True, device=None, hover_perturb_mm=None)
-    b = bench.Bench(args)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", str(trials), "--tile", "8D"]))
     b.arm.rest()
     return b
 
@@ -177,9 +173,8 @@ def test_paired_policies_take_turns_from_the_same_offset_and_their_own_hover(tmp
     import bench
     from mahjong.sim import SimPolicy
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    args = argparse.Namespace(policy="a,b", trials=3, tile="8D", sim=True, device=None,
-                              hover_perturb_mm=bench.parse_perturb("0,6x"), layout=None)
-    b = bench.Bench(args)
+    b = bench.Bench(bench.parse_args(["--sim", "--policy", "a,b", "--trials", "3", "--tile", "8D",
+                                      "--hover-perturb-mm", "0,6x"]))
     b.policies[1].hover = {**SimPolicy.hover, "clearance_m": SimPolicy.hover["clearance_m"] + 0.01}
     try:
         b.arm.rest()
@@ -206,9 +201,7 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
     layout.save("walk", [{"id": "L", "xy": [0.21, 0.02]}, {"id": "empty", "xy": [0.25, 0.10]},
                          {"id": "R", "xy": [0.160, -0.165]}])
-    args = argparse.Namespace(policy=None, trials=2, tile=None, sim=True, device=None, hover_perturb_mm=None,
-                              layout="walk")
-    b = bench.Bench(args)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "2", "--layout", "walk"]))
     b.realsense.tiles = [t for t in b.realsense.tiles if t["tile_name"] != "3B"]   # the sim lift can't reach it:
     b.realsense.tiles.append({"tile_name": "5C", "xy": [0.212, 0.021]})           # a tile placed near spot L instead
     try:

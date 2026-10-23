@@ -44,6 +44,7 @@ session_report.py prints success per spot and policy side by side.
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -52,10 +53,9 @@ import cv2
 
 from mahjong import config, interventions, layout
 from mahjong.arm import Arm
-from mahjong.hover_correction import HoverCorrection, append_record, grasp_record
-from mahjong.hover_correction import parse_offsets as parse_perturb
+from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
-from mahjong.session import Session, ask_conditions
+from mahjong.session import Session, ask_conditions, ask_notes
 
 
 class Abort:
@@ -88,7 +88,7 @@ class Bench:
         self.args = args
         ids = parse_policies(args.policy)
         # before connecting anything, so a typo fails fast
-        self.spots = layout.load(args.layout)["spots"] if getattr(args, "layout", None) else None
+        self.spots = layout.load(args.layout)["spots"] if args.layout else None
         if args.sim:
             from mahjong.sim import SimCamera, SimPerception, SimPolicy, SimRobot
             mat = SimPerception()
@@ -129,7 +129,7 @@ class Bench:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
                            policies=[{"id": p.id, "hover": p.hover} for p in self.policies],
-                           layout=getattr(args, "layout", None), spots=self.spots,
+                           layout=args.layout, spots=self.spots,
                            correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
 
     # --- pieces ---
@@ -309,7 +309,6 @@ class Bench:
 
     def teach_discard(self):
         from mahjong import hardware
-        import time
         try:
             gamepad = hardware.connect(["gamepad"], gamepad_kwargs={"device": self.args.device, "commit_s": 0.0})["gamepad"]
         except SystemExit:
@@ -369,7 +368,7 @@ class Bench:
             self.policy = self.policies[0]
             self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=[d[2] for d in done],
                                policies=[d[1] for d in done], spots=[d[0] for d in done],
-                               layout=getattr(self.args, "layout", None), skipped_spots=sorted(skipped))
+                               layout=self.args.layout, skipped_spots=sorted(skipped))
             print()
             for where in dict.fromkeys(d[0] for d in done):
                 for policy in self.policies:
@@ -408,7 +407,7 @@ class Bench:
         """The setup changed mid-session: ask the setup questions again, the current answers as defaults."""
         drain_stdin()
         conditions = ask_conditions(self.session.conditions, confirm=False)
-        notes = input("Anything else to note (Enter to skip): ").strip()
+        notes = ask_notes()
         self.session.conditions = conditions
         self.session.event("conditions_changed", conditions=conditions, notes=notes)
 
@@ -426,7 +425,7 @@ class Bench:
         try:
             self.arm.rest()
         finally:
-            self.arm.robot.disconnect()
+            self.arm.disconnect()
             self.camera.release()
             self.realsense.close()
             if self.listener:
@@ -447,18 +446,24 @@ def parse_policies(text):
 COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "note", "setup", "quit"]
 
 
-def main():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--policy", default=None,
                    help="policy id from data/policies.json (default: its 'default'); a,b compares them paired in trials")
-    p.add_argument("--trials", type=int, default=None, help="run this many pickup/return trials, then quit")
+    p.add_argument("--trials", type=int, default=None,
+                   help="run this many rounds of pickup/return trials, then quit: a round is one attempt per policy, "
+                        "at every spot with --layout")
     p.add_argument("--tile", default=None, help="tile name for --trials")
     p.add_argument("--layout", default=None, help="trials walk this layout's spots (scripts/layout.py)")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
-    p.add_argument("--hover-perturb-mm", type=parse_perturb, default=None,
+    p.add_argument("--hover-perturb-mm", type=parse_offsets, default=None,
                    help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
-    args = p.parse_args()
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     bench = Bench(args)
     actions = {"hover": bench.hover, "pickup": bench.pickup, "return": bench.return_tile, "discard": bench.discard,
                "teach-discard": bench.teach_discard, "trials": bench.trials, "rest": bench.arm.rest,

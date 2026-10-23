@@ -79,7 +79,7 @@ def ask_conditions(previous, questions=None, ask=None, confirm=True):
     defaults = {q["key"]: previous.get(q["key"], fresh[q["key"]]) if q["sticky"] else fresh[q["key"]]
                 for q in questions}
     if previous and confirm:
-        print("Setup: " + ", ".join(f"{k}={_shown(v)}" for k, v in defaults.items()))
+        print(f"Setup: {conditions_text(defaults)}")
         if ask("Same as that? [Enter = yes / c = change]: ").strip().lower() not in ("c", "change", "n", "no"):
             return defaults
     else:
@@ -87,8 +87,18 @@ def ask_conditions(previous, questions=None, ask=None, confirm=True):
     return {q["key"]: ask_one(q, defaults[q["key"]], ask) for q in questions}
 
 
+def ask_notes(ask=None):
+    return (ask or input)("Anything else to note (Enter to skip): ").strip()
+
+
 def _shown(value):
     return {True: "y", False: "n"}.get(value, value) if isinstance(value, bool) else value
+
+
+def conditions_text(conditions, notes=""):
+    """Setup answers (and notes) as one line: "daylight=bright, lamp=y, ...; notes"."""
+    text = ", ".join(f"{k}={_shown(v)}" for k, v in conditions.items())
+    return "; ".join(t for t in (text, notes) if t)
 
 
 class Session:
@@ -96,17 +106,15 @@ class Session:
         conditions, notes = {}, ""
         if ask_setup:          # before the folder exists, so quitting here leaves nothing behind
             conditions = ask_conditions(previous_conditions())
-            notes = input("Anything else to note (Enter to skip): ").strip()
+            notes = ask_notes()
         self.conditions, self.notes = conditions, notes
         self.dir = config.SESSIONS / f"{datetime.now():%Y%m%d_%H%M%S}_{kind}"
         self.dir.mkdir(parents=True)
         self._log = open(self.dir / "session.log", "a")
         self._stdout, self._stderr = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
-        self.conditions = conditions
         self.event("session_start", kind=kind, commit=git_commit(), conditions=conditions, notes=notes, **setup)
-        print(f"Session: {self.dir}" + (f"\nSetup: {', '.join(f'{k}={_shown(v)}' for k, v in conditions.items())}"
-                                        if conditions else ""))
+        print(f"Session: {self.dir}" + (f"\nSetup: {conditions_text(conditions)}" if conditions else ""))
 
     def event(self, type, **fields):
         record = {"time": datetime.now().isoformat(timespec="seconds"), "type": type, **fields}

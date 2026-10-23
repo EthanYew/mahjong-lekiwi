@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, interventions
-from mahjong.session import read_events
+from mahjong.session import conditions_text, read_events
 
 THUMB = (240, 180)
 
@@ -54,10 +54,9 @@ def contact_sheet(session_dir, attempts, tags=None):
         return path
 
 
-def conditions_text(start):
-    shown = {True: "y", False: "n"}
-    text = ", ".join(f"{k}={shown.get(v, v) if isinstance(v, bool) else v}" for k, v in start.get("conditions", {}).items())
-    return "; ".join(t for t in (text, start.get("notes", "")) if t)
+def setup_text(start):
+    """A session's setup answers and notes, from its session_start event."""
+    return conditions_text(start.get("conditions", {}), start.get("notes", ""))
 
 
 def act_seconds(attempt):
@@ -169,7 +168,7 @@ def all_sessions():
         policies = ",".join(sorted({a["policy"] for a in attempts}))
         rescues = interventions.summary(interventions.derive(events), attempts)["rescues_per_10"]
         print(f"{folder.name:<24} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
-              f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {conditions_text(start)}")
+              f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}")
 
 
 def main():
@@ -183,8 +182,8 @@ def main():
     events = read_events(session_dir)
     start = next((e for e in events if e["type"] == "session_start"), {})
     print(f"{session_dir.name}: {start.get('kind')} at commit {start.get('commit')}")
-    if conditions_text(start):
-        print(f"  setup: {conditions_text(start)}")
+    if setup_text(start):
+        print(f"  setup: {setup_text(start)}")
     attempts = [e for e in events if e["type"] == "attempt"]
     if attempts:
         print(f"\n{len(attempts)} pickup attempt(s), {sum(a['success'] for a in attempts)} picked up")
