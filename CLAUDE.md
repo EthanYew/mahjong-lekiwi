@@ -8,7 +8,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 
 - Python: `~/miniforge3/envs/lerobot/bin/python`, from the repo root (scripts add it to `sys.path`).
 - Fast tests (no hardware, seconds): `python -m pytest -m "not slow"`. Everything: `python -m pytest`
-  (slow = loads policies from the HF cache, needs the GPU).
+  (slow = loads policies from the HF cache, needs the GPU). A pre-commit hook runs the fast tests
+  (~13 s); turn it on once per clone with `git config core.hooksPath scripts/hooks`.
 - No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3 --tile 8D` (without
   `--tile` it asks which tile).
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
