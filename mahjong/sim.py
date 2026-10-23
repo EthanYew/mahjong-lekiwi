@@ -83,12 +83,18 @@ SIM_TILES = [("9D", 0.140, 0.200), ("3B", 0.151, 0.018), ("8D", 0.160, -0.165)]
 
 
 class SimPerception:
+    intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
+
+    def __init__(self):
+        self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
+
     def detect_tiles(self, n_frames=None):
         return [{"tile_name": n, "confidence": 0.9, "xy": (x, y), "z": config.grasp_z(x, y), "reads": 5, "pixel": (0, 0)}
                 for n, x, y in SIM_TILES]
 
     def snapshot(self):
-        return np.zeros((480, 848, 3), dtype=np.uint8)
+        from .layout import render
+        return render([(x, y, 0.0) for _, x, y in SIM_TILES], self.intrinsics, self.T_cam_to_base)
 
     def close(self):
         pass

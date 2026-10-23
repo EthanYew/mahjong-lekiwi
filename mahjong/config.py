@@ -39,6 +39,8 @@ TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one phy
 TABLE_Z0, TABLE_SLOPE_X, TABLE_SLOPE_Y = -0.0678, -0.143, -0.002
 GRASP_POINT_ABOVE_TABLE_M = 0.005      # tile heights and clearances are measured from here
 TILE_THICKNESS_M = 0.020               # so the tile's top face is ~15mm above the grasp point
+TILE_FACE_M = (0.035, 0.026)           # top face, long x short side (long side along x when square). A guess:
+                                       # RealSense frames (~1.5mm/px, side faces included) read ~38x29.5 — measure
 
 
 def table_z(x, y):
@@ -65,6 +67,9 @@ ACT_DURATION_S = 16.0                  # cap; a pickup normally stops itself onc
 # --- files ---
 POLICIES = DATA / "policies.json"
 HOVER_CORRECTIONS = DATA / "hover_corrections.jsonl"
+LAYOUTS = DATA / "layouts.json"           # named tile layouts for placing tiles (mahjong/layout.py)
+EVAL_SPLIT = DATA / "eval_split.json"     # episodes never trained on (mahjong/offline_eval.py)
+OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
 DISCARD_POSE = DATA / "discard_pose.json"
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
