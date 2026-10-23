@@ -7,12 +7,18 @@
     5 teach-discard  drive the arm over the discard container with the gamepad and save that pose
     6 trials         pickup -> success check -> return, N times on one tile; prints the success rate
     7 rest           lift if low, then park (never opens the gripper)
-    8 quit
+    8 note           log something you had to do (straightened tiles, put tiles back, ...) for the last attempt
+    9 setup          the setup changed mid-session (lamp on, battery swapped): answer the setup questions again
+   10 quit
 
-Type a number or a name. During a pickup, Esc stops the policy. Everything goes in a session folder
-(sessions/<time>_bench/): the terminal log, events.jsonl, and per attempt the wrist frames,
-act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
-summarises the latest one.
+Type a number or a name. During a pickup, Esc stops the policy, and → marks the moment without
+stopping it ("something happened here": a hand on the tile or the base, a caught drop, or just "look
+at this"); you're asked what afterwards, or at the end of a batch of trials. Clean attempts ask
+nothing extra. Everything goes in a session folder (sessions/<time>_bench/): the terminal log,
+events.jsonl (with a RealSense scan before and after each pickup, return and discard, so knocked
+tiles and tiles put back by hand show up without anyone saying so), and per attempt the wrist
+frames, act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
+summarises the latest one, interventions included (mahjong/interventions.py).
 
     python scripts/bench.py                         # interactive, default policy
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
@@ -34,11 +40,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config
+from mahjong import config, interventions
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record
 from mahjong.perception import choose_tile, drain_stdin
-from mahjong.session import Session
+from mahjong.session import Session, ask_conditions
 
 
 class Abort:
@@ -53,13 +59,27 @@ class Abort:
         return self.events["stop_recording"]
 
 
+class Mark:
+    """→ during ACT, from the same listener, as policy.run's `mark`. → sets only exit_early (← also
+    sets it, so marks too); Esc sets it as well, but that's an abort."""
+    def __init__(self, events):
+        self.events = events
+
+    def clear(self):
+        self.events["exit_early"] = self.events["rerecord_episode"] = False
+
+    def is_set(self):
+        return self.events["exit_early"] and not self.events["stop_recording"]
+
+
 class Bench:
     def __init__(self, args):
         self.args = args
         if args.sim:
             from mahjong.sim import SimCamera, SimPerception, SimPolicy, SimRobot
-            self.arm = Arm(SimRobot(), sleep=lambda s: None)
-            self.camera, self.realsense, self.policy = SimCamera(), SimPerception(), SimPolicy()
+            mat = SimPerception()
+            self.arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
+            self.camera, self.realsense, self.policy = SimCamera(), mat, SimPolicy(mat=mat)
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
             self.listener = None
             self.session = Session("bench", ask_setup=False, policy="sim", sim=True)
@@ -73,29 +93,45 @@ class Bench:
             self.session = Session("bench", policy=args.policy or "default", sim=False)
             self.policy = Policy(args.policy)
             self.listener, self.events = init_keyboard_listener()
-        self.abort = Abort(self.events)
+        self.abort, self.mark = Abort(self.events), Mark(self.events)
+        if self.arm.at_connect:
+            self.session.event("connect", **self.arm.at_connect)
+        self.last_attempt = None    # attempt_dir of the latest attempt: what a note or an interruption belongs to
+        self.to_review = []         # (attempt_dir, tile, run) marked or aborted during trials, asked at the end
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
-        self.held = None        # {"tile_name", "return_xy", "approach_offset_m"} while holding a tile
+        self.held = None        # {"tile_name", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
         print(f"Policy: {self.policy.id}, hover {self.policy.hover}\nHover correction: {self.correction.summary()}")
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
                            correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
 
     # --- pieces ---
 
+    def scan(self, label, **fields):
+        """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
+        mat (interventions.derive)."""
+        tiles = self.realsense.detect_tiles()
+        self.session.event("detections", label=label, **fields,
+                           tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads")} for t in tiles])
+        return tiles
+
     def choose(self, tile_name=None):
         if not self.arm.is_at_rest():
             self.arm.rest()
-        tiles = self.realsense.detect_tiles()
+        tiles = self.scan("choose")
         if not tiles:
             print("No tiles detected.")
+            self.session.event("attempt_skipped", reason="no_tiles", tile=tile_name)
             return None
         if tile_name is None:
             drain_stdin()
         tile = choose_tile(tiles, tile_name=tile_name)
-        if tile is None and tile_name is not None:
-            print(f"{tile_name} not detected (seen: {', '.join(t['tile_name'] for t in tiles)})")
+        if tile is None:
+            if tile_name is not None:
+                print(f"{tile_name} not detected (seen: {', '.join(t['tile_name'] for t in tiles)})")
+            self.session.event("attempt_skipped", reason="cancelled" if tile_name is None else "not_detected",
+                               tile=tile_name)
         return tile
 
     def hover_over(self, tile, perturb=(0.0, 0.0)):
@@ -108,6 +144,7 @@ class Bench:
         result = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
         if result is None:
             print("Unreachable from the closed-loop hover.")
+            self.session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
         return result
 
     def snapshot(self, path):
@@ -137,22 +174,27 @@ class Bench:
         if hover is None:
             return None
         self.abort.clear()
-        run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort)
+        run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
         self.arm.rest()
         holding, command, measured = self.arm.holding()
         self.snapshot(attempt / "overview_after.jpg")
-        success = holding
+        self.scan("after_pickup", attempt_dir=attempt.name, target_xy=list(tile["xy"]))
+        success, review = holding, {}
         if ask:
             drain_stdin()
             answer = input(f"Picked it up? (gripper commanded {command:.0f}, measured {measured:.0f}: looks "
                            f"{'held' if holding else 'empty'}) [{'Y/n' if holding else 'y/N'}]: ").strip().lower()
             success = holding if not answer else answer.startswith("y")
+            review = self.review(attempt.name, tile["tile_name"], run)
+        elif run["aborted"] or run["marks_s"]:
+            self.to_review.append((attempt.name, tile["tile_name"], run))
         self.session.event("attempt", tile=tile["tile_name"], policy=self.policy.id, detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
                            correction=self.correction.name, hover_perturb_xy=list(perturb),
-                           hover_sag_xyz_m=hover.get("sag_xyz_m"), **run)
+                           hover_sag_xyz_m=hover.get("sag_xyz_m"), **run, **review)
+        self.last_attempt = attempt.name
         if success and run["grasp_xy"]:
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
@@ -163,9 +205,22 @@ class Bench:
             append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "return_xy": run["grasp_xy"] or hover["hover_xy"],
-                         "approach_offset_m": hover["offset_m"]}
+                         "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
+
+    def review(self, attempt_dir, tile_name, run):
+        """Ask about an aborted or marked attempt: {abort_reason, mark_kind, mark_note}; {} (no question)
+        for a clean one."""
+        answers, what = {}, f"{attempt_dir} ({tile_name})"
+        if run["aborted"] or run["marks_s"]:
+            drain_stdin()
+        if run["aborted"]:
+            answers["abort_reason"] = interventions.ask_abort(what)
+        if run["marks_s"]:
+            when = ", ".join(f"{t:.1f}s" for t in run["marks_s"])
+            answers["mark_kind"], answers["mark_note"] = interventions.ask_mark(f"{what}, marked at {when}")
+        return {k: v for k, v in answers.items() if v}
 
     def return_tile(self):
         if not self.held:
@@ -175,16 +230,23 @@ class Bench:
         released_at = self.arm.place(x, y, self.held["approach_offset_m"])
         if released_at is not None:
             self.session.event("return", tile=self.held["tile_name"], xy=[x, y], released_at_m=released_at)
+            self.scan("after_return", attempt_dir=self.held["attempt_dir"], return_xy=[x, y])
             self.held = None
 
-    def discard(self):
+    def discard(self, ask=True):
         if not config.DISCARD_POSE.exists():
             return print("No discard pose yet — use teach-discard first.")
         pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
+        held = self.held or {}
         self.arm.go_to_pose(pose)
         self.arm.set_gripper(config.GRIPPER_RELEASE)
         self.arm.rest()
-        self.session.event("discard", tile=self.held["tile_name"] if self.held else None)
+        self.session.event("discard", tile=held.get("tile_name"), attempt_dir=held.get("attempt_dir"))
+        if held and ask:
+            drain_stdin()
+            if input("In the container? [Y/n]: ").strip().lower().startswith("n"):
+                self.session.intervention("discard_missed", attempt_dir=held["attempt_dir"])
+        self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
         self.held = None
 
     def teach_discard(self):
@@ -217,19 +279,60 @@ class Bench:
             tile_name = input("Which tile (name)? ").strip() or None
         results = []
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
-        for i in range(n):
-            perturb = offsets[i % len(offsets)]
-            print(f"\n=== trial {i + 1}/{n} ===")
-            success = self.pickup(tile_name, ask=False, perturb=perturb)
-            if success is None:
-                print("Couldn't attempt (tile not found or unreachable) — stopping the trials.")
-                break
-            results.append(success)
-            if self.held:
-                self.return_tile()
-        rate = f"{sum(results)}/{len(results)}"
-        self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=results)
-        print(f"\n{tile_name or 'trials'}: {rate} picked up")
+        try:
+            for i in range(n):
+                perturb = offsets[i % len(offsets)]
+                print(f"\n=== trial {i + 1}/{n} ===")
+                success = self.pickup(tile_name, ask=False, perturb=perturb)
+                if success is None:
+                    print("Couldn't attempt (tile not found or unreachable) — stopping the trials.")
+                    break
+                results.append(success)
+                if self.held:
+                    self.return_tile()
+        finally:        # even when interrupted: what you marked is still worth a word
+            rate = f"{sum(results)}/{len(results)}"
+            self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=results)
+            print(f"\n{tile_name or 'trials'}: {rate} picked up")
+            self.review_queued()
+
+    def review_queued(self):
+        """The marked or aborted trials, one question each (clean ones ask nothing)."""
+        if self.to_review:
+            print(f"\n{len(self.to_review)} attempt(s) to say a word about:")
+        for attempt_dir, tile_name, run in self.to_review:
+            answers = self.review(attempt_dir, tile_name, run)
+            if answers:
+                self.session.event("attempt_review", attempt_dir=attempt_dir, **answers)
+        self.to_review = []
+
+    def note(self):
+        """Log something a person had to do that nothing else caught, against the latest attempt."""
+        drain_stdin()
+        what = f"What did you do{f' (after {self.last_attempt})' if self.last_attempt else ''}"
+        kind = interventions.ask_kind(what, interventions.NOTE_KINDS)
+        if kind is None:
+            return print("Nothing logged.")
+        text = input("  in a few words (Enter to skip): ").strip()
+        self.session.intervention(kind, attempt_dir=self.last_attempt, note=text)
+        print(f"Logged: {interventions.KINDS[kind][0]} ({interventions.class_of(kind)})")
+
+    def setup(self):
+        """The setup changed mid-session: ask the setup questions again, the current answers as defaults."""
+        drain_stdin()
+        conditions = ask_conditions(self.session.conditions, confirm=False)
+        notes = input("Anything else to note (Enter to skip): ").strip()
+        self.session.conditions = conditions
+        self.session.event("conditions_changed", conditions=conditions, notes=notes)
+
+    def run_command(self, name, action):
+        """One command; Ctrl-C stops it where it is (logged: a person stepped in) and returns to the menu."""
+        self.session.event("command", name=name)
+        try:
+            action()
+        except KeyboardInterrupt:
+            print("\ninterrupted — holding position")
+            self.session.intervention("interrupted", attempt_dir=self.last_attempt, command=name)
 
     def close(self):
         try:
@@ -257,7 +360,7 @@ def parse_perturb(text):
     return offsets
 
 
-COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "quit"]
+COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "note", "setup", "quit"]
 
 
 def main():
@@ -272,11 +375,12 @@ def main():
     args = p.parse_args()
     bench = Bench(args)
     actions = {"hover": bench.hover, "pickup": bench.pickup, "return": bench.return_tile, "discard": bench.discard,
-               "teach-discard": bench.teach_discard, "trials": bench.trials, "rest": bench.arm.rest}
+               "teach-discard": bench.teach_discard, "trials": bench.trials, "rest": bench.arm.rest,
+               "note": bench.note, "setup": bench.setup}
     try:
         bench.arm.rest()
         if args.trials:
-            bench.trials(args.trials, args.tile)
+            bench.run_command("trials", lambda: bench.trials(args.trials, args.tile))
             return
         while True:
             print("\n" + "\n".join(f"  {i} {name}" for i, name in enumerate(COMMANDS, start=1)))
@@ -290,12 +394,9 @@ def main():
             if choice not in actions:
                 print(f"unknown command {choice!r}")
                 continue
-            try:
-                actions[choice]()
-            except KeyboardInterrupt:
-                print("\ninterrupted — holding position")
+            bench.run_command(choice, actions[choice])
     except KeyboardInterrupt:
-        pass
+        pass            # Ctrl-C at the menu: quit
     finally:
         bench.close()
 

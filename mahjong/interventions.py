@@ -200,7 +200,9 @@ def derive(events):
                     reason=reason, error=e.get("error"))
     if events and not ended:
         add("killed", last_attempt, "derived", events[-1].get("time"))
-    return out
+    # a person who noted what the scans also saw (tiles put back, straightened) did it once
+    noted = {(i["kind"], i["attempt_dir"]) for i in out if i["source"] == "logged"}
+    return [i for i in out if not (i["source"] == "scans" and (i["kind"], i["attempt_dir"]) in noted)]
 
 
 def summary(interventions, attempts):

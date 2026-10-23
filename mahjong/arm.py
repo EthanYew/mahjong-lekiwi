@@ -45,6 +45,8 @@ GRIP_CLOSED_BELOW = 5.0
 
 
 class Arm:
+    at_connect = None       # set by connect(): {"arm_at_rest", "off_rest_deg"}
+
     def __init__(self, robot, sleep=time.sleep):
         self.robot = robot
         self.sleep = sleep
@@ -64,6 +66,9 @@ class Arm:
             raise
         arm = cls(robot)
         arm.hold_measured()
+        # where it was found: not at rest means it fell or was moved while off (the scripts log it)
+        off = arm.off_rest_deg()
+        arm.at_connect = {"arm_at_rest": off < AT_REST_TOLERANCE_DEG, "off_rest_deg": off}
         return arm
 
     def disconnect(self):
@@ -115,9 +120,13 @@ class Arm:
             limits[joint] = (-half + JOINT_LIMIT_MARGIN_DEG, half - JOINT_LIMIT_MARGIN_DEG)
         return limits
 
-    def is_at_rest(self):
+    def off_rest_deg(self):
+        """The largest commanded arm-joint distance from the rest pose, degrees."""
         command = self.commanded()
-        return all(abs(command[j] - config.REST_POSE[j]) < AT_REST_TOLERANCE_DEG for j in config.ARM_JOINTS)
+        return max(abs(command[j] - config.REST_POSE[j]) for j in config.ARM_JOINTS)
+
+    def is_at_rest(self):
+        return self.off_rest_deg() < AT_REST_TOLERANCE_DEG
 
     # --- motion ---
 

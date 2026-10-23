@@ -20,9 +20,11 @@ GRIP_ON_TILE = 11.0
 
 
 class SimRobot:
-    def __init__(self, start=None, holding=False):
+    def __init__(self, start=None, holding=False, on_release=None):
+        """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile."""
         self.command = dict(start or config.REST_POSE)
         self.holding = holding
+        self.on_release = on_release
         self._measured_offset = None
         self.sent = []          # every command sent, in order
         self.clearances = []    # measured pincer-tip clearance (mm above the grasp point) after each
@@ -59,6 +61,9 @@ class SimRobot:
         self._settle()
         if self.holding and self.command["gripper"] > GRIP_ON_TILE + 5:
             self.holding = False
+            if self.on_release:
+                self.on_release([float(v) for v in kinematics.tool_point(self.command)[:2]],
+                                self.measured_clearance_mm() / 1000)
         self.sent.append(dict(self.command))
         self.clearances.append(self.measured_clearance_mm())
         return action
@@ -80,12 +85,40 @@ class SimRobot:
 # --- stand-ins for the rest of the hardware, for `bench.py --sim` ---
 
 SIM_TILES = [("9D", 0.140, 0.200), ("3B", 0.151, 0.018), ("8D", 0.160, -0.165)]
+LANDS_ON_MAT_BELOW_M = 0.03     # a tile let go lower than this lands where the jaws opened; higher, it's off the mat
+GRASP_REACH_M = 0.06            # SimPolicy closes on the nearest tile this close to its hover
 
 
 class SimPerception:
+    """A mat that changes: SimPolicy takes the tile it grasps off it, a release near the table puts it
+    back where the jaws opened (one higher up, e.g. over the discard container, doesn't), and tests can
+    nudge() tiles as a knock or a person would."""
+
+    def __init__(self, tiles=SIM_TILES):
+        self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
+        self.held = None
+
     def detect_tiles(self, n_frames=None):
-        return [{"tile_name": n, "confidence": 0.9, "xy": (x, y), "z": config.grasp_z(x, y), "reads": 5, "pixel": (0, 0)}
-                for n, x, y in SIM_TILES]
+        return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
+                 "reads": 5, "pixel": (0, 0)} for t in self.tiles]
+
+    def nearest(self, x, y, within_m=GRASP_REACH_M):
+        def distance(t):
+            return np.hypot(t["xy"][0] - x, t["xy"][1] - y)
+        return min((t for t in self.tiles if distance(t) <= within_m), key=distance, default=None)
+
+    def grasp(self, tile):
+        self.tiles.remove(tile)
+        self.held = tile
+
+    def release(self, xy, clearance_m):
+        if self.held is not None and clearance_m < LANDS_ON_MAT_BELOW_M:
+            self.tiles.append({**self.held, "xy": list(xy)})
+        self.held = None
+
+    def nudge(self, name, dx, dy):
+        tile = next(t for t in self.tiles if t["tile_name"] == name)
+        tile["xy"] = [tile["xy"][0] + dx, tile["xy"][1] + dy]
 
     def snapshot(self):
         return np.zeros((480, 848, 3), dtype=np.uint8)
@@ -107,18 +140,31 @@ class SimCamera:
 
 class SimPolicy:
     """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
-    policy.Policy for what bench.py uses."""
+    policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it
+    (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s."""
     id = "sim"
     hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": config.HOVER_GRIPPER}
 
+    def __init__(self, mat=None):
+        self.mat = mat
+
     def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
         x, y, _ = kinematics.tool_point(arm.commanded())
+        tile = self.mat.nearest(x, y) if self.mat is not None else None
+        if tile is not None:
+            x, y = tile["xy"]
         down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
         arm.move_to(down, 2.0)
+        marks = []
+        if mark is not None and mark.is_set():
+            mark.clear()
+            marks.append(2.0)
         arm.move_to({"gripper": 0.0}, 0.5)
         arm.robot.holding = True
+        if tile is not None:
+            self.mat.grasp(tile)
         up, _ = kinematics.hover_command(x, y, 0.13, 0.0)
         arm.move_to(up, 2.0)
         return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
-                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "marks_s": []}
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "marks_s": marks}

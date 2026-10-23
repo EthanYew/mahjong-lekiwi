@@ -99,6 +99,14 @@ def test_a_tile_put_back_while_idle_is_a_reset():
     assert [t["tile_name"] for t in reset["changes"]["appeared"]] == ["WW"]
 
 
+def test_a_reset_both_noted_and_seen_counts_once():
+    events = session(scan("after_discard", MAT[1:], attempt_dir="001_WW"), attempt(1),
+                     {"type": "intervention", "kind": "tile_reset", "attempt_dir": "001_WW", "note": "WW back"},
+                     scan("choose", MAT))
+    (reset,) = iv.derive(events)
+    assert (reset["kind"], reset["source"], reset["note"]) == ("tile_reset", "logged", "WW back")
+
+
 def test_moving_a_knocked_tile_back_is_straightening():
     knocked = [tile("2D", 0.225, -0.027), MAT[2]]
     events = session(scan("choose", MAT), scan("after_pickup", knocked, attempt_dir="001_WW", target_xy=MAT[0]["xy"]),

@@ -69,15 +69,16 @@ def ask_one(question, default, ask):
             return matches[0]
 
 
-def ask_conditions(previous, questions=None, ask=None):
+def ask_conditions(previous, questions=None, ask=None, confirm=True):
     """Ask config.SETUP_QUESTIONS; returns {key: answer}. With a previous session's answers, Enter keeps
-    them all (non-sticky questions reset to their first choice)."""
+    them all (non-sticky questions reset to their first choice); confirm=False goes straight to the
+    questions, with those answers as defaults (a change mid-session)."""
     questions = questions or config.SETUP_QUESTIONS
     ask = ask or input
     fresh = {q["key"]: False if q["choices"] == "yn" else q["choices"][0] for q in questions}
     defaults = {q["key"]: previous.get(q["key"], fresh[q["key"]]) if q["sticky"] else fresh[q["key"]]
                 for q in questions}
-    if previous:
+    if previous and confirm:
         print("Setup: " + ", ".join(f"{k}={_shown(v)}" for k, v in defaults.items()))
         if ask("Same as that? [Enter = yes / c = change]: ").strip().lower() not in ("c", "change", "n", "no"):
             return defaults
