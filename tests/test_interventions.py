@@ -87,7 +87,30 @@ def test_jitter_label_flips_flicker_and_phantoms_are_not_changes():
     jittered = [tile("WW", 0.2255, 0.0215), tile("8D", 0.225, -0.034),       # 1.5mm; 2D read as 8D
                 tile("9D", 0.216, 0.080), tile("3B", 0.150, 0.004, confidence=0.52),   # low-confidence flicker
                 tile("8D", 0.478, 0.232)]                                          # out of reach
-    assert iv.scene_diff(MAT, jittered) == {"moved": [], "gone": [], "appeared": []}
+    assert iv.scene_diff(MAT, jittered) == {"moved": [], "turned": [], "gone": [], "appeared": []}
+
+
+def boxed(t, w, h):
+    return {**t, "box_px": [w, h]}
+
+
+def test_a_tile_turned_in_place_by_a_return_is_knocked():
+    """2026-10-23: the first 4D return turned 8D ~20 deg; its centre moved 1.4mm, its box 21.3x28.1 ->
+    27.4x31.4 px. The other tiles' boxes changed 0.7 px at most."""
+    before = [boxed(tile("8D", 0.216, 0.137), 21.3, 28.1), boxed(tile("9D", 0.229, 0.074), 21.3, 27.6)]
+    after = [boxed(tile("4D", 0.200, 0.186), 22.0, 28.0), boxed(tile("8D", 0.217, 0.136), 27.4, 31.4),
+             boxed(tile("9D", 0.229, 0.074), 21.2, 28.0)]
+    events = session(scan("after_pickup", before, attempt_dir="001_4D"),
+                     scan("after_return", after, attempt_dir="001_4D", target_xy=[0.210, 0.196]))
+    (knock,) = iv.derive(events)
+    assert (knock["kind"], knock["during"]) == ("knocked", "return")
+    assert iv.changes_text(knock["changes"]) == "8D turned"
+
+
+def test_box_jitter_and_scans_without_boxes_are_not_turns():
+    before = [boxed(MAT[0], 21.3, 28.1), MAT[1]]
+    after = [boxed(MAT[0], 22.0, 27.5), boxed(MAT[1], 30.0, 30.0)]       # 0.7px; no box before
+    assert iv.scene_diff(before, after)["turned"] == []
 
 
 def test_a_tile_put_back_while_idle_is_a_reset():

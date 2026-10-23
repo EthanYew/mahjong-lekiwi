@@ -78,7 +78,7 @@ class RealSense:
                 p_cam = np.array([(u - intrinsics.ppx) * d / intrinsics.fx, (v - intrinsics.ppy) * d / intrinsics.fy, d, 1.0])
                 x, y = (self.T_cam_to_base @ p_cam)[:2]
                 raw.append({"tile_name": self._model.names[int(box.cls[0])], "confidence": confidence,
-                            "xy": (float(x), float(y)), "pixel": (u, v)})
+                            "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))})
         return merge_tiles(raw)
 
 

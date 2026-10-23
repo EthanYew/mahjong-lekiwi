@@ -200,7 +200,9 @@ def main():
     for kind in ("return", "return_skipped", "discard", "episode_saved", "correction_recorded"):
         n = sum(e["type"] == kind for e in events)
         if n:
-            print(f"{kind}: {n}")
+            shifts = [e["shift_m"] * 1000 for e in events if e["type"] == kind and e.get("shift_m")]
+            print(f"{kind}: {n}" + (f" ({len(shifts)} set down closer to fit the reach: "
+                                    + ", ".join(f"{s:.0f}mm" for s in shifts) + ")" if shifts else ""))
 
 
 if __name__ == "__main__":

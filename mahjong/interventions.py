@@ -60,6 +60,10 @@ KNOCK_M = 0.005
 # A tile appearing or disappearing only counts at this confidence: the one detection that flickered
 # between scans on 2026-10-23 read 0.52-0.56; every tile seen in every scan read 0.71 or more.
 CHANGE_CONFIDENCE = 0.6
+# A tile turned in place (its centre within KNOCK_M) shows as its detection box changing shape. 2026-10-23:
+# 8D knocked ~20 deg by a return moved 1.4mm but its box grew +6.1 x +3.3 px; untouched tiles' boxes
+# changed 0.7 px at most between scans (two sessions, 40+ tile pairs).
+TURN_PX = 2.5
 
 
 def class_of(kind):
@@ -115,13 +119,14 @@ def on_mat(tile):
     return kinematics.hover_command(x, y, config.HOVER_OFFSET_M, config.HOVER_GRIPPER)[0] is not None
 
 
-def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, moved_m=KNOCK_M):
-    """Tiles that moved, appeared or went between two scans (lists of {tile_name, xy, confidence}).
-    Matched by position, nearest first, not by label (labels flicker between scans). Changes within
-    radius_m of an `ignore` point (the tile the arm was handling) are left out."""
+def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, moved_m=KNOCK_M, turn_px=TURN_PX):
+    """Tiles that moved, turned in place, appeared or went between two scans (lists of {tile_name, xy,
+    confidence, box_px (older sessions: none)}). Matched by position, nearest first, not by label
+    (labels flicker between scans). Changes within radius_m of an `ignore` point (the tile the arm was
+    handling) are left out."""
     before, after = [t for t in before if on_mat(t)], [t for t in after if on_mat(t)]
     pairs = sorted((math.dist(b["xy"], a["xy"]), i, j) for i, b in enumerate(before) for j, a in enumerate(after))
-    matched_before, matched_after, moved = set(), set(), []
+    matched_before, matched_after, moved, turned = set(), set(), [], []
     for d, i, j in pairs:
         if d > radius_m:
             break
@@ -132,6 +137,10 @@ def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, mo
         if d > moved_m:
             moved.append({"tile_name": after[j]["tile_name"], "from": list(before[i]["xy"]),
                           "to": list(after[j]["xy"]), "moved_m": d})
+        elif before[i].get("box_px") and after[j].get("box_px"):
+            change = max(abs(a - b) for a, b in zip(after[j]["box_px"], before[i]["box_px"]))
+            if change > turn_px:
+                turned.append({"tile_name": after[j]["tile_name"], "xy": list(after[j]["xy"]), "box_change_px": change})
 
     def near(xy):
         return any(math.dist(xy, p) <= radius_m for p in ignore)
@@ -139,6 +148,7 @@ def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, mo
     def brief(t):
         return {"tile_name": t["tile_name"], "xy": list(t["xy"])}
     return {"moved": [m for m in moved if not (near(m["from"]) or near(m["to"]))],
+            "turned": [t for t in turned if not near(t["xy"])],
             "gone": [brief(t) for i, t in enumerate(before)
                      if i not in matched_before and t["confidence"] >= CHANGE_CONFIDENCE and not near(t["xy"])],
             "appeared": [brief(t) for j, t in enumerate(after)
@@ -150,18 +160,21 @@ def _changed(diff):
 
 
 def changes_text(diff):
-    """"9D moved 12mm; 8D appeared" """
+    """"9D moved 12mm; 8D turned; 4D appeared" """
     return "; ".join([f"{m['tile_name']} moved {m['moved_m'] * 1000:.0f}mm" for m in diff["moved"]]
+                     + [f"{t['tile_name']} turned" for t in diff.get("turned", [])]
                      + [f"{t['tile_name']} appeared" for t in diff["appeared"]]
                      + [f"{t['tile_name']} gone" for t in diff["gone"]])
 
 
 def _from_points(diff):
-    return [m["from"] for m in diff["moved"]] + [t["xy"] for t in diff["gone"]]
+    return ([m["from"] for m in diff["moved"]] + [t["xy"] for t in diff.get("turned", [])]
+            + [t["xy"] for t in diff["gone"]])
 
 
 def _to_points(diff):
-    return [m["to"] for m in diff["moved"]] + [t["xy"] for t in diff["appeared"]]
+    return ([m["to"] for m in diff["moved"]] + [t["xy"] for t in diff.get("turned", [])]
+            + [t["xy"] for t in diff["appeared"]])
 
 
 # --- the session's interventions ---

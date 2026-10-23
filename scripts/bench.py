@@ -120,7 +120,8 @@ class Bench:
         tiles = self.realsense.detect_tiles()
         self.scan_n += 1
         scan = self.session.event("detections", label=label, scan=self.scan_n, **fields,
-                                  tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads")} for t in tiles])
+                                  tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
+                                         for t in tiles])
         proposal = self.mat.propose(scan)
         if proposal:
             self.scan_checks.append((scan, proposal))
