@@ -5,7 +5,7 @@ Classes, because only one of them measures the policy:
   rescue       unplanned: something went wrong and a person fixed it (Esc, a hand on the tile, a crash)
   reset        part of the protocol: tiles put back after a discard, the mat rearranged
   override     a person's verdict differs from the automatic one (the success prompt): the check's error
-  failure      not a step-in, but something a person will have to fix (a knocked neighbour)
+  failure      not a step-in, but something went wrong (a knocked neighbour, the arm bumping a tile)
   observation  listed, not counted (a mark that only says "look at this", a cancelled choice)
 
 Most are derived (derive()) from what a session logs anyway: attempts, the `detections` scans around
@@ -23,7 +23,9 @@ RESCUE, RESET, OVERRIDE, FAILURE, OBSERVATION = "rescue", "reset", "override", "
 # kind: (what a person is shown, class)
 KINDS = {
     # asked after a mark (→ during ACT)
-    "touched_tile": ("touched the tile", RESCUE),
+    "touched_tile": ("touched the tile to help", RESCUE),
+    # not a step-in: the attempt can still be a clean success, but the collision is counted
+    "collided": ("the arm bumped the tile or a neighbour, no one helped", FAILURE),
     "helped_arm": ("held or steadied the arm or base", RESCUE),
     "caught_drop": ("caught a drop", RESCUE),
     "look": ("nothing touched, just look at this", OBSERVATION),
@@ -47,7 +49,7 @@ KINDS = {
     "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),
     "arm_moved_while_off": ("arm not at rest at connect (fell, or moved while off)", OBSERVATION),
 }
-MARK_KINDS = ["touched_tile", "helped_arm", "caught_drop", "look", "other"]
+MARK_KINDS = ["touched_tile", "collided", "helped_arm", "caught_drop", "look", "other"]
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
@@ -284,4 +286,6 @@ def summary(interventions, attempts):
     return {"attempts": n, "rescues": rescues, "rescues_per_10": 10 * rescues / n if n else None,
             "attempts_per_rescue": n / rescues if rescues else None, "resets": counts[RESET],
             "overrides": counts[OVERRIDE], "failures": counts[FAILURE], "observations": counts[OBSERVATION],
+            "knocks": sum(i["kind"] == "knocked" for i in interventions),
+            "collisions": sum(i["kind"] == "collided" for i in interventions),
             "successes": len(successes), "clean_successes": len(successes) - assisted, "assisted_successes": assisted}

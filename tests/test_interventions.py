@@ -66,6 +66,15 @@ def test_a_success_with_a_rescue_mark_is_assisted_not_clean():
     assert s["observations"] == 1
 
 
+def test_a_collision_with_no_help_counts_but_leaves_the_success_clean():
+    """2026-10-23: marked because the descent hit the tile; nobody helped and it still picked it up."""
+    attempts = [attempt(1, marks_s=[4.1], mark_kind="collided"), attempt(2)]
+    found = iv.derive(session(*attempts))
+    assert [(i["kind"], i["class"]) for i in found] == [("collided", "failure")]
+    s = iv.summary(found, attempts)
+    assert (s["clean_successes"], s["assisted_successes"], s["rescues"], s["collisions"]) == (2, 0, 0, 1)
+
+
 def test_a_neighbour_moved_during_the_pickup_is_knocked():
     after = [tile("2D", 0.225, -0.027), MAT[2]]          # WW picked up, 2D pushed 8mm
     events = session(scan("choose", MAT), scan("after_pickup", after, attempt_dir="001_WW", target_xy=MAT[0]["xy"]),
@@ -215,6 +224,6 @@ def test_asking_about_a_mark():
     assert iv.ask_mark("attempt 3", ask=answering("1")) == ("touched_tile", "")
     assert iv.ask_mark("attempt 3", ask=answering("")) == ("unspecified", "")
     assert iv.ask_mark("attempt 3", ask=answering("ca")) == ("caught_drop", "")
-    assert iv.ask_mark("attempt 3", ask=answering("9", "5", "tile slid off the mat")) == ("other", "tile slid off the mat")
+    assert iv.ask_mark("attempt 3", ask=answering("9", "6", "tile slid off the mat")) == ("other", "tile slid off the mat")
     assert iv.ask_abort("attempt 3", ask=answering("1")) == "frozen"
     assert iv.ask_abort("attempt 3", ask=answering("")) is None

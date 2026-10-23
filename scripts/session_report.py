@@ -30,7 +30,7 @@ def latest_session():
 
 
 def contact_sheet(session_dir, attempts, tags=None):
-    """tags: {attempt_dir: {"RESCUE", "KNOCK"}}, added to each row's label."""
+    """tags: {attempt_dir: {"RESCUE", "KNOCK", "HIT"}}, added to each row's label."""
     rows = []
     for a in attempts:
         folder = session_dir / a["attempt_dir"]
@@ -129,7 +129,8 @@ def interventions_report(events, trials, unit):
         rate = (f"{s['rescues_per_10']:.1f} per 10 {unit}s"
                 + (f", one per {s['attempts_per_rescue']:.1f}" if s["attempts_per_rescue"] else ""))
         print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
-              f"overrides {s['overrides']}, knocked {s['failures']}, observations {s['observations']}")
+              f"overrides {s['overrides']}, knocked {s['knocks']}, collided {s['collisions']}, "
+              f"observations {s['observations']}")
         if unit == "attempt":
             print(f"  successes: {s['successes']} = {s['clean_successes']} clean + {s['assisted_successes']} assisted")
     if not any(e["type"] == "detections" for e in events):
@@ -191,7 +192,7 @@ def main():
         tags = defaultdict(set)
         for i in found:
             if i["class"] in (interventions.RESCUE, interventions.FAILURE):
-                tags[i["attempt_dir"]].add("KNOCK" if i["kind"] == "knocked" else "RESCUE")
+                tags[i["attempt_dir"]].add({"knocked": "KNOCK", "collided": "HIT"}.get(i["kind"], "RESCUE"))
         sheet = contact_sheet(session_dir, attempts, tags)
         if sheet:
             print(f"\ncontact sheet: {sheet}")
