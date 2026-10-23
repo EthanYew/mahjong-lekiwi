@@ -9,26 +9,24 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Python: `~/miniforge3/envs/lerobot/bin/python`, from the repo root (scripts add it to `sys.path`).
 - Fast tests (no hardware, seconds): `python -m pytest -m "not slow"`. Everything: `python -m pytest`
   (slow = loads policies from the HF cache, needs the GPU). A pre-commit hook runs the fast tests
-  (~13 s); turn it on once per clone with `git config core.hooksPath scripts/hooks`.
+  (~20 s); turn it on once per clone with `git config core.hooksPath scripts/hooks`.
 - No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3 --tile 8D` (without
   `--tile` it asks which tile). Paired comparison across the mat: `--policy a,b --layout NAME --trials N`
-  (rounds alternate a b / b a from the same hover offset; each attempt saves `wrist.mp4`).
+  (`--trials` counts rounds: N at every spot, each policy once per round, alternating a b / b a from the
+  same hover offset, so N × 2 × spots pickups; each attempt saves `wrist.mp4`).
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
   learned a fixed move per position). Eval recordings have no random jitter; the golden set's `jitter`
   slice uses a fixed list (`--hover-offsets-mm 6x,-6y`) so it can be recorded again identically.
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
   [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
   sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
-- Interventions (`mahjong/interventions.py`, ROADMAP 3): during a bench pickup, → marks the moment
-  without stopping ACT (asked what happened afterwards; Esc still stops it). "Touched the tile to help"
-  is a rescue (the success becomes assisted); "the arm bumped a tile, no one helped" is a counted
-  failure that leaves a success clean. The bench's `note`
-  logs anything else a person did, and `setup` logs a mid-session change (lamp, battery).
-  Knocked tiles and tiles put back by hand come from the RealSense scans logged around each attempt;
-  the bench shows each change and asks (Enter: as the scans say, or "a detection glitch": YOLO
-  flickers, e.g. a 0.59 tile reading 0.68 and "appearing"; a tile turned in place shows as its
-  detection box changing shape). The scorecard number is rescues per 10 attempts; resets and
-  overrides are counted apart.
+  Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored, so a
+  worktree's sessions go with it.
+- Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): → during ACT marks a
+  moment without stopping it, and the RealSense scans around each attempt catch knocked or replaced
+  tiles, which the bench asks you to confirm (YOLO flickers). "Touched the tile to help" is a rescue
+  (the success becomes assisted); "the arm bumped a tile, no one helped" is a failure that leaves a
+  success clean. The scorecard number is rescues per 10 attempts.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
@@ -40,7 +38,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | | |
 |---|---|
 | `mahjong/config.py` | the one setup: ports, cameras, table plane, rest poses, defaults |
-| `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command` |
+| `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command`, `grasp_point` |
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
@@ -49,7 +47,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
-| `mahjong/layout.py`, `scripts/layout.py` | tile layouts (`data/layouts.json`) drawn on the RealSense view; place tiles to green |
+| `mahjong/layout.py`, `scripts/layout.py` | tile layouts (`data/layouts.json`, committed once a recording uses one; ghost photos and captures in `data/layouts/` stay local) drawn on the RealSense view; place tiles to green |
 | `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
 
 ## Invariants (each cost a debugging round on hardware)
@@ -64,7 +62,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **A return opens only just past the jaws' reading on the tile** (~11 + `GRIPPER_RELEASE_PAST_HELD`
   6 ≈ 17%): 25% (`GRIPPER_RELEASE`, the widest opening held around a tile in recordings, still used
   over the discard container) turned a neighbour on 2026-10-23. Unconfirmed on hardware that 17% always
-  lets go. The policy's own descent opens to its hover gripper (90%), which only a new dataset changes.
+  lets go. The policy's own descent opens to its hover gripper (90% for v1/v2, 27.2 for v2n), which
+  only a new dataset or trimmed episodes change.
 - **Heights are above the grasp point** (`config.grasp_z`, table + 5mm); the tile top is ~15mm higher.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
@@ -73,8 +72,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   to the release (reachable at the approach alone would drop the tile from there).
 - **Datasets store joint deltas from each episode's first frame** (gripper too). A policy only works from
   the hover its episodes started at — that hover is stored per policy in `data/policies.json` and the
-  bench uses it. Changing the hover (e.g. gripper 90% → 23%) means a new dataset, or trimming old
-  episodes to match (`dataset.build(trim_narrowing=True)`).
+  bench uses it. Changing the hover (e.g. gripper 90% → 27.2, v2n) means a new dataset, or trimming old
+  episodes to match (`dataset.build(trim_narrowing=True)`). Two policies compare one change only if they
+  start from the same hover (v3 vs v2n: record v3 at `--hover-gripper 27.2`).
 - **Idle frames teach waiting.** A policy has no clock; still frames all look the same, so it learns to
   wait at the hover forever (v1). Training datasets drop idle frames (`dataset.build`); new
   recordings should avoid pauses before the descent.
@@ -96,8 +96,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 
 - Before calling a change hardware-ready: fast tests pass (slow too if `policy.py`/`dataset.py`
   changed), and say what was checked offline vs what still needs the arm.
-- New recordings go to a new dataset name (`record.py --dataset`, required); never append to one with a
-  different layout or hover.
+- New recordings go to a new dataset name (`record.py --dataset`, required); never append to one recorded
+  from a different hover (record.py refuses different features). One eval set holds all its slices and
+  tile layouts: each episode's log row records its slice, layout spot and hover offset.
 - Dataset → policy: `scripts/make_policy.py` (settle its options with `--dry-run` first; training takes
   hours). Uploads are public under `Yewy/` unless `--private`.
 - **Eval episodes are never trained on**: held-out episodes and eval-only recordings in
@@ -117,8 +118,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 
 ## Open items
 
-Bigger plans (evaluation set, scorecard, interventions, hover learning from bench runs) are in
-`ROADMAP.md`.
+The sequence to v3 (golden eval set, jittered dataset), the scorecard, autonomous play and DAgger are
+in `ROADMAP.md`.
 
 - Gripper stored as a delta ties every policy to its hover opening; consider absolute gripper values for
   the next dataset (needs `policy.run` + `dataset.build` to treat the gripper separately).

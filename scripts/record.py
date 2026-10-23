@@ -24,8 +24,8 @@ dataset back toward the clean hover. Each episode log row has hover_jitter_xy an
 
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
-    python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 8
-    python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_jitter --repeats 2 \
+    python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6
+    python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --repeats 2 \
         --hover-offsets-mm 6x,-6y
 """
 import argparse
@@ -63,14 +63,17 @@ SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for tr
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--dataset", required=True, help="repo id to create or append to, e.g. Yewy/mahjong_mat_pickup_v3")
-    p.add_argument("--task", default="Pick up the mahjong tile from the mat")
+    p.add_argument("--task", default="Pick up the mahjong tile from the mat", help="task text stored with the episodes")
     p.add_argument("--episodes", type=int, default=200, help="stop after this many saved episodes")
-    p.add_argument("--hover-offset-mm", type=float, default=config.HOVER_OFFSET_M * 1000)
-    p.add_argument("--clearance-mm", type=float, default=config.HOVER_CLEARANCE_M * 1000)
+    p.add_argument("--hover-offset-mm", type=float, default=config.HOVER_OFFSET_M * 1000,
+                   help="pincer tip commanded this far above the grasp point (default %(default)s)")
+    p.add_argument("--clearance-mm", type=float, default=config.HOVER_CLEARANCE_M * 1000,
+                   help="...then settled until it measures this far above it (default %(default)s)")
     p.add_argument("--hover-gripper", type=float, default=config.HOVER_GRIPPER,
-                   help="gripper opening at the hover (%%). Every dataset so far used 90 and spent ~3.5s narrowing to "
-                        "~21%% before descending; ~23 starts where that narrowing ends")
-    p.add_argument("--stick-commit-s", type=float, default=0.1)
+                   help="gripper opening at the hover (%%). Every dataset so far used 90 and spent ~3.5s narrowing "
+                        "before descending; v2n's trimmed episodes start at 27.2 (record at that to compare with v2n)")
+    p.add_argument("--stick-commit-s", type=float, default=0.1,
+                   help="a gamepad stick moves the arm only once held this long, so flicks don't (default %(default)s)")
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "

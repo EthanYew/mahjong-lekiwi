@@ -6,14 +6,16 @@ helped.
 
 **Sequence from here (decided 2026-10-23):**
 1. Trimmed-v2 baseline `pickup_mat_cl_v2n` (7): v2's episodes with the gripper narrowing trimmed,
-   the 15 eval episodes left out, hover gripper ~23 %. Scored offline against v2, then benched paired.
-   It isolates the hover change, so v3 vs v2n measures the jitter alone. v2 stays registered.
+   the 15 eval episodes left out, hover gripper 27.2 % (where the trimmed episodes start). Scored
+   offline against v2 (done, see 7); benched paired: not yet. It isolates the hover change, so v3 vs
+   v2n measures the jitter alone. v2 stays registered.
 2. Hover jitter in `record.py` (7): done.
 3. Record the golden eval set `Yewy/mahjong_mat_eval_v1` (2), including the new `jitter` slice. Do this
    before any jittered training data exists, so it can never leak into training.
 4. Check the eval on v2: it should do clearly worse on `jitter` (grasp point off by ~the offset). If
    not, the slice can't detect memorisation.
-5. Record the jittered training set, train v3, score it offline, bench it with the perturbation test
+5. Record the jittered training set from v2n's hover (`--hover-gripper 27.2`, or v3 vs v2n measures
+   the gripper opening too), train v3, score it offline, bench it with the perturbation test
    (expect slope ~0) and paired against v2n.
 6. DAgger on v3 (9): needs a takeover feature first.
 7. Only then the hover A/B (1, Next 3).
@@ -61,7 +63,8 @@ Next:
 3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
    alternation as `--policy a,b` in 5), judged by the hover→grasp shift in mm as well as success,
    and **switching** by editing `data/hover_model.json` in one commit that cites the A/B session.
-4. Bench attempts across the mat (5): most bench data so far is one position (4D).
+4. Bench attempts across the mat (5: `bench.py --layout` walks a layout's spots): most bench data so
+   far is one position (4D).
 
 ## 2. An offline evaluation set
 
@@ -82,8 +85,8 @@ Next:
   Teacher-forced arm error, today's "replay error", can't tell them apart: fed the demo's state, a
   policy that waits is only the command-to-position lag off. The gates are therefore freezes, a mean descent lag ≤ 10
   steps, and close timing ≤ 0.25 s, plus "not much worse than the reference" on arm error and grasp point.
-- **The eval recording** (eval-only, ~36 episodes, 90 % hover so trimming the narrowing also scores a
-  23 %-hover policy). Spend episodes on spots, not repeats: one offline score already averages ~200 frames.
+- **The eval recording** (eval-only, ~48 episodes, 90 % hover so trimming the narrowing also scores a
+  narrowed-hover policy like v2n). Spend episodes on spots, not repeats: one offline score already averages ~200 frames.
 
   | `--slice` | spots | conditions | episodes |
   |---|---|---|---|
@@ -107,24 +110,10 @@ Next:
   4. Register it: `offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1`.
   5. Check the dim slice predicts the hardware freeze: v2 should start descending late there.
 
-The original plan:
-
-Contact sheets show what happened. They can't score a new policy. What can is the
-**(wrist image, state) → action** data in the recorded datasets.
-
-- **Held-out episodes.** Choose a fixed ~10 % of episodes, spread across positions on the mat. List
-  them in `data/eval_split.json` and have `make_policy` leave them out of training. Today v1 and v2
-  are scored on episodes they trained on, so their 0.21-0.25° replay error is optimistic.
-- **Metrics per held-out episode:** action error (the arm joints and the gripper, separately), error
-  in when the gripper closes, the plan step where the descent starts (the freeze probe), and the
-  predicted grasp point vs the demo's. All broken down by position.
-- **Bench attempts as regression cases.** Save the full wrist video per attempt, not one frame every
-  100 steps. A new policy can then be replayed on the same frames, open loop. There's no ground
-  truth: these are the old policy's own actions. Still, a big difference from the old policy on an
-  attempt that *succeeded* is worth flagging.
-- **Limits.** Offline action error correlates only loosely with real success. A policy that drifts
-  2 mm early sees different images from then on (compounding error). Use the offline numbers as a
-  gate that catches freezes and gross regressions. Use the bench to decide what ships.
+Not yet: **bench attempts as regression cases.** Every attempt now saves `wrist.mp4` (5), so a new
+policy can be replayed on the same frames, open loop. There's no ground truth (these are the old
+policy's own actions), but a big difference from the old policy on an attempt that *succeeded* is
+worth flagging. The limits of offline scores (compounding error) are in `mahjong/offline_eval.py`.
 
 ## 3. Logged interventions
 
@@ -218,7 +207,7 @@ placing anyway.
 
 ## 6. Housekeeping
 
-- ~~A pre-commit hook that runs the fast tests~~ Done: `scripts/hooks/pre-commit` (~13 s), on with
+- ~~A pre-commit hook that runs the fast tests~~ Done: `scripts/hooks/pre-commit` (~20 s), on with
   `git config core.hooksPath scripts/hooks`.
 - Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
   the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
@@ -226,7 +215,7 @@ placing anyway.
 
 ## 7. The next dataset
 
-- Hover with the jaws at ~23 % instead of 90 % (skips ~3.5 s of narrowing per episode). The hover is
+- Hover with the jaws narrowed (v2n: 27.2 %) instead of 90 % (skips ~3.5 s of narrowing per episode). The hover is
   per policy, so this is a data change. Because the narrowing is a time prefix, trimming the v2
   episodes (`trim_narrowing`) and retraining also works without new recordings. A/B it against v2
   at the current hover before changing the hover too.
@@ -247,7 +236,7 @@ placing anyway.
   has `hover_jitter_xy`. Jittered demos stay valid hover-correction samples (grasp − detection).
   Open: how many of v2's clean episodes to mix in; they carry the memorised per-position move.
 - More episodes at the edges and on the second row. No pauses mid-episode.
-- Consider an absolute gripper value instead of a delta (see the CLAUDE.md conventions).
+- Consider an absolute gripper value instead of a delta (CLAUDE.md, Open items).
 - Leave the eval split (2) out from the start.
 
 ## 8. Autonomous play

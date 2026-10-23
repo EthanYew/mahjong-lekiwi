@@ -24,6 +24,8 @@ collect_corrections.py  →  record.py  →  quality_report.py  →  make_policy
 
 Hardware scripts connect to everything first (retry / quit if something's unplugged), then ask the
 setup questions (daylight, lamp, ceiling lights...), then write a session folder `sessions/<time>_<kind>/`.
+`sessions/` belongs to the checkout you run from and isn't in git: run hardware from the main checkout,
+not a worktree, or the sessions go when the worktree does.
 
 ## Quick reference
 
@@ -42,7 +44,7 @@ setup questions (daylight, lamp, ceiling lights...), then write a session folder
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 20` |
+| Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl`; also `pickup_mat_cl_v1`, and
 `pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval episodes left out).
@@ -59,14 +61,14 @@ python scripts/bench.py --policy pickup_mat_cl_v1         # interactive, another
 python scripts/bench.py --trials 5 --tile 8D              # 5 pickup→return trials on 8D, then quit
 python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated (no hardware)
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
-python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 20   # paired, across the mat
+python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 ```
 
 | Option | What it does |
 |---|---|
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default). `a,b` compares two, paired: rounds alternate a b / b a from the same hover |
 | `--layout NAME` | trials walk this layout's spots (`scripts/layout.py`); the report shows success by spot and policy |
-| `--trials N` | run N pickup/return trials then quit (without `--tile`, it asks which tile) |
+| `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile |
 | `--tile NAME` | tile for `--trials`, e.g. `8D` |
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
@@ -111,20 +113,22 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --lay
 
 | Option | What it does |
 |---|---|
-| `--dataset REPO` | **required**. Always a new name for a new layout/hover; never append to a different one |
+| `--dataset REPO` | **required**. A new name for a new hover; never append to a dataset recorded from a different hover. (One eval set holds all its slices: each episode's row logs its slice, layout and offset) |
 | `--task TEXT` | task string stored with the episodes |
 | `--episodes N` | stop after N saved episodes (default 200) |
 | `--slice` | `train` (default), or an eval-only set: `familiar`, `new`, `dim`, `tilt`, `jitter`. Eval sets are never trained on |
 | `--hover-jitter-mm R` | move each episode's hover by a random offset within R mm (training data: the policy has to steer to the tile). An episode keeps its offset through re-hovers and discards |
 | `--jitter-zero-fraction F`, `--jitter-seed N` | with `--hover-jitter-mm`: share of episodes left at the clean hover (default 0.2); random seed |
-| `--hover-offsets-mm LIST` | cycle fixed offsets instead, e.g. `6x,-6y` — for the `jitter` eval slice, so it can be recorded again identically |
+| `--hover-offsets-mm LIST` | cycle fixed offsets instead (not with `--hover-jitter-mm`), e.g. `6x,-6y` — for the `jitter` eval slice, so it can be recorded again identically |
 | `--layout NAME` | guides you to place each tile on a taught spot (outline turns green when it's right) |
 | `--repeats N` | with `--layout`: episodes per spot (default 2) |
 | `--start-spot ID` | with `--layout`: start at this spot |
-| `--hover-gripper PCT` | gripper opening at the hover (default 90%; ~23 skips the slow narrowing). Changing it means a new dataset |
+| `--hover-gripper PCT` | gripper opening at the hover (default 90%). A narrower start skips the slow narrowing: v2n's trimmed episodes start at 27.2, so record at that to compare with v2n. Changing it means a new dataset |
 | `--hover-offset-mm`, `--clearance-mm` | hover position/height tweaks |
 | `--no-correction` | hover over the raw detection |
 | `--no-view` | no wrist camera window |
+| `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't |
+| `--device PATH` | gamepad device path (default: the first gamepad found) |
 
 ## Reviewing a dataset: `scripts/quality_report.py`
 
@@ -135,7 +139,7 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3 --episode 37   # when each reversal happened
 ```
 
-Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold), `--csv PATH` (save the table).
+Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table).
 
 ## Training a policy: `scripts/make_policy.py`
 
@@ -145,13 +149,13 @@ register in `data/policies.json`.
 
 ```
 python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --dry-run   # check the plan first
-python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --policy-id pickup_mat_v3 --default
+python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --default   # registers pickup_mat_cl_v3
 ```
 
 | Option | What it does |
 |---|---|
 | `--source REPO`, `--version vN` | **required**: the recorded dataset, and a version tag for output names |
-| `--policy-id ID` | registry name (default `pickup_<version>`) |
+| `--policy-id ID` | registry name (default `pickup_mat_cl_<version>`, like the registered ones) |
 | `--default` | make it the default policy for `bench.py` |
 | `--dry-run` | print the plan and stop. Always do this first |
 | `--trim-narrowing` | also cut the slow gripper narrowing at the start of each episode |
@@ -169,11 +173,12 @@ python scripts/offline_eval.py --policy pickup_mat_cl                           
 python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1       # + pass/fail gates vs a reference
 python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting
 python scripts/offline_eval.py --show                                                  # what's in the eval split
-python scripts/offline_eval.py --make-split Yewy/<training_dataset>                    # hold out ~10% for eval
+python scripts/offline_eval.py --make-split Yewy/<training_dataset>                    # hold out 1 per spot, >= 10% (v2: 15/104)
 python scripts/offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1                 # register an eval-only recording
 ```
 
-Other options: `--max-episodes N` (quick look), `--stride`, `--fraction`/`--seed`/`--force` (for `--make-split`).
+Other options: `--max-episodes N` (quick look), `--stride N` (score every Nth frame, default 3),
+`--fraction`/`--seed`/`--force` (for `--make-split`).
 Don't change an existing split, or scores stop being comparable.
 
 ## Hover correction (measuring where the arm really goes)
@@ -187,9 +192,12 @@ python scripts/collect_corrections.py --raw     # start from the raw detection i
 python -m mahjong.hover_correction              # the current fit, per-tile errors
 python -m mahjong.hover_correction --sources gamepad,demo:0.5    # what the hover would become with these sources
 
-python scripts/hover_samples.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover   # import grasp points from demos
+python scripts/hover_samples.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover   # import grasp points from demos (repeatable)
 python scripts/hover_samples.py --sessions                                          # ...from every bench session
+python scripts/hover_samples.py --sessions sessions/20261023_123549_bench           # ...or just these
 ```
+
+`collect_corrections.py --device PATH` picks the gamepad (default: the first one found).
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
 policies (they replay a memorised move from it; see `CLAUDE.md`).
@@ -197,11 +205,14 @@ policies (they replay a memorised move from it; see `CLAUDE.md`).
 ## Tile layouts: `scripts/layout.py`
 
 Named sets of target spots on the mat (`data/layouts.json`), drawn on the RealSense view: green =
-tile placed right (within 5mm / 6°), amber = close, red = off. Used by `record.py --layout`.
+tile placed right (within 5mm / 6°), amber = close, red = off. Used by `record.py --layout` and
+`bench.py --layout`. Commit `data/layouts.json` once a layout is used for a recording (the spots are in
+the arm's base frame, so the set can be recorded again); `data/layouts/` (ghost photos, captures) is
+only valid for the current camera placement and stays out of git.
 
 ```
 python scripts/layout.py --list                                   # all layouts (add --name X for its spots)
-python scripts/layout.py --name eval_v1 --teach                   # place tiles, press t to save them as spots
+python scripts/layout.py --name eval_v1 --teach                   # place tiles, d detects them, t saves them as spots
 python scripts/layout.py --name eval_v1 --teach --append --prefix N   # add more spots (N1, N2, ...)
 python scripts/layout.py --name eval_v1                           # live view: n/p spot, a all, g ghost, c capture, q quit
 python scripts/layout.py --name eval_v1 --add T1 --like S2 --yaw 15   # a tilted copy of a spot
@@ -223,7 +234,7 @@ python -m pytest -m "not slow"    # fast: motion, kinematics, correction, datase
 python -m pytest                  # everything; slow tests load policies and need the GPU
 ```
 
-A pre-commit hook runs the fast tests (~15 s) so a broken invariant can't be committed. Turn it on once
+A pre-commit hook runs the fast tests (~20 s) so a broken invariant can't be committed. Turn it on once
 per clone: `git config core.hooksPath scripts/hooks`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or

@@ -26,7 +26,7 @@ summarises the latest one, interventions included (mahjong/interventions.py).
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
     python scripts/bench.py --sim --trials 3        # no hardware
     python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
-    python scripts/bench.py --policy pickup_mat_cl,pickup_mat_v3 --layout standard --trials 5
+    python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # 2 x spots x 2
 
 Every successful attempt also saves a hover-correction sample (source "bench": where the jaws closed
 minus the detection) to data/hover_corrections.jsonl; it's only fitted once data/hover_model.json
