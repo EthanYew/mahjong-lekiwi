@@ -107,3 +107,15 @@ def test_a_mark_is_timed_and_the_policy_carries_on(tmp_path):
 def test_unmarked_runs_report_no_marks(tmp_path):
     arm = hovering_arm()
     assert run(ScriptedPickup(arm), arm, SimCamera(), tmp_path, log=lambda *a: None)["marks_s"] == []
+
+
+def test_every_frame_the_policy_saw_is_saved_as_video(tmp_path):
+    import cv2
+    arm = hovering_arm()
+    summary = run(ScriptedPickup(arm), arm, SimCamera(), tmp_path, log=lambda *a: None)
+    video = cv2.VideoCapture(str(tmp_path / "wrist.mp4"))
+    frames = 0
+    while video.read()[0]:
+        frames += 1
+    assert frames == summary["steps"] + 1          # + the frame of the done check it stopped on
+    assert (tmp_path / "wrist_0000.jpg").exists()

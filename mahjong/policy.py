@@ -139,8 +139,9 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     """Run `policy` from wherever the arm is (the hover) until the tile is held and lifted for
     HOLD_CONFIRM_S, `abort` (an Event) is set, or duration_s runs out. `mark` (an Event with clear())
     is a person saying "something happened here": each time it's set the time is noted and it's
-    cleared, and the policy carries on. Saves act_trace.npz and wrist frames every 100 steps to
-    trace_dir. Returns a summary: stop_reason (done / cap / aborted), duration_s, held_at_s, slipped
+    cleared, and the policy carries on. Saves to trace_dir: act_trace.npz, wrist.mp4 (every frame; frame k
+    is the image behind act_trace row k, plus one more when it stops on the done check) and a wrist jpg
+    every 100 steps. Returns a summary: stop_reason (done / cap / aborted), duration_s, held_at_s, slipped
     (held, then lost during the hold check), stall_warning, descended, floored_steps, grasp_step,
     grasp_xy (the tool point where the gripper was first commanded shut — where a return should put
     the tile), marks_s (when it was marked, s)."""
@@ -157,57 +158,66 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     stall_step = int(STALL_CHECK_S * config.FPS)
     confirm_steps = int(HOLD_CONFIRM_S * config.FPS)
     log(f"ACT ({policy.id}) for up to {duration_s:.0f}s, stopping once the tile is held and lifted — Esc stops it")
-    for step in range(int(duration_s * config.FPS)):
-        t0 = time.time()
-        if abort is not None and abort.is_set():
-            stop_reason = "aborted"
-            log(f"  stopped at step {step}")
-            break
-        if mark is not None and mark.is_set():
-            mark.clear()
-            marks.append(round(step / config.FPS, 2))
-            log(f"  t={step / config.FPS:4.1f}s marked (the policy carries on; you'll be asked what happened)")
-        ok, frame = camera.read()
-        if not ok:
-            log(f"  wrist camera read failed at step {step}")
-            continue
-        measured = arm.measured()
-        state = np.array([measured[j] for j in config.JOINTS], dtype=np.float32)
-        if step % 100 == 0:
-            cv2.imwrite(str(trace_dir / f"wrist_{step:04d}.jpg"), frame)
-        # Done check, on the state the previous command produced.
-        holding = last_safe["gripper"] < GRIP_CLOSED_BELOW and measured["gripper"] - last_safe["gripper"] > HOLDING_MARGIN
-        tip = kinematics.pincer_tip(measured)
-        lifted = tip[2] - config.grasp_z(tip[0], tip[1]) >= LIFTED_M
-        if holding and lifted:
-            if done_since is None:
-                done_since = step
-                held_at = held_at if held_at is not None else step / config.FPS
-            elif step - done_since >= confirm_steps:
-                stop_reason = "done"
-                log(f"  t={step / config.FPS:4.1f}s tile held and lifted for {HOLD_CONFIRM_S:.1f}s — done")
+    video = None        # every frame the policy saw, for replaying a new policy on this attempt (ROADMAP 2)
+    try:
+        for step in range(int(duration_s * config.FPS)):
+            t0 = time.time()
+            if abort is not None and abort.is_set():
+                stop_reason = "aborted"
+                log(f"  stopped at step {step}")
                 break
-        elif done_since is not None:
-            done_since, slipped = None, True
-            log(f"  t={step / config.FPS:4.1f}s grip or lift lost during the hold check")
-        delta = policy.step(frame, state - anchor_vec)
-        command = {j: float(np.clip(anchor_vec[i] + delta[i], *limits[j])) for i, j in enumerate(config.JOINTS)}
-        command, floored = tip_floor(command, last_safe)
-        floored_steps += floored
-        arm.send(command)
-        last_safe = command
-        states.append(state)
-        actions.append([command[j] for j in config.JOINTS])
-        if step == stall_step and not warned:
-            moved = float(np.abs(np.array(actions)[:, 1:3] - anchor_vec[1:3]).max())
-            if moved < STALL_MOVE_DEG:
-                warned = True
-                log(f"  WARNING: {STALL_CHECK_S:.0f}s in, lift/elbow have moved {moved:.1f} deg — the policy may be "
-                    f"waiting at the hover. Esc to stop.")
-        if step % config.FPS == 0:
-            log(f"  t={step / config.FPS:4.1f}s lift {command['shoulder_lift']:+6.1f} elbow {command['elbow_flex']:+6.1f} "
-                f"gripper {command['gripper']:5.1f}" + (" [tip floor]" if floored else ""))
-        arm.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
+            if mark is not None and mark.is_set():
+                mark.clear()
+                marks.append(round(step / config.FPS, 2))
+                log(f"  t={step / config.FPS:4.1f}s marked (the policy carries on; you'll be asked what happened)")
+            ok, frame = camera.read()
+            if not ok:
+                log(f"  wrist camera read failed at step {step}")
+                continue
+            measured = arm.measured()
+            state = np.array([measured[j] for j in config.JOINTS], dtype=np.float32)
+            if video is None:
+                video = cv2.VideoWriter(str(trace_dir / "wrist.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), config.FPS,
+                                        (frame.shape[1], frame.shape[0]))
+            video.write(frame)
+            if step % 100 == 0:
+                cv2.imwrite(str(trace_dir / f"wrist_{step:04d}.jpg"), frame)
+            # Done check, on the state the previous command produced.
+            holding = last_safe["gripper"] < GRIP_CLOSED_BELOW and measured["gripper"] - last_safe["gripper"] > HOLDING_MARGIN
+            tip = kinematics.pincer_tip(measured)
+            lifted = tip[2] - config.grasp_z(tip[0], tip[1]) >= LIFTED_M
+            if holding and lifted:
+                if done_since is None:
+                    done_since = step
+                    held_at = held_at if held_at is not None else step / config.FPS
+                elif step - done_since >= confirm_steps:
+                    stop_reason = "done"
+                    log(f"  t={step / config.FPS:4.1f}s tile held and lifted for {HOLD_CONFIRM_S:.1f}s — done")
+                    break
+            elif done_since is not None:
+                done_since, slipped = None, True
+                log(f"  t={step / config.FPS:4.1f}s grip or lift lost during the hold check")
+            delta = policy.step(frame, state - anchor_vec)
+            command = {j: float(np.clip(anchor_vec[i] + delta[i], *limits[j])) for i, j in enumerate(config.JOINTS)}
+            command, floored = tip_floor(command, last_safe)
+            floored_steps += floored
+            arm.send(command)
+            last_safe = command
+            states.append(state)
+            actions.append([command[j] for j in config.JOINTS])
+            if step == stall_step and not warned:
+                moved = float(np.abs(np.array(actions)[:, 1:3] - anchor_vec[1:3]).max())
+                if moved < STALL_MOVE_DEG:
+                    warned = True
+                    log(f"  WARNING: {STALL_CHECK_S:.0f}s in, lift/elbow have moved {moved:.1f} deg — the policy may be "
+                        f"waiting at the hover. Esc to stop.")
+            if step % config.FPS == 0:
+                log(f"  t={step / config.FPS:4.1f}s lift {command['shoulder_lift']:+6.1f} elbow {command['elbow_flex']:+6.1f} "
+                    f"gripper {command['gripper']:5.1f}" + (" [tip floor]" if floored else ""))
+            arm.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
+    finally:            # an interrupted attempt keeps a readable video
+        if video is not None:
+            video.release()
     policy.reset()
     actions, states = np.array(actions), np.array(states)
     np.savez(trace_dir / "act_trace.npz", state=states, action=actions, anchor=anchor_vec, joints=np.array(config.JOINTS))
