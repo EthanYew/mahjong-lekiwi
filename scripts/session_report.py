@@ -83,6 +83,26 @@ def perturbation_slopes(attempts):
     return slopes
 
 
+def where(attempt):
+    """A layout attempt by its spot (the tile there can change), otherwise by its tile."""
+    return attempt.get("spot") or attempt["tile"]
+
+
+def success_map(attempts):
+    """Picked up per spot (or tile), one column per policy: a paired --policy a,b run side by side."""
+    policies = sorted({a["policy"] for a in attempts})
+    if len(policies) < 2 and not any(a.get("spot") for a in attempts):
+        return
+    print("\nsuccess by " + ("spot" if any(a.get("spot") for a in attempts) else "tile") + " and policy")
+    print(f"  {'':<8} " + " ".join(f"{p:>20}" for p in policies))
+    for w in dict.fromkeys(where(a) for a in attempts):
+        cells = []
+        for p in policies:
+            got = [a["success"] for a in attempts if where(a) == w and a["policy"] == p]
+            cells.append(f"{sum(got)}/{len(got)}" if got else "-")
+        print(f"  {w:<8} " + " ".join(f"{c:>20}" for c in cells))
+
+
 def perturbation_report(attempts):
     tested = sorted({(a["policy"], a["tile"]) for a in attempts if any(a.get("hover_perturb_xy") or ())})
     if not tested:
@@ -170,7 +190,7 @@ def main():
         print(f"\n{len(attempts)} pickup attempt(s), {sum(a['success'] for a in attempts)} picked up")
         by = defaultdict(list)
         for a in attempts:
-            by[(a["policy"], a["tile"])].append(a)
+            by[(a["policy"], where(a))].append(a)
         print(f"  {'policy':<20} {'tile':<5} {'picked':>6} {'stalls':>6} {'descended':>9} {'clearance mm':>12} "
               f"{'floored':>7} {'ACT s':>6} {'slips':>5}")
         for (policy, tile), group in sorted(by.items()):
@@ -185,6 +205,7 @@ def main():
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
+        success_map(attempts)
         perturbation_report(attempts)
     episodes = [e for e in events if e["type"] == "episode_saved"]
     found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
@@ -197,7 +218,10 @@ def main():
         if sheet:
             print(f"\ncontact sheet: {sheet}")
     for t in (e for e in events if e["type"] == "trials_done"):
-        print(f"trials on {t['tile']}: {sum(t['results'])}/{len(t['results'])} ({t['policy']})")
+        on = f"layout {t['layout']}" if t.get("layout") else t["tile"]
+        policies = sorted(set(t.get("policies") or [t["policy"]]))
+        print(f"trials on {on}: {sum(t['results'])}/{len(t['results'])} ({', '.join(policies)})"
+              + (f", skipped spots {', '.join(t['skipped_spots'])}" if t.get("skipped_spots") else ""))
     for kind in ("return", "return_skipped", "discard", "episode_saved", "correction_recorded"):
         n = sum(e["type"] == kind for e in events)
         if n:

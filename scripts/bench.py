@@ -19,19 +19,27 @@ nothing extra. Everything goes in a session folder (sessions/<time>_bench/): the
 events.jsonl (with a RealSense scan before and after each pickup, return and discard, so knocked
 tiles and tiles put back by hand show up without anyone saying so; when a scan shows the mat changed
 you're asked whether it really did, Enter for yes), and per attempt the wrist
-frames, act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
+frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
 summarises the latest one, interventions included (mahjong/interventions.py).
 
     python scripts/bench.py                         # interactive, default policy
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
     python scripts/bench.py --sim --trials 3        # no hardware
     python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
+    python scripts/bench.py --policy pickup_mat_cl,pickup_mat_v3 --layout standard --trials 5
 
 Every successful attempt also saves a hover-correction sample (source "bench": where the jaws closed
 minus the detection) to data/hover_corrections.jsonl; it's only fitted once data/hover_model.json
 lists "bench". --hover-perturb-mm cycles deliberate hover offsets through the trials, to test whether
 the policy follows the tile or replays a fixed move from wherever it starts (session_report.py prints
 the result); those attempts' samples are saved as excluded.
+
+--policy a,b compares policies paired (ROADMAP 4, 5): trials run in rounds, each policy once per round
+from the same hover offset, in alternating order (a b, b a, ...) so a drift over the session (battery,
+daylight) doesn't favour one. Each attempt starts from its own policy's hover (data/policies.json).
+--layout NAME (taught with scripts/layout.py) walks the layout's spots: --trials rounds at each spot,
+picking the tile detected nearest the spot; a spot it can't attempt is skipped, not the walk.
+session_report.py prints success per spot and policy side by side.
 """
 import argparse
 import json
@@ -42,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, interventions
+from mahjong import config, interventions, layout
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record
 from mahjong.perception import choose_tile, drain_stdin
@@ -77,14 +85,18 @@ class Mark:
 class Bench:
     def __init__(self, args):
         self.args = args
+        ids = parse_policies(args.policy)
+        # before connecting anything, so a typo fails fast
+        self.spots = layout.load(args.layout)["spots"] if getattr(args, "layout", None) else None
         if args.sim:
             from mahjong.sim import SimCamera, SimPerception, SimPolicy, SimRobot
             mat = SimPerception()
             self.arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
-            self.camera, self.realsense, self.policy = SimCamera(), mat, SimPolicy(mat=mat)
+            self.camera, self.realsense = SimCamera(), mat
+            self.policies = [SimPolicy(mat=mat, policy_id=i or "sim") for i in ids]
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
             self.listener = None
-            self.session = Session("bench", ask_setup=False, policy="sim", sim=True)
+            self.session = Session("bench", ask_setup=False, policy=args.policy or "sim", sim=True)
         else:
             from lerobot.common.control_utils import init_keyboard_listener
             from mahjong import hardware
@@ -93,7 +105,7 @@ class Bench:
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.session = Session("bench", policy=args.policy or "default", sim=False)
-            self.policy = Policy(args.policy)
+            self.policies = [Policy(i) for i in ids]
             self.listener, self.events = init_keyboard_listener()
         self.abort, self.mark = Abort(self.events), Mark(self.events)
         if self.arm.at_connect:
@@ -108,8 +120,15 @@ class Bench:
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
         # {"tile_name", "detection_xy", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
         self.held = None
-        print(f"Policy: {self.policy.id}, hover {self.policy.hover}\nHover correction: {self.correction.summary()}")
+        self.policy = self.policies[0]      # the one single commands use; trials take turns
+        for policy in self.policies:
+            print(f"Policy: {policy.id}, hover {policy.hover}")
+        print(f"Hover correction: {self.correction.summary()}")
+        if self.spots:
+            print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
+                           policies=[{"id": p.id, "hover": p.hover} for p in self.policies],
+                           layout=getattr(args, "layout", None), spots=self.spots,
                            correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
 
     # --- pieces ---
@@ -137,7 +156,8 @@ class Bench:
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=kinds)
         self.scan_checks = []
 
-    def choose(self, tile_name=None):
+    def choose(self, tile_name=None, spot=None):
+        """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick."""
         if not self.arm.is_at_rest():
             self.arm.rest()
         tiles = self.scan("choose")
@@ -147,6 +167,12 @@ class Bench:
             print("No tiles detected.")
             self.session.event("attempt_skipped", reason="no_tiles", tile=tile_name)
             return None
+        if spot is not None:
+            tile = layout.nearest_tile(tiles, spot["xy"])
+            if tile is None:
+                print(f"No tile detected within {config.TILE_MERGE_RADIUS_M * 1000:.0f}mm of spot {spot['id']}")
+                self.session.event("attempt_skipped", reason="not_at_spot", spot=spot["id"], spot_xy=spot["xy"])
+            return tile
         if tile_name is None:
             drain_stdin()
         tile = choose_tile(tiles, tile_name=tile_name)
@@ -182,13 +208,13 @@ class Bench:
         if tile and (result := self.hover_over(tile)):
             self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"], **result)
 
-    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0)):
-        """One attempt, from the hover moved by `perturb` (m). Returns True if the gripper ended up
-        holding the tile."""
+    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None):
+        """One attempt with self.policy, from its hover moved by `perturb` (m), at the named tile or the
+        one at layout `spot`. Returns True if the gripper ended up holding the tile."""
         if self.held:
             print(f"Holding {self.held['tile_name']} — return or discard it first.")
             return None
-        tile = self.choose(tile_name)
+        tile = self.choose(tile_name, spot)
         if tile is None:
             return None
         attempt = self.session.attempt_dir(tile["tile_name"])
@@ -216,7 +242,9 @@ class Bench:
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
                            correction=self.correction.name, hover_perturb_xy=list(perturb),
-                           hover_sag_xyz_m=hover.get("sag_xyz_m"), **run, **review)
+                           hover_sag_xyz_m=hover.get("sag_xyz_m"),
+                           **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
+                           **run, **review)
         self.last_attempt = attempt.name
         if success and run["grasp_xy"]:
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
@@ -302,31 +330,54 @@ class Bench:
         self.arm.rest()
 
     def trials(self, n=None, tile_name=None):
+        """n rounds on one tile, or at every spot of the layout. A round is one attempt per policy, from
+        the same hover offset, in alternating order (a b, b a, ...)."""
         if n is None:
             drain_stdin()
-            n = int(input("How many trials? ").strip() or 0)
-            tile_name = input("Which tile (name)? ").strip() or None
-        results = []
+            n = int(input(f"How many rounds{' per spot' if self.spots else ''}? ").strip() or 0)
+            if not self.spots:
+                tile_name = input("Which tile (name)? ").strip() or None
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
+        plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
+                for policy in (self.policies if i % 2 == 0 else self.policies[::-1])]
+        done, skipped = [], set()       # done: (spot id, policy id, success)
         self.batch = True
         try:
-            for i in range(n):
-                perturb = offsets[i % len(offsets)]
-                print(f"\n=== trial {i + 1}/{n} ===")
-                success = self.pickup(tile_name, ask=False, perturb=perturb)
+            for spot, i, policy in plan:
+                where = spot["id"] if spot else None
+                if where in skipped:
+                    continue
+                self.policy = policy
+                print(f"\n=== {f'spot {where}, ' if spot else ''}round {i + 1}/{n}"
+                      f"{f', {policy.id}' if len(self.policies) > 1 else ''} ===")
+                success = self.pickup(tile_name, ask=False, perturb=offsets[i % len(offsets)], spot=spot)
+                if success is None and spot is not None:
+                    print(f"Couldn't attempt at spot {where} — on to the next spot.")
+                    skipped.add(where)
+                    continue
                 if success is None:
                     print("Couldn't attempt (tile not found or unreachable) — stopping the trials.")
                     break
-                results.append(success)
+                done.append((where, policy.id, success))
                 if self.held:
                     self.return_tile()
                 if self.held:
                     print("Couldn't return it — stopping the trials.")
                     break
         finally:        # even when interrupted: what you marked is still worth a word
-            rate = f"{sum(results)}/{len(results)}"
-            self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=results)
-            print(f"\n{tile_name or 'trials'}: {rate} picked up")
+            self.policy = self.policies[0]
+            self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=[d[2] for d in done],
+                               policies=[d[1] for d in done], spots=[d[0] for d in done],
+                               layout=getattr(self.args, "layout", None), skipped_spots=sorted(skipped))
+            print()
+            for where in dict.fromkeys(d[0] for d in done):
+                for policy in self.policies:
+                    got = [d[2] for d in done if d[:2] == (where, policy.id)]
+                    if got:
+                        print(f"{where or tile_name or 'trials'}{f' {policy.id}' if len(self.policies) > 1 else ''}: "
+                              f"{sum(got)}/{len(got)} picked up")
+            if skipped:
+                print(f"skipped spots: {', '.join(sorted(skipped))}")
             self.batch = False
             self.review_queued()
             self.check_scans()
@@ -382,6 +433,16 @@ class Bench:
             self.session.close()
 
 
+def parse_policies(text):
+    """"a,b" -> ["a", "b"]; None -> [None] (the registry's default)."""
+    if not text:
+        return [None]
+    ids = [s.strip() for s in text.split(",") if s.strip()]
+    if len(set(ids)) != len(ids):
+        raise SystemExit(f"--policy {text}: each policy once")
+    return ids
+
+
 def parse_perturb(text):
     """"0,6x,-6x,6y,-6y" -> [(0, 0), (0.006, 0), (-0.006, 0), (0, 0.006), (0, -0.006)] (m)"""
     offsets = []
@@ -401,9 +462,11 @@ COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--policy", default=None, help="policy id from data/policies.json (default: its 'default')")
+    p.add_argument("--policy", default=None,
+                   help="policy id from data/policies.json (default: its 'default'); a,b compares them paired in trials")
     p.add_argument("--trials", type=int, default=None, help="run this many pickup/return trials, then quit")
     p.add_argument("--tile", default=None, help="tile name for --trials")
+    p.add_argument("--layout", default=None, help="trials walk this layout's spots (scripts/layout.py)")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
     p.add_argument("--hover-perturb-mm", type=parse_perturb, default=None,

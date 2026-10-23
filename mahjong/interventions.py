@@ -43,6 +43,7 @@ KINDS = {
     "killed": ("no session_end: killed, or still running", RESCUE),
     "rescan": ("tile not found or unreachable", RESCUE),
     "cancelled": ("tile choice cancelled", OBSERVATION),
+    "spot_empty": ("no tile at a layout spot; the walk skipped it", OBSERVATION),
     "hover_rejected": ("rejected the hover (←)", RESCUE),
     "success_overridden": ("answered against the gripper's verdict", OVERRIDE),
     "knocked": ("a tile other than the target moved", FAILURE),
@@ -247,8 +248,9 @@ def derive(events):
             fields = {k: v for k, v in e.items() if k not in ("type", "time", "kind", "attempt_dir")}
             add(e["kind"], e.get("attempt_dir") or last_attempt, "logged", time, **fields)
         elif kind == "attempt_skipped":
-            add("cancelled" if e.get("reason") == "cancelled" else "rescan", last_attempt, "logged", time,
-                reason=e.get("reason"), tile=e.get("tile"))
+            skip = {"cancelled": "cancelled", "not_at_spot": "spot_empty"}.get(e.get("reason"), "rescan")
+            add(skip, last_attempt, "logged", time, reason=e.get("reason"), tile=e.get("tile"),
+                **({"spot": e["spot"]} if e.get("spot") else {}))
         elif kind == "connect" and e.get("arm_at_rest") is False:
             add("arm_moved_while_off", None, "logged", time, off_rest_deg=e.get("off_rest_deg"))
         elif kind == "detections":

@@ -171,3 +171,57 @@ def test_a_discard_that_missed_and_a_note(tmp_path, monkeypatch):
     found = interventions.derive(read_events(b.session.dir))
     assert [(i["kind"], i["class"]) for i in found] == [("discard_missed", "rescue"), ("straightened", "rescue")]
     assert found[1]["note"] == "rotated 3B back" and found[1]["attempt_dir"] == found[0]["attempt_dir"]
+
+
+def test_paired_policies_take_turns_from_the_same_offset_and_their_own_hover(tmp_path, monkeypatch):
+    import bench
+    from mahjong.sim import SimPolicy
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    args = argparse.Namespace(policy="a,b", trials=3, tile="8D", sim=True, device=None,
+                              hover_perturb_mm=bench.parse_perturb("0,6x"), layout=None)
+    b = bench.Bench(args)
+    b.policies[1].hover = {**SimPolicy.hover, "clearance_m": SimPolicy.hover["clearance_m"] + 0.01}
+    try:
+        b.arm.rest()
+        b.trials(3, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert [a["policy"] for a in attempts] == ["a", "b", "b", "a", "a", "b"]          # a b, b a, a b
+    assert [a["hover_perturb_xy"][0] for a in attempts] == [0.0, 0.0, 0.006, 0.006, 0.0, 0.0]
+    clearance = {a["policy"]: a["hover_clearance_m"] for a in attempts}
+    assert clearance["b"] - clearance["a"] == pytest.approx(0.01, abs=0.002)          # each from its own hover
+    (done,) = [e for e in events if e["type"] == "trials_done"]
+    assert done["policies"] == ["a", "b", "b", "a", "a", "b"] and all(done["results"])
+    assert b.policy.id == "a"
+    with pytest.raises(SystemExit):
+        bench.parse_policies("a,a")
+
+
+def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkeypatch):
+    import bench
+    from mahjong import interventions, layout
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
+    layout.save("walk", [{"id": "L", "xy": [0.21, 0.02]}, {"id": "empty", "xy": [0.25, 0.10]},
+                         {"id": "R", "xy": [0.160, -0.165]}])
+    args = argparse.Namespace(policy=None, trials=2, tile=None, sim=True, device=None, hover_perturb_mm=None,
+                              layout="walk")
+    b = bench.Bench(args)
+    b.realsense.tiles = [t for t in b.realsense.tiles if t["tile_name"] != "3B"]   # the sim lift can't reach it:
+    b.realsense.tiles.append({"tile_name": "5C", "xy": [0.212, 0.021]})           # a tile placed near spot L instead
+    try:
+        b.arm.rest()
+        b.trials(2)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert [(a["spot"], a["tile"]) for a in attempts] == [("L", "5C")] * 2 + [("R", "8D")] * 2
+    assert all(a["success"] for a in attempts)
+    skips = [e for e in events if e["type"] == "attempt_skipped"]
+    assert [(s["reason"], s["spot"]) for s in skips] == [("not_at_spot", "empty")]    # tried once, then skipped
+    assert [(i["kind"], i["class"]) for i in interventions.derive(events)] == [("spot_empty", "observation")]
+    (done,) = [e for e in events if e["type"] == "trials_done"]
+    assert done["spots"] == ["L", "L", "R", "R"] and done["skipped_spots"] == ["empty"]
