@@ -67,6 +67,31 @@ def parse_sources(text):
     return sources
 
 
+# --- deliberate hover offsets (bench --hover-perturb-mm, record.py --hover-jitter-mm / --hover-offsets-mm) ---
+
+def parse_offsets(text):
+    """"0,6x,-6x,6y,-6y" -> [(0, 0), (0.006, 0), (-0.006, 0), (0, 0.006), (0, -0.006)] (m)"""
+    offsets = []
+    for item in filter(None, (s.strip().lower() for s in text.split(","))):
+        if item in ("0", "0x", "0y"):
+            offsets.append((0.0, 0.0))
+        elif item[-1] in "xy":
+            mm = float(item[:-1]) / 1000
+            offsets.append((mm, 0.0) if item[-1] == "x" else (0.0, mm))
+        else:
+            raise argparse.ArgumentTypeError(f"{item!r}: use e.g. 6x or -6y")
+    return offsets
+
+
+def random_offset(rng, radius_m, zero_fraction=0.0):
+    """A hover offset (m) drawn uniformly over a disc of radius_m (uniform by area, not by radius, so
+    large offsets aren't rare); (0, 0) with probability zero_fraction, so the clean hover stays in the data."""
+    if radius_m <= 0 or rng.random() < zero_fraction:
+        return (0.0, 0.0)
+    r, theta = radius_m * math.sqrt(rng.random()), rng.uniform(0, 2 * math.pi)
+    return (r * math.cos(theta), r * math.sin(theta))
+
+
 def grasp_record(source, detection_xy, grasp_xy, **provenance):
     """A sample from where the gripper closed (demo or bench): the grasp tool point minus the detection."""
     return {"source": source, "detection_xy": [float(v) for v in detection_xy],

@@ -5,7 +5,8 @@ Each sample is the commanded tool point at the first gripper-shut command minus 
 collect_corrections.py measures at the hover, measured at the grasp instead. They're appended to
 data/hover_corrections.jsonl as source "demo" / "bench" (already-imported ones are skipped), and
 fitted only once data/hover_model.json lists their source. bench.py records new bench samples itself;
-this backfills older sessions.
+this backfills older sessions. Demos from a jittered hover (record.py --hover-jitter-mm) stay in: a
+demo sample is the grasp minus the detection, whatever the hover, and the operator had to steer to it.
 
 Recordings and old sessions don't store the RealSense calibration, so only samples from after the
 current setup's first gamepad correction are imported (older ones may predate a recalibration).
@@ -58,6 +59,7 @@ def demo_records(repo, actions_by_episode, log):
             continue
         records.append(grasp_record("demo", row["detection_xy"], grasp_xy, timestamp=row_time(row),
                                     tile_name=row.get("tile_name"), hover_xy=row.get("hover_xy"),
+                                    hover_jitter_xy=row.get("hover_jitter_xy"),
                                     hover_correction=row.get("hover_correction"), dataset=repo, episode_index=ep))
     return records
 

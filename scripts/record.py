@@ -15,11 +15,22 @@ an outline that turns green once the tile is within 5mm / 6° — and the tile a
 without asking. Each spot is recorded --repeats times in a row; the episode log stores the spot and
 where the tile actually was.
 
+Hover jitter (ROADMAP 7): --hover-jitter-mm R moves each episode's hover by a random offset within R mm
+(uniform over the disc; --jitter-zero-fraction of episodes stay clean), so the demos have to steer to the
+tile from wherever the hover lands, not repeat one move per mat position (what v2 learned). For an eval
+slice, --hover-offsets-mm cycles a fixed list instead, so the set can be recorded again identically. An
+episode keeps its offset through ← re-hovers and discards — rejecting the hard ones would bias the
+dataset back toward the clean hover. Each episode log row has hover_jitter_xy and the unjittered target.
+
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
+    python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 8
+    python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_jitter --repeats 2 \
+        --hover-offsets-mm 6x,-6y
 """
 import argparse
 import json
+import random
 import shutil
 import sys
 import time
@@ -32,7 +43,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, layout
-from mahjong.hover_correction import HoverCorrection
+from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.session import Session, ask_one
 
@@ -46,7 +57,7 @@ FEATURES = {
 }
 EPISODE_LOG = "episode_log.jsonl"
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
-SLICES = ["train", "familiar", "new", "dim", "tilt"]     # train: for training; the rest: eval-only (offline_eval.py)
+SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
 
 
 def parse_args():
@@ -63,7 +74,17 @@ def parse_args():
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
-                        "tilted tiles) — eval datasets are never trained on")
+                        "tilted tiles / jittered hovers) — eval datasets are never trained on")
+    jitter = p.add_mutually_exclusive_group()
+    jitter.add_argument("--hover-jitter-mm", type=float, default=0.0,
+                        help="move each episode's hover by a random offset within this radius (mm), so the policy "
+                             "learns to steer to the tile")
+    jitter.add_argument("--hover-offsets-mm", type=parse_offsets, default=None,
+                        help="cycle these hover offsets through the saved episodes instead, e.g. 0,6x,-6y (an eval "
+                             "slice that can be recorded again identically)")
+    p.add_argument("--jitter-zero-fraction", type=float, default=0.2,
+                   help="with --hover-jitter-mm: share of episodes recorded from the unjittered hover")
+    p.add_argument("--jitter-seed", type=int, default=None, help="with --hover-jitter-mm: random seed")
     p.add_argument("--layout", default=None, help="place tiles to this layout's spots (scripts/layout.py)")
     p.add_argument("--repeats", type=int, default=2, help="with --layout: episodes per spot")
     p.add_argument("--start-spot", default=None, help="with --layout: start at this spot id")
@@ -106,13 +127,16 @@ def main():
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
-                      slice=args.slice, layout=args.layout)
+                      slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
+                      hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
+                      jitter_seed=args.jitter_seed)
     session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
     dataset = open_dataset(args.dataset)
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
+    rng, offset = random.Random(args.jitter_seed), None     # offset: the next saved episode's, kept until it's saved
     try:
         while saved < args.episodes:
             for k in ("exit_early", "rerecord_episode", "stop_recording"):
@@ -160,12 +184,19 @@ def main():
                 continue
             x, y = tile["xy"]
             hx, hy = correction.apply(x, y) if correction else (x, y)
-            result = arm.hover(hx, hy, hover["offset_m"], hover["clearance_m"], hover["gripper"])
+            if offset is None:
+                offset = next_offset(args, rng, saved)
+            if any(offset):
+                print(f"  hover jittered by ({offset[0] * 1000:+.1f}, {offset[1] * 1000:+.1f})mm on purpose")
+            result = arm.hover(hx + offset[0], hy + offset[1], hover["offset_m"], hover["clearance_m"], hover["gripper"])
             if result is None:
                 print("Unreachable from the closed-loop hover — choose another tile.")
-                session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
+                session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"],
+                              hover_xy=[hx + offset[0], hy + offset[1]], hover_jitter_xy=list(offset))
+                if args.hover_jitter_mm:
+                    offset = None          # a random draw may be what put it out of reach: draw again
                 continue
-            session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], **result)
+            session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], hover_jitter_xy=list(offset), **result)
 
             print("Hovering. → take control and START recording, ← re-hover, Esc quit")
             while not events["exit_early"]:
@@ -210,9 +241,11 @@ def main():
             episode = dataset.meta.total_episodes
             dataset.save_episode()
             saved += 1
+            offset = None
             record = {"episode_index": episode, "timestamp": datetime.now().isoformat(timespec="seconds"),
                       "tile_name": tile["tile_name"], "detection_xy": [x, y],
-                      "hover_xy": result["hover_xy"], "hover": hover, "hover_clearance_m": result["clearance_m"],
+                      "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
+                      "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement}
@@ -238,6 +271,13 @@ def main():
         cv2.destroyAllWindows()
         print(f"{saved} episode(s) saved this session; {args.dataset} has {dataset.meta.total_episodes}.")
         session.close()
+
+
+def next_offset(args, rng, saved):
+    """The hover offset (m) for saved episode number `saved`."""
+    if args.hover_offsets_mm:
+        return args.hover_offsets_mm[saved % len(args.hover_offsets_mm)]
+    return random_offset(rng, args.hover_jitter_mm / 1000, args.jitter_zero_fraction)
 
 
 def show(camera, disabled, text, frame=None):

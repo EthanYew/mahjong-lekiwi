@@ -45,6 +45,7 @@ import cv2
 from mahjong import config, interventions
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record
+from mahjong.hover_correction import parse_offsets as parse_perturb
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.session import Session, ask_conditions
 
@@ -380,20 +381,6 @@ class Bench:
             if self.listener:
                 self.listener.stop()
             self.session.close()
-
-
-def parse_perturb(text):
-    """"0,6x,-6x,6y,-6y" -> [(0, 0), (0.006, 0), (-0.006, 0), (0, 0.006), (0, -0.006)] (m)"""
-    offsets = []
-    for item in filter(None, (s.strip().lower() for s in text.split(","))):
-        if item in ("0", "0x", "0y"):
-            offsets.append((0.0, 0.0))
-        elif item[-1] in "xy":
-            mm = float(item[:-1]) / 1000
-            offsets.append((mm, 0.0) if item[-1] == "x" else (0.0, mm))
-        else:
-            raise argparse.ArgumentTypeError(f"{item!r}: use e.g. 6x or -6y")
-    return offsets
 
 
 COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "note", "setup", "quit"]
