@@ -106,11 +106,9 @@ def describe(i):
     if i.get("marks_s"):
         parts.append("marked at " + ", ".join(f"{t:.1f}s" for t in i["marks_s"]))
     if "changes" in i:
-        c = i["changes"]
-        parts += [f"{m['tile_name']} moved {m['moved_m'] * 1000:.0f}mm" for m in c["moved"]]
-        parts += [f"{t['tile_name']} appeared" for t in c["appeared"]] + [f"{t['tile_name']} gone" for t in c["gone"]]
-        if i.get("during") and parts:
-            parts[-1] += f" during the {i['during']}"
+        parts.append(interventions.changes_text(i["changes"]) + (f" during the {i['during']}" if i.get("during") else ""))
+    if i.get("off_rest_deg"):
+        parts.append(f"{i['off_rest_deg']:.0f} deg from rest at connect")
     for key in ("reason", "command", "tile", "note", "error"):
         if i.get(key):
             parts.append(f"{key} {i[key]}" if key in ("command", "tile") else str(i[key]))
@@ -122,8 +120,10 @@ def interventions_report(events, trials, unit):
     number (ROADMAP 3); resets, overrides, failures and observations are listed but not counted."""
     found = interventions.derive(events)
     print("\ninterventions" + ("" if found else ": none"))
+    if found:
+        print(f"  {'attempt':<16} {'kind':<20} {'class':<11} {'source':<9} what")
     for i in found:
-        print(f"  {i['attempt_dir'] or 'session':<16} {i['kind']:<20} {i['class']:<11} {i['source']:<7} {describe(i)}")
+        print(f"  {i['attempt_dir'] or 'session':<16} {i['kind']:<20} {i['class']:<11} {i['source']:<9} {describe(i)}")
     s = interventions.summary(found, trials)
     if trials:
         rate = (f"{s['rescues_per_10']:.1f} per 10 {unit}s"
@@ -138,7 +138,7 @@ def interventions_report(events, trials, unit):
 
 
 def all_sessions():
-    print(f"{'session':<24} {'ok':>6} {'rescue/10':>9} {'ACT s':>6}  setup")
+    print(f"{'session':<24} {'picked':>6} {'rescue/10':>9} {'ACT s':>6}  setup")
     for folder in sorted(p for p in config.SESSIONS.glob("*_bench") if (p / "events.jsonl").exists()):
         events = read_events(folder)
         attempts = [e for e in events if e["type"] == "attempt"]
@@ -170,15 +170,17 @@ def main():
         by = defaultdict(list)
         for a in attempts:
             by[(a["policy"], a["tile"])].append(a)
-        print(f"  {'policy':<20} {'tile':<5} {'ok':>5} {'stalls':>6} {'descended':>9} {'clearance mm':>12} "
+        print(f"  {'policy':<20} {'tile':<5} {'picked':>6} {'stalls':>6} {'descended':>9} {'clearance mm':>12} "
               f"{'floored':>7} {'ACT s':>6} {'slips':>5}")
         for (policy, tile), group in sorted(by.items()):
-            ok = sum(a["success"] for a in group)
-            print(f"  {policy:<20} {tile:<5} {ok:>2}/{len(group):<2} {sum(a.get('stall_warning', False) for a in group):>6} "
+            picked = sum(a["success"] for a in group)
+            print(f"  {policy:<20} {tile:<5} {picked:>3}/{len(group):<2} {sum(a.get('stall_warning', False) for a in group):>6} "
                   f"{sum(a.get('descended', False) for a in group):>9} "
                   f"{np.mean([a['hover_clearance_m'] for a in group]) * 1000:>12.0f} "
                   f"{sum(a.get('floored_steps', 0) for a in group):>7} "
                   f"{np.mean([act_seconds(a) for a in group]):>6.1f} {sum(a.get('slipped', False) for a in group):>5}")
+        print("  picked: held after the pickup, by your answer; stalls: still at the hover at the stall check\n"
+              "  floored: ACT steps held back from pressing the tip into the table; slips: held, then lost")
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
@@ -195,7 +197,7 @@ def main():
             print(f"\ncontact sheet: {sheet}")
     for t in (e for e in events if e["type"] == "trials_done"):
         print(f"trials on {t['tile']}: {sum(t['results'])}/{len(t['results'])} ({t['policy']})")
-    for kind in ("return", "discard", "episode_saved", "correction_recorded"):
+    for kind in ("return", "return_skipped", "discard", "episode_saved", "correction_recorded"):
         n = sum(e["type"] == kind for e in events)
         if n:
             print(f"{kind}: {n}")
