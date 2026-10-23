@@ -6,7 +6,7 @@ import pytest
 
 from mahjong import config
 from mahjong.hover_correction import (HoverCorrection, active_sources, grasp_record, parse_sources, setup_fingerprint,
-                                      MAX_CORRECTION_M)
+                                      source_of, MAX_CORRECTION_M)
 
 
 def records(xy, delta_fn, noise=0.002, seed=1, **extra):
@@ -51,7 +51,8 @@ def test_correction_is_capped_and_held_at_the_edge():
 def test_migrated_records_reproduce_the_old_correction():
     old = json.loads((config.DATA / "fixtures" / "old_hover_correction.json").read_text())
     model = HoverCorrection.load()
-    assert (model.kind, model.n, len(model.excluded)) == (old["kind"], old["n"], 2)
+    operator_excluded = [r for r in model.excluded if source_of(r) == "gamepad"]   # not e.g. perturbed bench samples
+    assert (model.kind, model.n, len(operator_excluded)) == (old["kind"], old["n"], 2)
     for x, y, dx, dy in old["deltas"]:
         assert model.delta_at(x, y) == pytest.approx((dx, dy), abs=1e-9)
 

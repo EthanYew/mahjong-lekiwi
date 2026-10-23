@@ -226,7 +226,11 @@ def report(sources=None):
     if active.set_aside:
         print(f"{len(active.set_aside)} record(s) from a different setup set aside.")
     for r in active.excluded:
-        print(f"excluded: {r.get('tile_name', '')} at ({r['detection_xy'][0]:.3f}, {r['detection_xy'][1]:+.3f}) — {r['excluded']}")
+        if source_of(r) == "gamepad":
+            print(f"excluded: {r.get('tile_name', '')} at ({r['detection_xy'][0]:.3f}, {r['detection_xy'][1]:+.3f}) — {r['excluded']}")
+    reasons = Counter(r["excluded"] for r in active.excluded if source_of(r) != "gamepad")
+    for reason, n in reasons.items():
+        print(f"excluded: {n} sample(s) — {reason}")
     if active.unused:
         print(f"not fitted (source not listed): {dict(Counter(source_of(r) for r in active.unused))}")
     print(active.summary())
