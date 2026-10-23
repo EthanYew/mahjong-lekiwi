@@ -13,7 +13,7 @@
   7. register it in data/policies.json with the hover its episodes started from
 
     python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --dry-run
-    python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --policy-id pickup_mat_v3 --default
+    python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --default    # pickup_mat_cl_v3
 
 Settle the options before starting: training takes hours, and the dataset name is fixed once uploaded.
 """
@@ -38,7 +38,8 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--source", required=True, help="recorded dataset repo id")
     p.add_argument("--version", required=True, help="e.g. v3; used in the output names")
-    p.add_argument("--policy-id", default=None, help="registry id (default: pickup_<version>)")
+    p.add_argument("--policy-id", default=None, help="registry id (default: pickup_mat_cl_<version>, like the "
+                                                     "registered ones)")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="also drop the opening gripper narrowing (start episodes at the pre-grasp opening)")
     p.add_argument("--steps", type=int, default=None, help="training steps (default: ~131 passes over the data)")
@@ -57,7 +58,7 @@ def names(args):
             "policy_repo": f"{config.HF_USER}/{base}_{args.version}_policy",
             "job": f"act_{base}_{args.version}",
             "output_dir": config.LEROBOT_REPO / "outputs" / "train" / f"{base}_{args.version}",
-            "policy_id": args.policy_id or f"pickup_{args.version}"}
+            "policy_id": args.policy_id or f"pickup_mat_cl_{args.version}"}
 
 
 def train_command(n, steps, private):
@@ -90,6 +91,7 @@ def evaluate(policy, dataset_repo, hover):
     """(replay MAE on training episodes — optimistic, mean freeze-probe descent onset in plan steps)."""
     import cv2
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from mahjong.offline_eval import descent_onset, to_bgr
     ds = LeRobotDataset(dataset_repo)
     errors = []
     for e in np.linspace(0, ds.num_episodes - 1, 3).astype(int):
@@ -98,8 +100,7 @@ def evaluate(policy, dataset_repo, hover):
         # misalign its averaging)
         for i in range(int(meta["dataset_from_index"]), int(meta["dataset_to_index"]), 3):
             item = ds[i]
-            frame = (item["observation.images.wrist"].permute(1, 2, 0).numpy() * 255).astype(np.uint8)[:, :, ::-1]
-            first = policy.plan(frame, item["observation.state"].numpy())[0]
+            first = policy.plan(to_bgr(item["observation.images.wrist"]), item["observation.state"].numpy())[0]
             errors.append(np.abs(first - item["action"].numpy()).mean())
     # The freeze frames were captured after the jaws had been narrowed from a 90% hover (gripper delta
     # -31); a policy recorded from a narrowed hover starts at that opening, i.e. delta 0.
@@ -107,8 +108,8 @@ def evaluate(policy, dataset_repo, hover):
     onsets = []
     for name in FREEZE_FRAMES:
         plan = policy.plan(cv2.imread(str(config.DATA / "fixtures" / "freeze_frames" / name)), probe_state)
-        moved = np.abs(plan[:, 1:3] - plan[0, 1:3]).max(axis=1)
-        onsets.append(next((k for k in range(len(plan)) if moved[k] > 2.0), len(plan)))
+        onset = descent_onset(plan)
+        onsets.append(len(plan) if onset is None else onset)
     return float(np.mean(errors)), float(np.mean(onsets))
 
 

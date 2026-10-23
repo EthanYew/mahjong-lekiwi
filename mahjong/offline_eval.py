@@ -212,9 +212,13 @@ def eval_items(split=None):
     return items
 
 
+def to_bgr(image):
+    """A dataset's wrist image (3 x H x W, 0-1) as the uint8 BGR frame the camera gives the policy."""
+    return (image.permute(1, 2, 0).numpy() * 255).round().astype(np.uint8)[:, :, ::-1]
+
+
 def bgr_frame(ds, index):
-    item = ds[index]
-    return (item["observation.images.wrist"].permute(1, 2, 0).numpy() * 255).round().astype(np.uint8)[:, :, ::-1]
+    return to_bgr(ds[index]["observation.images.wrist"])
 
 
 def evaluate(policy, split=None, max_episodes=None, stride=EVAL_STRIDE, log=print):
