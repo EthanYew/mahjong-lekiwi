@@ -224,6 +224,12 @@ A fixed protocol, so numbers compare across sessions and policies.
   Yewy/mahjong_mat_pickup_lekiwi_cl_hover --version v2n --trim-narrowing`): 89 episodes, the 15 eval
   episodes left out, so unlike v2 its offline scores are honest. It is the baseline for v3. If it does
   worse than v2, record v3 at 90 % instead.
+  **Offline (2026-10-23 18:00):** 0 freezes, lag −3 steps, close 0.18 s, grasp 1.8 mm: pass. Arm error
+  0.70° vs v2's 0.21°: FAIL. v2 on the same post-narrowing frames is 0.25° and v2n on its own training
+  episodes 0.23°, so the gap is mostly that v2 trained on the 15 eval episodes. The "not much worse
+  than the reference" gates can't judge a policy against v2 until the golden set exists (neither has
+  trained on it). Worst spot 21,+13: grasp 12 mm, plan descends 48 steps early. The bench decides it:
+  paired v2n vs v2 at a few spots.
 - Record with deliberate random hover jitter (±~6 mm), so the policy has to find the tile in
   the image rather than in the mat position. Hover improvements (1) are then safe without a retrain.
   **Built 2026-10-23:** `record.py --hover-jitter-mm R` (uniform over the disc, `--jitter-zero-fraction`
