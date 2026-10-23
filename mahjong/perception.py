@@ -29,7 +29,9 @@ class RealSense:
         cfg.enable_stream(rs.stream.depth, width, height, rs.format.z16, config.FPS)
         cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, config.FPS)
         self.pipeline = rs.pipeline()
-        self.pipeline.start(cfg)
+        profile = self.pipeline.start(cfg)
+        i = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        self.intrinsics = {"fx": i.fx, "fy": i.fy, "ppx": i.ppx, "ppy": i.ppy}   # colour = aligned depth
         self.align = rs.align(rs.stream.color)
         self.filters = [rs.spatial_filter(), rs.temporal_filter(), rs.hole_filling_filter()]
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)

@@ -93,10 +93,12 @@ class SimPerception:
     """A mat that changes: SimPolicy takes the tile it grasps off it, a release near the table puts it
     back where the jaws opened (one higher up, e.g. over the discard container, doesn't), and tests can
     nudge() tiles as a knock or a person would."""
+    intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
 
     def __init__(self, tiles=SIM_TILES):
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
+        self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
 
     def detect_tiles(self, n_frames=None):
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
@@ -121,7 +123,8 @@ class SimPerception:
         tile["xy"] = [tile["xy"][0] + dx, tile["xy"][1] + dy]
 
     def snapshot(self):
-        return np.zeros((480, 848, 3), dtype=np.uint8)
+        from .layout import render
+        return render([(*t["xy"], 0.0) for t in self.tiles], self.intrinsics, self.T_cam_to_base)
 
     def close(self):
         pass

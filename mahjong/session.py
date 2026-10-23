@@ -97,6 +97,7 @@ class Session:
         if ask_setup:          # before the folder exists, so quitting here leaves nothing behind
             conditions = ask_conditions(previous_conditions())
             notes = input("Anything else to note (Enter to skip): ").strip()
+        self.conditions, self.notes = conditions, notes
         self.dir = config.SESSIONS / f"{datetime.now():%Y%m%d_%H%M%S}_{kind}"
         self.dir.mkdir(parents=True)
         self._log = open(self.dir / "session.log", "a")

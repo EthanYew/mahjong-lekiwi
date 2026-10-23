@@ -33,18 +33,59 @@ Done (2026-10-23):
 - Caveat: where the operator didn't steer (x ≥ 0.21 in the demos: exactly 0/0), a demo sample only says
   "close enough", so it pulls a refit toward the current hover. Weight demos below bench.
 
+**Sensitivity test result (2026-10-23 12:35, `20261023_123549_bench`): v2 repeats a fixed move.**
+At 4D it moved ~+10/+10 mm from the hover whatever the hover offset; the grasp followed the hover at
+1.26 (x) / 0.88 (y) mm per mm. It went 15/15 only because the jaws tolerate ±6 mm. So for v2 the live
+hover stays as it is, and bench samples are circular (grasp = hover + fixed move): don't fit them.
+Write-up: `docs/retrospectives/2026-10-23_hover_learning.md`.
+
 Next:
-1. **Sensitivity test** (~20 min, gates the rest): `bench.py --trials 15 --tile 4D --hover-perturb-mm
-   0,6x,-6x,6y,-6y`, and once at an x ≥ 0.21 tile. `session_report.py` prints how far the grasp moved
-   per mm of hover offset: ≲ 0.3 means v2 goes to the tile and a better hover is safe; near 1 means
-   keep today's hover until a jittered dataset (7).
-2. **Paired A/B** of the candidate vs the live hover on the same tiles (`--correction a,b`, the same
-   alternation as `--policy a,b` in 5). Judge by the hover→grasp shift in mm (repeatable to ~1 mm)
-   as well as success.
-3. **Switch** by editing `data/hover_model.json` in one commit that cites the A/B session.
+1. The same test at an x ≥ 0.21 tile, returning the tile to the grasp point minus the offset, so it
+   doesn't drift into its neighbours.
+2. A jittered dataset (7). Rerun this test on the policy trained from it; expect a slope near 0.
+3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
+   alternation as `--policy a,b` in 5), judged by the hover→grasp shift in mm as well as success,
+   and **switching** by editing `data/hover_model.json` in one commit that cites the A/B session.
 4. Bench attempts across the mat (5): most bench data so far is one position (4D).
 
 ## 2. An offline evaluation set
+
+**Built 2026-10-23** (`mahjong/offline_eval.py`, `scripts/offline_eval.py`, `mahjong/layout.py`,
+`scripts/layout.py`). What's left needs the arm: record `Yewy/mahjong_mat_eval_v1` (below). Write-up:
+`docs/retrospectives/2026-10-23_offline_eval.md`.
+
+- **Split.** `data/eval_split.json` holds out 15 of v2's 104 episodes, one per spot with ≥ 3 episodes
+  (seeded). `make_policy` leaves them out of training. v1 and v2 trained on all 104, so scores on them
+  check the plumbing, not true quality. **Only a fresh recording can compare v2 with v3 fairly.**
+- **Calibration** on those 15 episodes:
+
+  | | freezes | descent lag | close timing | arm error | grasp point |
+  |---|---|---|---|---|---|
+  | v2 (9/9 on the arm) | 0 | +1 step | 0.06 s | 0.21° | 0.9 mm |
+  | v1 (froze 3/5) | 4 | +21 steps | 0.37 s | 0.22° | 1.4 mm |
+
+  Teacher-forced arm error, today's "replay error", can't tell them apart: fed the demo's state, a
+  policy that waits is only the command-to-position lag off. The gates are therefore freezes, a mean descent lag ≤ 10
+  steps, and close timing ≤ 0.25 s, plus "not much worse than the reference" on arm error and grasp point.
+- **The eval recording** (eval-only, ~36 episodes, 90 % hover so trimming the narrowing also scores a
+  23 %-hover policy). Spend episodes on spots, not repeats: one offline score already averages ~200 frames.
+
+  | `--slice` | spots | conditions | episodes |
+  |---|---|---|---|
+  | familiar | 4 spots v2 trained on (row 1 and row 2) | bright, square | 4 × 2 |
+  | new | 6 new spots: between row-1 spots, row 2 left/right, reachable edges | bright, square | 6 × 2 |
+  | dim | the 4 familiar spots | evening, lamp off, ceiling off (the freeze condition) | 4 × 2 |
+  | tilt | 2 familiar spots, ±15° and ±30° | bright | 2 × 4 (reported, not gated) |
+
+  Steps:
+  1. ~~Measure a tile's top face~~: 35 × 26 mm, confirmed 2026-10-23; teach and view checked on hardware.
+  2. Teach the layouts: `layout.py --name eval_familiar --teach`, then `--add T1 --like S2 --yaw 15` for the
+     tilted spots.
+  3. Record: `record.py --dataset Yewy/mahjong_mat_eval_v1 --slice familiar --layout eval_familiar`.
+  4. Register it: `offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1`.
+  5. Check the dim slice predicts the hardware freeze: v2 should start descending late there.
+
+The original plan:
 
 Contact sheets show what happened. They can't score a new policy. What can is the
 **(wrist image, state) → action** data in the recorded datasets.

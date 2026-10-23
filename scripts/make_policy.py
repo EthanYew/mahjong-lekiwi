@@ -2,13 +2,14 @@
 
   1. quality summary of the recorded episodes
   2. build the training dataset: trims (idle, pre-fix takeover sag, optionally the gripper narrowing),
-     re-anchored deltas, wrist camera at 224
+     re-anchored deltas, wrist camera at 224 — leaving out the held-out episodes (data/eval_split.json)
   3. verify it: every episode kept, zero start deltas, no idle frames left
   4. upload it to the Hub
   5. train ACT with the recipe of every policy so far (resnet18, chunk 100, batch 96, lr 1e-5), steps
      scaled to ~131 passes over the data; the trained policy is pushed to the Hub
-  6. check each checkpoint offline: replay error on recorded episodes, and the freeze probe (does it
-     plan the descent from a still hover?)
+  6. check each checkpoint offline: scores per slice on the eval episodes it never trained on, with the
+     gates against the current default policy (scripts/offline_eval.py); replay error on a few
+     training episodes, and the freeze probe on the fixture frames
   7. register it in data/policies.json with the hover its episodes started from
 
     python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --dry-run
@@ -85,12 +86,10 @@ def verify(dataset_repo, trimmed_idle):
     return ds.num_episodes
 
 
-def evaluate(checkpoint, dataset_repo, hover):
-    """(replay MAE on recorded episodes, mean freeze-probe descent onset in plan steps)."""
+def evaluate(policy, dataset_repo, hover):
+    """(replay MAE on training episodes — optimistic, mean freeze-probe descent onset in plan steps)."""
     import cv2
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    from mahjong.policy import Policy
-    policy = Policy(source=checkpoint, hover=hover)
     ds = LeRobotDataset(dataset_repo)
     errors = []
     for e in np.linspace(0, ds.num_episodes - 1, 3).astype(int):
@@ -118,10 +117,17 @@ def main():
     n = names(args)
     from mahjong.quality import quality_table
     from mahjong.dataset import build, hover_settings
+    from mahjong import offline_eval
     table, _, _ = quality_table(args.source)
     frames = int(table["frames"].sum())
     print(f"1. quality: {args.source}: {len(table)} episodes, {frames} frames"
           + (f", {int((table['score'] >= 4).sum())} flagged (scripts/quality_report.py to review)" if "score" in table else ""))
+    heldout = offline_eval.excluded_episodes(args.source)
+    train_episodes = sorted(int(e) for e in set(table.index) - set(heldout))
+    frames = int(table.loc[train_episodes, "frames"].sum())
+    print(f"   training on {len(train_episodes)} episodes; {len(heldout)} held out for evaluation"
+          + ("" if heldout else f" — none: scripts/offline_eval.py --make-split {args.source} first, or every "
+                                 f"episode is trained on and offline scores are optimistic"))
     print(f"   training dataset {n['dataset']}, policy {n['policy_repo']} -> registry id {n['policy_id']}")
     if args.dry_run:
         est = int(frames * (0.56 if args.trim_narrowing else 0.70))   # measured on the first dataset
@@ -136,7 +142,7 @@ def main():
     from lerobot.utils.constants import HF_LEROBOT_HOME
     print("2. build")
     if not args.skip_build:
-        summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing)
+        summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing, episodes=train_episodes)
         (HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").write_text(json.dumps(summary, indent=2))
     summary = json.loads((HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").read_text())
     print(f"   kept {summary['frames']}/{summary['source_frames']} frames")
@@ -157,16 +163,36 @@ def main():
         subprocess.run(train_command(n, steps, args.private), cwd=config.LEROBOT_REPO, check=True)
     hover = hover_settings(args.source, summary)
     print(f"6. evaluate checkpoints (hover {hover})")
+    from mahjong.policy import Policy, spec
+    split = offline_eval.load_split()
+    has_eval = bool(offline_eval.eval_items(split))
+    reference_rows = None
+    if has_eval:
+        reference_id, _ = spec()
+        print(f"   reference: the current default, {reference_id}")
+        reference_rows = offline_eval.evaluate(Policy(reference_id), split, log=lambda *_: None)
+        print(offline_eval.table(offline_eval.summarise(reference_rows), f"   {reference_id}"))
     results = []
     for checkpoint in sorted((n["output_dir"] / "checkpoints").glob("[0-9]*")):
-        mae, onset = evaluate(checkpoint / "pretrained_model", n["dataset"], hover)
-        results.append((checkpoint.name, mae, onset))
-        print(f"   {checkpoint.name}: replay error {mae:.2f} deg, freeze-probe descent at plan step {onset:.0f}")
+        policy = Policy(source=checkpoint / "pretrained_model", hover=hover)
+        mae, onset = evaluate(policy, n["dataset"], hover)
+        print(f"   {checkpoint.name}: replay error {mae:.2f} deg (training episodes), freeze-probe descent at plan step {onset:.0f}")
+        slices = {}
+        if has_eval:
+            rows = offline_eval.evaluate(policy, split, log=lambda *_: None)
+            offline_eval.save_results(f"{n['policy_id']}@{checkpoint.name}", rows, split)
+            slices = {k: {"arm_mae": round(v["arm_mae"], 2), "freezes": v["freezes"]}
+                      for k, v in offline_eval.summarise(rows).items()}
+            print(offline_eval.table(offline_eval.summarise(rows), f"   {checkpoint.name} on the eval episodes"))
+            for ok, message in offline_eval.gates(rows, reference_rows):
+                print(f"     {'pass' if ok else 'FAIL'}  {message}")
+        results.append((checkpoint.name, mae, onset, slices))
     print(f"7. register {n['policy_id']}")
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
                               "notes": f"make_policy.py from {args.source}; {summary['frames']} frames, {steps} steps; "
-                                       f"checkpoints: {[(c, round(m, 2), o) for c, m, o in results]}"},
+                                       f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
+                                       f"{[(c, round(m, 2), o, sl) for c, m, o, sl in results]}"},
              make_default=args.default)
     print(f"Done. Try it: python scripts/bench.py --policy {n['policy_id']} --trials 5 --tile 8D")
 

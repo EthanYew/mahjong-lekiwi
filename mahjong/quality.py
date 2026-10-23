@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, kinematics
+from .dataset import episode_log
 
 REVERSAL_MM = 5.0
 REVERSAL_GRIPPER = 5.0
@@ -63,14 +64,7 @@ def quality_table(repo_id):
     root = dataset_root(repo_id)
     df = pd.concat([pd.read_parquet(f) for f in sorted((root / "data").glob("*/*.parquet"))], ignore_index=True)
     fps = json.loads((root / "meta" / "info.json").read_text())["fps"]
-    log = {}
-    for name in ("episode_log.jsonl", "episode_teleop_log.jsonl"):        # new and pre-rebuild sidecars
-        path = root / name
-        if path.exists():
-            for line in path.read_text().splitlines():
-                if line.strip():
-                    record = json.loads(line)
-                    log[record["episode_index"]] = record
+    log = episode_log(repo_id)
     rows, events = [], {}
     for episode, frames in df.groupby("episode_index"):
         joints = np.stack(frames.sort_values("frame_index")["action_raw"].to_numpy())

@@ -15,14 +15,20 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
   sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
 - Interventions (`mahjong/interventions.py`, ROADMAP 3): during a bench pickup, → marks the moment
-  without stopping ACT (asked what happened afterwards; Esc still stops it). The bench's `note`
+  without stopping ACT (asked what happened afterwards; Esc still stops it). "Touched the tile to help"
+  is a rescue (the success becomes assisted); "the arm bumped a tile, no one helped" is a counted
+  failure that leaves a success clean. The bench's `note`
   logs anything else a person did, and `setup` logs a mid-session change (lamp, battery).
   Knocked tiles and tiles put back by hand come from the RealSense scans logged around each attempt;
   the bench shows each change and asks (Enter: as the scans say, or "a detection glitch": YOLO
-  flickers, e.g. a 0.59 tile reading 0.68 and "appearing"). The scorecard number is rescues per 10 attempts; resets and overrides are counted apart.
+  flickers, e.g. a 0.59 tile reading 0.68 and "appearing"; a tile turned in place shows as its
+  detection box changing shape). The scorecard number is rescues per 10 attempts; resets and
+  overrides are counted apart.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
+- Score a policy offline (GPU, minutes): `python scripts/offline_eval.py --policy pickup_mat_cl --against
+  pickup_mat_cl_v1 [--by spot|lighting]`; tables per slice and the gates.
 
 ## Layout
 
@@ -38,6 +44,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
+| `mahjong/layout.py`, `scripts/layout.py` | tile layouts (`data/layouts.json`) drawn on the RealSense view; place tiles to green |
+| `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
 
 ## Invariants (each cost a debugging round on hardware)
 
@@ -48,8 +56,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   arriving from below. `Arm._settle` handles it.
 - **Hold the gripper's commanded value** until a release. Policies grip by commanding 0 (jaws stall at
   ~11 on a tile); commanding any fixed "closed" value or the measured reading loosens or opens them.
-- **Release at `GRIPPER_RELEASE` (25%)**: the widest opening held around a tile in recordings. Wider hits
-  neighbours.
+- **A return opens only just past the jaws' reading on the tile** (~11 + `GRIPPER_RELEASE_PAST_HELD`
+  6 ≈ 17%): 25% (`GRIPPER_RELEASE`, the widest opening held around a tile in recordings, still used
+  over the discard container) turned a neighbour on 2026-10-23. Unconfirmed on hardware that 17% always
+  lets go. The policy's own descent opens to its hover gripper (90%), which only a new dataset changes.
 - **Heights are above the grasp point** (`config.grasp_z`, table + 5mm); the tile top is ~15mm higher.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
@@ -68,11 +78,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
   records daylight / lamp / ceiling lights as structured `conditions`
   (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
-- **A policy's x/y correction is learned from mat position as much as from the image.** The demos'
-  hover→grasp shift is systematic per position (affine/23 misses ~12mm RMS in a pattern), so v2 may
-  repeat "move +13mm here" rather than look for the tile. Changing the live hover (`data/hover_model.json`)
-  waits for the perturbation test (`bench.py --hover-perturb-mm`, ROADMAP 1). Compare bench and demo
-  shifts per position, never against a mat-wide median.
+- **v2 repeats a memorised x/y move instead of steering to the tile** (measured at 4D on 2026-10-23:
+  the grasp followed a deliberately offset hover at ~1 mm per mm). The demos' hover→grasp move is
+  systematic per position (affine/23 misses ~12mm RMS in a pattern), and v2 learned it per position. So
+  for v2: don't change the live hover (`data/hover_model.json`), and don't fit bench samples (grasp =
+  hover + fixed move). Success rate hides this, since the jaws tolerate ±6mm; check a policy with
+  `bench.py --hover-perturb-mm`. Compare bench and demo shifts per position, never against a mat-wide median.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 
@@ -84,8 +95,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   different layout or hover.
 - Dataset → policy: `scripts/make_policy.py` (settle its options with `--dry-run` first; training takes
   hours). Uploads are public under `Yewy/` unless `--private`.
+- **Eval episodes are never trained on**: held-out episodes and eval-only recordings in
+  `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).
+  Folding an eval set into training retires it: record the next one. Don't change an existing split
+  (scores stop comparing). Offline scores screen; the bench decides what ships.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
-- Retrospectives / session write-ups: **What changed / What was learned / What's next**.
+- Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
+  `docs/retrospectives/<date>_<topic>.md` with a timeline and the session folders they draw on.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items
