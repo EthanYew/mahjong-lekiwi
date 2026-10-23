@@ -67,6 +67,7 @@ ACT_DURATION_S = 16.0                  # cap; a pickup normally stops itself onc
 # --- files ---
 POLICIES = DATA / "policies.json"
 HOVER_CORRECTIONS = DATA / "hover_corrections.jsonl"
+HOVER_MODEL = DATA / "hover_model.json"       # which correction sources the live hover is fitted from
 LAYOUTS = DATA / "layouts.json"           # named tile layouts for placing tiles (mahjong/layout.py)
 EVAL_SPLIT = DATA / "eval_split.json"     # episodes never trained on (mahjong/offline_eval.py)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set

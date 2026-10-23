@@ -23,6 +23,7 @@ import json
 import shutil
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -197,7 +198,8 @@ def main():
             episode = dataset.meta.total_episodes
             dataset.save_episode()
             saved += 1
-            record = {"episode_index": episode, "tile_name": tile["tile_name"], "detection_xy": [x, y],
+            record = {"episode_index": episode, "timestamp": datetime.now().isoformat(timespec="seconds"),
+                      "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,

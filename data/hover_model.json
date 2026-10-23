@@ -1,0 +1,6 @@
+{
+  "sources": {
+    "gamepad": 1.0
+  },
+  "notes": "Sources (and weights) the live hover correction is fitted from; see mahjong/hover_correction.py. Keep gamepad only while v2 (pickup_mat_cl) is the policy: it repeats a fixed move from the hover, so a changed hover makes it overshoot and its bench grasps are circular (docs/retrospectives/2026-10-23_hover_learning.md). Add demo/bench only after a policy passes bench.py --hover-perturb-mm and the new hover wins a paired bench comparison (ROADMAP 1)."
+}

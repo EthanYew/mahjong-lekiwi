@@ -28,10 +28,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
-| `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`) |
+| `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
-| `scripts/` | `record`, `collect_corrections`, `bench`, `session_report`, `quality_report`, `make_policy` |
+| `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `mahjong/layout.py`, `scripts/layout.py` | tile layouts (`data/layouts.json`) drawn on the RealSense view; place tiles to green |
 | `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
 
@@ -60,6 +60,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
   records daylight / lamp / ceiling lights as structured `conditions`
   (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
+- **v2 repeats a memorised x/y move instead of steering to the tile** (measured at 4D on 2026-10-23:
+  the grasp followed a deliberately offset hover at ~1 mm per mm). The demos' hover→grasp move is
+  systematic per position (affine/23 misses ~12mm RMS in a pattern), and v2 learned it per position. So
+  for v2: don't change the live hover (`data/hover_model.json`), and don't fit bench samples (grasp =
+  hover + fixed move). Success rate hides this, since the jaws tolerate ±6mm; check a policy with
+  `bench.py --hover-perturb-mm`. Compare bench and demo shifts per position, never against a mat-wide median.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 
@@ -77,7 +83,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   (scores stop comparing). Offline scores screen; the bench decides what ships.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
 - Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
-  `docs/<date>_<topic>.md`.
+  `docs/retrospectives/<date>_<topic>.md` with a timeline and the session folders they draw on.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items

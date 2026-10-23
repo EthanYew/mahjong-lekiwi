@@ -17,6 +17,13 @@ summarises the latest one.
     python scripts/bench.py                         # interactive, default policy
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
     python scripts/bench.py --sim --trials 3        # no hardware
+    python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
+
+Every successful attempt also saves a hover-correction sample (source "bench": where the jaws closed
+minus the detection) to data/hover_corrections.jsonl; it's only fitted once data/hover_model.json
+lists "bench". --hover-perturb-mm cycles deliberate hover offsets through the trials, to test whether
+the policy follows the tile or replays a fixed move from wherever it starts (session_report.py prints
+the result); those attempts' samples are saved as excluded.
 """
 import argparse
 import json
@@ -29,7 +36,7 @@ import cv2
 
 from mahjong import config
 from mahjong.arm import Arm
-from mahjong.hover_correction import HoverCorrection
+from mahjong.hover_correction import HoverCorrection, append_record, grasp_record
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.session import Session
 
@@ -68,10 +75,12 @@ class Bench:
             self.listener, self.events = init_keyboard_listener()
         self.abort = Abort(self.events)
         self.correction = HoverCorrection.load()
+        # a simulated grasp says nothing about the real hover: keep its samples in the session folder
+        self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
         self.held = None        # {"tile_name", "return_xy", "approach_offset_m"} while holding a tile
         print(f"Policy: {self.policy.id}, hover {self.policy.hover}\nHover correction: {self.correction.summary()}")
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
-                           correction=self.correction.summary())
+                           correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
 
     # --- pieces ---
 
@@ -89,9 +98,12 @@ class Bench:
             print(f"{tile_name} not detected (seen: {', '.join(t['tile_name'] for t in tiles)})")
         return tile
 
-    def hover_over(self, tile):
+    def hover_over(self, tile, perturb=(0.0, 0.0)):
         x, y = tile["xy"]
         hx, hy = self.correction.apply(x, y)
+        if any(perturb):
+            hx, hy = hx + perturb[0], hy + perturb[1]
+            print(f"  hover perturbed by ({perturb[0] * 1000:+.0f}, {perturb[1] * 1000:+.0f})mm on purpose")
         h = self.policy.hover
         result = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
         if result is None:
@@ -110,8 +122,9 @@ class Bench:
         if tile and (result := self.hover_over(tile)):
             self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"], **result)
 
-    def pickup(self, tile_name=None, ask=True):
-        """One attempt. Returns True if the gripper ended up holding the tile."""
+    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0)):
+        """One attempt, from the hover moved by `perturb` (m). Returns True if the gripper ended up
+        holding the tile."""
         if self.held:
             print(f"Holding {self.held['tile_name']} — return or discard it first.")
             return None
@@ -120,7 +133,7 @@ class Bench:
             return None
         attempt = self.session.attempt_dir(tile["tile_name"])
         self.snapshot(attempt / "overview_before.jpg")
-        hover = self.hover_over(tile)
+        hover = self.hover_over(tile, perturb)
         if hover is None:
             return None
         self.abort.clear()
@@ -137,7 +150,17 @@ class Bench:
         self.session.event("attempt", tile=tile["tile_name"], policy=self.policy.id, detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
-                           gripper_says_held=holding, success=success, attempt_dir=attempt.name, **run)
+                           gripper_says_held=holding, success=success, attempt_dir=attempt.name,
+                           correction=self.correction.name, hover_perturb_xy=list(perturb),
+                           hover_sag_xyz_m=hover.get("sag_xyz_m"), **run)
+        if success and run["grasp_xy"]:
+            sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
+                                  hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
+                                  correction=self.correction.name, session=self.session.dir.name,
+                                  attempt_dir=attempt.name)
+            if any(perturb):
+                sample["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
+            append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "return_xy": run["grasp_xy"] or hover["hover_xy"],
                          "approach_offset_m": hover["offset_m"]}
@@ -193,9 +216,11 @@ class Bench:
             n = int(input("How many trials? ").strip() or 0)
             tile_name = input("Which tile (name)? ").strip() or None
         results = []
+        offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
         for i in range(n):
+            perturb = offsets[i % len(offsets)]
             print(f"\n=== trial {i + 1}/{n} ===")
-            success = self.pickup(tile_name, ask=False)
+            success = self.pickup(tile_name, ask=False, perturb=perturb)
             if success is None:
                 print("Couldn't attempt (tile not found or unreachable) — stopping the trials.")
                 break
@@ -218,6 +243,20 @@ class Bench:
             self.session.close()
 
 
+def parse_perturb(text):
+    """"0,6x,-6x,6y,-6y" -> [(0, 0), (0.006, 0), (-0.006, 0), (0, 0.006), (0, -0.006)] (m)"""
+    offsets = []
+    for item in filter(None, (s.strip().lower() for s in text.split(","))):
+        if item in ("0", "0x", "0y"):
+            offsets.append((0.0, 0.0))
+        elif item[-1] in "xy":
+            mm = float(item[:-1]) / 1000
+            offsets.append((mm, 0.0) if item[-1] == "x" else (0.0, mm))
+        else:
+            raise argparse.ArgumentTypeError(f"{item!r}: use e.g. 6x or -6y")
+    return offsets
+
+
 COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "quit"]
 
 
@@ -228,6 +267,8 @@ def main():
     p.add_argument("--tile", default=None, help="tile name for --trials")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
+    p.add_argument("--hover-perturb-mm", type=parse_perturb, default=None,
+                   help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
     args = p.parse_args()
     bench = Bench(args)
     actions = {"hover": bench.hover, "pickup": bench.pickup, "return": bench.return_tile, "discard": bench.discard,

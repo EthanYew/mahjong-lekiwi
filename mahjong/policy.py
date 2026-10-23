@@ -106,6 +106,15 @@ class Policy:
         return np.stack([self.postprocess(chunk[:, k]).squeeze(0).cpu().numpy() for k in range(chunk.shape[1])])
 
 
+def grasp_point(actions):
+    """(step, tool-point xy) of the first command with the gripper shut — where the jaws closed on the
+    tile — or (None, None). actions: steps x JOINTS, absolute."""
+    grasp = next((k for k in range(len(actions)) if actions[k][5] < GRIP_CLOSED_BELOW), None)
+    if grasp is None:
+        return None, None
+    return grasp, [float(v) for v in kinematics.tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
+
+
 def _tip_below_floor(command):
     tip = kinematics.pincer_tip(command)
     return tip[2] < config.table_z(tip[0], tip[1]) - config.TIP_FLOOR_BELOW_TABLE_M
@@ -196,10 +205,7 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
     policy.reset()
     actions, states = np.array(actions), np.array(states)
     np.savez(trace_dir / "act_trace.npz", state=states, action=actions, anchor=anchor_vec, joints=np.array(config.JOINTS))
-    grasp = next((k for k in range(len(actions)) if actions[k, 5] < GRIP_CLOSED_BELOW), None)
-    grasp_xy = None
-    if grasp is not None:
-        grasp_xy = [float(v) for v in kinematics.tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
+    grasp, grasp_xy = grasp_point(actions)
     descended = bool(len(actions)) and float(np.abs(actions[:, 1:3] - anchor_vec[1:3]).max()) >= STALL_MOVE_DEG
     return {"steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
             "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,
