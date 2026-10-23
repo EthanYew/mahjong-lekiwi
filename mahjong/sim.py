@@ -148,8 +148,8 @@ class SimPolicy:
     id = "sim"
     hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": config.HOVER_GRIPPER}
 
-    def __init__(self, mat=None):
-        self.mat = mat
+    def __init__(self, mat=None, policy_id="sim"):
+        self.mat, self.id = mat, policy_id
 
     def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
         x, y, _ = kinematics.tool_point(arm.commanded())

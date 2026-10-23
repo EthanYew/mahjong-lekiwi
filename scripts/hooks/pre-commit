@@ -1,0 +1,13 @@
+#!/bin/sh
+# Fast tests before every commit (ROADMAP 6), so a motion change that breaks an invariant can't be
+# committed. Turned on once per clone (all worktrees share it): git config core.hooksPath scripts/hooks
+# It tests the working tree, not just what's staged. Skip in an emergency: git commit --no-verify
+PY="${MAHJONG_PYTHON:-$HOME/miniforge3/envs/lerobot/bin/python}"
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if ! "$PY" -m pytest -m "not slow" -q -p no:cacheprovider; then
+    echo "pre-commit: fast tests failed; commit refused (git commit --no-verify to skip)"
+    exit 1
+fi
+if git diff --cached --name-only | grep -qE '^mahjong/(policy|dataset)\.py$'; then
+    echo "pre-commit: policy.py or dataset.py changed: run the slow tests too (python -m pytest, GPU)"
+fi
