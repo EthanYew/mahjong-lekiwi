@@ -111,7 +111,7 @@ class SimPolicy:
     id = "sim"
     hover = {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": config.HOVER_GRIPPER}
 
-    def run(self, arm, camera, trace_dir, abort=None, log=print):
+    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
         x, y, _ = kinematics.tool_point(arm.commanded())
         down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
         arm.move_to(down, 2.0)
@@ -121,4 +121,4 @@ class SimPolicy:
         arm.move_to(up, 2.0)
         return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
-                "grasp_step": 0, "grasp_xy": [float(x), float(y)]}
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "marks_s": []}

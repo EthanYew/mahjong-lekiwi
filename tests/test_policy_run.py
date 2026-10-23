@@ -2,6 +2,7 @@
 import threading
 
 import numpy as np
+import pytest
 
 from mahjong import config, kinematics
 from mahjong.arm import Arm
@@ -83,3 +84,26 @@ def test_esc_still_aborts(tmp_path):
     summary = run(policy, arm, SimCamera(), tmp_path, abort=abort, log=lambda *a: None)
     assert summary["stop_reason"] == "aborted" and summary["aborted"]
     assert summary["duration_s"] < 1.2
+
+
+def test_a_mark_is_timed_and_the_policy_carries_on(tmp_path):
+    arm = hovering_arm()
+    mark = threading.Event()
+    policy = ScriptedPickup(arm)
+    step = policy.step
+
+    def step_and_mark(frame, state_delta):
+        if policy.k in (60, 90):          # pressed during the descent, and again while closing
+            mark.set()
+        return step(frame, state_delta)
+
+    policy.step = step_and_mark
+    summary = run(policy, arm, SimCamera(), tmp_path, mark=mark, log=lambda *a: None)
+    assert summary["stop_reason"] == "done"
+    assert summary["marks_s"] == [pytest.approx(61 / 30, abs=0.01), pytest.approx(91 / 30, abs=0.01)]
+    assert not mark.is_set()
+
+
+def test_unmarked_runs_report_no_marks(tmp_path):
+    arm = hovering_arm()
+    assert run(ScriptedPickup(arm), arm, SimCamera(), tmp_path, log=lambda *a: None)["marks_s"] == []

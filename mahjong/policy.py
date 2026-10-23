@@ -96,8 +96,8 @@ class Policy:
         action = self.act.select_action(self.observation(frame_bgr, state_delta))
         return self.postprocess(action).squeeze(0).cpu().numpy()
 
-    def run(self, arm, camera, trace_dir, abort=None, log=print):
-        return run(self, arm, camera, trace_dir, abort=abort, log=log)
+    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
+        return run(self, arm, camera, trace_dir, abort=abort, mark=mark, log=log)
 
     @torch.no_grad()
     def plan(self, frame_bgr, state_delta):
@@ -135,13 +135,15 @@ def tip_floor(command, last_safe):
     return floored, True
 
 
-def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATION_S, log=print):
+def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config.ACT_DURATION_S, log=print):
     """Run `policy` from wherever the arm is (the hover) until the tile is held and lifted for
-    HOLD_CONFIRM_S, `abort` (an Event) is set, or duration_s runs out. Saves act_trace.npz and wrist
-    frames every 100 steps to trace_dir. Returns a summary: stop_reason (done / cap / aborted),
-    duration_s, held_at_s, slipped (held, then lost during the hold check), stall_warning, descended,
-    floored_steps, grasp_step, grasp_xy (the tool point where the gripper was first commanded shut —
-    where a return should put the tile)."""
+    HOLD_CONFIRM_S, `abort` (an Event) is set, or duration_s runs out. `mark` (an Event with clear())
+    is a person saying "something happened here": each time it's set the time is noted and it's
+    cleared, and the policy carries on. Saves act_trace.npz and wrist frames every 100 steps to
+    trace_dir. Returns a summary: stop_reason (done / cap / aborted), duration_s, held_at_s, slipped
+    (held, then lost during the hold check), stall_warning, descended, floored_steps, grasp_step,
+    grasp_xy (the tool point where the gripper was first commanded shut — where a return should put
+    the tile), marks_s (when it was marked, s)."""
     trace_dir = Path(trace_dir)
     trace_dir.mkdir(parents=True, exist_ok=True)
     policy.reset()
@@ -150,7 +152,7 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
     anchor_vec = np.array([anchor[j] for j in config.JOINTS], dtype=np.float32)
     limits = arm.joint_limits()
     last_safe = arm.commanded()
-    states, actions, floored_steps, warned = [], [], 0, False
+    states, actions, floored_steps, warned, marks = [], [], 0, False, []
     stop_reason, done_since, held_at, slipped = "cap", None, None, False
     stall_step = int(STALL_CHECK_S * config.FPS)
     confirm_steps = int(HOLD_CONFIRM_S * config.FPS)
@@ -161,6 +163,10 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
             stop_reason = "aborted"
             log(f"  stopped at step {step}")
             break
+        if mark is not None and mark.is_set():
+            mark.clear()
+            marks.append(round(step / config.FPS, 2))
+            log(f"  t={step / config.FPS:4.1f}s marked (the policy carries on; you'll be asked what happened)")
         ok, frame = camera.read()
         if not ok:
             log(f"  wrist camera read failed at step {step}")
@@ -209,4 +215,5 @@ def run(policy, arm, camera, trace_dir, abort=None, duration_s=config.ACT_DURATI
     descended = bool(len(actions)) and float(np.abs(actions[:, 1:3] - anchor_vec[1:3]).max()) >= STALL_MOVE_DEG
     return {"steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
             "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,
-            "descended": descended, "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy}
+            "descended": descended, "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy,
+            "marks_s": marks}
