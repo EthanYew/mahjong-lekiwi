@@ -65,6 +65,7 @@ ACT_DURATION_S = 16.0                  # cap; a pickup normally stops itself onc
 # --- files ---
 POLICIES = DATA / "policies.json"
 HOVER_CORRECTIONS = DATA / "hover_corrections.jsonl"
+HOVER_MODEL = DATA / "hover_model.json"       # which correction sources the live hover is fitted from
 DISCARD_POSE = DATA / "discard_pose.json"
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)

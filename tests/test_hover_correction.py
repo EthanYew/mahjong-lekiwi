@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 
 from mahjong import config
-from mahjong.hover_correction import HoverCorrection, setup_fingerprint, MAX_CORRECTION_M
+from mahjong.hover_correction import (HoverCorrection, active_sources, grasp_record, parse_sources, setup_fingerprint,
+                                      MAX_CORRECTION_M)
 
 
 def records(xy, delta_fn, noise=0.002, seed=1, **extra):
@@ -62,3 +63,39 @@ def test_other_setups_are_set_aside(tmp_path):
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
     model = HoverCorrection.load(path)
     assert (model.n, len(model.set_aside)) == (4, 3)
+
+
+def test_only_listed_sources_are_fitted(tmp_path):
+    path = tmp_path / "c.jsonl"
+    rows = records(tiles(8), lambda x, y: (0.01, 0.0), **setup_fingerprint())
+    rows += records(tiles(5, seed=1), lambda x, y: (0.03, 0.0), source="demo", **setup_fingerprint())
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    gamepad = HoverCorrection.load(path, sources={"gamepad": 1.0})
+    assert (gamepad.n, len(gamepad.unused)) == (8, 5)
+    assert gamepad.delta_at(0.2, 0.0)[0] == pytest.approx(0.01, abs=0.002)
+    both = HoverCorrection.load(path, sources={"gamepad": 1.0, "demo": 1.0})
+    assert (both.n, both.sources["demo"]) == (13, 5)
+
+
+def test_live_sources_default_to_gamepad_only(tmp_path):
+    assert active_sources(tmp_path / "missing.json") == {"gamepad": 1.0}
+    assert parse_sources("gamepad, demo:0.5,bench:0.25") == {"gamepad": 1.0, "demo": 0.5, "bench": 0.25}
+
+
+def test_weights_set_how_much_a_source_counts():
+    rows = records(tiles(6), lambda x, y: (0.010, 0.0), noise=0) + records(tiles(6, 1), lambda x, y: (0.020, 0.0), noise=0, source="bench")
+    assert HoverCorrection(rows).delta_at(0.2, 0.0)[0] == pytest.approx(0.015, abs=1e-6)
+    assert HoverCorrection(rows, weights={"bench": 0.25}).delta_at(0.2, 0.0)[0] == pytest.approx(0.012, abs=1e-6)
+
+
+def test_repeats_at_one_position_dont_vouch_for_each_other():
+    """The check leaves out a whole position, so five attempts at one tile count as one tile."""
+    rows = records(tiles(12), affine_truth, noise=0.004)
+    once, repeated = HoverCorrection(rows), HoverCorrection(rows * 5)
+    for kind in ("offset", "affine"):
+        assert repeated.loo_rms[kind] == pytest.approx(once.loo_rms[kind])
+
+
+def test_grasp_record_is_the_grasp_minus_the_detection():
+    r = grasp_record("bench", (0.20, 0.10), (0.208, 0.112), session="s")
+    assert r["delta_xy"] == pytest.approx([0.008, 0.012]) and r["source"] == "bench" and r["session"] == "s"
