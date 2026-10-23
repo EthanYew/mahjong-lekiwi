@@ -60,7 +60,7 @@ DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--dataset", required=True, help="repo id to create or append to, e.g. Yewy/mahjong_mat_pickup_v3")
     p.add_argument("--task", default="Pick up the mahjong tile from the mat")
@@ -90,7 +90,7 @@ def parse_args():
     p.add_argument("--start-spot", default=None, help="with --layout: start at this spot id")
     p.add_argument("--device", default=None, help="gamepad evdev path")
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def open_dataset(repo_id):
@@ -113,8 +113,8 @@ def open_dataset(repo_id):
                                  use_videos=True)
 
 
-def main():
-    args = parse_args()
+def main(argv=None):
+    args = parse_args(argv)
     from lerobot.common.control_utils import init_keyboard_listener
     hover = {"offset_m": args.hover_offset_mm / 1000, "clearance_m": args.clearance_mm / 1000, "gripper": args.hover_gripper}
     spots, todo, ghost = [], [], None
@@ -241,7 +241,6 @@ def main():
             episode = dataset.meta.total_episodes
             dataset.save_episode()
             saved += 1
-            offset = None
             record = {"episode_index": episode, "timestamp": datetime.now().isoformat(timespec="seconds"),
                       "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
@@ -253,6 +252,7 @@ def main():
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s)")
+            offset = None          # the next episode draws its own
             if placement:
                 todo.pop(0)
     except KeyboardInterrupt:          # Esc and q are the ways out; Ctrl-C is stepping in

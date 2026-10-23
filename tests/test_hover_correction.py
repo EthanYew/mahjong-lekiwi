@@ -1,12 +1,13 @@
 import json
 import math
+import random
 
 import numpy as np
 import pytest
 
 from mahjong import config
-from mahjong.hover_correction import (HoverCorrection, active_sources, grasp_record, parse_sources, setup_fingerprint,
-                                      source_of, MAX_CORRECTION_M)
+from mahjong.hover_correction import (HoverCorrection, active_sources, grasp_record, parse_offsets, parse_sources,
+                                      random_offset, setup_fingerprint, source_of, MAX_CORRECTION_M)
 
 
 def records(xy, delta_fn, noise=0.002, seed=1, **extra):
@@ -100,3 +101,28 @@ def test_repeats_at_one_position_dont_vouch_for_each_other():
 def test_grasp_record_is_the_grasp_minus_the_detection():
     r = grasp_record("bench", (0.20, 0.10), (0.208, 0.112), session="s")
     assert r["delta_xy"] == pytest.approx([0.008, 0.012]) and r["source"] == "bench" and r["session"] == "s"
+
+
+# --- deliberate hover offsets (record.py --hover-jitter-mm / --hover-offsets-mm, bench --hover-perturb-mm) ---
+
+def test_random_offsets_stay_in_the_disc_and_fill_it():
+    rng = random.Random(0)
+    offsets = [random_offset(rng, 0.008) for _ in range(4000)]
+    radii = [math.hypot(*o) for o in offsets]
+    assert max(radii) <= 0.008
+    # uniform by area: half the draws land beyond r / sqrt(2)
+    assert 0.45 < sum(r > 0.008 / math.sqrt(2) for r in radii) / len(radii) < 0.55
+    assert 0.45 < sum(o[0] > 0 for o in offsets) / len(offsets) < 0.55
+
+
+def test_zero_fraction_keeps_clean_hovers():
+    rng = random.Random(1)
+    offsets = [random_offset(rng, 0.006, zero_fraction=0.2) for _ in range(2000)]
+    assert 0.17 < offsets.count((0.0, 0.0)) / len(offsets) < 0.23
+    assert random_offset(rng, 0.0) == (0.0, 0.0)
+
+
+def test_parse_offsets():
+    assert parse_offsets("0, 6x,-6y") == [(0.0, 0.0), (0.006, 0.0), (0.0, -0.006)]
+    with pytest.raises(Exception):
+        parse_offsets("6z")
