@@ -102,6 +102,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Learned something about the hardware? Add it to the invariants above, with the reason.
 - Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
   `docs/retrospectives/<date>_<topic>.md` with a timeline and the session folders they draw on.
+- **`README.md` is the user's command reference** (quick "I want to..." table + one section per script
+  with example commands and options). Before merging into `main`, update it for any change to what a
+  person runs: a new or removed script under `scripts/` or `python -m mahjong.*` entry point, an added/
+  renamed/removed option, a changed default, new menu commands or keys (bench, record, layout), or new
+  policy ids worth naming. Check every flag it mentions still exists (`--help`). Internal-only changes
+  don't need it.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items
