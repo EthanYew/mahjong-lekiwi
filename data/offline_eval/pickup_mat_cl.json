@@ -1,7 +1,7 @@
 {
   "policy": "pickup_mat_cl",
-  "time": "2026-10-23T12:41:54",
-  "commit": "c15337a-dirty",
+  "time": "2026-10-23T18:03:27",
+  "commit": "aa490d7-dirty",
   "split": {
     "heldout": {
       "Yewy/mahjong_mat_pickup_lekiwi_cl_hover": [

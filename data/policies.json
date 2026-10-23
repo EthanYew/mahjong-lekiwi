@@ -4,14 +4,32 @@
     "pickup_mat_cl": {
       "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v2_policy",
       "dataset": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_trimmed_224",
-      "hover": {"offset_m": 0.045, "clearance_m": 0.040, "gripper": 90.0},
+      "hover": {
+        "offset_m": 0.045,
+        "clearance_m": 0.04,
+        "gripper": 90.0
+      },
       "notes": "v2, 2026-10-22: 104 gamepad episodes from the closed-loop hover, rows 1-2, idle frames and pre-fix takeover sag trimmed. Picked up first-row tiles reliably 2026-10-23 with the lamp behind the robot on."
     },
     "pickup_mat_cl_v1": {
       "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v1_policy",
       "dataset": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_224",
-      "hover": {"offset_m": 0.045, "clearance_m": 0.040, "gripper": 90.0},
+      "hover": {
+        "offset_m": 0.045,
+        "clearance_m": 0.04,
+        "gripper": 90.0
+      },
       "notes": "v1: same episodes untrimmed. Waits at the hover indefinitely on some attempts (froze 3 of 5); kept for comparison."
+    },
+    "pickup_mat_cl_v2n": {
+      "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_v2n_policy",
+      "dataset": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover_v2n_224",
+      "hover": {
+        "offset_m": 0.045,
+        "clearance_m": 0.04,
+        "gripper": 27.2
+      },
+      "notes": "make_policy.py from Yewy/mahjong_mat_pickup_lekiwi_cl_hover; 21387 frames, 29000 steps; held out: 15 episodes; checkpoints (replay, onset, eval slices): [('004142', 0.63, 28.333333333333332, {'heldout': {'arm_mae': 0.96, 'freezes': 0}}), ('008284', 0.48, 28.666666666666668, {'heldout': {'arm_mae': 0.87, 'freezes': 0}}), ('012426', 0.45, 33.333333333333336, {'heldout': {'arm_mae': 0.84, 'freezes': 0}}), ('016568', 0.34, 35.333333333333336, {'heldout': {'arm_mae': 0.8, 'freezes': 0}}), ('020710', 0.33, 38.666666666666664, {'heldout': {'arm_mae': 0.74, 'freezes': 0}}), ('024852', 0.31, 42.333333333333336, {'heldout': {'arm_mae': 0.76, 'freezes': 0}}), ('028994', 0.28, 40.666666666666664, {'heldout': {'arm_mae': 0.71, 'freezes': 0}}), ('029000', 0.23, 39.0, {'heldout': {'arm_mae': 0.7, 'freezes': 0}})]"
     }
   }
 }
