@@ -1,5 +1,6 @@
-"""Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials;
-and a contact sheet (one row per attempt: overview before/after, wrist frames).
+"""Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials,
+interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes); and a
+contact sheet (one row per attempt: overview before/after, wrist frames).
 
     python scripts/session_report.py                 # the latest session
     python scripts/session_report.py sessions/20261024_101500_bench
@@ -15,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config
+from mahjong import config, interventions
 from mahjong.session import read_events
 
 THUMB = (240, 180)
@@ -28,7 +29,8 @@ def latest_session():
     return sessions[-1]
 
 
-def contact_sheet(session_dir, attempts):
+def contact_sheet(session_dir, attempts, tags=None):
+    """tags: {attempt_dir: {"RESCUE", "KNOCK"}}, added to each row's label."""
     rows = []
     for a in attempts:
         folder = session_dir / a["attempt_dir"]
@@ -42,6 +44,7 @@ def contact_sheet(session_dir, attempts):
         while len(tiles) < 8:
             tiles.append(np.zeros((THUMB[1], THUMB[0], 3), np.uint8))
         label = f"{a['tile']} {'OK' if a['success'] else 'MISS'}{' STALL' if a.get('stall_warning') else ''}"
+        label += "".join(f" {t}" for t in sorted((tags or {}).get(a["attempt_dir"], ())))
         cv2.putText(tiles[0], label, (5, THUMB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                     (0, 255, 0) if a["success"] else (0, 0, 255), 2)
         rows.append(np.hstack(tiles))
@@ -97,8 +100,45 @@ def perturbation_report(attempts):
             print(f"    {axis}: grasp moved {slope:+.2f} mm per mm of hover offset ({n} grasps) — {verdict}")
 
 
+def describe(i):
+    """One line of what an intervention involved."""
+    parts = []
+    if i.get("marks_s"):
+        parts.append("marked at " + ", ".join(f"{t:.1f}s" for t in i["marks_s"]))
+    if "changes" in i:
+        c = i["changes"]
+        parts += [f"{m['tile_name']} moved {m['moved_m'] * 1000:.0f}mm" for m in c["moved"]]
+        parts += [f"{t['tile_name']} appeared" for t in c["appeared"]] + [f"{t['tile_name']} gone" for t in c["gone"]]
+        if i.get("during") and parts:
+            parts[-1] += f" during the {i['during']}"
+    for key in ("reason", "command", "tile", "note", "error"):
+        if i.get(key):
+            parts.append(f"{key} {i[key]}" if key in ("command", "tile") else str(i[key]))
+    return "; ".join(parts)
+
+
+def interventions_report(events, trials, unit):
+    """Every intervention with its class, then the counts: rescues per 10 attempts is the scorecard
+    number (ROADMAP 3); resets, overrides, failures and observations are listed but not counted."""
+    found = interventions.derive(events)
+    print("\ninterventions" + ("" if found else ": none"))
+    for i in found:
+        print(f"  {i['attempt_dir'] or 'session':<16} {i['kind']:<20} {i['class']:<11} {i['source']:<7} {describe(i)}")
+    s = interventions.summary(found, trials)
+    if trials:
+        rate = (f"{s['rescues_per_10']:.1f} per 10 {unit}s"
+                + (f", one per {s['attempts_per_rescue']:.1f}" if s["attempts_per_rescue"] else ""))
+        print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
+              f"overrides {s['overrides']}, knocked {s['failures']}, observations {s['observations']}")
+        if unit == "attempt":
+            print(f"  successes: {s['successes']} = {s['clean_successes']} clean + {s['assisted_successes']} assisted")
+    if not any(e["type"] == "detections" for e in events):
+        print("  (no scans logged: knocked tiles and tiles put back by hand can't be seen in this session)")
+    return found
+
+
 def all_sessions():
-    print(f"{'session':<24} {'ok':>6} {'ACT s':>6}  setup")
+    print(f"{'session':<24} {'ok':>6} {'rescue/10':>9} {'ACT s':>6}  setup")
     for folder in sorted(p for p in config.SESSIONS.glob("*_bench") if (p / "events.jsonl").exists()):
         events = read_events(folder)
         attempts = [e for e in events if e["type"] == "attempt"]
@@ -106,7 +146,8 @@ def all_sessions():
             continue
         start = next((e for e in events if e["type"] == "session_start"), {})
         policies = ",".join(sorted({a["policy"] for a in attempts}))
-        print(f"{folder.name:<24} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} "
+        rescues = interventions.summary(interventions.derive(events), attempts)["rescues_per_10"]
+        print(f"{folder.name:<24} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
               f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {conditions_text(start)}")
 
 
@@ -142,7 +183,14 @@ def main():
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
         perturbation_report(attempts)
-        sheet = contact_sheet(session_dir, attempts)
+    episodes = [e for e in events if e["type"] == "episode_saved"]
+    found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
+    if attempts:
+        tags = defaultdict(set)
+        for i in found:
+            if i["class"] in (interventions.RESCUE, interventions.FAILURE):
+                tags[i["attempt_dir"]].add("KNOCK" if i["kind"] == "knocked" else "RESCUE")
+        sheet = contact_sheet(session_dir, attempts, tags)
         if sheet:
             print(f"\ncontact sheet: {sheet}")
     for t in (e for e in events if e["type"] == "trials_done"):

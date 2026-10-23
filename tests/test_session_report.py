@@ -27,3 +27,19 @@ def test_the_slope_says_how_much_the_grasp_follows_the_hover(follows):
 def test_no_slope_without_offsets_both_ways():
     plain = [{**a, "hover_perturb_xy": [0.0, 0.0]} for a in attempts(1.0)]
     assert session_report.perturbation_slopes(plain) == {}
+
+
+def test_the_interventions_section_counts_rescues_and_lists_the_rest(capsys):
+    def attempt(n, **fields):
+        return {"type": "attempt", "attempt_dir": f"00{n}_4D", "tile": "4D", "success": True,
+                "gripper_says_held": True, "stop_reason": "done", **fields}
+    events = [{"type": "session_start"}, attempt(1, marks_s=[6.2], mark_kind="touched_tile"),
+              attempt(2, marks_s=[3.0], mark_kind="look"),
+              {"type": "intervention", "kind": "tile_reset", "attempt_dir": "002_4D"},
+              {"type": "session_end", "reason": "quit"}]
+    found = session_report.interventions_report(events, [e for e in events if e["type"] == "attempt"], "attempt")
+    out = capsys.readouterr().out
+    assert len(found) == 3
+    assert "rescues: 1 in 2 attempts (5.0 per 10 attempts, one per 2.0)" in out
+    assert "resets 1" in out and "observations 1" in out and "1 clean + 1 assisted" in out
+    assert "marked at 6.2s" in out and "no scans logged" in out
