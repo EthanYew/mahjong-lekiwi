@@ -11,7 +11,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   (slow = loads policies from the HF cache, needs the GPU).
 - No-hardware run of the whole bench: `python scripts/bench.py --sim --trials 3`.
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
-  [folder]` (success per tile/policy, stalls, clearances, contact sheet) before asking what happened.
+  [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, contact sheet) before
+  asking what happened; `--all` compares every bench session with its setup conditions.
+- Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
+  unplugged), then ask the setup questions, then create the session folder.
+- A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
 
 ## Layout
 
@@ -68,6 +72,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items
+
+Bigger plans (evaluation set, scorecard, interventions, hover learning from bench runs) are in
+`ROADMAP.md`.
 
 - Gripper stored as a delta ties every policy to its hover opening; consider absolute gripper values for
   the next dataset (needs `policy.run` + `dataset.build` to treat the gripper separately).
