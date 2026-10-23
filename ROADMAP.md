@@ -23,7 +23,8 @@ up for it — the margin it has left for a harder position.
 ## 2. An offline evaluation set
 
 **Built 2026-10-23** (`mahjong/offline_eval.py`, `scripts/offline_eval.py`, `mahjong/layout.py`,
-`scripts/layout.py`). What's left needs the arm: record `Yewy/mahjong_mat_eval_v1` (below).
+`scripts/layout.py`). What's left needs the arm: record `Yewy/mahjong_mat_eval_v1` (below). Write-up:
+`docs/2026-10-23_offline_eval.md`.
 
 - **Split.** `data/eval_split.json` holds out 15 of v2's 104 episodes, one per spot with ≥ 3 episodes
   (seeded). `make_policy` leaves them out of training. v1 and v2 trained on all 104, so scores on them

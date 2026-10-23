@@ -76,7 +76,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Folding an eval set into training retires it: record the next one. Don't change an existing split
   (scores stop comparing). Offline scores screen; the bench decides what ships.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
-- Retrospectives / session write-ups: **What changed / What was learned / What's next**.
+- Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
+  `docs/<date>_<topic>.md`.
 - Commits: one logical change each, message says why; push to `origin` (private GitHub).
 
 ## Open items
