@@ -1,8 +1,15 @@
 """Rank a dataset's episodes by hesitation / erratic motion (mahjong/quality.py), to review and drop the
-worst before training.
+worst before training; with each slice's pickup phases (wait at the hover, approach, pauses, reversals,
+detours, wobble), and optionally the hover→grasp move against another recording at the same places.
 
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover
     python scripts/quality_report.py --dataset ... --episode 37     # when each reversal happened
+    python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases     # phases per episode
+    python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
+
+The hover→grasp check compares only demos that steered: one lowered straight down says "close enough for the
+jaws", not where the tile was. A shift beyond the jaws' ~6 mm at most spots, in one direction, is worth a
+collect_corrections.py session; a difference at a few spots is as likely to be how the demos were done.
 """
 import argparse
 import sys
@@ -10,7 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong.quality import DEFAULT_FLAG_SCORE, dataset_root, quality_table
+from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, dataset_root, drift_table,
+                             load_episodes, phase_table, quality_table)
 
 
 def main():
@@ -20,6 +28,8 @@ def main():
     p.add_argument("--flag", type=float, default=DEFAULT_FLAG_SCORE)
     p.add_argument("--episode", type=int, default=None)
     p.add_argument("--csv", default=None)
+    p.add_argument("--phases", action="store_true", help="print each episode's pickup phases")
+    p.add_argument("--against", metavar="REPO", help="compare hover→grasp moves with this recording, spot by spot")
     args = p.parse_args()
     table, events, fps = quality_table(args.dataset)
     if args.episode is not None:
@@ -46,6 +56,48 @@ def main():
             print(f"Review them (--episode N), then to write a filtered copy:\n  lerobot-edit-dataset --repo_id {args.dataset} "
                   f"--root {dataset_root(args.dataset)} --new_repo_id {args.dataset}_filtered "
                   f"--operation.type delete_episodes --operation.episode_indices \"{flagged}\"")
+    print_phases(phase_table(args.dataset), args.phases)
+    if args.against:
+        print_drift(args.dataset, args.against)
+
+
+def print_phases(phases, per_episode):
+    """Medians per slice (and per episode with --phases): where the time and the hesitation went."""
+    header = (f"{'':>9} {'narrow':>7} {'wait':>5} {'approach':>8} {'pauses':>6} {'revs':>4} {'detour':>6} "
+              f"{'after':>5} {'wobble':>6}")
+    def line(label, r):
+        return (f"{label:>9} {r['narrow_s']:>6.1f}s {r['wait_s']:>4.1f}s {r['approach_s']:>7.1f}s {r['pause_s']:>5.1f}s "
+                f"{r['approach_rev']:>4.0f} {r['path_ratio']:>5.2f}x {r['after_s']:>4.1f}s {r['wobble_mm']:>4.2f}mm")
+    print("\nPickup phases (median): narrowing, wait at the hover, approach to the close and its pauses, reversals,"
+          "\npath over the straight line, after the close, wobble (the tip less a 7-frame average)")
+    print(header)
+    for name, group in phases.groupby("slice"):
+        print(line(name, group[PHASE_COLUMNS].median()))
+    if per_episode:
+        print(f"\n{'ep':>4} {'slice':<9} {'spot':<7}" + header[9:])
+        for ep, r in phases.iterrows():
+            print(f"{ep:>4} {r['slice']:<9} {r['spot']:<7}" + line("", r)[9:])
+
+
+def print_drift(repo, reference):
+    episodes, _ = load_episodes(repo)
+    episodes = {e: v for e, v in episodes.items() if v[1].get("slice") != "tilt"}     # turned tiles grasp elsewhere
+    ref, _ = load_episodes(reference)
+    table = drift_table(episodes, ref)
+    print(f"\nHover→grasp move (mm, pincer tip, deliberate hover offsets removed) vs {reference}, demos that steered:")
+    print(f"{'spot':<7} {'eps':>3} {'straight':>8} {'move':>14} {'ref eps':>7} {'ref straight':>12} {'ref move':>14} {'shift':>14}")
+    for spot, r in table.iterrows():
+        ref_part = (f"{r['ref_x']:+6.1f},{r['ref_y']:+6.1f} {r['shift_x']:+6.1f},{r['shift_y']:+6.1f}"
+                    if r["ref_x"] == r["ref_x"] else f"{'(none near)':>14} {'':>14}")
+        ref_straight = f"{r['reference_straight_down']:.0%}" if r["reference"] else "-"
+        print(f"{spot:<7} {r['episodes']:>3.0f} {r['straight_down']:>8.0%} {r['move_x']:+6.1f},{r['move_y']:+6.1f} "
+              f"{r['reference']:>7.0f} {ref_straight:>12} {ref_part}")
+    compared = table.dropna(subset=["shift_x"])
+    if len(compared):
+        big = (compared[["shift_x", "shift_y"]].abs().max(axis=1) > JAW_TOLERANCE_MM)
+        print(f"\n{big.sum()} of {len(compared)} compared spots shifted beyond the jaws' {JAW_TOLERANCE_MM:.0f} mm; "
+              f"median shift {compared.shift_x.median():+.1f},{compared.shift_y.median():+.1f} mm. Straight down: "
+              f"{table.straight_down.mean():.0%} here vs {compared.reference_straight_down.mean():.0%} in the reference near these spots.")
 
 
 if __name__ == "__main__":

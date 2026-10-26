@@ -136,14 +136,25 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --lay
 
 ## Reviewing a dataset: `scripts/quality_report.py`
 
-Ranks episodes by hesitation / jerky motion, so you can drop the worst before training.
+Ranks episodes by hesitation / jerky motion, so you can drop the worst before training. Then the
+pickup phases per slice: gripper narrowing, wait at the hover, approach to the close (with its pauses,
+reversals and detour: path over the straight line), time after the close, and wobble. Wobble has been
+~0.3 mm in every recording: what looks jittery is stop-go corrections, not noise a filter would remove.
 
 ```
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3 --episode 37   # when each reversal happened
+python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases          # phases per episode
+python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
 ```
 
-Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table).
+`--against REPO` compares each spot's hover→grasp move with the other recording's at the same place
+(within 15 mm), counting only demos that steered. A demo lowered straight down only says the tile was
+close enough for the jaws (a third of v2's were). Shifts beyond ~6 mm in one direction at most spots
+are worth a `collect_corrections.py` check; a few spots differing is as likely to be how the demos were done.
+
+Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table),
+`--phases`, `--against REPO`.
 
 ## Training a policy: `scripts/make_policy.py`
 

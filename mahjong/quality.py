@@ -83,3 +83,128 @@ def quality_table(repo_id):
         table["worst"] = table[z].idxmax(axis=1).str[2:].where(table["score"] > 0, "")
         table = table.sort_values("score", ascending=False)
     return table, events, fps
+
+
+# --- phases of a pickup, and the hover→grasp move (2026-10-26 golden set review) ---
+#
+# A demo: the gripper narrows at the hover, the operator waits, steers and descends (the approach), closes,
+# then lifts and holds. Hesitation shows as pauses and reversals within the approach and as a path much
+# longer than the straight line; "jitter" as wobble (the tip path less a 7-frame moving average), which
+# was ~0.3 mm RMS in every recording so far: the stop-go of corrections, not noise a filter would remove.
+
+PAUSE_MIN_S = 0.4              # a still stretch at least this long within the approach counts as a pause
+WOBBLE_WINDOW = 7
+STRAIGHT_DOWN_MM = 1.5         # a hover→grasp move under this: lowered straight down, didn't steer
+DRIFT_RADIUS_M = 0.015         # reference grasps this close to a tile count as the same place
+DRIFT_MIN_REFERENCE = 2        # ...and a spot needs this many that steered
+JAW_TOLERANCE_MM = 6.0         # the jaws still close on a tile this far off; a larger shift matters
+PHASE_COLUMNS = ["narrow_s", "wait_s", "approach_s", "pause_s", "approach_rev", "path_ratio", "after_s", "wobble_mm"]
+
+
+def grasp_frame(joints):
+    """First frame commanding the gripper shut, or None."""
+    shut = joints[:, 5] < config.GRIP_CLOSED_BELOW
+    return int(np.argmax(shut)) if shut.any() else None
+
+
+def phases(joints, fps):
+    """Seconds per phase of one pickup (narrowing, wait at the hover, approach to the close, after it), the
+    pauses and reversals within the approach, its path over the straight line, and the tip's wobble (mm RMS).
+    None if the gripper never shuts."""
+    from .dataset import narrowing_end
+    close = grasp_frame(joints)
+    if close is None:
+        return None
+    tips = np.array([kinematics.pincer_tip(dict(zip(config.JOINTS, q))) for q in joints]) * 1000
+    speed = np.r_[0.0, np.linalg.norm(np.diff(tips, axis=0), axis=1) * fps]
+    start = narrowing_end(joints)
+    moving = np.flatnonzero(speed[start:close] >= IDLE_SPEED_MM_S)
+    first = start + int(moving[0]) if len(moving) else close
+    pause, run = 0, 0
+    for still in speed[first:close] < IDLE_SPEED_MM_S:
+        run = run + 1 if still else 0
+        pause += (run == round(PAUSE_MIN_S * fps)) * run + (run > round(PAUSE_MIN_S * fps))
+    approach = tips[first:close + 1]
+    reversals = sum(len(turning_points(approach[:, k], REVERSAL_MM)) for k in range(3)) if len(approach) > 1 else 0
+    path = float(np.linalg.norm(np.diff(approach, axis=0), axis=1).sum()) if len(approach) > 1 else 0.0
+    straight = float(np.linalg.norm(approach[-1] - approach[0]))
+    k = WOBBLE_WINDOW
+    smooth = np.array([np.convolve(tips[:, i], np.ones(k) / k, mode="same") for i in range(3)]).T
+    wobble = float(np.sqrt(np.mean(np.sum((tips - smooth)[k:-k] ** 2, axis=1)))) if len(tips) > 2 * k else 0.0
+    return {"narrow_s": start / fps, "wait_s": (first - start) / fps, "approach_s": (close - first) / fps,
+            "pause_s": pause / fps, "approach_rev": reversals, "path_ratio": path / max(straight, 1.0),
+            "after_s": (len(joints) - close) / fps, "wobble_mm": wobble}
+
+
+def hover_move(joints, jitter_xy=(0.0, 0.0)):
+    """The pincer tip's x/y move from the hover (first frame) to the close, mm, with a deliberate hover
+    offset added back — what the hover itself missed by. None if the gripper never shuts."""
+    close = grasp_frame(joints)
+    if close is None:
+        return None
+    start, end = (kinematics.pincer_tip(dict(zip(config.JOINTS, joints[i]))) for i in (0, close))
+    return (end[:2] - start[:2]) * 1000 + np.asarray(jitter_xy, float) * 1000
+
+
+def load_episodes(repo_id):
+    """{episode: (action_raw joints, its episode-log record)} and fps."""
+    root = dataset_root(repo_id)
+    df = pd.concat([pd.read_parquet(f) for f in sorted((root / "data").glob("*/*.parquet"))], ignore_index=True)
+    fps = json.loads((root / "meta" / "info.json").read_text())["fps"]
+    log = episode_log(repo_id)
+    return {int(ep): (np.stack(f.sort_values("frame_index")["action_raw"].to_numpy()), log.get(int(ep), {}))
+            for ep, f in df.groupby("episode_index")}, fps
+
+
+def phase_table(repo_id):
+    """Per-episode phases (see phases()) with each episode's slice and spot."""
+    episodes, fps = load_episodes(repo_id)
+    rows = []
+    for ep, (joints, record) in episodes.items():
+        p = phases(joints, fps)
+        if p is not None:
+            rows.append({"episode": ep, "slice": record.get("slice", "train"), "spot": spot_label(record), **p})
+    return pd.DataFrame(rows).set_index("episode")
+
+
+def spot_label(record):
+    xy = record.get("detection_xy")
+    return record.get("spot") or (f"{xy[0] * 100:.0f},{xy[1] * 100:+.0f}" if xy else "?")
+
+
+def moves(episodes):
+    """[(episode, record, move mm)] for episodes whose gripper shuts and whose log has the detection."""
+    out = []
+    for ep, (joints, record) in episodes.items():
+        move = hover_move(joints, record.get("hover_jitter_xy", (0.0, 0.0)))
+        if move is not None and record.get("detection_xy"):
+            out.append((ep, record, move))
+    return out
+
+
+def drift_table(episodes, reference):
+    """Per spot of `episodes`: its median hover→grasp move against the reference's at the same place (within
+    DRIFT_RADIUS_M). Only demos that steered are compared: a demo lowered straight down (move under
+    STRAIGHT_DOWN_MM) says "close enough for the jaws", not where the tile was — v2's demos did that a third
+    of the time, which made a mat-wide comparison read as a 10-15 mm drift that wasn't there."""
+    ref = moves(reference)
+    ref_xy = np.array([r["detection_xy"] for _, r, _ in ref]) if ref else np.zeros((0, 2))
+    ref_moves = np.array([m for _, _, m in ref]) if ref else np.zeros((0, 2))
+    ref_steered = np.hypot(*ref_moves.T) >= STRAIGHT_DOWN_MM if ref else np.zeros(0, bool)
+    by_spot = {}
+    for ep, record, move in moves(episodes):
+        by_spot.setdefault(spot_label(record), []).append((record["detection_xy"], move))
+    rows = []
+    for spot, items in by_spot.items():
+        xy = np.median([i[0] for i in items], axis=0)
+        mv = np.array([i[1] for i in items])
+        steered = mv[np.hypot(*mv.T) >= STRAIGHT_DOWN_MM]
+        near = np.hypot(*(ref_xy - xy).T) <= DRIFT_RADIUS_M if len(ref_xy) else np.zeros(0, bool)
+        row = {"spot": spot, "episodes": len(mv), "straight_down": 1 - len(steered) / len(mv),
+               "reference": int(near.sum()), "reference_straight_down": float(1 - ref_steered[near].mean()) if near.any() else np.nan}
+        ok = len(steered) and (near & ref_steered).sum() >= DRIFT_MIN_REFERENCE
+        mine = np.median(steered, axis=0) if len(steered) else (np.nan, np.nan)
+        theirs = np.median(ref_moves[near & ref_steered], axis=0) if ok else (np.nan, np.nan)
+        rows.append({**row, "move_x": mine[0], "move_y": mine[1], "ref_x": theirs[0], "ref_y": theirs[1],
+                     "shift_x": mine[0] - theirs[0], "shift_y": mine[1] - theirs[1]})
+    return pd.DataFrame(rows).set_index("spot").sort_index()
