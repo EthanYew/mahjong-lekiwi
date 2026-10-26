@@ -18,5 +18,7 @@
       101
     ]
   },
-  "eval_sets": []
+  "eval_sets": [
+    "Yewy/mahjong_mat_eval_v1"
+  ]
 }
