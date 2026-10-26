@@ -2,7 +2,8 @@
 imported from that checkout so control-mapping changes made there carry over.
 
 Controls (Switch labels): left stick reach / pan, right stick height / wrist roll, L/R pitch,
-ZL/ZR gripper close/open, -/+ speed, HOME (hold) back to where teleop started.
+ZL/ZR gripper close/open, -/+ speed, HOME (hold) back to where teleop started. The right stick moves
+height or roll, never both: pulling it down leaked into rx past XLeRobot's 25° snap (2026-10-27).
 """
 import importlib.util
 import sys
@@ -28,19 +29,34 @@ class CommittedSticks:
     """A stick moves the arm only after being held the same way for commit_s, then fades in over the
     next commit_s: flicks and quickly corrected wrong-way starts never reach the arm (a low-pass
     only spreads a flick out — same distance travelled). Release still stops at once. Sticks in
-    `disabled` read 0. Buttons pass through."""
+    `disabled` read 0. In each `exclusive` pair only one axis moves at a time: the first to move (the
+    larger, if both start together) keeps the stick until it is back at centre. Buttons pass through."""
 
-    def __init__(self, gamepad, commit_s, stick_names, disabled=()):
+    def __init__(self, gamepad, commit_s, stick_names, disabled=(), exclusive=()):
         self.gamepad, self.commit_s = gamepad, commit_s
         self.stick_names, self.disabled = list(stick_names), set(disabled)
+        self.exclusive = [tuple(pair) for pair in exclusive]
         self.reset()
 
     def reset(self):
-        self._held, self._values = {}, {}
+        self._held, self._values, self._owner = {}, {}, {}
+
+    def _read(self):
+        raw = {name: 0.0 if name in self.disabled else self.gamepad.stick(name) for name in self.stick_names}
+        for pair in self.exclusive:
+            if not any(raw.get(name) for name in pair):
+                self._owner.pop(pair, None)          # back at centre: either axis may take it next
+                continue
+            owner = self._owner.setdefault(pair, max(pair, key=lambda name: abs(raw.get(name, 0.0))))
+            for name in pair:
+                if name != owner and name in raw:
+                    raw[name] = 0.0
+        return raw
 
     def tick(self, dt):
+        values = self._read()
         for name in self.stick_names:
-            raw = 0.0 if name in self.disabled else self.gamepad.stick(name)
+            raw = values[name]
             sign = (raw > 0) - (raw < 0)
             prev_sign, held = self._held.get(name, (0, 0.0))
             held = 0.0 if sign == 0 else (held + dt if sign == prev_sign else dt)
@@ -55,6 +71,9 @@ class CommittedSticks:
         return getattr(self.gamepad, attr)
 
 
+EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
+
+
 class GamepadTeleop:
     """Drives an Arm from the gamepad. start() seeds from the arm's *commanded* pose — seeding from
     the measured (sagged) pose re-commands the arm lower and it drops at takeover."""
@@ -62,7 +81,8 @@ class GamepadTeleop:
     def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=()):
         self.utils, self.ee = _load_xlerobot()
         self.pad = self.utils.Gamepad(self.utils.find_gamepad(device))
-        self.sticks = CommittedSticks(self.pad, commit_s, self.utils.STICK_CODES, disabled=locked_sticks)
+        self.sticks = CommittedSticks(self.pad, commit_s, self.utils.STICK_CODES, disabled=locked_sticks,
+                                      exclusive=EXCLUSIVE_AXES)
         self.locked_buttons = set(locked_buttons)
         self.speed_index = self.ee.DEFAULT_SPEED_INDEX
         self.teleop = None

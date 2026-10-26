@@ -16,8 +16,11 @@ FOLLOWER_ID = "ethan_lekiwi_arm"
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 ARM_JOINTS = JOINTS[:5]
 
-REST_POSE = {"shoulder_pan": -91.0, "shoulder_lift": -106.32967032967034, "elbow_flex": 105.58241758241758,
-             "wrist_flex": 66.81318681318682, "wrist_roll": -99.47252747252747, "gripper": 10.609171800136892}
+# Where the unpowered arm settles (sessions/parked_pose.json, 2026-10-27 09:55 and 10:25, ±0.5°), so
+# switching the motors off or on doesn't move it. The old folded rest (lift -106.3, elbow 105.6) sagged
+# ~8° onto the stops at every disconnect, and every connect lifted it via RAISED_REST and back.
+REST_POSE = {"shoulder_pan": -90.7, "shoulder_lift": -102.2, "elbow_flex": 97.6,
+             "wrist_flex": 67.6, "wrist_roll": -99.5, "gripper": 10.609171800136892}
 # Rest with the arm raised in place (same pan and roll), pincer tip ~80mm above the arm's mount. Moves
 # between rest and the table go through it, so the gripper — and a held tile, ~12mm below the jaws —
 # crosses the front of the LeKiwi base 60-68mm above the mount instead of up to 11mm below it.

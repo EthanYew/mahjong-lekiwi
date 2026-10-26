@@ -65,6 +65,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   lets go. The policy's own descent opens to its hover gripper (90% for v1/v2, 27.2 for v2n), which
   only a new dataset or trimmed episodes change.
 - **Heights are above the grasp point** (`config.grasp_z`, table + 5mm); the tile top is ~15mm higher.
+- **Rest is where the unpowered arm settles** (`config.REST_POSE`, from `sessions/parked_pose.json`). The old
+  folded rest sagged ~8° onto the stops at every disconnect, and each connect then lifted the arm via
+  `RAISED_REST` and folded it back before doing anything. Re-measure it if the arm or its stops change.
+- **The right stick moves height or wrist roll, never both** (`gamepad.EXCLUSIVE_AXES`): a pull down leaked
+  into roll past XLeRobot's 25° snap and turned the wrist mid-descent (2026-10-27, 7B).
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
   ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return
