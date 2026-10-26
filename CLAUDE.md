@@ -89,6 +89,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   for v2: don't change the live hover (`data/hover_model.json`), and don't fit bench samples (grasp =
   hover + fixed move). Success rate hides this, since the jaws tolerate ±6mm; check a policy with
   `bench.py --hover-perturb-mm`. Compare bench and demo shifts per position, never against a mat-wide median.
+- **Wrist roll runs out at the left edge.** The hover turns the roll to keep the jaws square to the mat:
+  ~−147° at (13, +19) cm, 23° from the −170° command limit. A tile turned clockwise more than ~20° there
+  is only reachable by rolling ~+150° the other way, jaws flipped and the wrist image upside down from
+  every other demo (golden set T1, 2026-10-26). Expect any policy to fail it; don't place training tiles so.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 
