@@ -64,10 +64,12 @@ class FakeGamepad:
         pass
 
 
-def run_record(tmp_path, monkeypatch, argv, script):
+def run_record(tmp_path, monkeypatch, argv, script, answers=None, prompts=None):
     """record.main(argv) on the sim arm, camera and mat, picking 8D each time. `script`: what the
     keyboard does, in order — ("hover", keys) when the hover is shown, ("rec", keys) after 3 recorded
-    frames; keys beyond → (exit_early) e.g. {"rerecord_episode": True} for ←. Returns (dataset, session dir)."""
+    frames; keys beyond → (exit_early) e.g. {"rerecord_episode": True} for ←. answers: {prompt substring: reply}
+for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects every prompt. Returns
+(dataset, session dir)."""
     import builtins
     import record
     from mahjong.arm import Arm
@@ -102,7 +104,13 @@ def run_record(tmp_path, monkeypatch, argv, script):
     monkeypatch.setattr(record, "show", show)
     monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
                         types.SimpleNamespace(init_keyboard_listener=lambda: (listener, events)))
-    monkeypatch.setattr(builtins, "input", lambda prompt="": "8D" if "Which tile" in prompt else "")
+    def reply(prompt=""):
+        if prompts is not None:
+            prompts.append(prompt)
+        replies = {"Which tile": "8D", **(answers or {})}
+        return next((r for key, r in replies.items() if key in prompt), "")
+
+    monkeypatch.setattr(builtins, "input", reply)
     record.main(["--dataset", "test/record", "--episodes", "2", *argv])
     (session,) = (tmp_path / "sessions").iterdir()
     return dataset, session
@@ -139,3 +147,31 @@ def test_a_discarded_episode_keeps_its_random_offset_for_the_retry(tmp_path, mon
     assert all(0 < math.hypot(*r["hover_jitter_xy"]) <= 0.008 for r in rows)
     (discard,) = [e for e in events if e["type"] == "episode_discarded"]
     assert discard["tile"] == "8D" and discard["frames"] == 3
+
+
+DISCARD_ONCE = [("hover", {}), ("rec", {"rerecord_episode": True}), ("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+
+
+def test_after_a_discard_enter_hovers_over_the_same_tile_without_choosing_it_again(tmp_path, monkeypatch):
+    prompts = []
+    dataset, session = run_record(tmp_path, monkeypatch, ["--hover-offsets-mm", "6x"], DISCARD_ONCE, prompts=prompts)
+    assert dataset.saved == [3, 3]
+    assert sum("Which tile" in q for q in prompts) == 2          # first episode, second episode: not the retry
+    assert any("Same tile" in q and "Enter = y" in q for q in prompts)
+    hovers = [e for e in read_events(session) if e["type"] == "hover"]
+    assert [h["same_tile_retry"] for h in hovers] == [False, True, False]
+    assert hovers[1]["hover_xy"] == hovers[0]["hover_xy"] and hovers[1]["hover_jitter_xy"] == [0.006, 0.0]
+
+
+def test_after_a_discard_n_goes_back_to_rest_and_asks_for_the_tile(tmp_path, monkeypatch):
+    prompts = []
+    dataset, session = run_record(tmp_path, monkeypatch, [], DISCARD_ONCE, answers={"Same tile": "n"}, prompts=prompts)
+    assert dataset.saved == [3, 3] and sum("Which tile" in q for q in prompts) == 3
+    assert not any(e.get("same_tile_retry") for e in read_events(session) if e["type"] == "hover")
+
+
+def test_a_knocked_tile_discard_defaults_to_choosing_again(tmp_path, monkeypatch):
+    prompts = []
+    run_record(tmp_path, monkeypatch, [], DISCARD_ONCE, answers={"Why discard": "2"}, prompts=prompts)
+    assert any("Same tile" in q and "Enter = n" in q for q in prompts)
+    assert sum("Which tile" in q for q in prompts) == 3

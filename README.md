@@ -102,7 +102,10 @@ per 10 attempts, clean vs. assisted successes) and saves a contact sheet (one im
 ## Recording demonstrations: `scripts/record.py`
 
 The arm hovers over a tile, then you take over with the gamepad. `→` starts recording / saves,
-`←` discards and re-hovers, `Esc` ends.
+`←` discards, `Esc` ends. After a discard it asks *Same tile, same hover again?*: Enter goes
+straight back to the same hover (same tile, same jitter offset, no trip to rest), `n` goes to rest and
+asks for a tile. Enter means no after "knocked a tile" or "hover was wrong", and a tile still in the
+jaws always goes to rest to be released.
 
 ```
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3

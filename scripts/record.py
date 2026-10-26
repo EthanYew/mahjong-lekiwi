@@ -2,7 +2,9 @@
 
 Each episode: the arm rests, the RealSense detects tiles, you pick one, the arm hovers over it
 (measured hover correction, settled from above to the clearance), and holds. → hands you the gamepad
-and starts recording from exactly that pose; → again saves, ← discards and re-hovers, Esc ends.
+and starts recording from exactly that pose; → again saves, ← discards, Esc ends. After a discard that
+moved nothing, Enter at "Same tile, same hover again?" lifts and hovers over the same tile again, skipping
+the trip to rest and the tile choice.
 
 The hover settings (offset, clearance, gripper opening) are written per episode to
 <dataset>/episode_log.jsonl; make_policy.py stores them with the trained policy so it's deployed from
@@ -57,6 +59,7 @@ FEATURES = {
     "observation.images.wrist": {"dtype": "video", "shape": (480, 640, 3), "names": ["h", "w", "c"]},
 }
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
+SAME_TILE_NO = {"knocked a tile", "hover was wrong"}      # discards after which a same-tile retry defaults to no
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
 
 
@@ -140,51 +143,58 @@ def main(argv=None):
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
     rng, offset = random.Random(args.jitter_seed), None     # offset: the next saved episode's, kept until it's saved
+    retry = None               # (tile, placement) to hover over again after a discard, skipping rest
     try:
         while saved < args.episodes:
             for k in ("exit_early", "rerecord_episode", "stop_recording"):
                 events[k] = False
-            arm.rest()
-            if arm.holding()[0]:
-                print("Releasing the tile from the last episode at rest.")
-                arm.set_gripper(hover["gripper"])
-            placement = {}
-            if args.layout:
-                if not todo:
-                    print(f"Every spot of layout {args.layout} recorded.")
-                    break
-                spot = next(s for s in spots if s["id"] == todo[0])
-                print(f"Spot {spot['id']} ({len(todo)} episodes to go): {layout.PLACE_HELP}")
-                placed = layout.place(realsense.snapshot, spots, spot["id"], realsense.intrinsics,
-                                      realsense.T_cam_to_base, ghost=ghost)
-                cv2.destroyWindow("layout")
-                for k in ("exit_early", "rerecord_episode", "stop_recording"):   # keys pressed while placing
-                    events[k] = False
-                if placed["action"] == "quit":
-                    break
-                if placed["action"] == "skip":
-                    todo = [s for s in todo if s != spot["id"]]
-                    continue
-                found = placed["found"]
-                tiles = realsense.detect_tiles()
-                tile = layout.nearest_tile(tiles, found["xy"] if found else spot["xy"])
-                if tile is None:
-                    print(f"No tile detected at {spot['id']} — place it again.")
-                    continue
-                if placed["status"] != "ok":
-                    print(f"  (placed {placed['status']}, not within tolerance — logged)")
-                placement = {"layout": args.layout, "spot": spot["id"], "spot_xy": spot["xy"],
-                             "spot_yaw_deg": spot.get("yaw_deg", 0.0), "placement_status": placed["status"],
-                             "placed_xy": found["xy"] if found else None,
-                             "placed_yaw_deg": found["yaw_deg"] if found else None}
+            retrying = retry is not None
+            if retrying:               # ← on a demo that moved nothing: straight back to the same hover
+                tile, placement = retry
+                retry = None
+                arm.lift()
             else:
-                tiles = realsense.detect_tiles()
-                tile = choose_tile(tiles)
-            if tile is None:
-                if input("No tile chosen. q to quit, Enter to scan again: ").strip().lower() == "q":
-                    break
-                session.event("attempt_skipped", reason="cancelled" if tiles else "no_tiles")
-                continue
+                arm.rest()
+                if arm.holding()[0]:
+                    print("Releasing the tile from the last episode at rest.")
+                    arm.set_gripper(hover["gripper"])
+                placement = {}
+                if args.layout:
+                    if not todo:
+                        print(f"Every spot of layout {args.layout} recorded.")
+                        break
+                    spot = next(s for s in spots if s["id"] == todo[0])
+                    print(f"Spot {spot['id']} ({len(todo)} episodes to go): {layout.PLACE_HELP}")
+                    placed = layout.place(realsense.snapshot, spots, spot["id"], realsense.intrinsics,
+                                          realsense.T_cam_to_base, ghost=ghost)
+                    cv2.destroyWindow("layout")
+                    for k in ("exit_early", "rerecord_episode", "stop_recording"):   # keys pressed while placing
+                        events[k] = False
+                    if placed["action"] == "quit":
+                        break
+                    if placed["action"] == "skip":
+                        todo = [s for s in todo if s != spot["id"]]
+                        continue
+                    found = placed["found"]
+                    tiles = realsense.detect_tiles()
+                    tile = layout.nearest_tile(tiles, found["xy"] if found else spot["xy"])
+                    if tile is None:
+                        print(f"No tile detected at {spot['id']} — place it again.")
+                        continue
+                    if placed["status"] != "ok":
+                        print(f"  (placed {placed['status']}, not within tolerance — logged)")
+                    placement = {"layout": args.layout, "spot": spot["id"], "spot_xy": spot["xy"],
+                                 "spot_yaw_deg": spot.get("yaw_deg", 0.0), "placement_status": placed["status"],
+                                 "placed_xy": found["xy"] if found else None,
+                                 "placed_yaw_deg": found["yaw_deg"] if found else None}
+                else:
+                    tiles = realsense.detect_tiles()
+                    tile = choose_tile(tiles)
+                if tile is None:
+                    if input("No tile chosen. q to quit, Enter to scan again: ").strip().lower() == "q":
+                        break
+                    session.event("attempt_skipped", reason="cancelled" if tiles else "no_tiles")
+                    continue
             x, y = tile["xy"]
             hx, hy = correction.apply(x, y) if correction else (x, y)
             if offset is None:
@@ -199,7 +209,8 @@ def main(argv=None):
                 if args.hover_jitter_mm:
                     offset = None          # a random draw may be what put it out of reach: draw again
                 continue
-            session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], hover_jitter_xy=list(offset), **result)
+            session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], hover_jitter_xy=list(offset),
+                          same_tile_retry=retrying, **result)
 
             print("Hovering. → take control and START recording, ← re-hover, Esc quit")
             while not events["exit_early"]:
@@ -240,6 +251,8 @@ def main(argv=None):
                 session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason)
                 if events["stop_recording"]:
                     break
+                if ask_same_tile(arm, reason):
+                    retry = (tile, placement)
                 continue
             episode = dataset.meta.total_episodes
             dataset.save_episode()
@@ -277,6 +290,16 @@ def main(argv=None):
         cv2.destroyAllWindows()
         print(f"{saved} episode(s) saved this session; {args.dataset} has {dataset.meta.total_episodes}.")
         session.close()
+
+
+def ask_same_tile(arm, reason):
+    """After ←: hover over the same tile again without going to rest and choosing it? Only offered with the
+    jaws empty (a held tile is released at rest). Enter says yes unless the reason says the mat changed."""
+    if arm.holding()[0]:
+        print("Holding the tile: back to rest to release it.")
+        return False
+    return ask_one({"ask": "Same tile, same hover again (nothing moved)", "choices": "yn"},
+                   reason not in SAME_TILE_NO, input)
 
 
 def next_offset(args, rng, saved):

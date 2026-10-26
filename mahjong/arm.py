@@ -171,11 +171,9 @@ class Arm:
         if self.is_at_rest():
             self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
-    def rest(self):
-        """Lift if low over the table, swing in via the raised rest, lower to rest. Never touches the
-        gripper (a held tile stays held). Does nothing if already at rest."""
-        if self.is_at_rest():
-            return
+    def lift(self):
+        """If low out over the table, rise straight up to LIFT_CLEARANCE_M (wrist roll and gripper as they
+        are), so the next move doesn't sweep across the tiles."""
         command = self.commanded()
         x, y, _ = kinematics.tool_point(command)
         clearance, _ = self.tip_clearance()
@@ -185,6 +183,13 @@ class Arm:
                 lifted["wrist_roll"] = command["wrist_roll"]          # a lift, not a re-grip
                 if max(abs(lifted[j] - command[j]) for j in config.ARM_JOINTS) <= LIFT_MAX_JOINT_CHANGE_DEG:
                     self.move_to({j: lifted[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
+
+    def rest(self):
+        """Lift if low over the table, swing in via the raised rest, lower to rest. Never touches the
+        gripper (a held tile stays held). Does nothing if already at rest."""
+        if self.is_at_rest():
+            return
+        self.lift()
         self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, MOVE_TIME_S)
         self.move_to({j: config.REST_POSE[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
