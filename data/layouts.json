@@ -1,0 +1,176 @@
+{
+  "eval_tilt": {
+    "created": "2026-10-26T14:21:58",
+    "note": "golden: familiar spots, tilted",
+    "ghost": null,
+    "spots": [
+      {
+        "id": "T1",
+        "xy": [
+          0.1297,
+          0.186
+        ],
+        "yaw_deg": -30.0,
+        "label": "RD"
+      },
+      {
+        "id": "T2",
+        "xy": [
+          0.198,
+          0.195
+        ],
+        "yaw_deg": 45.0,
+        "label": "8B"
+      },
+      {
+        "id": "T3",
+        "xy": [
+          0.1472,
+          0.0009
+        ],
+        "yaw_deg": 15.0,
+        "label": "6B"
+      },
+      {
+        "id": "T4",
+        "xy": [
+          0.222,
+          0.022
+        ],
+        "yaw_deg": -15.0,
+        "label": "WW"
+      },
+      {
+        "id": "T5",
+        "xy": [
+          0.2372,
+          -0.1703
+        ],
+        "yaw_deg": 30.0,
+        "label": "8D"
+      },
+      {
+        "id": "T6",
+        "xy": [
+          0.1565,
+          -0.1726
+        ],
+        "yaw_deg": -45.0,
+        "label": "9D"
+      }
+    ]
+  },
+  "eval_familiar": {
+    "created": "2026-10-26T14:21:58",
+    "note": "golden: v2's grid, square",
+    "ghost": null,
+    "spots": [
+      {
+        "id": "F1",
+        "xy": [
+          0.198,
+          0.195
+        ],
+        "yaw_deg": 8.0,
+        "label": "8B"
+      },
+      {
+        "id": "F2",
+        "xy": [
+          0.1297,
+          0.186
+        ],
+        "yaw_deg": 8.5,
+        "label": "RD"
+      },
+      {
+        "id": "F3",
+        "xy": [
+          0.222,
+          0.022
+        ],
+        "yaw_deg": 2.0,
+        "label": "WW"
+      },
+      {
+        "id": "F4",
+        "xy": [
+          0.1472,
+          0.0009
+        ],
+        "yaw_deg": 2.6,
+        "label": "6B"
+      },
+      {
+        "id": "F5",
+        "xy": [
+          0.2372,
+          -0.1703
+        ],
+        "yaw_deg": 0.8,
+        "label": "8D"
+      },
+      {
+        "id": "F6",
+        "xy": [
+          0.1565,
+          -0.1726
+        ],
+        "yaw_deg": -2.9,
+        "label": "9D"
+      }
+    ]
+  },
+  "eval_new": {
+    "created": "2026-10-26T14:21:58",
+    "note": "golden: off v2's grid",
+    "ghost": null,
+    "spots": [
+      {
+        "id": "N1",
+        "xy": [
+          0.1617,
+          0.1828
+        ],
+        "yaw_deg": 5.5,
+        "label": "RD"
+      },
+      {
+        "id": "N2",
+        "xy": [
+          0.183,
+          0.08
+        ],
+        "yaw_deg": 5.0,
+        "label": "WW"
+      },
+      {
+        "id": "N3",
+        "xy": [
+          0.1785,
+          -0.0016
+        ],
+        "yaw_deg": 5.5,
+        "label": "6B"
+      },
+      {
+        "id": "N4",
+        "xy": [
+          0.1841,
+          -0.0846
+        ],
+        "yaw_deg": -0.1,
+        "label": "8D"
+      },
+      {
+        "id": "N5",
+        "xy": [
+          0.195,
+          -0.166
+        ],
+        "yaw_deg": 0.0,
+        "label": "9D"
+      }
+    ]
+  }
+}
