@@ -147,6 +147,17 @@ def test_a_discarded_episode_keeps_its_random_offset_for_the_retry(tmp_path, mon
     assert all(0 < math.hypot(*r["hover_jitter_xy"]) <= 0.008 for r in rows)
     (discard,) = [e for e in events if e["type"] == "episode_discarded"]
     assert discard["tile"] == "8D" and discard["frames"] == 3
+    assert discard["roll_command_travel_deg"] == 0 and "roll_lag_max_deg" in discard     # no stick input in sim
+    assert all("roll_command_change_deg" in r for r in rows)
+
+
+def test_roll_trace_tells_a_commanded_roll_from_a_turned_wrist():
+    from scripts.record import RollTrace
+    roll = RollTrace()
+    for commanded, measured in [(-56, -56), (-56, -60), (-50, -51), (-53, -53)]:
+        roll.add(commanded, measured)
+    assert roll.summary() == {"roll_command_change_deg": 3, "roll_command_travel_deg": 9, "roll_lag_max_deg": 4}
+    assert RollTrace().summary() == {}
 
 
 DISCARD_ONCE = [("hover", {}), ("rec", {"rerecord_episode": True}), ("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]

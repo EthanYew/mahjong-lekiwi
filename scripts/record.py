@@ -227,7 +227,7 @@ def main(argv=None):
             gamepad.start(arm)
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
             print("RECORDING — → save, ← discard, Esc save nothing and quit")
-            frames = 0
+            frames, roll = 0, RollTrace()
             while not events["exit_early"]:
                 t0 = time.time()
                 command = gamepad.step(arm, dt)
@@ -236,19 +236,21 @@ def main(argv=None):
                     continue
                 state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
+                roll.add(command["wrist_roll"], float(state[ROLL]))
                 dataset.add_frame({"observation.state": state - anchor, "action": action - anchor,
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
                 show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s", frame)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
+            roll.report()
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
                 reason = None
                 if not events["stop_recording"]:
                     drain_stdin()
                     reason = ask_one({"ask": "Why discard it", "choices": DISCARD_REASONS}, None, input)
-                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason)
+                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason, **roll.summary())
                 if events["stop_recording"]:
                     break
                 if ask_same_tile(arm, reason):
@@ -263,7 +265,7 @@ def main(argv=None):
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
-                      "conditions": session.conditions, **placement}
+                      "conditions": session.conditions, **placement, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
@@ -290,6 +292,38 @@ def main(argv=None):
         cv2.destroyAllWindows()
         print(f"{saved} episode(s) saved this session; {args.dataset} has {dataset.meta.total_episodes}.")
         session.close()
+
+
+ROLL = config.JOINTS.index("wrist_roll")
+
+
+class RollTrace:
+    """Wrist roll over an episode: how far the command moved (only the right stick's left/right moves it)
+    and how far the servo strayed from the command (pushed or twisted). Tells a stick leak from the
+    wrist being turned when the roll changes without being asked for (2026-10-27, 7B)."""
+
+    def __init__(self):
+        self.first = self.last = None
+        self.travel = self.lag = 0.0
+
+    def add(self, commanded, measured):
+        if self.last is not None:
+            self.travel += abs(commanded - self.last)
+        self.first = commanded if self.first is None else self.first
+        self.last = commanded
+        self.lag = max(self.lag, abs(measured - commanded))
+
+    def report(self):
+        s = self.summary()
+        if s and (s["roll_command_travel_deg"] >= 2 or s["roll_lag_max_deg"] >= 6):
+            print(f"  wrist roll: command moved {s['roll_command_travel_deg']:.0f}deg (net {s['roll_command_change_deg']:+.0f}), "
+                  f"servo up to {s['roll_lag_max_deg']:.0f}deg off its command")
+
+    def summary(self):
+        if self.first is None:
+            return {}
+        return {"roll_command_change_deg": round(self.last - self.first, 1),
+                "roll_command_travel_deg": round(self.travel, 1), "roll_lag_max_deg": round(self.lag, 1)}
 
 
 def ask_same_tile(arm, reason):
