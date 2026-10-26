@@ -266,6 +266,9 @@ def main(argv=None):
             dataset.clear_episode_buffer()
         dataset.finalize()
         arm.rest()
+        if arm.holding()[0]:           # the last episode's tile: a gripper left stalled on it at 0 overloads
+            print("Releasing the tile from the last episode at rest.")
+            arm.set_gripper(hover["gripper"])
         arm.disconnect()
         camera.release()
         realsense.close()
