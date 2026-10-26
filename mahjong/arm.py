@@ -10,6 +10,7 @@ against gravity stops further short arriving from below).
 Heights are pincer-tip heights above the grasp point (config.grasp_z, table + 5mm); a tile's top face
 is ~15mm above that.
 """
+import json
 import time
 
 import numpy as np
@@ -33,6 +34,10 @@ LIFT_CLEARANCE_M = 0.080      # before swinging back to rest from low over the t
 LIFT_MIN_RADIUS_M = 0.13      # ...but only out over the table, not at the folded rest pose
 LIFT_MAX_JOINT_CHANGE_DEG = 30.0
 AT_REST_TOLERANCE_DEG = 3.0
+# Unpowered, the arm sags from the rest pose onto the same stops each time (~8° on 2026-10-26), so "moved
+# while off" compares the arm at connect with where it settled at the last disconnect, not with REST_POSE.
+PARK_SETTLE_S = 1.0
+PARKED_TOLERANCE_DEG = 3.0
 
 PLACE_TIP_CLEARANCE_M = 0.010     # recorded grasps closed with the tip at 7mm (median)
 RETURN_EXTRA_CLEARANCE_M = 0.030
@@ -65,8 +70,35 @@ def place_point(x, y, approach_offset_m, gripper):
     return None
 
 
+def parked_path():
+    return config.SESSIONS / "parked_pose.json"          # per machine, like sessions/
+
+
+def load_parked():
+    """The arm's joints where it settled unpowered at the last disconnect, or None."""
+    try:
+        return json.loads(parked_path().read_text())["pose"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def save_parked(pose):
+    parked_path().parent.mkdir(parents=True, exist_ok=True)
+    parked_path().write_text(json.dumps({"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "pose": pose}) + "\n")
+
+
+def connect_state(pose, parked=None):
+    """{"arm_at_rest", "off_rest_deg", "off_parked_deg"} for the arm found at `pose`: at rest means within
+    PARKED_TOLERANCE_DEG of where it settled at the last disconnect (without one, of REST_POSE)."""
+    off_rest = max(abs(pose[j] - config.REST_POSE[j]) for j in config.ARM_JOINTS)
+    if parked is None:
+        return {"arm_at_rest": off_rest < AT_REST_TOLERANCE_DEG, "off_rest_deg": off_rest, "off_parked_deg": None}
+    off_parked = max(abs(pose[j] - parked[j]) for j in config.ARM_JOINTS)
+    return {"arm_at_rest": off_parked < PARKED_TOLERANCE_DEG, "off_rest_deg": off_rest, "off_parked_deg": off_parked}
+
+
 class Arm:
-    at_connect = None       # set by connect(): {"arm_at_rest", "off_rest_deg"}
+    at_connect = None       # set by connect(): connect_state()
 
     def __init__(self, robot, sleep=time.sleep):
         self.robot = robot
@@ -87,12 +119,20 @@ class Arm:
             raise
         arm = cls(robot)
         arm.hold_measured()
-        # where it was found: not at rest means it fell or was moved while off (the scripts log it)
-        off = arm.off_rest_deg()
-        arm.at_connect = {"arm_at_rest": off < AT_REST_TOLERANCE_DEG, "off_rest_deg": off}
+        # where it was found: not where it settled at the last disconnect means it was moved while off
+        arm.at_connect = connect_state(arm.commanded(), load_parked())
         return arm
 
     def disconnect(self):
+        """Torque off, then note where the unpowered arm settles, for the next connect's check."""
+        bus = getattr(self.robot, "bus", None)
+        if hasattr(bus, "disable_torque"):          # the real bus (the sim has none)
+            try:
+                bus.disable_torque()
+                self.sleep(PARK_SETTLE_S)
+                save_parked(self.measured())
+            except Exception as error:             # e.g. an overloaded servo: still disconnect
+                print(f"  (couldn't record where the arm settled: {error})")
         self.robot.disconnect()
 
     # --- state ---

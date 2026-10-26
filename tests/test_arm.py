@@ -128,3 +128,42 @@ def lowest_tile_near_base(robot):
         if swinging and np.hypot(tip[0] - kinematics.SHOULDER_PAN_X, tip[1]) < 0.14:
             lowest = min(lowest, tip[2] - TILE_HANG_M)
     return lowest
+
+
+class ParkingBus:
+    """The sim bus plus disable_torque, like the real one, after which the arm sags off REST_POSE."""
+    def __init__(self, robot, sag):
+        self.robot, self.sag, self.torque = robot, sag, True
+        self.sync_read = lambda register: ({**robot.bus_read(register), **self.sag} if not self.torque else robot.bus_read(register))
+
+    def disable_torque(self):
+        self.torque = False
+
+
+def test_moved_while_off_compares_with_where_the_arm_settled_not_rest(tmp_path, monkeypatch):
+    """2026-10-26: every session logged 'arm moved while off' at 8°, because the unpowered arm sags off
+    REST_POSE onto the same stops each time."""
+    from mahjong import arm as arm_module
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    arm, robot = make_arm(start=config.REST_POSE)
+    sagged = {"shoulder_lift": config.REST_POSE["shoulder_lift"] + 8.0}
+    robot.bus_read = robot.bus.sync_read
+    robot.bus = ParkingBus(robot, sagged)
+    robot.disconnect = lambda: None
+    assert arm_module.connect_state(dict(config.REST_POSE, **sagged))["arm_at_rest"] is False   # no record yet: vs rest
+    arm.disconnect()
+    parked = arm_module.load_parked()
+    assert parked["shoulder_lift"] == pytest.approx(sagged["shoulder_lift"])
+    found = arm_module.connect_state(dict(config.REST_POSE, **sagged), parked)
+    assert found["arm_at_rest"] is True and found["off_parked_deg"] < 1.0 and found["off_rest_deg"] == pytest.approx(8.0)
+    moved = arm_module.connect_state(dict(config.REST_POSE, **sagged, shoulder_pan=config.REST_POSE["shoulder_pan"] + 20), parked)
+    assert moved["arm_at_rest"] is False and moved["off_parked_deg"] == pytest.approx(20.0, abs=1.0)
+
+
+def test_disconnect_without_a_torque_bus_records_nothing(tmp_path, monkeypatch):
+    from mahjong import arm as arm_module
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    arm, robot = make_arm()
+    robot.disconnect = lambda: None
+    arm.disconnect()
+    assert arm_module.load_parked() is None

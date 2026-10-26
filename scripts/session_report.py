@@ -126,7 +126,9 @@ def describe(i):
         parts.append("marked at " + ", ".join(f"{t:.1f}s" for t in i["marks_s"]))
     if "changes" in i:
         parts.append(interventions.changes_text(i["changes"]) + (f" during the {i['during']}" if i.get("during") else ""))
-    if i.get("off_rest_deg"):
+    if i.get("off_parked_deg") is not None:
+        parts.append(f"{i['off_parked_deg']:.0f} deg from where it settled at the last disconnect")
+    elif i.get("off_rest_deg"):
         parts.append(f"{i['off_rest_deg']:.0f} deg from rest at connect")
     for key in ("reason", "command", "tile", "note", "error"):
         if i.get(key):

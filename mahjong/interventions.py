@@ -48,7 +48,7 @@ KINDS = {
     "success_overridden": ("answered against the gripper's verdict", OVERRIDE),
     "knocked": ("a tile other than the target moved", FAILURE),
     "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),
-    "arm_moved_while_off": ("arm not at rest at connect (fell, or moved while off)", OBSERVATION),
+    "arm_moved_while_off": ("arm not where it settled at the last disconnect (moved while off)", OBSERVATION),
 }
 MARK_KINDS = ["touched_tile", "collided", "helped_arm", "caught_drop", "look", "other"]
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
@@ -252,7 +252,8 @@ def derive(events):
             add(skip, last_attempt, "logged", time, reason=e.get("reason"), tile=e.get("tile"),
                 **({"spot": e["spot"]} if e.get("spot") else {}))
         elif kind == "connect" and e.get("arm_at_rest") is False:
-            add("arm_moved_while_off", None, "logged", time, off_rest_deg=e.get("off_rest_deg"))
+            add("arm_moved_while_off", None, "logged", time, off_rest_deg=e.get("off_rest_deg"),
+                off_parked_deg=e.get("off_parked_deg"))
         elif kind == "detections":
             proposal = mat.propose(e)
             confirmed = proposal is not None and e.get("scan") in scan_reviews
