@@ -43,6 +43,7 @@ not a worktree, or the sessions go when the worktree does.
 | Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
+| Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 
@@ -226,6 +227,18 @@ wobbles, and whether the yaw reading drifts across the mat. It prints a table an
 stays green up to 1.5× the tolerance, so a tile at the edge doesn't flicker.
 
 `--sim` uses a rendered frame instead of the camera; `--note` describes the layout when teaching.
+
+### Is a spot new to the policy? `scripts/spot_novelty.py`
+
+Each spot's distance to the nearest tile in a training recording's episode log: **familiar** within
+10 mm, **new** from 25 mm, "near a demo" in between. v2's rows are ~6 cm apart along y, so the newest
+reachable spots are between the rows (x ≈ 18-19 cm).
+
+```
+python scripts/spot_novelty.py                         # every layout, against v2's recording
+python scripts/spot_novelty.py eval_familiar eval_new
+python scripts/spot_novelty.py eval_new --against Yewy/mahjong_mat_pickup_v3_jitter   # repeatable
+```
 
 ## Tests
 
