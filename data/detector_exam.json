@@ -1,0 +1,16 @@
+{
+  "sessions": {
+    "20261027_172928_capture": {
+      "added": "2026-10-27T17:29:28",
+      "conditions": {
+        "daylight": "dim",
+        "lamp": true,
+        "ceiling_lights": true,
+        "moved": "nothing",
+        "tiles": "rows",
+        "battery": "full"
+      },
+      "note": ""
+    }
+  }
+}
