@@ -74,6 +74,40 @@ def test_dedupe_merges_a_label_drawn_twice():
     assert [b["tile_name"] for b in kept] == ["4C", "5C", "4C"] and [b["tile_name"] for b in dropped] == ["4C"]
 
 
+def test_a_tile_read_as_two_names_is_prelabelled_once():
+    kept = detector.one_box_per_tile([box("5B", 0.6, 100, 100), box("7B", 0.8, 101, 100), box("4B", 0.7, 200, 100)])
+    assert sorted(b["tile_name"] for b in kept) == ["4B", "7B"]
+
+
+def test_split_by_scene_keeps_each_scene_on_one_side(tmp_path):
+    import cv2
+    import split_by_scene
+    src = tmp_path / "export"
+    names = detector.TILE_NAMES + ["aruco_marker"]
+    scene_a = [box("1B", 1, 100, 100), box("2B", 1, 200, 100), box("3B", 1, 300, 100)]
+    scene_b = [box("4C", 1, 100, 300), box("5C", 1, 200, 300)]
+    frames = {("train", "a_exp200"): scene_a, ("valid", "a_exp300"): scene_a, ("test", "a_exp400"): scene_a,
+              ("train", "b_exp200"): scene_b + [box("aruco_marker", 1, 600, 50)], ("valid", "b_exp300"): scene_b,
+              ("train", "twins"): [box("6D", 1, 400, 200), box("6D", 1, 401, 200)],
+              ("train", "clash"): [box("5B", 1, 500, 200), box("7B", 1, 501, 200)]}
+    for (split, stem), boxes in frames.items():
+        (src / split / "images").mkdir(parents=True, exist_ok=True)
+        (src / split / "labels").mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(src / split / "images" / f"{stem}.jpg"), np.zeros((480, 848, 3), np.uint8))
+        (src / split / "labels" / f"{stem}.txt").write_text("\n".join(detector.yolo_lines(boxes, names, (848, 480))))
+    (src / "data.yaml").write_text(f"nc: {len(names)}\nnames: {names}\n")
+
+    split_by_scene.main(["--data", str(src / "data.yaml"), "--out", str(tmp_path / "out"), "--valid", "0.4"])
+    out = {p.stem: p.parent.parent.name for p in (tmp_path / "out").glob("*/images/*.jpg")}
+    assert "clash" not in out and len(out) == 6                                 # two names on one tile: left out
+    assert len({out[s] for s in ("a_exp200", "a_exp300", "a_exp400")}) == 1 == len({out["b_exp200"], out["b_exp300"]})
+    assert set(out.values()) == {"train", "valid"}
+    b = detector.read_yolo_labels(tmp_path / "out" / out["b_exp200"] / "labels" / "b_exp200.txt",
+                                  detector.TILE_NAMES, (848, 480))
+    assert sorted(x["tile_name"] for x in b) == ["4C", "5C"]                     # aruco_marker dropped
+    assert len((tmp_path / "out" / out["twins"] / "labels" / "twins.txt").read_text().splitlines()) == 1
+
+
 def test_ignore_option_expands_groups_and_rejects_unknown_names():
     import detector_eval
     assert detector_eval.parse_names("flowers,ew") == ("1F", "2F", "3F", "4F", "EW")
