@@ -3,8 +3,9 @@
     python scripts/train_detector.py --data "data/detector/train_v3/data.yaml" --name v3 --dry-run
     python scripts/train_detector.py --data "data/detector/train_v3/data.yaml" --name v3
 
---data is a YOLO export of the training project from Roboflow: the July frames plus the labelled
-frames mined from sessions (scripts/mine_frames.py). Before training it counts images and boxes per
+--data is a YOLO export of the training project from Roboflow (the July frames plus the labelled frames
+mined from sessions, scripts/mine_frames.py), re-split by scripts/split_by_scene.py so that no scene is
+in both train and valid. Before training it counts images and boxes per
 split and per class, and refuses if any frame is from an exam session (data/detector_exam.json):
 the exam only means something if the detector never saw it. --dry-run stops there.
 

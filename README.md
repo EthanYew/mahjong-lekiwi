@@ -51,6 +51,7 @@ not a worktree, or the sessions go when the worktree does.
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
+| Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v3c`, trained on hover-jittered
@@ -359,16 +360,31 @@ python scripts/mine_frames.py --all 20261027_213821_capture   # one session, by 
 
 An export is laid out as Roboflow's own YOLO export: `data.yaml` (the label map Roboflow asks for) and
 `train/images/` + `train/labels/` (`test/` for the exam), the labels being the detector's own boxes
-as a start. **Drag the whole export folder into Roboflow's upload, not just the images**, for the
-training project (the July project, "Mahjong tiles on table"). Why each frame was picked is in
-`<export>_manifest.csv` beside the folder. Correct the boxes, make a new dataset version, and
-download it as a YOLO export. Then:
+as a start (one box per tile: where the detector read a tile as two names, only the surer one). **Drag
+the whole export folder into Roboflow's upload, not just the images**, for the training project (the
+July project, "Mahjong tiles on table"). Why each frame was picked is in `<export>_manifest.csv` beside
+the folder. Correct the boxes, make a new dataset version (no augmentation: the training adds its
+own), and download it as a YOLO export.
+
+Then re-split it by scene. Roboflow splits frame by frame, and the July frames were each shot at 4
+exposures, so the same scene sat in train and valid (134 of v4's 182 valid frames): the valid score
+then says nothing and `best.pt` is picked on it. `split_by_scene.py` pools the export's splits, groups
+frames by their labels (same names in the same places), and deals whole scenes to valid (`--valid`,
+default 20%, for the July frames and the session frames apart). It also keeps only the 38 tile names
+(`aruco_marker` would change the model's head), merges a label drawn twice, and leaves out (and lists)
+any frame with two names on one tile, for you to fix in Roboflow.
 
 ```
-python scripts/train_detector.py --data data/detector/train_v2/data.yaml --name v2 --dry-run   # counts, exam check
-python scripts/train_detector.py --data data/detector/train_v2/data.yaml --name v2             # GPU, ~an hour
-python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v2/weights/best.pt --against assets/tile_detector.pt
+python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_v5 --list
+python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_v5
+python scripts/train_detector.py --data data/detector/train_v5/data.yaml --name v5 --dry-run   # counts, exam check
+python scripts/train_detector.py --data data/detector/train_v5/data.yaml --name v5             # GPU
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v5/weights/best.pt --against assets/tile_detector.pt
 ```
+
+v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lost to the live detector
+on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
+less sure of the current scene the longer it trained (95% of its frames were July ones).
 
 `train_detector.py` starts from the live weights with their July recipe (1280 px, no mirror flips: a
 mirrored tile face isn't a real tile) and refuses a dataset with any exam frame in it. Ship the new

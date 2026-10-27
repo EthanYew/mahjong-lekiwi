@@ -132,6 +132,37 @@ def session_of(filename):
     return stem.split(SEP)[0] if SEP in stem else None
 
 
+def shared_tiles(a, b):
+    """The share of labelled frame a's tiles that b has under the same name, centres within half a tile."""
+    if not a:
+        return 0.0
+    hits = 0
+    for x in a:
+        (cx, cy), r = _centre(x["xyxy"]), (x["xyxy"][2] - x["xyxy"][0]) / 2
+        hits += any(y["tile_name"] == x["tile_name"] and abs(_centre(y["xyxy"])[0] - cx) < r
+                    and abs(_centre(y["xyxy"])[1] - cy) < r for y in b)
+    return hits / len(a)
+
+
+def scenes(frames, share=0.6):
+    """A scene number for each labelled frame ([[box]]): frames sharing `share` of their tiles both ways are
+    one scene, and so on transitively. The July frames were each shot at 4 exposures, so a split by image
+    put the same scene in train and valid (134 of v4's 182 valid frames had a train twin)."""
+    parent = list(range(len(frames)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(frames)):
+        for j in range(i):
+            if root(i) != root(j) and min(shared_tiles(frames[i], frames[j]), shared_tiles(frames[j], frames[i])) >= share:
+                parent[root(i)] = root(j)
+    return [root(i) for i in range(len(frames))]
+
+
 # --- the exam ---
 
 def load_exam(path=None):
@@ -244,13 +275,25 @@ def export(rows, out_dir, split="train"):
                 raise SystemExit(f"{row['folder']}: a detector with other class names than the rest — export it apart")
             stem = frame_stem(row["session"], row["scan"], row["frame"])
             shutil.copy(Path(row["folder"]) / f"f{row['frame']}.jpg", images / f"{stem}.jpg")
-            boxes = [b for b in reads["frames"][row["frame"]] if b["confidence"] >= config.DETECTION_CONFIDENCE]
+            boxes = one_box_per_tile([b for b in reads["frames"][row["frame"]]
+                                      if b["confidence"] >= config.DETECTION_CONFIDENCE])
             lines = yolo_lines(boxes, names, reads["size"])
             (labels / f"{stem}.txt").write_text("".join(line + "\n" for line in lines))
             manifest.writerow([f"{stem}.jpg", row["session"], row["scan"], row["frame"], " ".join(row["reasons"]),
                                lighting(row["conditions"])])
     (out_dir / "data.yaml").write_text(data_yaml(names or []))
     return len(rows)
+
+
+def one_box_per_tile(boxes, min_iou=0.5):
+    """The most confident of overlapping boxes. The detector suppresses overlaps only within a name, so one
+    tile can come out as 5B and 7B at once; both went into the pre-labels, and correcting one in Roboflow
+    left the other behind (5 tiles of 2026-10-27's training and exam frames)."""
+    kept = []
+    for box in sorted(boxes, key=lambda b: -b["confidence"]):
+        if not any(iou(k["xyxy"], box["xyxy"]) >= min_iou for k in kept):
+            kept.append(box)
+    return kept
 
 
 def data_yaml(names):
