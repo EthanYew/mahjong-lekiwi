@@ -51,8 +51,10 @@ not a worktree, or the sessions go when the worktree does.
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl`; also `pickup_mat_cl_v1`, and
-`pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval episodes left out).
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v3c`, trained on hover-jittered
+demos, so it steers to the tile; also `pickup_mat_cl_v3b`, `pickup_mat_cl_v3`, `pickup_mat_cl` (v2),
+`pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval
+episodes left out).
 
 ---
 

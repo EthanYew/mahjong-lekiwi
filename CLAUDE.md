@@ -99,6 +99,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   ~−147° at (13, +19) cm, 23° from the −170° command limit. A tile turned clockwise more than ~20° there
   is only reachable by rolling ~+150° the other way, jaws flipped and the wrist image upside down from
   every other demo (golden set T1, 2026-10-26). Expect any policy to fail it; don't place training tiles so.
+- **Computed heights drift with reach: far spots are ~10-15mm lower than the FK says.** Same settled hover
+  (tip 40mm above the grasp point by FK): a ruler showed 10-15mm above the tile top at far spots, 20mm+
+  near (2026-10-28). The demos agree: their lowest FK tip rises from +10mm (r 0.15-0.18m) to +25mm
+  (r 0.24-0.30m) while the jaws grip the tile at the same depth. The settle and the tip floor both use
+  FK, so neither sees it; likely link/gear flex under load or a tilted table plane. At (0.19, +0.19) both
+  v3b and v3c then went 13mm deeper than the demos there and bumped a neighbour once.
 - **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   `policy.run` stops after 1s without frames (`stop_reason` "camera"); the bench records the attempt as

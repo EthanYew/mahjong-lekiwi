@@ -1,5 +1,5 @@
 {
-  "default": "pickup_mat_cl",
+  "default": "pickup_mat_cl_v3c",
   "policies": {
     "pickup_mat_cl": {
       "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v2_policy",
