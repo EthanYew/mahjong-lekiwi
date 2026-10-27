@@ -1,7 +1,7 @@
 {
   "policy": "pickup_mat_cl_v3b",
-  "time": "2026-10-27T18:20:23",
-  "commit": "55aea63-dirty",
+  "time": "2026-10-27T23:47:37",
+  "commit": "1186980-dirty",
   "split": {
     "heldout": {
       "Yewy/mahjong_mat_pickup_lekiwi_cl_hover": [
@@ -37,7 +37,7 @@
       "onset_lag": -41.333333333333336,
       "grasp_mm": 11.633835986280388,
       "roll_err_deg": 2.2873827616373696,
-      "close_dz_mm": 2.589754198923627
+      "close_dz_mm": -3.310643185235343
     },
     "heldout": {
       "episodes": 15,
@@ -49,7 +49,7 @@
       "onset_lag": 9.6,
       "grasp_mm": 4.2682881439996825,
       "roll_err_deg": 1.6316505432128907,
-      "close_dz_mm": 2.0469581555304233
+      "close_dz_mm": 2.038090328588274
     },
     "jitter": {
       "episodes": 10,
@@ -85,7 +85,7 @@
       "onset_lag": -57.166666666666664,
       "grasp_mm": 9.437523465183247,
       "roll_err_deg": 26.573853015899658,
-      "close_dz_mm": 71.32066872099094
+      "close_dz_mm": 7.82906198245259
     }
   },
   "rows": [
@@ -175,7 +175,7 @@
       "plan_closes": false,
       "roll_err_deg": -2.4681396484375,
       "demo_roll_deg": 11.88531494140625,
-      "close_dz_mm": 87.59051357349377
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_pickup_lekiwi_cl_hover",
@@ -879,7 +879,7 @@
       "plan_closes": false,
       "roll_err_deg": 3.1730880737304688,
       "demo_roll_deg": 6.517616271972656,
-      "close_dz_mm": 108.19417115312775
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -901,7 +901,7 @@
       "plan_closes": false,
       "roll_err_deg": 1.191619873046875,
       "demo_roll_deg": 8.113151550292969,
-      "close_dz_mm": 101.55170524573876
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1055,7 +1055,7 @@
       "plan_closes": false,
       "roll_err_deg": 1.4051971435546875,
       "demo_roll_deg": -9.364139556884766,
-      "close_dz_mm": 78.96880750270492
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1077,7 +1077,7 @@
       "plan_closes": false,
       "roll_err_deg": 3.409801483154297,
       "demo_roll_deg": 5.806365966796875,
-      "close_dz_mm": 74.02453714308409
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1121,7 +1121,7 @@
       "plan_closes": false,
       "roll_err_deg": 2.3148574829101562,
       "demo_roll_deg": -10.89291763305664,
-      "close_dz_mm": 69.40758454455684
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1143,7 +1143,7 @@
       "plan_closes": false,
       "roll_err_deg": -112.2230224609375,
       "demo_roll_deg": 143.22164916992188,
-      "close_dz_mm": 67.11703897018717
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1165,7 +1165,7 @@
       "plan_closes": false,
       "roll_err_deg": -121.60575866699219,
       "demo_roll_deg": 152.88148498535156,
-      "close_dz_mm": 67.55238212977738
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1187,7 +1187,7 @@
       "plan_closes": false,
       "roll_err_deg": -21.334793090820312,
       "demo_roll_deg": 48.35992431640625,
-      "close_dz_mm": 87.03087214133913
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1253,7 +1253,7 @@
       "plan_closes": false,
       "roll_err_deg": -0.8498687744140625,
       "demo_roll_deg": 19.876724243164062,
-      "close_dz_mm": 75.08895531220449
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1275,7 +1275,7 @@
       "plan_closes": false,
       "roll_err_deg": -2.0099716186523438,
       "demo_roll_deg": -21.7362060546875,
-      "close_dz_mm": 109.07339214032865
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1297,7 +1297,7 @@
       "plan_closes": false,
       "roll_err_deg": -1.4868850708007812,
       "demo_roll_deg": -20.338401794433594,
-      "close_dz_mm": 128.0115117337371
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1319,7 +1319,7 @@
       "plan_closes": false,
       "roll_err_deg": -10.559318542480469,
       "demo_roll_deg": 32.50931167602539,
-      "close_dz_mm": 87.48345880534754
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
@@ -1341,7 +1341,7 @@
       "plan_closes": false,
       "roll_err_deg": -6.855154037475586,
       "demo_roll_deg": 29.32664680480957,
-      "close_dz_mm": 79.60375358572608
+      "close_dz_mm": null
     },
     {
       "source": "Yewy/mahjong_mat_eval_v1",
