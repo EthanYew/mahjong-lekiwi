@@ -337,6 +337,7 @@ seen this scene at all. Exam and simulated sessions are never exported for train
 ```
 python scripts/mine_frames.py --list                    # what it would take
 python scripts/mine_frames.py --all --since 20261027    # export to data/detector/mined_<time>/
+python scripts/mine_frames.py --all 20261027_213821_capture   # one session, by folder or name
 ```
 
 An export is laid out as Roboflow's own YOLO export: `data.yaml` (the label map Roboflow asks for) and

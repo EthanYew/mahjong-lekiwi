@@ -33,7 +33,8 @@ from mahjong import config, detector
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("sessions", nargs="*", type=Path, help="session folders (default: every session)")
+    p.add_argument("sessions", nargs="*", type=Path,
+                   help="session folders or names, e.g. 20261027_213821_capture (default: every session)")
     p.add_argument("--all", action="store_true", help="also one plain frame from every scan without issues")
     p.add_argument("--per-session", type=int, default=15,
                    help="with --all: at most this many plain frames a session, spread over it (default 15)")
@@ -70,9 +71,27 @@ def pick(session_dirs, exam, everything=False, per_session=15, exam_only=False):
     return rows, left_out
 
 
+def session_folders(given):
+    """The folders named on the command line (a path, or a bare name under sessions/), else every one with
+    scans. A name that matches nothing stops here: it used to export 0 frames without saying why."""
+    if not given:
+        return sorted(p for p in config.SESSIONS.glob("*") if (p / "scans").is_dir())
+    folders = []
+    for name in given:
+        folder = name if name.exists() else config.SESSIONS / name
+        if not (folder / "scans").is_dir():
+            sys.exit(f"No scans in {folder}: name a session folder in {config.SESSIONS} "
+                     "(hardware sessions are per checkout; run this from the one that recorded it)")
+        folders.append(folder)
+    return folders
+
+
 def main(argv=None):
     args = parse_args(argv)
-    folders = args.sessions or sorted(p for p in config.SESSIONS.glob("*") if (p / "scans").is_dir())
+    folders = session_folders(args.sessions)
+    if not folders:
+        print(f"No sessions with scans in {config.SESSIONS}")
+        return
     if args.since:
         folders = [f for f in folders if f.name >= args.since]
     exam = detector.load_exam()
