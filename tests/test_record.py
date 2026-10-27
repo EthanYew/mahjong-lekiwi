@@ -229,3 +229,26 @@ def test_no_return_leaves_the_tile_to_be_released_at_rest(tmp_path, monkeypatch)
                                   [("hover", {}), ("rec", {})], gamepad=GrippingGamepad, mats=mats)
     assert dataset.saved == [3] and not [e for e in read_events(session) if e["type"] == "return"]
     assert not any(t["tile_name"] == "8D" for t in mats[0].tiles)       # released high at rest: off the mat
+
+
+def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
+    """2026-10-27: teleop closed on 9B 29cm out at the left edge; even 15mm closer was out of the IK's reach."""
+    import record
+    calls = []
+
+    class Arm:
+        def holding(self):
+            return True, 0.0, 11.0
+
+        def place(self, x, y, offset, log=print):
+            calls.append((x, y))
+            return {"xy": [x, y], "shift_m": 0.0} if len(calls) == 3 else None
+
+    events = []
+    session = types.SimpleNamespace(event=lambda kind, **kw: events.append((kind, kw)))
+    shut = [0.0] * 6
+    monkeypatch.setattr(kinematics, "grasp_point", lambda actions: (0, [0.229, 0.223]))
+    assert record.return_tile(Arm(), [shut], {"hover_xy": [0.209, 0.203], "offset_m": 0.05}, session, "9B")
+    assert calls[0] == (0.229, 0.223) and calls[2] == pytest.approx((0.219, 0.213))
+    assert events == [("return", {"tile": "9B", "asked_xy": [0.229, 0.223], "toward_hover": 0.5,
+                                  "xy": pytest.approx([0.219, 0.213]), "shift_m": 0.0})]
