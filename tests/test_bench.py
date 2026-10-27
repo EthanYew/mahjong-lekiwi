@@ -218,3 +218,20 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert [(i["kind"], i["class"]) for i in interventions.derive(events)] == [("spot_empty", "observation")]
     (done,) = [e for e in events if e["type"] == "trials_done"]
     assert done["spots"] == ["L", "L", "R", "R"] and done["skipped_spots"] == ["empty"]
+
+
+def test_every_return_in_a_trial_run_goes_where_the_first_round_closed(tmp_path, monkeypatch):
+    """2026-10-27: returning each round to its own grasp point walked the tile 8cm in 10 rounds."""
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "3", "--tile", "8D", "--hover-perturb-mm", "0,6x,-6y"]))
+    try:
+        b.arm.rest()
+        b.trials(3, "8D")
+    finally:
+        b.close()
+    events = read_events(next(tmp_path.iterdir()))
+    attempts = [e for e in events if e["type"] == "attempt"]
+    returns = [e for e in events if e["type"] == "return"]
+    assert len({tuple(a["grasp_xy"]) for a in attempts}) == 3          # the sim grasps where it hovered: offset each round
+    assert len(returns) == 3 and all(r["asked_xy"] == attempts[0]["grasp_xy"] for r in returns)

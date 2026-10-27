@@ -6,7 +6,8 @@
                      beyond reach), then rest
     4 discard        carry the held tile to the taught discard pose and release it, then rest
     5 teach-discard  drive the arm over the discard container with the gamepad and save that pose
-    6 trials         pickup -> success check -> return, N times on one tile; prints the success rate
+    6 trials         pickup -> success check -> return, N times on one tile; prints the success rate. Every
+                     return in a run goes where the first round's jaws closed, so the tile doesn't walk
     7 rest           lift if low, then park (never opens the gripper)
     8 note           log something you had to do (straightened tiles, put tiles back, ...) for the last attempt
     9 setup          the setup changed mid-session (lamp on, battery swapped): answer the setup questions again
@@ -122,6 +123,10 @@ class Bench:
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
         # {"tile_name", "detection_xy", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
         self.held = None
+        # during trials, {tile or spot: where the first round's jaws closed}: every return goes there. Returning
+        # to each round's own grasp point walked the tile ~1cm a round (8cm in 10, 2026-10-27, v3b at 6C): any
+        # off-centre grip carried into the next round
+        self.homes = {}
         self.policy = self.policies[0]      # the one single commands use; trials take turns
         for policy in self.policies:
             print(f"Policy: {policy.id}, hover {policy.hover}")
@@ -258,8 +263,10 @@ class Bench:
                 sample["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
             append_record(sample, self.samples_path)
         if holding:
-            self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
-                         "return_xy": run["grasp_xy"] or hover["hover_xy"],
+            return_xy = run["grasp_xy"] or hover["hover_xy"]
+            if self.batch:
+                return_xy = self.homes.setdefault(spot["id"] if spot else tile["tile_name"], return_xy)
+            self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]), "return_xy": return_xy,
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
@@ -343,7 +350,7 @@ class Bench:
         plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
                 for policy in (self.policies if i % 2 == 0 else self.policies[::-1])]
         done, skipped = [], set()       # done: (spot id, policy id, success)
-        self.batch = True
+        self.batch, self.homes = True, {}
         try:
             for spot, i, policy in plan:
                 where = spot["id"] if spot else None

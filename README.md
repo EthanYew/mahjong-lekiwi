@@ -73,7 +73,7 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 |---|---|
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default). `a,b` compares two, paired: rounds alternate a b / b a from the same hover |
 | `--layout NAME` | trials walk this layout's spots (`scripts/layout.py`); the report shows success by spot and policy |
-| `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile |
+| `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile. Every return in the run puts the tile where the first round's jaws closed, so it doesn't walk off |
 | `--tile NAME` | tile for `--trials`, e.g. `8D` |
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
