@@ -99,7 +99,8 @@ asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also
 detector looked at in the session's `scans/` folder, for improving the detector (see below).
 
 **Returns go home.** A tile's home is where it was first seen this session (per layout spot, or per
-tile name; a tile found more than 40mm from its home was moved on purpose and gets a new one). A return
+tile name; a tile found more than 40mm from its home was moved on purpose and gets a new one; moved
+on purpose by less, the next return puts it back, so restart the bench to give it a new home there). A return
 aims the tile at its home, not where the jaws closed, so errors don't add up round after round, using
 the return correction (below). The scan after a return checks where it landed: over 12mm from home it
 says so; over 25mm, or out of the hover's reach, it asks you to put the tile back on its home (Enter

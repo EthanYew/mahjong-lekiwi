@@ -21,8 +21,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   learned a fixed move per position). Eval recordings have no random jitter; the golden set's `jitter`
   slice uses a fixed list (`--hover-offsets-mm 6x,-6y`) so it can be recorded again identically.
 - Hardware sessions write `sessions/<time>_<kind>/`; read one with `python scripts/session_report.py
-  [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, contact
-  sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
+  [folder]` (setup, success per tile/policy, stalls, clearances, ACT seconds, interventions, how far
+  returns landed from home, contact sheet) before asking what happened; `--all` compares every bench session with its setup conditions.
   Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored, so a
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): → during ACT marks a
@@ -81,7 +81,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   (median), leaning +2.8mm in y; the jaws pull a tile only partway to their centre (55-65% of its offset
   in the jaws stays with it), so where it lands depends on that grasp, which the return model
   (`mahjong/return_correction.py`) takes as input (landing error 10.5mm → 6.8mm RMS, leave-one-position-out).
-  Unconfirmed on the arm that aiming with it keeps tiles within ~10mm of home over many rounds.
+  On the arm (`20261028_102732_bench`, 15 rounds at 6C, v3c) returns landed 3mm from home (median; worst
+  4mm) with no build-up, vs 11mm (worst 17mm) at 6C the day before; other spots unchecked. Homes last the
+  session, by spot or tile name: a tile moved on purpose less than `HOME_RADIUS_M` (40mm) is put back at
+  its old home. The fit pools every policy; one that grips differently may need its own
+  (`docs/retrospectives/2026-10-28_return_homes.md`).
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
   ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return
@@ -120,8 +124,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   `policy.run` stops after 1s without frames (`stop_reason` "camera"); the bench records the attempt as
   `attempt_void`, reopens the camera and runs it again.
-- The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
-  RealSense invalidates the correction (records are set aside automatically) and may move the plane.
+- The hover correction, the return correction and the table plane are tied to `assets/T_cam_to_base.npy`;
+  recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
+  then aim at home + the grasp's offset until new returns are logged) and may move the plane.
 
 ## Conventions
 
@@ -179,8 +184,8 @@ constants. Git catches overlapping lines, not overlapping intent. So:
 - **Tests that catch a clean-but-broken merge** are end-to-end sim runs of a script's main path
   (`tests/test_bench.py`, `tests/test_record.py`). A new user-run script gets one.
 - **Closing**: once merged, `git worktree remove <path>` and `git branch -d <branch>` (and the
-  `origin/` branch). `data/hover_corrections.jsonl` merges by union (`.gitattributes`): both sides'
-  samples are kept.
+  `origin/` branch). `data/hover_corrections.jsonl` and `data/return_corrections.jsonl`
+  merge by union (`.gitattributes`): both sides' samples are kept.
 
 ## Open items
 

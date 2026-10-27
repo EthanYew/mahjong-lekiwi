@@ -59,8 +59,8 @@ hover stays as it is, and bench samples are circular (grasp = hover + fixed move
 Write-up: `docs/retrospectives/2026-10-23_hover_learning.md`.
 
 Next:
-1. The same test at an x ≥ 0.21 tile, returning the tile to the grasp point minus the offset, so it
-   doesn't drift into its neighbours.
+1. The same test at an x ≥ 0.21 tile. Returns now go to the tile's home (2026-10-28, below in 8), so
+   a perturbed hover no longer drifts the tile into its neighbours.
 2. A jittered dataset (7; `record.py --hover-jitter-mm` built 2026-10-23). Rerun this test on the
    policy trained from it; expect a slope near 0.
 3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
@@ -166,7 +166,6 @@ Not yet:
   non-autonomous, so it would need its own field and scorecard column.
 - A contact signal from `act_trace` (measured vs commanded beyond the sag band: a hand on the arm).
   It can be derived offline from saved traces.
-- Return accuracy from the after-return scan.
 
 Checked on the arm 2026-10-23 (test sessions run from the interventions worktree, not kept): the knock
 detection and the confirm-at-the-bench flow work; marking "touched tile" on a descent that needed no
@@ -212,9 +211,7 @@ A fixed protocol, so numbers compare across sessions and policies.
 - Re-detect: already the case. Every trial scans before choosing, and the scans around it flag moved
   tiles (3).
 
-Left, moved to 8: return accuracy. The bench puts a tile back where the jaws closed, so it drifts
-with a perturbed hover (the item-1 test at x ≥ 0.21 needs this). Autonomous play needs accurate
-placing anyway.
+Return accuracy, moved to 8, is done (2026-10-28): returns go to the tile's home.
 
 ## 6. Housekeeping
 
@@ -264,8 +261,15 @@ placing anyway.
 
 Detect → pick → place / discard as a loop on top of the bench's pieces (hover, `policy.run`,
 place, discard). Do this after 4, so it builds on a policy the scorecard has shipped. The bench's
-`--layout` walk is the same loop shape. Return accuracy (from 5) belongs here: place where the tile
-was detected, not where the jaws closed.
+`--layout` walk is the same loop shape.
+
+**Return accuracy (from 5): done 2026-10-28.** Every bench return aims at the tile's home (where it was
+first seen this session) through `mahjong/return_correction.py`, a fit of where a set-down tile lands
+given how off-centre the jaws held it. Each after-return scan logs the landing. 15 rounds at 6C landed
+3 mm from home (median, worst 4 mm), vs 11 mm the day before
+(`docs/retrospectives/2026-10-28_return_homes.md`). The play loop should place with
+`ReturnCorrection.target(home, detection, grasp)`. Still to check: other spots, the reach's edge, a
+`--layout` walk.
 
 ## 9. DAgger: corrections on the policy's own mistakes
 
