@@ -57,3 +57,14 @@ def test_drift_compares_only_demos_that_steered():
     assert row["shift_y"] == pytest.approx(0.0, abs=1.0)                   # the steered ones agree
     lonely = quality.drift_table(today, {0: (demo(0.0), {"detection_xy": [0.15, 0.15]})}).loc["F3"]
     assert np.isnan(lonely["shift_y"]) and lonely["reference"] == 0
+
+
+def test_dropped_episodes_are_kept_per_dataset_with_their_reason(tmp_path):
+    from mahjong.quality import drop_episodes, dropped_episodes
+    path = tmp_path / "dropped.json"
+    assert dropped_episodes("a/b", path) == {}
+    drop_episodes("a/b", [39, 8], "searching", path)
+    drop_episodes("c/d", [1], "other", path)
+    assert dropped_episodes("a/b", path) == {8: "searching", 39: "searching"}
+    assert drop_episodes("a/b", [8, 2], "again", path) == {2: "again", 8: "again", 39: "searching"}
+    assert dropped_episodes("c/d", path) == {1: "other"}

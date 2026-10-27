@@ -331,21 +331,31 @@ class RollTrace:
                 "roll_command_travel_deg": round(self.travel, 1), "roll_lag_max_deg": round(self.lag, 1)}
 
 
+RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the grasp to the hover
+
+
 def return_tile(arm, actions, hovered, session, tile_name):
     """Set a tile still in the jaws back down where they closed on it (the first command shut; the hover if
-    none was), then rest, instead of dropping it at rest. True if it was set down."""
+    none was), then rest, instead of dropping it at rest. Teleop reaches further than the IK plans (9B at
+    the left edge, 29cm out, 2026-10-27), so an unreachable grasp point walks back toward the hover, which
+    the IK reached. True if it was set down."""
     if not arm.holding()[0]:
         return False
     _, grasp_xy = kinematics.grasp_point(actions)
-    x, y = grasp_xy or hovered["hover_xy"]
-    print(f"Returning {tile_name} to ({x:.3f}, {y:+.3f})")
-    placed = arm.place(x, y, hovered["offset_m"])
-    if placed is None:
-        print("  Out of reach: it's released at rest instead.")
-        session.event("return_skipped", reason="unreachable", tile=tile_name, xy=[x, y])
-        return False
-    session.event("return", tile=tile_name, asked_xy=[x, y], **placed)
-    return True
+    gx, gy = grasp_xy or hovered["hover_xy"]
+    hx, hy = hovered["hover_xy"]
+    print(f"Returning {tile_name} to ({gx:.3f}, {gy:+.3f})")
+    for k in RETURN_TOWARD_HOVER:
+        x, y = gx + (hx - gx) * k, gy + (hy - gy) * k
+        placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None)
+        if placed is not None:
+            if k:
+                print(f"  set down {np.hypot(x - gx, y - gy) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
+            session.event("return", tile=tile_name, asked_xy=[gx, gy], toward_hover=k, **placed)
+            return True
+    print("  Out of reach even at the hover: it's released at rest instead.")
+    session.event("return_skipped", reason="unreachable", tile=tile_name, xy=[gx, gy])
+    return False
 
 
 def ask_same_tile(arm, reason):

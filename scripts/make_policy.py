@@ -117,7 +117,7 @@ def evaluate(policy, dataset_repo, hover):
 def main():
     args = parse_args()
     n = names(args)
-    from mahjong.quality import quality_table
+    from mahjong.quality import dropped_episodes, quality_table
     from mahjong.dataset import build, hover_settings
     from mahjong import offline_eval
     table, _, _ = quality_table(args.source)
@@ -125,9 +125,11 @@ def main():
     print(f"1. quality: {args.source}: {len(table)} episodes, {frames} frames"
           + (f", {int((table['score'] >= 4).sum())} flagged (scripts/quality_report.py to review)" if "score" in table else ""))
     heldout = offline_eval.excluded_episodes(args.source)
-    train_episodes = sorted(int(e) for e in set(table.index) - set(heldout))
+    dropped = dropped_episodes(args.source)
+    train_episodes = sorted(int(e) for e in set(table.index) - set(heldout) - set(dropped))
     frames = int(table.loc[train_episodes, "frames"].sum())
     print(f"   training on {len(train_episodes)} episodes; {len(heldout)} held out for evaluation"
+          + (f", {len(dropped)} dropped after review {sorted(dropped)}" if dropped else "")
           + ("" if heldout else f" — none: scripts/offline_eval.py --make-split {args.source} first, or every "
                                  f"episode is trained on and offline scores are optimistic"))
     print(f"   training dataset {n['dataset']}, policy {n['policy_repo']} -> registry id {n['policy_id']}")
