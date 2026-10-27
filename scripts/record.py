@@ -4,7 +4,8 @@ Each episode: the arm rests, the RealSense detects tiles, you pick one, the arm 
 (measured hover correction, settled from above to the clearance), and holds. → hands you the gamepad
 and starts recording from exactly that pose; → again saves, ← discards, Esc ends. After a discard that
 moved nothing, Enter at "Same tile, same hover again?" lifts and hovers over the same tile again, skipping
-the trip to rest and the tile choice.
+the trip to rest and the tile choice. A tile still in the jaws when an episode ends is set back down where
+the jaws closed on it (as bench.py's return), then the arm rests; --no-return drops it at rest instead.
 
 The hover settings (offset, clearance, gripper opening) are written per episode to
 <dataset>/episode_log.jsonl; make_policy.py stores them with the trained policy so it's deployed from
@@ -44,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware, layout
+from mahjong import config, hardware, kinematics, layout
 from mahjong.dataset import EPISODE_LOG
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
@@ -96,6 +97,8 @@ def parse_args(argv=None):
     p.add_argument("--start-spot", default=None, help="with --layout: start at this spot id")
     p.add_argument("--device", default=None, help="gamepad evdev path")
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
+    p.add_argument("--no-return", action="store_true",
+                   help="don't set a held tile back down after an episode: it's released at rest, as before")
     return p.parse_args(argv)
 
 
@@ -227,7 +230,7 @@ def main(argv=None):
             gamepad.start(arm)
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
             print("RECORDING — → save, ← discard, Esc save nothing and quit")
-            frames = 0
+            frames, roll, actions = 0, RollTrace(), []
             while not events["exit_early"]:
                 t0 = time.time()
                 command = gamepad.step(arm, dt)
@@ -236,22 +239,26 @@ def main(argv=None):
                     continue
                 state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
+                roll.add(command["wrist_roll"], float(state[ROLL]))
+                actions.append(action)
                 dataset.add_frame({"observation.state": state - anchor, "action": action - anchor,
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
                 show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s", frame)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
+            roll.report()
+            returned = not args.no_return and return_tile(arm, actions, result, session, tile["tile_name"])
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
                 reason = None
                 if not events["stop_recording"]:
                     drain_stdin()
                     reason = ask_one({"ask": "Why discard it", "choices": DISCARD_REASONS}, None, input)
-                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason)
+                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason, **roll.summary())
                 if events["stop_recording"]:
                     break
-                if ask_same_tile(arm, reason):
+                if not returned and ask_same_tile(arm, reason):      # a returned tile has moved
                     retry = (tile, placement)
                 continue
             episode = dataset.meta.total_episodes
@@ -263,7 +270,7 @@ def main(argv=None):
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
-                      "conditions": session.conditions, **placement}
+                      "conditions": session.conditions, **placement, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
@@ -290,6 +297,55 @@ def main(argv=None):
         cv2.destroyAllWindows()
         print(f"{saved} episode(s) saved this session; {args.dataset} has {dataset.meta.total_episodes}.")
         session.close()
+
+
+ROLL = config.JOINTS.index("wrist_roll")
+
+
+class RollTrace:
+    """Wrist roll over an episode: how far the command moved (only the right stick's left/right moves it)
+    and how far the servo strayed from the command (pushed or twisted). Tells a stick leak from the
+    wrist being turned when the roll changes without being asked for (2026-10-27, 7B)."""
+
+    def __init__(self):
+        self.first = self.last = None
+        self.travel = self.lag = 0.0
+
+    def add(self, commanded, measured):
+        if self.last is not None:
+            self.travel += abs(commanded - self.last)
+        self.first = commanded if self.first is None else self.first
+        self.last = commanded
+        self.lag = max(self.lag, abs(measured - commanded))
+
+    def report(self):
+        s = self.summary()
+        if s and (s["roll_command_travel_deg"] >= 2 or s["roll_lag_max_deg"] >= 6):
+            print(f"  wrist roll: command moved {s['roll_command_travel_deg']:.0f}deg (net {s['roll_command_change_deg']:+.0f}), "
+                  f"servo up to {s['roll_lag_max_deg']:.0f}deg off its command")
+
+    def summary(self):
+        if self.first is None:
+            return {}
+        return {"roll_command_change_deg": round(self.last - self.first, 1),
+                "roll_command_travel_deg": round(self.travel, 1), "roll_lag_max_deg": round(self.lag, 1)}
+
+
+def return_tile(arm, actions, hovered, session, tile_name):
+    """Set a tile still in the jaws back down where they closed on it (the first command shut; the hover if
+    none was), then rest, instead of dropping it at rest. True if it was set down."""
+    if not arm.holding()[0]:
+        return False
+    _, grasp_xy = kinematics.grasp_point(actions)
+    x, y = grasp_xy or hovered["hover_xy"]
+    print(f"Returning {tile_name} to ({x:.3f}, {y:+.3f})")
+    placed = arm.place(x, y, hovered["offset_m"])
+    if placed is None:
+        print("  Out of reach: it's released at rest instead.")
+        session.event("return_skipped", reason="unreachable", tile=tile_name, xy=[x, y])
+        return False
+    session.event("return", tile=tile_name, asked_xy=[x, y], **placed)
+    return True
 
 
 def ask_same_tile(arm, reason):

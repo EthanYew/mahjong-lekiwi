@@ -3,7 +3,7 @@ import pytest
 
 from mahjong import config, kinematics
 from mahjong.arm import Arm
-from mahjong.gamepad import CommittedSticks, GamepadTeleop, _load_xlerobot
+from mahjong.gamepad import EXCLUSIVE_AXES, CommittedSticks, GamepadTeleop, _load_xlerobot
 from mahjong.sim import SimRobot
 
 DT = 1 / 30
@@ -27,7 +27,7 @@ def teleop_with(pad, commit_s=0.1):
     teleop = GamepadTeleop.__new__(GamepadTeleop)
     teleop.utils, teleop.ee = _load_xlerobot()
     teleop.pad = pad
-    teleop.sticks = CommittedSticks(pad, commit_s, teleop.utils.STICK_CODES)
+    teleop.sticks = CommittedSticks(pad, commit_s, teleop.utils.STICK_CODES, exclusive=EXCLUSIVE_AXES)
     teleop.locked_buttons, teleop.speed_index = set(), teleop.ee.DEFAULT_SPEED_INDEX
     return teleop
 
@@ -61,3 +61,35 @@ def test_a_flick_shorter_than_the_commit_time_does_nothing():
     pad.values["ly"] = 0.0
     sticks.tick(DT)
     assert sticks.stick("ly") == 0.0   # release stops at once
+
+
+def test_pulling_the_right_stick_down_never_rolls_the_wrist():
+    """2026-10-27: a descent's pull leaked into rx and turned the wrist mid-episode."""
+    arm, command = hovering_arm()
+    pad = ScriptedPad()
+    teleop = teleop_with(pad)
+    teleop.start(arm)
+    pad.values.update(ry=-1.0)
+    for _ in range(5):
+        sent = teleop.step(arm, DT)
+    pad.values.update(rx=0.6, ry=-0.7)         # thumb drifts sideways mid-descent
+    for _ in range(20):
+        sent = teleop.step(arm, DT)
+    assert sent["wrist_roll"] == pytest.approx(command["wrist_roll"], abs=1e-6)
+    assert kinematics.tool_point(sent)[2] < kinematics.tool_point(command)[2] - 0.005    # still descending
+
+
+def test_the_other_axis_takes_the_stick_only_after_it_returns_to_centre():
+    pad = ScriptedPad()
+    sticks = CommittedSticks(pad, 0.0, ["rx", "ry"], exclusive=[("rx", "ry")])
+    pad.values.update(rx=0.8, ry=-0.3)         # starts mostly sideways: roll owns it
+    sticks.tick(DT)
+    assert (sticks.stick("rx"), sticks.stick("ry")) == (0.8, 0.0)
+    pad.values.update(rx=0.2, ry=-0.9)         # still held off-centre: roll keeps it
+    sticks.tick(DT)
+    assert (sticks.stick("rx"), sticks.stick("ry")) == (0.2, 0.0)
+    pad.values.update(rx=0.0, ry=0.0)
+    sticks.tick(DT)
+    pad.values.update(rx=0.1, ry=-0.9)         # released and pushed down: height owns it
+    sticks.tick(DT)
+    assert (sticks.stick("rx"), sticks.stick("ry")) == (0.0, -0.9)

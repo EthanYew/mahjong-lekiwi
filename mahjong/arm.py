@@ -34,8 +34,8 @@ LIFT_CLEARANCE_M = 0.080      # before swinging back to rest from low over the t
 LIFT_MIN_RADIUS_M = 0.13      # ...but only out over the table, not at the folded rest pose
 LIFT_MAX_JOINT_CHANGE_DEG = 30.0
 AT_REST_TOLERANCE_DEG = 3.0
-# Unpowered, the arm sags from the rest pose onto the same stops each time (~8° on 2026-10-26), so "moved
-# while off" compares the arm at connect with where it settled at the last disconnect, not with REST_POSE.
+# "Moved while off" compares the arm at connect with where it settled at the last disconnect. REST_POSE is
+# that settled pose now (it used to sag ~8° from rest onto the stops, 2026-10-26), but a recording beats a constant.
 PARK_SETTLE_S = 1.0
 PARKED_TOLERANCE_DEG = 3.0
 

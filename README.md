@@ -109,8 +109,12 @@ per 10 attempts, clean vs. assisted successes) and saves a contact sheet (one im
 The arm hovers over a tile, then you take over with the gamepad. `→` starts recording / saves,
 `←` discards, `Esc` ends. After a discard it asks *Same tile, same hover again?*: Enter goes
 straight back to the same hover (same tile, same jitter offset, no trip to rest), `n` goes to rest and
-asks for a tile. Enter means no after "knocked a tile" or "hover was wrong", and a tile still in the
-jaws always goes to rest to be released.
+asks for a tile. Enter means no after "knocked a tile" or "hover was wrong".
+
+A tile still in the jaws when an episode ends (saved, discarded or Esc) is set back down where the jaws
+closed on it, then the arm rests — no putting it back by hand. It's then a little off from where it was
+detected, so a discard doesn't offer the same hover again. Move tiles to new places now and then: the arm
+puts each one back where it was, and v3 needs spots spread across the mat.
 
 ```
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3
@@ -136,7 +140,8 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --lay
 | `--hover-offset-mm`, `--clearance-mm` | hover position/height tweaks |
 | `--no-correction` | hover over the raw detection |
 | `--no-view` | no wrist camera window |
-| `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't |
+| `--no-return` | don't set a held tile back down: it's released at rest, as before |
+| `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't. The right stick moves height *or* wrist roll: whichever moves first, until it's back at centre |
 | `--device PATH` | gamepad device path (default: the first gamepad found) |
 
 ## Reviewing a dataset: `scripts/quality_report.py`

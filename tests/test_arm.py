@@ -167,3 +167,15 @@ def test_disconnect_without_a_torque_bus_records_nothing(tmp_path, monkeypatch):
     robot.disconnect = lambda: None
     arm.disconnect()
     assert arm_module.load_parked() is None
+
+
+def test_an_arm_found_where_it_settled_unpowered_doesnt_move_at_startup():
+    """2026-10-27: connect held the sagged pose, so the first rest() lifted the arm via RAISED_REST and
+    folded it back down. REST_POSE is now where the unpowered arm settles (sessions/parked_pose.json)."""
+    settled = {"shoulder_pan": -90.64, "shoulder_lift": -101.89, "elbow_flex": 97.63, "wrist_flex": 67.43,
+               "wrist_roll": -99.12, "gripper": 26.76}
+    arm, robot = make_arm(start=settled)
+    arm.hold_measured()
+    robot.sent.clear()
+    arm.rest()
+    assert robot.sent == []
