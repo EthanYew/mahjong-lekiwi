@@ -288,18 +288,25 @@ def match(truth, said, min_iou=MATCH_IOU):
     return pairs, free, extra
 
 
-def score(images):
+def score(images, ignore=()):
     """images: [{"truth": boxes, "said": boxes, "group": label}] -> {group: tally}, with "all" too. A tally:
     frames, tiles (labelled), found, named_right, missed, extra (boxes on no tile), mixups {(true, said): n},
-    missed_names {true: n}."""
+    missed_names {true: n}. Tiles named in `ignore` (e.g. the flowers) are matched like any other, then
+    left out: their boxes count for nothing, while another tile called by an ignored name is still a mix-up."""
     tallies = defaultdict(lambda: {"frames": 0, "tiles": 0, "found": 0, "named_right": 0, "missed": 0, "extra": 0,
                                    "mixups": Counter(), "missed_names": Counter()})
     for image in images:
         pairs, missed, extra = match(image["truth"], image["said"])
+        if ignore:
+            ignored = [t for t in image["truth"] if t["tile_name"] in ignore]
+            pairs = [(t, s) for t, s in pairs if t["tile_name"] not in ignore]
+            missed = [t for t in missed if t["tile_name"] not in ignore]
+            extra = [s for s in extra if not any(iou(t["xyxy"], s["xyxy"]) > 0.1 for t in ignored)]
+        truth = [t for t in image["truth"] if t["tile_name"] not in ignore]
         for group in dict.fromkeys(["all", image.get("group", "all")]):
             t = tallies[group]
             t["frames"] += 1
-            t["tiles"] += len(image["truth"])
+            t["tiles"] += len(truth)
             t["found"] += len(pairs)
             t["missed"] += len(missed)
             t["extra"] += len(extra)
@@ -328,12 +335,23 @@ def exam_set(exam_dir):
     return out
 
 
-def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE):
+def dedupe(boxes, min_iou=0.8):
+    """Labels without duplicates (a second box of the same name on the same tile, as a slip in Roboflow
+    leaves): (kept, dropped)."""
+    kept, dropped = [], []
+    for box in boxes:
+        twin = any(k["tile_name"] == box["tile_name"] and iou(k["xyxy"], box["xyxy"]) >= min_iou for k in kept)
+        (dropped if twin else kept).append(box)
+    return kept, dropped
+
+
+def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE, ignore=()):
     """Score `predict` (BGR image -> boxes, as perception.run_detector) on the exam frames under exam_dir.
-    by: None, "lighting" or "session". Returns (score(...), frames left out because they aren't exam frames)."""
+    by: None, "lighting" or "session"; ignore: tile names left out of the score. Returns (score(...),
+    frames left out because they aren't exam frames, [(frame, duplicate label)] merged away)."""
     import cv2
     exam = exam or load_exam()
-    images, outside = [], []
+    images, outside, duplicates = [], [], []
     for image_path, label_path, names in exam_set(exam_dir):
         session = session_of(image_path)
         if session not in exam["sessions"]:
@@ -343,9 +361,11 @@ def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_C
         h, w = image.shape[:2]
         group = {"lighting": lambda: lighting(exam["sessions"][session].get("conditions")),
                  "session": lambda: session}.get(by, lambda: "all")()
-        images.append({"truth": read_yolo_labels(label_path, names, (w, h)), "group": group,
+        truth, dropped = dedupe(read_yolo_labels(label_path, names, (w, h)))
+        duplicates += [(image_path, b) for b in dropped]
+        images.append({"truth": truth, "group": group,
                        "said": [b for b in predict(image) if b["confidence"] >= confident]})
-    return score(images), outside
+    return score(images, ignore), outside, duplicates
 
 
 def summary(tally):
@@ -355,5 +375,6 @@ def summary(tally):
             "missed": tally["missed"], "extra": tally["extra"],
             "found_rate": found / tiles if tiles else None,
             "named_right_rate": tally["named_right"] / found if found else None,
+            "right_rate": tally["named_right"] / tiles if tiles else None,     # found and named right
             "mixups": [[t, s, n] for (t, s), n in tally["mixups"].most_common()],
             "missed_names": dict(tally["missed_names"].most_common())}
