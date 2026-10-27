@@ -1,6 +1,7 @@
 {
   "Yewy/mahjong_mat_pickup_jitter_v3": {
     "8": "searching: 5-7 direction changes, 16-19 s",
-    "39": "searching: 5-7 direction changes, 16-19 s"
+    "39": "searching: 5-7 direction changes, 16-19 s",
+    "86": "loose grip: command stopped at 12.2%, jaws on the tile at 13.1"
   }
 }
