@@ -18,7 +18,8 @@ at this"); you're asked what afterwards, or at the end of a batch of trials. Cle
 nothing extra. Everything goes in a session folder (sessions/<time>_bench/): the terminal log,
 events.jsonl (with a RealSense scan before and after each pickup, return and discard, so knocked
 tiles and tiles put back by hand show up without anyone saying so; when a scan shows the mat changed
-you're asked whether it really did, Enter for yes), and per attempt the wrist
+you're asked whether it really did, Enter for yes; each scan's frames and boxes go in scans/, for
+the tile detector's data: scripts/mine_frames.py), and per attempt the wrist
 frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
 summarises the latest one, interventions included (mahjong/interventions.py).
 
@@ -51,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, interventions, layout
+from mahjong import config, detector, interventions, layout
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -139,7 +140,8 @@ class Bench:
         mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans)."""
         tiles = self.realsense.detect_tiles()
         self.scan_n += 1
-        scan = self.session.event("detections", label=label, scan=self.scan_n, **fields,
+        frames = detector.save_session_scan(self.realsense, self.session, self.scan_n, label)
+        scan = self.session.event("detections", label=label, scan=self.scan_n, **fields, **frames,
                                   tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
                                          for t in tiles])
         proposal = self.mat.propose(scan)

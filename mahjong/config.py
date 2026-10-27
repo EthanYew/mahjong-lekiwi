@@ -32,6 +32,7 @@ REALSENSE_RESOLUTION = (848, 480)
 T_CAM_TO_BASE = REPO / "assets" / "T_cam_to_base.npy"   # hand-eye, rear tripod, max neck (2026-10-20)
 TILE_DETECTOR = REPO / "assets" / "tile_detector.pt"     # YOLO, table view
 DETECTION_CONFIDENCE = 0.5
+DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the ones below the cut are where it hesitated
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile
 
@@ -79,6 +80,9 @@ HOVER_CORRECTIONS = DATA / "hover_corrections.jsonl"
 HOVER_MODEL = DATA / "hover_model.json"       # which correction sources the live hover is fitted from
 LAYOUTS = DATA / "layouts.json"           # named tile layouts for placing tiles (mahjong/layout.py)
 EVAL_SPLIT = DATA / "eval_split.json"     # episodes never trained on (mahjong/offline_eval.py)
+DETECTOR_EXAM = DATA / "detector_exam.json"   # sessions whose frames are the tile detector's exam (mahjong/detector.py)
+DETECTOR_EVAL = DATA / "detector_eval"        # detector scores on the exam
+DETECTOR_DATA = DATA / "detector"             # exports for labelling and labelled exports (local; Roboflow keeps the labels)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
 DISCARD_POSE = DATA / "discard_pose.json"
 HF_USER = "Yewy"

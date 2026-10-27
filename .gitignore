@@ -7,3 +7,5 @@ outputs/
 data/layouts/
 *.rrd
 .DS_Store
+# tile detector exports and labelled copies: Roboflow keeps the labels (data/detector_exam.json is committed)
+data/detector/

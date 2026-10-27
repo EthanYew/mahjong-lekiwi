@@ -46,6 +46,10 @@ not a worktree, or the sessions go when the worktree does.
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
+| Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
+| Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
+| Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
+| Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl`; also `pickup_mat_cl_v1`, and
 `pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval episodes left out).
@@ -86,7 +90,8 @@ pickup stops itself once the tile has been held and lifted for 1.5s (max 16s). E
 full wrist video (`wrist.mp4`) in its folder, so a new policy can be replayed on it.
 
 After each attempt the RealSense rescans the mat. If tiles moved, the bench shows the change and
-asks: Enter = "as the scan says", or mark it a detection glitch.
+asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also saves the frames the
+detector looked at in the session's `scans/` folder, for improving the detector (see below).
 
 ## Reading results: `scripts/session_report.py`
 
@@ -253,6 +258,71 @@ python scripts/spot_novelty.py                         # every layout, against v
 python scripts/spot_novelty.py eval_familiar eval_new
 python scripts/spot_novelty.py eval_new --against Yewy/mahjong_mat_pickup_v3_jitter   # repeatable
 ```
+
+## The tile detector: photos, labels, exam, retraining
+
+The RealSense finds tiles with a YOLO detector (`assets/tile_detector.pt`). It was trained in July on
+a different table and room, so it sometimes misses a tile or gives it the wrong name. Improving it is
+a loop:
+
+```
+capture_frames.py / bench.py  →  mine_frames.py  →  Roboflow  →  train_detector.py  →  detector_eval.py
+ save what it saw                 pick + pre-label     correct      fine-tune             score on the exam
+```
+
+**1. Photos.** Every bench scan saves its 5 frames, the depth image and every box YOLO found (down to
+0.25 confidence) in `sessions/<session>/scans/<n>_<label>/`. `capture_frames.py` does the same without
+the arm: a live view with the detector's boxes (green at or above the 0.5 cut, amber below), space
+takes a scan, `l` says the lighting changed, `q` quits.
+
+```
+python scripts/capture_frames.py           # photos to train on
+python scripts/capture_frames.py --exam    # photos for the exam (one session per lighting)
+```
+
+**2. The exam.** A fixed set of labelled photos of the current scene that is **never trained on**, so
+scores mean something. Its sessions are listed in `data/detector_exam.json` (commit it). Take one
+`--exam` session per lighting (daylight, lamp, ceiling lights), about 40-60 scans in all, with tile
+arrangements of their own. Export them with `mine_frames.py --exam`, label them in a **separate**
+Roboflow project, and download that as a YOLO export (e.g. to `data/detector/exam_labelled/`).
+Score the live detector first: that's the baseline.
+
+```
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled                # the live detector
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --by lighting
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v2/weights/best.pt --against assets/tile_detector.pt
+```
+
+It reports **found** (labelled tiles it put a box on), **named right** (of those found), missed
+tiles, extra boxes on nothing, and its commonest mix-ups (e.g. `4D->5D x6`). Scores are per frame and
+go in `data/detector_eval/`. Frames in the folder that aren't from an exam session are left out.
+
+**3. Mining and retraining.** `mine_frames.py` picks the frames worth labelling: a tile whose name
+changed across a scan's 5 frames (flicker), a tile seen in some frames and not others (dropout), a
+tile below 0.7 confidence (low), or a scan you called a detection glitch at the bench. `--all` adds a
+plain frame from every other scan (up to `--per-session`, default 15), since the detector has never
+seen this scene at all. Exam and simulated sessions are never exported for training.
+
+```
+python scripts/mine_frames.py --list                    # what it would take
+python scripts/mine_frames.py --all --since 20261027    # export to data/detector/mined_<time>/
+```
+
+Upload the export to the Roboflow training project (the July project, "Mahjong tiles on table"): its
+`labels/` holds the detector's own boxes as a start, and `manifest.csv` says why each frame was
+picked. Correct the boxes, make a new dataset version, and download it as a YOLO export. Then:
+
+```
+python scripts/train_detector.py --data data/detector/train_v2/data.yaml --name v2 --dry-run   # counts, exam check
+python scripts/train_detector.py --data data/detector/train_v2/data.yaml --name v2             # GPU, ~an hour
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v2/weights/best.pt --against assets/tile_detector.pt
+```
+
+`train_detector.py` starts from the live weights with their July recipe (1280 px, no mirror flips: a
+mirrored tile face isn't a real tile) and refuses a dataset with any exam frame in it. Ship the new
+weights only if they beat the old ones on the exam: copy `best.pt` to `assets/tile_detector.pt` and
+commit it with the scores. Exports and downloads under `data/detector/` aren't in git; Roboflow keeps
+the labels.
 
 ## Tests
 
