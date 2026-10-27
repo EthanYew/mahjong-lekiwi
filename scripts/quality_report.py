@@ -6,6 +6,7 @@ detours, wobble), and optionally the hover→grasp move against another recordin
     python scripts/quality_report.py --dataset ... --episode 37     # when each reversal happened
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases     # phases per episode
     python scripts/quality_report.py --dataset ... --drop 8,39 --reason "searching"   # never trained on
+    python scripts/quality_report.py --dataset ... --fix-gripper 117 --reason "stopped at 5.5%"   # closed to 0 when built
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
 
 The hover→grasp check compares only demos that steered: one lowered straight down says "close enough for the
@@ -19,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, drift_table, drop_episodes,
-                             dropped_episodes, load_episodes, phase_table, quality_table)
+                             dropped_episodes, fix_gripper, load_episodes, phase_table, quality_table)
 
 
 def main():
@@ -32,8 +33,14 @@ def main():
     p.add_argument("--phases", action="store_true", help="print each episode's pickup phases")
     p.add_argument("--against", metavar="REPO", help="compare hover→grasp moves with this recording, spot by spot")
     p.add_argument("--drop", metavar="EPS", help="comma-separated episodes to leave out of training (data/dropped_episodes.json)")
-    p.add_argument("--reason", default="reviewed", help="with --drop: why, kept with each episode")
+    p.add_argument("--fix-gripper", metavar="EPS",
+                   help="comma-separated episodes whose gripper stopped short of 0 on the tile: built with it closed "
+                        "to 0 (data/episode_fixes.json)")
+    p.add_argument("--reason", default="reviewed", help="with --drop / --fix-gripper: why, kept with each episode")
     args = p.parse_args()
+    if args.fix_gripper:
+        fixed = fix_gripper(args.dataset, [int(e) for e in args.fix_gripper.split(",") if e.strip()], args.reason)
+        print(f"Gripper closed to 0 when {args.dataset} is built: {sorted(fixed)}\n")
     if args.drop:
         dropped = drop_episodes(args.dataset, [int(e) for e in args.drop.split(",") if e.strip()], args.reason)
         print(f"Dropped from {args.dataset} (make_policy.py leaves them out): {sorted(dropped)}\n")

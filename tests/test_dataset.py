@@ -1,3 +1,4 @@
+import pytest
 import json
 
 import numpy as np
@@ -83,3 +84,14 @@ def test_hover_settings_are_the_recorded_hover_and_the_trimmed_start_gripper(tmp
     write_log(tmp_path / "u/old", "episode_teleop_log.jsonl", [{"episode_index": 0, "hover_offset_m": 0.06}])
     assert dataset.hover_settings("u/old", {"start_gripper_median": 90.0}) == \
         {"offset_m": config.HOVER_OFFSET_M, "clearance_m": config.HOVER_CLEARANCE_M, "gripper": 90.0}
+
+
+def test_finish_close_carries_a_short_close_on_to_zero_at_its_own_rate():
+    from mahjong.dataset import finish_close
+    grip = [27.2, 27.2, 25.2, 23.2, 21.2, 19.2, 17.2, 15.2, 13.2, 11.2, 9.2, 7.2, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5]
+    fixed = finish_close(grip)
+    assert list(fixed[:13]) == grip[:13]                      # untouched up to where the operator stopped
+    assert fixed[13] == pytest.approx(3.5) and fixed[14] == pytest.approx(1.5) and list(fixed[15:]) == [0.0] * 4
+    assert list(finish_close([27.2, 10.0, 0.0, 0.0])) == [27.2, 10.0, 0.0, 0.0]   # closed fully: unchanged
+    opened = finish_close([27.2, 15.0, 7.0, 7.0, 30.0, 30.0])
+    assert list(opened[4:]) == [30.0, 30.0]                   # a later release is left alone

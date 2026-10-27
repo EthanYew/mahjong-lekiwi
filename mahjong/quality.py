@@ -16,6 +16,7 @@ from . import config, kinematics
 from .dataset import episode_log
 
 DROPPED_FILE = config.DATA / "dropped_episodes.json"     # {repo: {episode: reason}}: reviewed, never trained on
+GRIPPER_FIXES_FILE = config.DATA / "episode_fixes.json"   # {repo: {episode: reason}}: gripper closed to 0 when built
 REVERSAL_MM = 5.0
 REVERSAL_GRIPPER = 5.0
 IDLE_SPEED_MM_S = 3.0
@@ -216,19 +217,45 @@ def drift_table(episodes, reference):
 
 def dropped_episodes(repo_id, path=None):
     """{episode: reason} dropped from repo_id after review."""
-    path = Path(path or DROPPED_FILE)
+    return _listed(repo_id, Path(path or DROPPED_FILE))
+
+
+def drop_episodes(repo_id, episodes, reason, path=None):
+    """Add episodes to repo_id's dropped list (reason kept with each). Returns the whole list."""
+    return _list(repo_id, episodes, reason, Path(path or DROPPED_FILE))
+
+
+def gripper_fixes(repo_id, path=None):
+    """{episode: reason} whose gripper command dataset.build carries on to 0 (dataset.finish_close)."""
+    return _listed(repo_id, Path(path or GRIPPER_FIXES_FILE))
+
+
+def fix_gripper(repo_id, episodes, reason, path=None):
+    """Mark episodes whose operator stopped short of closing the gripper fully (and nothing else was wrong)."""
+    return _list(repo_id, episodes, reason, Path(path or GRIPPER_FIXES_FILE))
+
+
+def _listed(repo_id, path):
     if not path.exists():
         return {}
     return {int(ep): reason for ep, reason in json.loads(path.read_text()).get(repo_id, {}).items()}
 
 
-def drop_episodes(repo_id, episodes, reason, path=None):
-    """Add episodes to repo_id's dropped list (reason kept with each). Returns the whole list."""
-    path = Path(path or DROPPED_FILE)
+def _list(repo_id, episodes, reason, path):
     data = json.loads(path.read_text()) if path.exists() else {}
     entry = data.setdefault(repo_id, {})
     for ep in episodes:
         entry[str(int(ep))] = reason
     data[repo_id] = dict(sorted(entry.items(), key=lambda kv: int(kv[0])))
     path.write_text(json.dumps(data, indent=2) + "\n")
-    return dropped_episodes(repo_id, path)
+    return _listed(repo_id, path)
+
+
+def undrop_episodes(repo_id, episodes, path=None):
+    """Take episodes off repo_id's dropped list (e.g. once a fix makes them usable)."""
+    path = Path(path or DROPPED_FILE)
+    data = json.loads(path.read_text()) if path.exists() else {}
+    for ep in episodes:
+        data.get(repo_id, {}).pop(str(int(ep)), None)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    return _listed(repo_id, path)

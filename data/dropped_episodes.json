@@ -24,7 +24,6 @@
     "72": "went the wrong way 27mm before closing (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "73": "closed high (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "74": "went the wrong way 33mm before closing; pitched the wrist (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
-    "75": "loose grip (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "77": "went the wrong way 43mm before closing (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "78": "closed high (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "79": "pitched the wrist (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
@@ -32,9 +31,11 @@
     "82": "began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "83": "began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "85": "began closing far above the tile; loose grip (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
-    "86": "loose grip: command stopped at 12.2%, jaws on the tile at 13.1",
     "88": "closed high; loose grip (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "89": "went the wrong way 27mm before closing; closed high; began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
-    "90": "went the wrong way 37mm before closing; began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)"
+    "90": "went the wrong way 37mm before closing; began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
+    "118": "closed high: tip 18mm above the grasp point",
+    "120": "closed high (20mm) and began closing 30mm up",
+    "128": "went 26mm the wrong way before closing"
   }
 }

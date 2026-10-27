@@ -117,7 +117,7 @@ def evaluate(policy, dataset_repo, hover):
 def main():
     args = parse_args()
     n = names(args)
-    from mahjong.quality import dropped_episodes, quality_table
+    from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, hover_settings
     from mahjong import offline_eval
     table, _, _ = quality_table(args.source)
@@ -130,6 +130,7 @@ def main():
     frames = int(table.loc[train_episodes, "frames"].sum())
     print(f"   training on {len(train_episodes)} episodes; {len(heldout)} held out for evaluation"
           + (f", {len(dropped)} dropped after review {sorted(dropped)}" if dropped else "")
+          + (f"; gripper closed to 0 in {sorted(fixes)}" if (fixes := set(gripper_fixes(args.source)) & set(train_episodes)) else "")
           + ("" if heldout else f" — none: scripts/offline_eval.py --make-split {args.source} first, or every "
                                  f"episode is trained on and offline scores are optimistic"))
     print(f"   training dataset {n['dataset']}, policy {n['policy_repo']} -> registry id {n['policy_id']}")
@@ -146,7 +147,8 @@ def main():
     from lerobot.utils.constants import HF_LEROBOT_HOME
     print("2. build")
     if not args.skip_build:
-        summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing, episodes=train_episodes)
+        summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing, episodes=train_episodes,
+                        close_gripper=set(gripper_fixes(args.source)))
         (HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").write_text(json.dumps(summary, indent=2))
     summary = json.loads((HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").read_text())
     print(f"   kept {summary['frames']}/{summary['source_frames']} frames")

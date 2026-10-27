@@ -63,6 +63,24 @@ def narrowing_end(actions_raw):
     return int(np.argmax(grip <= plateau + NARROWING_TOLERANCE))
 
 
+def finish_close(grip, default_rate=1.67):
+    """A commanded gripper series that stopped short of 0 on a tile, carried on to 0 at the rate it was
+    closing (default: ZL at the default speed, %/frame) and held there until it opens again. The jaws stall
+    on the tile at ~11 either way, so the frames still show what happened; a policy learns to command 0
+    (CLAUDE.md: policies grip by commanding 0). Unchanged if it already reaches 0."""
+    grip = np.asarray(grip, dtype=float).copy()
+    low = int(np.argmin(grip))
+    if grip[low] <= 0.5:
+        return grip
+    falling = -np.diff(grip[max(0, low - 10):low + 1])
+    rate = float(np.median(falling[falling > 0])) if (falling > 0).any() else default_rate
+    for i in range(low + 1, len(grip)):
+        if grip[i] > grip[low] + 0.5:          # opened again: leave the rest alone
+            break
+        grip[i] = max(0.0, grip[low] - rate * (i - low))
+    return grip
+
+
 def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False):
     drop = idle_mask(actions) if trim_idle else np.zeros(len(actions), bool)
     if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
@@ -73,7 +91,7 @@ def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, t
 
 
 def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), episodes=None,
-          log=print):
+          close_gripper=(), log=print):
     """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. episodes: the source
     episode indices to include (default all). Returns a summary; its source_episodes maps each built
     episode back to its source index (and so to the source's episode log)."""
@@ -91,11 +109,16 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
                                 use_videos=True)
     h = src.hf_dataset
     actions, actions_raw, states_raw = (np.stack(h[k]) for k in ("action", "action_raw", "observation.state_raw"))
+    actions, actions_raw = actions.copy(), actions_raw.copy()
     episodes = list(range(src.num_episodes)) if episodes is None else sorted(int(e) for e in episodes)
     kept, start_grippers = 0, []
     for n, ep in enumerate(episodes, start=1):
         meta = src.meta.episodes[ep]
         a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
+        if ep in close_gripper:                # stopped short of 0 on the tile (quality.gripper_fixes)
+            fixed = finish_close(actions_raw[a:b, 5])
+            actions[a:b, 5] += fixed - actions_raw[a:b, 5]
+            actions_raw[a:b, 5] = fixed
         keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trim_idle, trim_sag, trim_narrowing))
         anchor = states_raw[a + keep[0]]
         start_grippers.append(float(anchor[5]))

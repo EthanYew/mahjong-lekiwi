@@ -162,6 +162,9 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_jitter_v3 --d
 `--drop EPS` leaves reviewed episodes out of training without deleting them: they're listed in
 `data/dropped_episodes.json` (with `--reason`), marked `x` in the table, and `make_policy.py` skips them.
 The recording keeps its episode numbers, so you can go on recording into it.
+`--fix-gripper EPS` is for an episode whose only fault is a gripper command that stopped short of 0 on
+the tile: `make_policy.py` builds it with the command carried on to 0 at the rate it was closing
+(`data/episode_fixes.json`). The jaws had already stalled on the tile, so the frames still match.
 
 `--against REPO` compares each spot's hover→grasp move with the other recording's at the same place
 (within 15 mm), counting only demos that steered. A demo lowered straight down only says the tile was
@@ -169,7 +172,7 @@ close enough for the jaws (a third of v2's were). Shifts beyond ~6 mm in one dir
 are worth a `collect_corrections.py` check; a few spots differing is as likely to be how the demos were done.
 
 Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table),
-`--phases`, `--against REPO`, `--drop EPS --reason TEXT`.
+`--phases`, `--against REPO`, `--drop EPS --reason TEXT`, `--fix-gripper EPS --reason TEXT`.
 
 ## Training a policy: `scripts/make_policy.py`
 

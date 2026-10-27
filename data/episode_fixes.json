@@ -1,0 +1,9 @@
+{
+  "Yewy/mahjong_mat_pickup_jitter_v3": {
+    "75": "gripper stopped at 5.5% (only issue; was dropped for it)",
+    "86": "gripper stopped at 12.2% (only issue; was dropped for it)",
+    "117": "gripper stopped at 5.5% (only issue)",
+    "125": "gripper stopped at 5.5% (only issue)",
+    "126": "gripper stopped at 5.5%; began closing early to clear a neighbour (kept)"
+  }
+}
