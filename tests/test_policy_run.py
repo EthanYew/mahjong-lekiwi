@@ -119,3 +119,30 @@ def test_every_frame_the_policy_saw_is_saved_as_video(tmp_path):
         frames += 1
     assert frames == summary["steps"] + 1          # + the frame of the done check it stopped on
     assert (tmp_path / "wrist_0000.jpg").exists()
+
+
+
+class FailingCamera(SimCamera):
+    """A wrist camera whose reads number n (1-based) fail where `fails(n)` (it dropped out, 2026-10-28)."""
+
+    def __init__(self, fails):
+        self.reads, self.fails = 0, fails
+
+    def read(self):
+        self.reads += 1
+        return (False, None) if self.fails(self.reads) else super().read()
+
+
+def test_a_camera_that_stops_giving_frames_stops_the_attempt(tmp_path):
+    arm = hovering_arm()
+    camera = FailingCamera(lambda n: n > 40)
+    summary = run(ScriptedPickup(arm), arm, camera, tmp_path, log=lambda *a: None)
+    assert summary["stop_reason"] == "camera" and not summary["aborted"]
+    assert summary["steps"] == 40
+    assert camera.reads == 40 + config.FPS             # a second of failed reads, not the 16s cap
+
+
+def test_a_dropped_frame_or_two_carries_on(tmp_path):
+    arm = hovering_arm()
+    summary = run(ScriptedPickup(arm), arm, FailingCamera(lambda n: n in (50, 51)), tmp_path, log=lambda *a: None)
+    assert summary["stop_reason"] == "done"

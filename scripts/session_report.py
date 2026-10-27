@@ -206,6 +206,9 @@ def main():
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
+        void = sum(e["type"] == "attempt_void" for e in events)
+        if void:
+            print(f"  {void} attempt(s) left out: the wrist camera stopped giving frames (the bench reopened it)")
         success_map(attempts)
         perturbation_report(attempts)
     episodes = [e for e in events if e["type"] == "episode_saved"]

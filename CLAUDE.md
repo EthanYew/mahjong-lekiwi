@@ -99,6 +99,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   ~−147° at (13, +19) cm, 23° from the −170° command limit. A tile turned clockwise more than ~20° there
   is only reachable by rolling ~+150° the other way, jaws flipped and the wrist image upside down from
   every other demo (golden set T1, 2026-10-26). Expect any policy to fail it; don't place training tiles so.
+- **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
+  failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
+  `policy.run` stops after 1s without frames (`stop_reason` "camera"); the bench records the attempt as
+  `attempt_void`, reopens the camera and runs it again.
 - The hover correction and the table plane are tied to `assets/T_cam_to_base.npy`; recalibrating the
   RealSense invalidates the correction (records are set aside automatically) and may move the plane.
 

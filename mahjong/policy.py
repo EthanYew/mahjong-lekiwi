@@ -23,6 +23,7 @@ from .arm import holds_tile
 
 STALL_CHECK_S = 4.0
 STALL_MOVE_DEG = 2.0
+CAMERA_LOST_S = 1.0     # no wrist frames for this long: stop the attempt, it can't count
 IMAGE_SIZE = (224, 224)
 
 # A pickup is done once the tile is held and lifted, and stays so for HOLD_CONFIRM_S while the policy
@@ -128,7 +129,8 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     is a person saying "something happened here": each time it's set the time is noted and it's
     cleared, and the policy carries on. Saves to trace_dir: act_trace.npz, wrist.mp4 (every frame; frame k
     is the image behind act_trace row k, plus one more when it stops on the done check) and a wrist jpg
-    every 100 steps. Returns a summary: stop_reason (done / cap / aborted), duration_s, held_at_s, slipped
+    every 100 steps. Returns a summary: stop_reason (done / cap / aborted / camera: no wrist frames for
+    CAMERA_LOST_S, so the attempt says nothing about the policy), duration_s, held_at_s, slipped
     (held, then lost during the hold check), stall_warning, descended, floored_steps, grasp_step,
     grasp_xy (the tool point where the gripper was first commanded shut — where a return should put
     the tile), marks_s (when it was marked, s)."""
@@ -142,6 +144,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     last_safe = arm.commanded()
     states, actions, floored_steps, warned, marks = [], [], 0, False, []
     stop_reason, done_since, held_at, slipped = "cap", None, None, False
+    failed_reads = 0
     stall_step = int(STALL_CHECK_S * config.FPS)
     confirm_steps = int(HOLD_CONFIRM_S * config.FPS)
     log(f"ACT ({policy.id}) for up to {duration_s:.0f}s, stopping once the tile is held and lifted — Esc stops it")
@@ -159,8 +162,18 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
                 log(f"  t={step / config.FPS:4.1f}s marked (the policy carries on; you'll be asked what happened)")
             ok, frame = camera.read()
             if not ok:
-                log(f"  wrist camera read failed at step {step}")
+                # 2026-10-28: the camera stopped giving frames mid-session and 8 attempts ran blind to the
+                # cap, scored as misses
+                failed_reads += 1
+                if failed_reads == 1:
+                    log(f"  wrist camera read failed at step {step}")
+                if failed_reads >= CAMERA_LOST_S * config.FPS:
+                    stop_reason = "camera"
+                    log(f"  no wrist camera frames for {CAMERA_LOST_S:.0f}s — attempt stopped")
+                    break
+                arm.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
                 continue
+            failed_reads = 0
             measured = arm.measured()
             state = np.array([measured[j] for j in config.JOINTS], dtype=np.float32)
             if video is None:

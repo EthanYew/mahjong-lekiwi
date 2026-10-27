@@ -216,9 +216,10 @@ class Bench:
         if tile and (result := self.hover_over(tile)):
             self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"], **result)
 
-    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None):
+    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None, camera_retries=1):
         """One attempt with self.policy, from its hover moved by `perturb` (m), at the named tile or the
-        one at layout `spot`. Returns True if the gripper ended up holding the tile."""
+        one at layout `spot`. Returns True if the gripper ended up holding the tile. An attempt the wrist
+        camera dropped out of is void (not an attempt event): the camera is reopened and it runs again."""
         if self.held:
             print(f"Holding {self.held['tile_name']} — return or discard it first.")
             return None
@@ -234,6 +235,16 @@ class Bench:
         run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
         self.arm.rest()
         holding, command, measured = self.arm.holding()
+        if run["stop_reason"] == "camera" and not holding:
+            self.session.event("attempt_void", reason="wrist camera stopped giving frames", tile=tile["tile_name"],
+                               policy=self.policy.id, attempt_dir=attempt.name, hover_perturb_xy=list(perturb),
+                               **({"spot": spot["id"]} if spot else {}))
+            self.reopen_camera()
+            if camera_retries:
+                print("Wrist camera reopened — running the attempt again.")
+                return self.pickup(tile_name, ask, perturb, spot, camera_retries - 1)
+            print("The wrist camera dropped out again.")
+            return None
         self.snapshot(attempt / "overview_after.jpg")
         self.scan("after_pickup", attempt_dir=attempt.name, target_xy=list(tile["xy"]))
         success, review = holding, {}
@@ -270,6 +281,14 @@ class Bench:
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
+
+    def reopen_camera(self):
+        """Release and reopen the wrist camera (hardware.connect offers retry / quit if it won't open)."""
+        if self.args.sim:
+            return
+        from mahjong import hardware
+        self.camera.release()
+        self.camera = hardware.connect(["wrist_camera"])["wrist_camera"]
 
     def review(self, attempt_dir, tile_name, run):
         """Ask about an aborted or marked attempt: {abort_reason, mark_kind, mark_note}; {} (no question)

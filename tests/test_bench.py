@@ -235,3 +235,29 @@ def test_every_return_in_a_trial_run_goes_where_the_first_round_closed(tmp_path,
     returns = [e for e in events if e["type"] == "return"]
     assert len({tuple(a["grasp_xy"]) for a in attempts}) == 3          # the sim grasps where it hovered: offset each round
     assert len(returns) == 3 and all(r["asked_xy"] == attempts[0]["grasp_xy"] for r in returns)
+
+
+def test_an_attempt_the_wrist_camera_dropped_out_of_is_void_and_run_again(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    run = b.policy.run
+    calls = []
+
+    def camera_lost_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:         # the policy never saw a frame: stopped at the hover, empty-handed
+            return {"steps": 0, "duration_s": 0.0, "stop_reason": "camera", "aborted": False, "held_at_s": None,
+                    "slipped": False, "stall_warning": False, "descended": False, "floored_steps": 0,
+                    "grasp_step": None, "grasp_xy": None, "marks_s": []}
+        return run(*args, **kwargs)
+    b.policy.run = camera_lost_once
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(next(tmp_path.iterdir()))
+    void = [e for e in events if e["type"] == "attempt_void"]
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert len(calls) == 2 and len(void) == 1
+    assert [a["success"] for a in attempts] == [True]
+    assert void[0]["attempt_dir"] != attempts[0]["attempt_dir"]
+    assert next(e for e in events if e["type"] == "trials_done")["results"] == [True]
