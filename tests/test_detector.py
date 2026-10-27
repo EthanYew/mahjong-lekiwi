@@ -157,3 +157,34 @@ def test_add_exam_session(tmp_path):
     assert json.loads(path.read_text())["sessions"]["20261027_capture"]["conditions"] == {"lamp": True}
     assert detector.exam_frames([Path("20261027_capture__001_capture__f0_jpg.rf.x.jpg"), Path("b.jpg")],
                                 detector.load_exam(path)) == [Path("20261027_capture__001_capture__f0_jpg.rf.x.jpg")]
+
+
+def test_capture_counts_names_and_flags_a_repeated_arrangement(tmp_path, monkeypatch):
+    import capture_frames
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    shown, keys = [], iter([ord(" "), 0, ord(" "), ord("q")])
+    capture = capture_frames.main(["--sim", "--target", "2"], show=shown.append, wait_key=lambda: next(keys))
+    assert capture.scans == 2 and capture.same_arrangement == 1      # nothing moved between the scans
+    sim_names = [t["tile_name"] for t in capture.realsense.tiles]
+    assert all(capture.counts[n] == 2 for n in sim_names)
+    assert set(capture.below_target()) == set(detector.TILE_NAMES) - set(sim_names)
+    assert "SAME ARRANGEMENT" in capture.status
+    frame = shown[-1]
+    assert frame.shape[1] == 848 and frame.shape[0] > 480          # the count panel under the camera view
+    assert len(list((next(tmp_path.iterdir()) / "scans").iterdir())) == 2
+
+
+def test_unchanged_share_matches_by_name_and_position():
+    import capture_frames
+    before = [{"tile_name": "8D", "xy": (0.20, 0.05)}, {"tile_name": "2B", "xy": (0.15, 0.00)}]
+    moved = [{"tile_name": "8D", "xy": (0.20, 0.05)}, {"tile_name": "2B", "xy": (0.15, 0.04)}]
+    swapped = [{"tile_name": "3C", "xy": (0.20, 0.05)}, {"tile_name": "2B", "xy": (0.15, 0.00)}]
+    assert capture_frames.unchanged_share(before, before) == 1.0
+    assert capture_frames.unchanged_share(before, moved) == 0.5
+    assert capture_frames.unchanged_share(before, swapped) == 0.5
+    assert capture_frames.unchanged_share(None, before) == 0.0
+
+
+def test_count_panel_covers_every_name_once():
+    import capture_frames
+    assert sorted(n for column in capture_frames.COLUMNS for n in column) == sorted(detector.TILE_NAMES)
