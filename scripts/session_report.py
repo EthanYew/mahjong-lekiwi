@@ -1,5 +1,5 @@
 """Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials,
-interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes); and a
+where returned tiles landed from their home, interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes); and a
 contact sheet (one row per attempt: overview before/after, wrist frames).
 
     python scripts/session_report.py                 # the latest session
@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, interventions
+from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
 THUMB = (240, 180)
@@ -239,6 +240,22 @@ def main():
             shifts = [e["shift_m"] * 1000 for e in events if e["type"] == kind and e.get("shift_m")]
             print(f"{kind}: {n}" + (f" ({len(shifts)} set down closer to fit the reach: "
                                     + ", ".join(f"{s:.0f}mm" for s in shifts) + ")" if shifts else ""))
+    returns_report(events)
+
+
+def returns_report(events):
+    """How far returned tiles landed from their home (sessions from before homes: from where the tile was
+    before that pickup), and how many a person put back."""
+    found = [r for r in landings(events) if r["landed_xy"]]
+    if not found:
+        return
+    errors = sorted(r["error_m"] * 1000 for r in found)
+    over = sum(e > config.RETURN_DRIFT_WARN_M * 1000 for e in errors)
+    put_back = sum(e["type"] == "detections" and e.get("label") == "after_reset" for e in events)
+    homes = any(e["type"] == "return" and e.get("home_xy") for e in events)
+    print(f"returns landed {np.median(errors):.0f}mm from {'home' if homes else 'where the tile was'} (median of "
+          f"{len(errors)}; worst {errors[-1]:.0f}mm; {over} over {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm)"
+          + (f"; {put_back} put back by a person" if put_back else ""))
 
 
 if __name__ == "__main__":

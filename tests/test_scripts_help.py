@@ -9,7 +9,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = sorted((REPO / "scripts").glob("*.py"))
-COMMANDS = [[str(s)] for s in SCRIPTS] + [["-m", "mahjong.hover_correction"]]
+COMMANDS = [[str(s)] for s in SCRIPTS] + [["-m", "mahjong.hover_correction"], ["-m", "mahjong.return_correction"]]
 
 
 @pytest.mark.parametrize("command", COMMANDS, ids=[Path(c[-1]).stem for c in COMMANDS])

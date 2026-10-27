@@ -38,6 +38,11 @@ DETECTION_CONFIDENCE = 0.5
 DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the ones below the cut are where it hesitated
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile
+# A returned tile aims for its home (where it was first seen this session; mahjong/return_correction.py). A pick
+# and return moved tiles 5.7mm (median) with ~6mm scatter, 95 bench returns to 2026-10-28; the jaws tolerate ~6mm.
+HOME_RADIUS_M = 0.04                   # a tile detected further than this from its home was moved on purpose: new home
+RETURN_DRIFT_WARN_M = 0.012            # a return landing this far from home is logged and printed
+RETURN_DRIFT_RESET_M = 0.025           # this far (or out of the hover's reach), a person puts it back home
 
 # --- table: a plane in the arm's base frame (fit to RealSense depth, touch-tested 2026-10-20) ---
 TABLE_Z0, TABLE_SLOPE_X, TABLE_SLOPE_Y = -0.0678, -0.143, -0.002
@@ -81,6 +86,7 @@ ACT_DURATION_S = 16.0                  # cap; a pickup normally stops itself onc
 POLICIES = DATA / "policies.json"
 HOVER_CORRECTIONS = DATA / "hover_corrections.jsonl"
 HOVER_MODEL = DATA / "hover_model.json"       # which correction sources the live hover is fitted from
+RETURN_CORRECTIONS = DATA / "return_corrections.jsonl"   # returns: where set down vs where landed (mahjong/return_correction.py)
 LAYOUTS = DATA / "layouts.json"           # named tile layouts for placing tiles (mahjong/layout.py)
 EVAL_SPLIT = DATA / "eval_split.json"     # episodes never trained on (mahjong/offline_eval.py)
 DETECTOR_EXAM = DATA / "detector_exam.json"   # sessions whose frames are the tile detector's exam (mahjong/detector.py)
