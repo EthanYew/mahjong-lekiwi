@@ -179,3 +179,17 @@ def test_an_arm_found_where_it_settled_unpowered_doesnt_move_at_startup():
     robot.sent.clear()
     arm.rest()
     assert robot.sent == []
+
+
+@pytest.mark.parametrize("tile", TILES)
+def test_after_a_release_the_open_jaws_rise_straight_up_clear_of_the_tile(tile):
+    """2026-10-27: one joint move from the release to the approach swung the open jaws through the tile."""
+    from mahjong.arm import RELEASE_RISE_M
+    x, y = TILES[tile]
+    arm, robot = make_arm(start={**config.REST_POSE, "gripper": 0.0}, holding=True)
+    arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None)
+    release = next(i for i, c in enumerate(robot.sent) if c["gripper"] > 0)
+    tips = [kinematics.pincer_tip(c) for c in robot.sent[release:]]
+    clear = next(i for i, t in enumerate(tips) if t[2] - tips[0][2] >= RELEASE_RISE_M - 0.001)
+    drift = max(np.hypot(*(t[:2] - tips[0][:2])) for t in tips[:clear + 1])
+    assert drift < 0.003, f"the jaws moved {drift * 1000:.1f}mm sideways before clearing the tile"

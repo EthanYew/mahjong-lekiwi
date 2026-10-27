@@ -43,6 +43,10 @@ PLACE_TIP_CLEARANCE_M = 0.010     # recorded grasps closed with the tip at 7mm (
 RETURN_EXTRA_CLEARANCE_M = 0.030
 PLACE_MAX_SHIFT_M = 0.015         # a return may move this far toward the shoulder to fit the reach (place_point)
 PLACE_DESCEND_TIME_S = 2.0
+# After a release, rise straight up this far above the release height before moving on: one joint move to the
+# approach swung the open jaws sideways through the tile (and dragged it) on the way to rest (2026-10-27)
+RELEASE_RISE_M = 0.030
+RISE_STEP_M, RISE_STEP_S = 0.005, 0.15
 RELEASE_TIME_S = 0.6
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
@@ -224,6 +228,17 @@ class Arm:
                 if max(abs(lifted[j] - command[j]) for j in config.ARM_JOINTS) <= LIFT_MAX_JOINT_CHANGE_DEG:
                     self.move_to({j: lifted[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
 
+    def rise(self, x, y, from_offset, to_offset):
+        """Straight up over tool point (x, y), RISE_STEP_M at a time (wrist roll and gripper as they are), so
+        nothing near the jaws gets swept: each step is a short move over the same point."""
+        command = self.commanded()
+        for offset in np.append(np.arange(from_offset + RISE_STEP_M, to_offset, RISE_STEP_M), to_offset):
+            step, _ = kinematics.hover_command(x, y, float(offset), command["gripper"])
+            if step is None:
+                return
+            step["wrist_roll"] = command["wrist_roll"]
+            self.move_to({j: step[j] for j in config.ARM_JOINTS}, RISE_STEP_S)
+
     def rest(self):
         """Lift if low over the table, swing in via the raised rest, lower to rest. Never touches the
         gripper (a held tile stays held). Does nothing if already at rest."""
@@ -324,6 +339,7 @@ class Arm:
         release = min(config.GRIPPER_RELEASE, self.measured()["gripper"] + config.GRIPPER_RELEASE_PAST_HELD)
         self.set_gripper(release)
         self.sleep(0.3)
+        self.rise(x, y, settled["offset_m"], settled["offset_m"] + RELEASE_RISE_M)
         self.move_to({j: above[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
         self.rest()
         return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift, "release_gripper": release}
