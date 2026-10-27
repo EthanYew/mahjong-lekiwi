@@ -9,6 +9,7 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mahjong import config, hardware, kinematics
@@ -59,6 +60,9 @@ class FakeGamepad:
 
     def step(self, arm, dt):
         return arm.commanded()
+
+    def touched(self):
+        return False
 
     def close(self):
         pass
@@ -252,3 +256,89 @@ def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
     assert calls[0] == (0.229, 0.223) and calls[2] == pytest.approx((0.219, 0.213))
     assert events == [("return", {"tile": "9B", "asked_xy": [0.229, 0.223], "toward_hover": 0.5,
                                   "xy": pytest.approx([0.219, 0.213]), "shift_m": 0.0})]
+
+
+class DescendingPolicy:
+    """Stands in for a registered ACT policy: from its hover, lower the shoulder a degree a step."""
+    id, hover = "fake_v3c", {"offset_m": 0.05, "clearance_m": 0.045, "gripper": 26.8}
+
+    def __init__(self, policy_id=None):
+        self.k = 0
+
+    def reset(self):
+        self.k = 0
+
+    def step(self, frame, state_delta):
+        self.k += 1
+        return np.array([0.0, self.k, 0.0, 0.0, 0.0, 0.0])
+
+
+class TouchedAt(FakeGamepad):
+    """Someone takes the gamepad on its `at`-th check (never, if None); counts its starts."""
+    at = 2
+
+    def __init__(self):
+        self.checks, self.starts = 0, []
+
+    def touched(self):
+        self.checks += 1
+        return self.at is not None and self.checks >= self.at
+
+    def start(self, arm):
+        self.starts.append(dict(arm.commanded()))
+
+
+def run_dagger(tmp_path, monkeypatch, gamepad, argv=()):
+    import mahjong.policy
+    monkeypatch.setattr(mahjong.policy, "Policy", DescendingPolicy)
+    return run_record(tmp_path, monkeypatch, ["--policy", "fake_v3c", "--episodes", "1", *argv],
+                      [("hover", {}), ("rec", {})], gamepad=gamepad)
+
+
+def test_dagger_the_policy_drives_until_the_gamepad_is_touched_then_you_have_it(tmp_path, monkeypatch):
+    pads = []
+
+    def pad():
+        pads.append(TouchedAt())
+        return pads[-1]
+    dataset, session = run_dagger(tmp_path, monkeypatch, pad)
+    (row,) = episode_rows(dataset)
+    assert row["policy"] == "fake_v3c" and row["takeover_frame"] == 1 and row["hover"] == DescendingPolicy.hover
+    assert dataset.saved == [3] and len(pads[0].starts) == 1      # the gamepad started once, at the takeover
+    (takeover,) = [e for e in read_events(session) if e["type"] == "intervention"]
+    assert takeover["kind"] == "takeover" and takeover["frame"] == 1
+
+
+def test_dagger_frames_are_the_policy_s_commands_then_the_gamepad_s(tmp_path, monkeypatch):
+    frames = []
+    monkeypatch.setattr(FakeDataset, "add_frame", lambda self, f: (frames.append(f), self.frames.append(f)))
+    run_dagger(tmp_path, monkeypatch, TouchedAt)
+    first, second, third = (f["action"] for f in frames)
+    assert first[1] == pytest.approx(1.0, abs=0.05)              # the policy's first step, from the hover
+    assert second[1] == pytest.approx(first[1], abs=0.05)         # the gamepad holds where it took over
+    assert third[1] == pytest.approx(first[1], abs=0.05)
+
+
+def test_dagger_without_a_takeover_is_saved_and_says_so(tmp_path, monkeypatch):
+    class Untouched(TouchedAt):
+        at = None
+    dataset, session = run_dagger(tmp_path, monkeypatch, Untouched)
+    (row,) = episode_rows(dataset)
+    assert row["policy"] == "fake_v3c" and row["takeover_frame"] is None
+    assert not [e for e in read_events(session) if e["type"] == "intervention"]
+
+
+def test_dagger_episodes_are_training_data_only(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="slice"):
+        run_dagger(tmp_path, monkeypatch, TouchedAt, ["--slice", "jitter"])
+
+
+def test_session_report_counts_dagger_takeovers(tmp_path, monkeypatch, capsys):
+    import session_report
+    _, session = run_dagger(tmp_path, monkeypatch, TouchedAt)
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["session_report.py", str(session)])
+    session_report.main()
+    out = capsys.readouterr().out
+    assert "DAgger (fake_v3c): 1 episode(s) saved, 1 taken over at 0.0s" in out
+    assert "takeover             rescue" in out and "rescues: 1 in 1 episodes" in out

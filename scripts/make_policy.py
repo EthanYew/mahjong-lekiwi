@@ -2,8 +2,10 @@
 
   1. quality summary of the recorded episodes
   2. build the training dataset: trims (idle, pre-fix takeover sag, optionally the gripper narrowing),
-     re-anchored deltas, wrist camera at 224 — leaving out the held-out episodes (data/eval_split.json)
-  3. verify it: every episode kept, zero start deltas, no idle frames left
+     re-anchored deltas, wrist camera at 224 — leaving out the held-out episodes (data/eval_split.json);
+     with --add, other recorded datasets' episodes too (DAgger: from the takeover on, see mahjong/dataset.py)
+  3. verify it: every episode kept, zero start deltas (DAgger episodes start at their takeover), no idle
+     frames left
   4. upload it to the Hub
   5. train ACT with the recipe of every policy so far (resnet18, chunk 100, batch 96, lr 1e-5), steps
      scaled to ~131 passes over the data; the trained policy is pushed to the Hub
@@ -14,6 +16,8 @@
 
     python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --dry-run
     python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --default    # pickup_mat_cl_v3
+    python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_jitter_v3 --add Yewy/mahjong_mat_dagger_v3c \
+        --version v4 --dry-run
 
 Settle the options before starting: training takes hours, and the dataset name is fixed once uploaded.
 """
@@ -40,6 +44,9 @@ def parse_args():
     p.add_argument("--version", required=True, help="e.g. v3; used in the output names")
     p.add_argument("--policy-id", default=None, help="registry id (default: pickup_mat_cl_<version>, like the "
                                                      "registered ones)")
+    p.add_argument("--add", action="append", default=[], metavar="REPO",
+                   help="another recorded dataset to train on as well (repeatable), e.g. DAgger corrections from "
+                        "record.py --policy: only their frames from the takeover on, episodes without one left out")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="also drop the opening gripper narrowing (start episodes at the pre-grasp opening)")
     p.add_argument("--steps", type=int, default=None, help="training steps (default: ~131 passes over the data)")
@@ -71,19 +78,19 @@ def train_command(n, steps, private):
             "--log_freq=200", "--seed=1000", "--wandb.enable=false"]
 
 
-def verify(dataset_repo, trimmed_idle):
+def verify(dataset_repo, trimmed_idle, dagger=()):
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from mahjong.dataset import idle_mask
     ds = LeRobotDataset(dataset_repo)
     h = ds.hf_dataset
     ep = np.array(h["episode_index"])
     state, action = np.stack(h["observation.state"]), np.stack(h["action"])
-    starts = [np.flatnonzero(ep == e)[0] for e in range(ds.num_episodes)]
-    assert np.abs(state[starts]).max() < 1e-4, "an episode doesn't start at a zero state delta"
+    starts = [np.flatnonzero(ep == e)[0] for e in range(ds.num_episodes) if e not in set(dagger)]
+    assert not starts or np.abs(state[starts]).max() < 1e-4, "an episode doesn't start at a zero state delta"
     if trimmed_idle:
         idle = sum(idle_mask(action[ep == e]).sum() for e in range(ds.num_episodes))
         assert idle == 0, f"{idle} idle frames left"
-    print(f"  verified: {ds.num_episodes} episodes, {len(ep)} frames, zero start deltas"
+    print(f"  verified: {ds.num_episodes} episodes ({len(dagger)} DAgger), {len(ep)} frames, zero start deltas"
           + (", no idle frames" if trimmed_idle else ""))
     return ds.num_episodes
 
@@ -118,7 +125,7 @@ def main():
     args = parse_args()
     n = names(args)
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
-    from mahjong.dataset import build, hover_settings
+    from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
     table, _, _ = quality_table(args.source)
     frames = int(table["frames"].sum())
@@ -133,6 +140,20 @@ def main():
           + (f"; gripper closed to 0 in {sorted(fixes)}" if (fixes := set(gripper_fixes(args.source)) & set(train_episodes)) else "")
           + ("" if heldout else f" — none: scripts/offline_eval.py --make-split {args.source} first, or every "
                                  f"episode is trained on and offline scores are optimistic"))
+    extra = []
+    for repo in args.add:
+        added = quality_table(repo)[0]
+        left_out = set(offline_eval.excluded_episodes(repo)) | set(dropped_episodes(repo))
+        episodes = sorted(int(e) for e in set(added.index) - left_out)
+        records = episode_log(repo)
+        takeovers = [e for e in episodes if records.get(e, {}).get("takeover_frame") is not None]
+        dagger = [e for e in episodes if "policy" in records.get(e, {})]
+        extra.append((repo, episodes, gripper_fixes(repo)))
+        frames += int(sum(added.loc[e, "frames"] - (records.get(e, {}).get("takeover_frame") or 0)
+                          for e in episodes if e in takeovers or e not in dagger))
+        print(f"   + {repo}: {len(episodes)} episodes"
+              + (f" ({len(dagger)} DAgger: {len(takeovers)} with a takeover, from which they're trained on)" if dagger else "")
+              + (f"; {len(left_out & set(added.index))} held out or dropped" if left_out & set(added.index) else ""))
     print(f"   training dataset {n['dataset']}, policy {n['policy_repo']} -> registry id {n['policy_id']}")
     if args.dry_run:
         est = int(frames * (0.56 if args.trim_narrowing else 0.70))   # measured on the first dataset
@@ -148,18 +169,18 @@ def main():
     print("2. build")
     if not args.skip_build:
         summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing, episodes=train_episodes,
-                        close_gripper=set(gripper_fixes(args.source)))
+                        close_gripper=set(gripper_fixes(args.source)), extra=extra)
         (HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").write_text(json.dumps(summary, indent=2))
     summary = json.loads((HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").read_text())
     print(f"   kept {summary['frames']}/{summary['source_frames']} frames")
     print("3. verify")
-    verify(n["dataset"], trimmed_idle=True)
+    verify(n["dataset"], trimmed_idle=True, dagger=summary.get("dagger_episodes", ()))
     if not args.skip_upload:
         print("4. upload")
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         LeRobotDataset(n["dataset"]).push_to_hub(
             private=args.private, tags=["mahjong", "so101", "lekiwi", "act"],
-            dataset_description=f"{args.source}, trimmed (idle frames, pre-fix takeover sag"
+            dataset_description=f"{' + '.join([args.source, *args.add])}, trimmed (idle frames, pre-fix takeover sag"
                                 f"{', gripper narrowing' if args.trim_narrowing else ''}), deltas re-anchored to each "
                                 f"episode's first kept frame, wrist camera at 224x224. {summary['frames']} of "
                                 f"{summary['source_frames']} frames kept. Built by mahjong-lekiwi scripts/make_policy.py.")
@@ -196,7 +217,7 @@ def main():
     print(f"7. register {n['policy_id']}")
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
-                              "notes": f"make_policy.py from {args.source}; {summary['frames']} frames, {steps} steps; "
+                              "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
                                        f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
                                        f"{[(c, round(m, 2), o, sl) for c, m, o, sl in results]}"},
              make_default=args.default)

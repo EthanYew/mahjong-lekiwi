@@ -93,3 +93,19 @@ def test_the_other_axis_takes_the_stick_only_after_it_returns_to_centre():
     pad.values.update(rx=0.1, ry=-0.9)         # released and pushed down: height owns it
     sticks.tick(DT)
     assert (sticks.stick("rx"), sticks.stick("ry")) == (0.0, -0.9)
+
+
+def test_touched_on_any_stick_or_button_at_once_but_not_a_locked_one():
+    pad = ScriptedPad()
+    teleop = teleop_with(pad)
+    assert not teleop.touched()
+    pad.values["ly"] = 0.3                       # no commit delay: a DAgger takeover starts on the first push
+    assert teleop.touched()
+    pad.values.clear()
+    pad.pressed = lambda: {"zl"}
+    assert teleop.touched()
+    teleop.locked_buttons = {"zl"}
+    assert not teleop.touched()
+    teleop.sticks.disabled = {"ly"}
+    pad.values["ly"] = 0.3
+    assert not teleop.touched()

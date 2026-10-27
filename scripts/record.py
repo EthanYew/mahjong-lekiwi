@@ -25,11 +25,18 @@ slice, --hover-offsets-mm cycles a fixed list instead, so the set can be recorde
 episode keeps its offset through ← re-hovers and discards — rejecting the hard ones would bias the
 dataset back toward the clean hover. Each episode log row has hover_jitter_xy and the unjittered target.
 
+DAgger (ROADMAP 9): with --policy ID the policy drives from its own hover once → starts the episode, and
+the first touch of the gamepad (any stick or button) hands it to you, from the pose the policy last
+commanded (gripper held). Every frame is recorded; the episode log row has the policy and takeover_frame,
+and training (make_policy.py --add) keeps only your frames, as deltas from the hover like every other
+episode. Record these into a dataset of their own.
+
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --repeats 2 \
         --hover-offsets-mm 6x,-6y
+    python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c
 """
 import argparse
 import json
@@ -97,6 +104,9 @@ def parse_args(argv=None):
     p.add_argument("--start-spot", default=None, help="with --layout: start at this spot id")
     p.add_argument("--device", default=None, help="gamepad evdev path")
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
+    p.add_argument("--policy", default=None,
+                   help="DAgger: this registered policy drives from its own hover (replacing --hover-offset-mm, "
+                        "--clearance-mm, --hover-gripper) until you touch the gamepad; only your frames are trained on")
     p.add_argument("--no-return", action="store_true",
                    help="don't set a held tile back down after an episode: it's released at rest, as before")
     return p.parse_args(argv)
@@ -126,6 +136,14 @@ def main(argv=None):
     args = parse_args(argv)
     from lerobot.common.control_utils import init_keyboard_listener
     hover = {"offset_m": args.hover_offset_mm / 1000, "clearance_m": args.clearance_mm / 1000, "gripper": args.hover_gripper}
+    policy = None
+    if args.policy:             # before connecting anything, so a typo fails fast
+        if args.slice != "train":
+            raise SystemExit("--policy records DAgger corrections, which are training data: leave --slice at train")
+        from mahjong.policy import Policy, next_command
+        policy = Policy(args.policy)
+        hover = dict(policy.hover)
+        print(f"DAgger: {policy.id} drives from its hover {hover}; touch the gamepad to take over")
     spots, todo, ghost = [], [], None
     if args.layout:            # before connecting anything, so a typo fails fast
         spots = layout.load(args.layout)["spots"]
@@ -138,7 +156,7 @@ def main(argv=None):
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
                       hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
-                      jitter_seed=args.jitter_seed)
+                      jitter_seed=args.jitter_seed, policy=args.policy)
     session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
@@ -215,7 +233,8 @@ def main(argv=None):
             session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], hover_jitter_xy=list(offset),
                           same_tile_retry=retrying, **result)
 
-            print("Hovering. → take control and START recording, ← re-hover, Esc quit")
+            print(f"Hovering. → {'START recording with ' + policy.id + ' driving' if policy else 'take control and START recording'}"
+                  f", ← re-hover, Esc quit")
             while not events["exit_early"]:
                 show(camera, args.no_view, "hovering: → to record")
                 time.sleep(dt)
@@ -227,17 +246,37 @@ def main(argv=None):
                 continue
             events["exit_early"] = False
 
-            gamepad.start(arm)
+            if policy is None:
+                gamepad.start(arm)
+            else:
+                policy.reset()
+                camera.flush()
+                limits, last_safe = arm.joint_limits(), arm.commanded()
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
-            print("RECORDING — → save, ← discard, Esc save nothing and quit")
-            frames, roll, actions = 0, RollTrace(), []
+            print("RECORDING — → save, ← discard, Esc save nothing and quit"
+                  + (f"; {policy.id} drives, touch the gamepad to take over" if policy else ""))
+            frames, roll, actions, takeover = 0, RollTrace(), [], None
             while not events["exit_early"]:
                 t0 = time.time()
-                command = gamepad.step(arm, dt)
-                ok, frame = camera.read()
-                if not ok:
-                    continue
-                state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
+                if policy is not None and takeover is None and gamepad.touched():
+                    takeover = frames
+                    gamepad.start(arm)          # from the policy's last command: no drop, the gripper held
+                    print(f"  t={frames / config.FPS:4.1f}s you have it")
+                    session.intervention("takeover", tile=tile["tile_name"], frame=frames)
+                if policy is not None and takeover is None:
+                    ok, frame = camera.read()
+                    if not ok:
+                        continue
+                    state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
+                    command, _ = next_command(policy, frame, state, anchor, limits, last_safe)
+                    arm.send(command)
+                    last_safe = command
+                else:
+                    command = gamepad.step(arm, dt)
+                    ok, frame = camera.read()
+                    if not ok:
+                        continue
+                    state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
                 roll.add(command["wrist_roll"], float(state[ROLL]))
                 actions.append(action)
@@ -249,13 +288,15 @@ def main(argv=None):
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
             returned = not args.no_return and return_tile(arm, actions, result, session, tile["tile_name"])
+            dagger = {"policy": policy.id, "takeover_frame": takeover} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
                 reason = None
                 if not events["stop_recording"]:
                     drain_stdin()
                     reason = ask_one({"ask": "Why discard it", "choices": DISCARD_REASONS}, None, input)
-                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason, **roll.summary())
+                session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason, **dagger,
+                              **roll.summary())
                 if events["stop_recording"]:
                     break
                 if not returned and ask_same_tile(arm, reason):      # a returned tile has moved
@@ -270,11 +311,13 @@ def main(argv=None):
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
-                      "conditions": session.conditions, **placement, **roll.summary()}
+                      "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
             session.event("episode_saved", **record)
-            print(f"Saved episode {episode} ({frames / config.FPS:.1f}s)")
+            print(f"Saved episode {episode} ({frames / config.FPS:.1f}s"
+                  + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None
+                     else f", no takeover: {policy.id}'s alone, not trained on)"))
             offset = None          # the next episode draws its own
             if placement:
                 todo.pop(0)

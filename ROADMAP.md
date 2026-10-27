@@ -20,7 +20,7 @@ helped.
 5. Record the jittered training set from v2n's hover (`--hover-gripper 27.2`, or v3 vs v2n measures
    the gripper opening too), train v3, score it offline, bench it with the perturbation test
    (expect slope ~0) and paired against v2n.
-6. DAgger on v3 (9): needs a takeover feature first.
+6. DAgger on v3 (9): the takeover is built (`record.py --policy`); record corrections on v3c.
 7. Only then the hover A/B (1, Next 3).
 
 ## 1. Every bench run improves the hover
@@ -281,6 +281,14 @@ the frames from then on are recorded with the operator's actions as labels. Cons
   shouldn't be trained on as demos (keep them, flagged).
 - Log each takeover as a rescue (3), so the scorecard still counts it.
 - DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
+
+**Built (2026-10-28):** `record.py --policy ID` (README, DAgger). The policy drives until the first
+gamepad touch (`GamepadTeleop.touched`, no commit delay), then the gamepad starts from `Arm.commanded()`.
+Every frame is recorded, with `policy` / `takeover_frame` in the episode-log row and a `takeover`
+rescue in the session. `dataset.build` keeps the frames from the takeover on, anchored at the hover
+(frame 0), and leaves out episodes with no takeover. `make_policy.py --add REPO` trains on such a
+dataset next to the main one. Not yet tried on the arm. First target: the far spots, where both v3b
+and v3c descend ~13mm deeper than the demos (FK heights drift with reach, CLAUDE.md).
 
 ## 10. The tile detector
 

@@ -95,3 +95,9 @@ def test_finish_close_carries_a_short_close_on_to_zero_at_its_own_rate():
     assert list(finish_close([27.2, 10.0, 0.0, 0.0])) == [27.2, 10.0, 0.0, 0.0]   # closed fully: unchanged
     opened = finish_close([27.2, 15.0, 7.0, 7.0, 30.0, 30.0])
     assert list(opened[4:]) == [30.0, 30.0]                   # a later release is left alone
+
+
+def test_keep_mask_drops_everything_before_a_dagger_takeover():
+    states, actions, deltas = episode()
+    keep = keep_mask(states, actions, deltas, trim_idle=False, start=120)
+    assert not keep[:120].any() and keep[120:].all()

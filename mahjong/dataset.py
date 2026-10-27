@@ -9,11 +9,16 @@ Trims (each a per-episode frame mask, applied in order):
 - gripper narrowing (optional): the opening phase where the jaws are narrowed from the hover's 90% to
   ~21% before descending. Trimming it makes episodes start where that ends, so they can be mixed with
   episodes recorded from a ~23% hover.
+- DAgger (record.py --policy): frames before the takeover are the policy's own, not a demo; they're
+  dropped, and an episode with no takeover is left out.
 Deltas (observation.state, action) are re-anchored to each episode's first kept frame, so every
-episode starts from a zero state delta, as deployment does at the hover.
+episode starts from a zero state delta, as deployment does at the hover. A DAgger episode stays
+anchored at its first frame, the hover: deployed, the policy is at that point in the pickup with a state
+delta from the hover too.
 
 `episodes` picks which source episodes go in: make_policy.py leaves out the held-out ones
-(data/eval_split.json), offline_eval.py builds only those.
+(data/eval_split.json), offline_eval.py builds only those. `extra` adds episodes of other recorded
+datasets (make_policy.py --add, e.g. DAgger corrections) after them.
 """
 import json
 from pathlib import Path
@@ -81,8 +86,10 @@ def finish_close(grip, default_rate=1.67):
     return grip
 
 
-def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False):
+def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False, start=0):
+    """start: the first frame that can be kept (a DAgger episode's takeover)."""
     drop = idle_mask(actions) if trim_idle else np.zeros(len(actions), bool)
+    drop[:start] = True
     if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
         drop[:takeover_sag_end(states_raw)] = True
     if trim_narrowing:
@@ -90,12 +97,19 @@ def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, t
     return ~drop
 
 
+def takeover_frame(record):
+    """(is a DAgger episode, frame the person took over at or None) from its episode-log record."""
+    return "policy" in record, record.get("takeover_frame")
+
+
 def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), episodes=None,
-          close_gripper=(), log=print):
+          close_gripper=(), extra=(), log=print):
     """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. episodes: the source
-    episode indices to include (default all). Returns a summary; its source_episodes maps each built
-    episode back to its source index (and so to the source's episode log)."""
-    import torchvision.transforms.functional as F
+    episode indices to include (default all). extra: [(repo, episodes, close_gripper)] of other recorded
+    datasets to add after them. Returns a summary; its source_episodes maps each built episode of src_repo
+    back to its source index (and so to the source's episode log), sources every built one to
+    [repo, index], and dagger_episodes lists the built DAgger ones (they start at a takeover, not at a
+    zero state delta)."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from lerobot.utils.constants import HF_LEROBOT_HOME
 
@@ -107,20 +121,51 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
     features["observation.images.wrist"]["shape"] = (size[0], size[1], 3)
     dst = LeRobotDataset.create(repo_id=dst_repo, fps=src.fps, features=features, robot_type=src.meta.robot_type,
                                 use_videos=True)
+    trims = dict(trim_idle=trim_idle, trim_sag=trim_sag, trim_narrowing=trim_narrowing)
+    sources, dagger, source_frames, start_grippers = [], [], 0, []
+    for repo, eps, closing in [(src_repo, episodes, close_gripper), *extra]:
+        ds = src if repo == src_repo else LeRobotDataset(repo)
+        if ds.fps != src.fps:
+            raise ValueError(f"{repo} is {ds.fps} fps, {src_repo} {src.fps}")
+        built, takeovers, frames, grippers = _add_episodes(dst, ds, repo, eps, set(closing), size, trims, log,
+                                                 label="" if repo == src_repo else f"{repo} ")
+        dagger += [len(sources) + k for k, t in enumerate(takeovers) if t is not None]
+        sources += [[repo, ep] for ep in built]
+        source_frames += frames
+        start_grippers += grippers
+    dst.finalize()
+    return {"episodes": len(sources), "source_episodes": [ep for repo, ep in sources if repo == src_repo],
+            "sources": sources, "dagger_episodes": dagger, "frames": int(dst.meta.total_frames), "source_frames": source_frames,
+            "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root)}
+
+
+def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, label=""):
+    """Add src's `episodes` (default all) to dst. Returns (episodes built, each one's takeover frame or
+    None, their source frames, each one's start gripper)."""
+    import torchvision.transforms.functional as F
     h = src.hf_dataset
     actions, actions_raw, states_raw = (np.stack(h[k]) for k in ("action", "action_raw", "observation.state_raw"))
     actions, actions_raw = actions.copy(), actions_raw.copy()
+    records = episode_log(repo)
     episodes = list(range(src.num_episodes)) if episodes is None else sorted(int(e) for e in episodes)
-    kept, start_grippers = 0, []
+    built, takeovers, source_frames, start_grippers = [], [], 0, []
     for n, ep in enumerate(episodes, start=1):
         meta = src.meta.episodes[ep]
         a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
+        dagger, takeover = takeover_frame(records.get(ep, {}))
+        if dagger and takeover is None:
+            log(f"  {label}episode {ep} ({n}/{len(episodes)}): left out, the policy's alone (no takeover)")
+            continue
         if ep in close_gripper:                # stopped short of 0 on the tile (quality.gripper_fixes)
             fixed = finish_close(actions_raw[a:b, 5])
             actions[a:b, 5] += fixed - actions_raw[a:b, 5]
             actions_raw[a:b, 5] = fixed
-        keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trim_idle, trim_sag, trim_narrowing))
-        anchor = states_raw[a + keep[0]]
+        keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trims["trim_idle"],
+                                        trims["trim_sag"] and not dagger, trims["trim_narrowing"], start=takeover or 0))
+        if not len(keep):
+            log(f"  {label}episode {ep} ({n}/{len(episodes)}): left out, nothing kept")
+            continue
+        anchor = states_raw[a] if dagger else states_raw[a + keep[0]]
         start_grippers.append(float(anchor[5]))
         for i in keep:
             item = src[a + int(i)]
@@ -133,13 +178,12 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
                 "observation.images.wrist": (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8"),
                 "task": item["task"]})
         dst.save_episode()
-        kept += len(keep)
-        log(f"  episode {ep} ({n}/{len(episodes)}): kept {len(keep)}/{b - a}")
-    dst.finalize()
-    source_frames = sum(int(src.meta.episodes[e]["dataset_to_index"]) - int(src.meta.episodes[e]["dataset_from_index"])
-                        for e in episodes)
-    return {"episodes": len(episodes), "source_episodes": episodes, "frames": kept, "source_frames": source_frames,
-            "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root)}
+        built.append(ep)
+        takeovers.append(takeover)
+        source_frames += b - a
+        log(f"  {label}episode {ep} ({n}/{len(episodes)}): kept {len(keep)}/{b - a}"
+            + (f" (from the takeover at frame {takeover})" if dagger else ""))
+    return built, takeovers, source_frames, start_grippers
 
 
 def episode_log(repo_id):

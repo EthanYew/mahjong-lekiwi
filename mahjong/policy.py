@@ -123,6 +123,14 @@ def tip_floor(command, last_safe):
     return floored, True
 
 
+def next_command(policy, frame, state, anchor_vec, limits, last_safe):
+    """One policy step from the hover `anchor_vec`: (absolute command within the joint limits and above
+    the table floor, whether the floor held it back). state: measured joints, config.JOINTS order."""
+    delta = policy.step(frame, state - anchor_vec)
+    command = {j: float(np.clip(anchor_vec[i] + delta[i], *limits[j])) for i, j in enumerate(config.JOINTS)}
+    return tip_floor(command, last_safe)
+
+
 def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config.ACT_DURATION_S, log=print):
     """Run `policy` from wherever the arm is (the hover) until the tile is held and lifted for
     HOLD_CONFIRM_S, `abort` (an Event) is set, or duration_s runs out. `mark` (an Event with clear())
@@ -197,9 +205,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
             elif done_since is not None:
                 done_since, slipped = None, True
                 log(f"  t={step / config.FPS:4.1f}s grip or lift lost during the hold check")
-            delta = policy.step(frame, state - anchor_vec)
-            command = {j: float(np.clip(anchor_vec[i] + delta[i], *limits[j])) for i, j in enumerate(config.JOINTS)}
-            command, floored = tip_floor(command, last_safe)
+            command, floored = next_command(policy, frame, state, anchor_vec, limits, last_safe)
             floored_steps += floored
             arm.send(command)
             last_safe = command

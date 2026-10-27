@@ -45,6 +45,7 @@ KINDS = {
     "cancelled": ("tile choice cancelled", OBSERVATION),
     "spot_empty": ("no tile at a layout spot; the walk skipped it", OBSERVATION),
     "hover_rejected": ("rejected the hover (←)", RESCUE),
+    "takeover": ("took the gamepad from the policy (DAgger)", RESCUE),
     "success_overridden": ("answered against the gripper's verdict", OVERRIDE),
     "knocked": ("a tile other than the target moved", FAILURE),
     "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),

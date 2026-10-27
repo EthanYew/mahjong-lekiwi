@@ -212,6 +212,13 @@ def main():
         success_map(attempts)
         perturbation_report(attempts)
     episodes = [e for e in events if e["type"] == "episode_saved"]
+    dagger = [e for e in episodes if e.get("policy")]
+    if dagger:
+        taken = [e["takeover_frame"] / config.FPS for e in dagger if e.get("takeover_frame") is not None]
+        print(f"\nDAgger ({', '.join(sorted({e['policy'] for e in dagger}))}): {len(dagger)} episode(s) saved, "
+              f"{len(taken)} taken over" + (f" at {np.median(taken):.1f}s (median; range {min(taken):.1f}-{max(taken):.1f}s)"
+                                              if taken else "")
+              + (f"; {len(dagger) - len(taken)} the policy's alone (not trained on)" if len(taken) < len(dagger) else ""))
     found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
     if attempts:
         tags = defaultdict(set)

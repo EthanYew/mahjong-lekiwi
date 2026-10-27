@@ -45,6 +45,8 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
+| Correct a policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c` (touch the gamepad to take over) |
+| Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --version v4 --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
@@ -124,7 +126,18 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c                # DAgger corrections
 ```
+
+**DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
+the hover, `→` starts the episode with the policy driving. The first time you touch the gamepad (any stick
+or button) the policy stops and you have the arm, from where the policy last put it, with the gripper
+held. Finish the pickup, then `→` saves as usual. Every frame is recorded. Training
+(`make_policy.py --add`) keeps only your frames, from the takeover on. An episode where you never took
+over is saved, but it isn't trained on. Take over as soon as you see the mistake coming (heading low,
+about to drag the table or bump a neighbour), not after it. The policy's own hover (offset, clearance,
+gripper) replaces `--hover-*`. Each takeover is logged as a rescue, and `session_report.py` lists them
+with when you took over. Use a dataset of their own, never an eval slice.
 
 | Option | What it does |
 |---|---|
@@ -143,6 +156,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --lay
 | `--no-correction` | hover over the raw detection |
 | `--no-view` | no wrist camera window |
 | `--no-return` | don't set a held tile back down: it's released at rest, as before |
+| `--policy ID` | DAgger: this registered policy drives from its own hover until you touch the gamepad (see above) |
 | `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't. The right stick moves height *or* wrist roll: whichever moves first, until it's back at centre |
 | `--device PATH` | gamepad device path (default: the first gamepad found) |
 
@@ -193,6 +207,7 @@ python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 -
 | `--policy-id ID` | registry name (default `pickup_mat_cl_<version>`, like the registered ones) |
 | `--default` | make it the default policy for `bench.py` |
 | `--dry-run` | print the plan and stop. Always do this first |
+| `--add REPO` | train on another recorded dataset as well (repeatable), e.g. DAgger corrections: only their frames from the takeover on |
 | `--trim-narrowing` | also cut the slow gripper narrowing at the start of each episode |
 | `--steps N` | training steps (default ~131 passes over the data) |
 | `--private` | upload as private (default is public under `Yewy/`) |
