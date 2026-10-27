@@ -15,6 +15,7 @@ import pandas as pd
 from . import config, kinematics
 from .dataset import episode_log
 
+DROPPED_FILE = config.DATA / "dropped_episodes.json"     # {repo: {episode: reason}}: reviewed, never trained on
 REVERSAL_MM = 5.0
 REVERSAL_GRIPPER = 5.0
 IDLE_SPEED_MM_S = 3.0
@@ -208,3 +209,26 @@ def drift_table(episodes, reference):
         rows.append({**row, "move_x": mine[0], "move_y": mine[1], "ref_x": theirs[0], "ref_y": theirs[1],
                      "shift_x": mine[0] - theirs[0], "shift_y": mine[1] - theirs[1]})
     return pd.DataFrame(rows).set_index("spot").sort_index()
+
+
+# --- episodes dropped after review: listed, not deleted, so a dataset still being recorded into keeps its
+# episode numbers (and its episode log's); make_policy.py leaves them out of training ---
+
+def dropped_episodes(repo_id, path=None):
+    """{episode: reason} dropped from repo_id after review."""
+    path = Path(path or DROPPED_FILE)
+    if not path.exists():
+        return {}
+    return {int(ep): reason for ep, reason in json.loads(path.read_text()).get(repo_id, {}).items()}
+
+
+def drop_episodes(repo_id, episodes, reason, path=None):
+    """Add episodes to repo_id's dropped list (reason kept with each). Returns the whole list."""
+    path = Path(path or DROPPED_FILE)
+    data = json.loads(path.read_text()) if path.exists() else {}
+    entry = data.setdefault(repo_id, {})
+    for ep in episodes:
+        entry[str(int(ep))] = reason
+    data[repo_id] = dict(sorted(entry.items(), key=lambda kv: int(kv[0])))
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    return dropped_episodes(repo_id, path)

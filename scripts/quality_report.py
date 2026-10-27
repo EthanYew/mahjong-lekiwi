@@ -5,6 +5,7 @@ detours, wobble), and optionally the hover→grasp move against another recordin
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover
     python scripts/quality_report.py --dataset ... --episode 37     # when each reversal happened
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases     # phases per episode
+    python scripts/quality_report.py --dataset ... --drop 8,39 --reason "searching"   # never trained on
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
 
 The hover→grasp check compares only demos that steered: one lowered straight down says "close enough for the
@@ -17,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, dataset_root, drift_table,
-                             load_episodes, phase_table, quality_table)
+from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, drift_table, drop_episodes,
+                             dropped_episodes, load_episodes, phase_table, quality_table)
 
 
 def main():
@@ -30,7 +31,12 @@ def main():
     p.add_argument("--csv", default=None)
     p.add_argument("--phases", action="store_true", help="print each episode's pickup phases")
     p.add_argument("--against", metavar="REPO", help="compare hover→grasp moves with this recording, spot by spot")
+    p.add_argument("--drop", metavar="EPS", help="comma-separated episodes to leave out of training (data/dropped_episodes.json)")
+    p.add_argument("--reason", default="reviewed", help="with --drop: why, kept with each episode")
     args = p.parse_args()
+    if args.drop:
+        dropped = drop_episodes(args.dataset, [int(e) for e in args.drop.split(",") if e.strip()], args.reason)
+        print(f"Dropped from {args.dataset} (make_policy.py leaves them out): {sorted(dropped)}\n")
     table, events, fps = quality_table(args.dataset)
     if args.episode is not None:
         row = table.loc[args.episode]
@@ -42,20 +48,22 @@ def main():
     medians = table[["duration", "path_mm", "tip_rev", "grip_rev", "jerk", "idle"]].median()
     print(f"{args.dataset}: {len(table)} episodes. Median {medians['duration']:.1f}s, {medians['tip_rev']:.0f} tip / "
           f"{medians['grip_rev']:.0f} gripper reversals, jerk {medians['jerk']:.1f}, idle {medians['idle']:.0%}\n")
-    scored = "score" in table
+    scored, dropped = "score" in table, dropped_episodes(args.dataset)
+    if dropped:
+        print(f"Dropped after review, not trained on (x below): {sorted(dropped)}\n")
     print(f"{'ep':>4} {'score':>6} {'worst':<9} {'dur s':>6} {'tip_rev':>7} {'grip_rev':>8} {'jerk':>7} {'idle':>5}  tile")
     for ep, r in (table.head(args.worst) if scored else table).iterrows():
         print(f"{ep:>4} {r.get('score', float('nan')):>6.1f} {r.get('worst', ''):<9} {r['duration']:>6.1f} "
-              f"{r['tip_rev']:>7} {r['grip_rev']:>8} {r['jerk']:>7.1f} {r['idle']:>5.0%}  {r['tile']}")
+              f"{r['tip_rev']:>7} {r['grip_rev']:>8} {r['jerk']:>7.1f} {r['idle']:>5.0%}  {r['tile']}"
+              + ("  x" if ep in dropped else ""))
     if args.csv:
         table.to_csv(args.csv)
     if scored:
-        flagged = sorted(int(e) for e in table.index[table["score"] >= args.flag])
-        print(f"\n{len(flagged)} scored >= {args.flag}: {flagged}")
+        flagged = sorted(int(e) for e in table.index[table["score"] >= args.flag] if int(e) not in dropped)
+        print(f"\n{len(flagged)} scored >= {args.flag}{' (not yet dropped)' if dropped else ''}: {flagged}")
         if flagged:
-            print(f"Review them (--episode N), then to write a filtered copy:\n  lerobot-edit-dataset --repo_id {args.dataset} "
-                  f"--root {dataset_root(args.dataset)} --new_repo_id {args.dataset}_filtered "
-                  f"--operation.type delete_episodes --operation.episode_indices \"{flagged}\"")
+            print(f"Review them (--episode N), then leave the bad ones out of training:\n  "
+                  f"python scripts/quality_report.py --dataset {args.dataset} --drop {','.join(map(str, flagged))} --reason ...")
     print_phases(phase_table(args.dataset), args.phases)
     if args.against:
         print_drift(args.dataset, args.against)

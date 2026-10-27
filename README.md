@@ -151,7 +151,12 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3 --episode 37   # when each reversal happened
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases          # phases per episode
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
+python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_jitter_v3 --drop 8,39 --reason "searching"
 ```
+
+`--drop EPS` leaves reviewed episodes out of training without deleting them: they're listed in
+`data/dropped_episodes.json` (with `--reason`), marked `x` in the table, and `make_policy.py` skips them.
+The recording keeps its episode numbers, so you can go on recording into it.
 
 `--against REPO` compares each spot's hover→grasp move with the other recording's at the same place
 (within 15 mm), counting only demos that steered. A demo lowered straight down only says the tile was
@@ -159,7 +164,7 @@ close enough for the jaws (a third of v2's were). Shifts beyond ~6 mm in one dir
 are worth a `collect_corrections.py` check; a few spots differing is as likely to be how the demos were done.
 
 Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table),
-`--phases`, `--against REPO`.
+`--phases`, `--against REPO`, `--drop EPS --reason TEXT`.
 
 ## Training a policy: `scripts/make_policy.py`
 
