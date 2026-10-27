@@ -38,6 +38,7 @@ not a worktree, or the sessions go when the worktree does.
 | Test a specific policy | `python scripts/bench.py --policy pickup_mat_cl_v1 --trials 5 --tile 8D` |
 | Check a policy steers to the tile (vs. a memorised move) | `python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y` |
 | See what happened in the last session | `python scripts/session_report.py` |
+| See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
 | Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
@@ -77,7 +78,7 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 |---|---|
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default). `a,b` compares two, paired: rounds alternate a b / b a from the same hover |
 | `--layout NAME` | trials walk this layout's spots (`scripts/layout.py`); the report shows success by spot and policy |
-| `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile. Every return in the run puts the tile where the first round's jaws closed, so it doesn't walk off |
+| `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile. Every return aims the tile at its home (see below), so it doesn't walk off |
 | `--tile NAME` | tile for `--trials`, e.g. `8D` |
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
@@ -96,6 +97,13 @@ full wrist video (`wrist.mp4`) in its folder, so a new policy can be replayed on
 After each attempt the RealSense rescans the mat. If tiles moved, the bench shows the change and
 asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also saves the frames the
 detector looked at in the session's `scans/` folder, for improving the detector (see below).
+
+**Returns go home.** A tile's home is where it was first seen this session (per layout spot, or per
+tile name; a tile found more than 40mm from its home was moved on purpose and gets a new one). A return
+aims the tile at its home, not where the jaws closed, so errors don't add up round after round, using
+the return correction (below). The scan after a return checks where it landed: over 12mm from home it
+says so; over 25mm, or out of the hover's reach, it asks you to put the tile back on its home (Enter
+when done; logged as a reset).
 
 ## Reading results: `scripts/session_report.py`
 
@@ -251,6 +259,23 @@ python scripts/hover_samples.py --sessions sessions/20261023_123549_bench       
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
 policies (they replay a memorised move from it; see `CLAUDE.md`).
+
+## Return correction (setting tiles down where they were)
+
+The jaws pull a tile only partway to their centre, so where a returned tile lands depends on how
+off-centre that grasp was. Every bench return logs where it was set down and where the RealSense saw
+it land (`data/return_corrections.jsonl`); the bench fits from these and aims each return so the tile
+lands at its home. The fit is used only if it predicts landings better than "the tile keeps its offset
+in the jaws", by leave-one-position-out error. Like the hover correction, it's tied to the RealSense
+calibration.
+
+```
+python -m mahjong.return_correction                 # the fit: landing error per position, before and after
+python scripts/return_samples.py                    # import returns from every bench session (bench.py adds its own)
+python scripts/return_samples.py sessions/20261028_090511_bench   # ...or just these
+```
+
+`session_report.py` prints how far a session's returns landed from home.
 
 ## Tile layouts: `scripts/layout.py`
 

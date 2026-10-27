@@ -2,12 +2,11 @@
 
     1 hover          detect, choose a tile, hover over it (corrected, settled from above)
     2 pickup         hover, then the policy picks it up; parks at rest holding it
-    3 return         put the held tile back where the jaws closed on it (or up to 15mm closer, if that's
-                     beyond reach), then rest
+    3 return         put the held tile back at its home (where it was first seen this session), aimed so it
+                     lands there (mahjong/return_correction.py; up to 15mm closer if beyond reach), then rest
     4 discard        carry the held tile to the taught discard pose and release it, then rest
     5 teach-discard  drive the arm over the discard container with the gamepad and save that pose
-    6 trials         pickup -> success check -> return, N times on one tile; prints the success rate. Every
-                     return in a run goes where the first round's jaws closed, so the tile doesn't walk
+    6 trials         pickup -> success check -> return, N times on one tile; prints the success rate
     7 rest           lift if low, then park (never opens the gripper)
     8 note           log something you had to do (straightened tiles, put tiles back, ...) for the last attempt
     9 setup          the setup changed mid-session (lamp on, battery swapped): answer the setup questions again
@@ -30,6 +29,11 @@ summarises the latest one, interventions included (mahjong/interventions.py).
     python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
     python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # 2 x spots x 2
 
+Returns aim at the tile's home, not where the jaws closed: returning to each grasp point walked tiles
+77-100mm in 10 rounds. Each return's landing goes to data/return_corrections.jsonl (what the return model
+is fitted from); one landing more than 12mm from home is printed, and past 25mm (or out of the hover's
+reach) you're asked to put the tile back on its home, logged as a reset.
+
 Every successful attempt also saves a hover-correction sample (source "bench": where the jaws closed
 minus the detection) to data/hover_corrections.jsonl; it's only fitted once data/hover_model.json
 lists "bench". --hover-perturb-mm cycles deliberate hover offsets through the trials, to test whether
@@ -45,6 +49,7 @@ session_report.py prints success per spot and policy side by side.
 """
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -53,10 +58,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, interventions, layout
+from mahjong import config, detector, interventions, kinematics, layout
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
+from mahjong.return_correction import ReturnCorrection, landed_tile, return_record
 from mahjong.session import Session, ask_conditions, ask_notes
 
 
@@ -121,28 +127,34 @@ class Bench:
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
-        # {"tile_name", "detection_xy", "return_xy", "approach_offset_m", "attempt_dir"} while holding a tile
+        # simulated returns land exactly where they're set down: the real return model doesn't apply
+        self.returns_path = self.session.dir / "return_corrections.jsonl" if args.sim else config.RETURN_CORRECTIONS
+        self.returns = ReturnCorrection.load(self.returns_path)
+        # {"tile_name", "detection_xy", "home_xy", "grasp_xy", "approach_offset_m", "attempt_dir", "spot"} while holding a tile
         self.held = None
-        # during trials, {tile or spot: where the first round's jaws closed}: every return goes there. Returning
-        # to each round's own grasp point walked the tile ~1cm a round (8cm in 10, 2026-10-27, v3b at 6C): any
+        # {spot or tile: where it was first seen this session}: every return aims there. Returning to each
+        # round's own grasp point walked the tile ~1cm a round (8cm in 10, 2026-10-27, v3b at 6C): any
         # off-centre grip carried into the next round
         self.homes = {}
         self.policy = self.policies[0]      # the one single commands use; trials take turns
         for policy in self.policies:
             print(f"Policy: {policy.id}, hover {policy.hover}")
         print(f"Hover correction: {self.correction.summary()}")
+        print(f"Return correction: {self.returns.summary()}")
         if self.spots:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
         self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
                            policies=[{"id": p.id, "hover": p.hover} for p in self.policies],
                            layout=args.layout, spots=self.spots,
-                           correction=self.correction.summary(), hover_perturb_offsets_m=args.hover_perturb_mm)
+                           correction=self.correction.summary(), return_correction=self.returns.summary(),
+                           hover_perturb_offsets_m=args.hover_perturb_mm)
 
     # --- pieces ---
 
-    def scan(self, label, **fields):
+    def scan(self, label, confirmed=None, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
-        mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans)."""
+        mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans), unless
+        they already said what it was (`confirmed`: its kinds, e.g. ["tile_reset"])."""
         tiles = self.realsense.detect_tiles()
         self.scan_n += 1
         frames = detector.save_session_scan(self.realsense, self.session, self.scan_n, label)
@@ -150,9 +162,11 @@ class Bench:
                                   tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
                                          for t in tiles])
         proposal = self.mat.propose(scan)
-        if proposal:
+        if proposal and confirmed:
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=confirmed)
+        elif proposal:
             self.scan_checks.append((scan, proposal))
-        self.mat.advance(scan, proposal, [proposal[0]] if proposal else [])
+        self.mat.advance(scan, proposal, (confirmed or [proposal[0]]) if proposal else [])
         return tiles
 
     def check_scans(self):
@@ -190,6 +204,15 @@ class Bench:
             self.session.event("attempt_skipped", reason="cancelled" if tile_name is None else "not_detected",
                                tile=tile_name)
         return tile
+
+    def home_for(self, tile, spot=None):
+        """Where a tile picked up now is returned to: where this spot's (or this tile's) tile was first seen
+        this session, unless it's now more than HOME_RADIUS_M from there (moved on purpose: a new home)."""
+        key = spot["id"] if spot else tile["tile_name"]
+        home = self.homes.get(key)
+        if home is None or math.dist(tile["xy"], home) > config.HOME_RADIUS_M:
+            home = self.homes[key] = [float(v) for v in tile["xy"]]
+        return home
 
     def hover_over(self, tile, perturb=(0.0, 0.0)):
         x, y = tile["xy"]
@@ -274,11 +297,10 @@ class Bench:
                 sample["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
             append_record(sample, self.samples_path)
         if holding:
-            return_xy = run["grasp_xy"] or hover["hover_xy"]
-            if self.batch:
-                return_xy = self.homes.setdefault(spot["id"] if spot else tile["tile_name"], return_xy)
-            self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]), "return_xy": return_xy,
-                         "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name}
+            self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
+                         "home_xy": self.home_for(tile, spot), "grasp_xy": run["grasp_xy"] or hover["hover_xy"],
+                         "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name,
+                         "spot": spot["id"] if spot else None}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
 
@@ -304,20 +326,68 @@ class Bench:
         return {k: v for k, v in answers.items() if v}
 
     def return_tile(self):
+        """Set the held tile down so it lands at its home, then check where it landed (check_landing)."""
         if not self.held:
             return print("Not holding a tile.")
-        x, y = self.held["return_xy"]
-        print(f"Returning {self.held['tile_name']} to ({x:.3f}, {y:+.3f})")
-        placed = self.arm.place(x, y, self.held["approach_offset_m"])
+        held = self.held
+        home = held["home_xy"]
+        print(f"Returning {held['tile_name']} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
+        x, y = self.returns.target(home, held["detection_xy"], held["grasp_xy"])
+        placed = self.arm.place(x, y, held["approach_offset_m"])
         if placed is None:
             print("Still holding it — discard it instead.")
-            self.session.event("return_skipped", reason="unreachable", tile=self.held["tile_name"], xy=[x, y],
-                               attempt_dir=self.held["attempt_dir"])
+            self.session.event("return_skipped", reason="unreachable", tile=held["tile_name"], xy=[x, y],
+                               attempt_dir=held["attempt_dir"])
             return
-        self.session.event("return", tile=self.held["tile_name"], asked_xy=[x, y], **placed)
-        # the returned tile, where the camera saw it (return_xy is the arm's target, ~40mm from that)
-        self.scan("after_return", attempt_dir=self.held["attempt_dir"], target_xy=self.held["detection_xy"])
+        self.session.event("return", tile=held["tile_name"], asked_xy=[x, y], home_xy=home,
+                           return_correction=self.returns.name, attempt_dir=held["attempt_dir"], **placed)
+        # the returned tile, where the camera saw it (the arm's target is in its own frame, ~40mm from that);
+        # a change near its home is the return itself, not a knock
+        tiles = self.scan("after_return", attempt_dir=held["attempt_dir"], target_xy=home)
         self.held = None
+        self.check_landing(held, placed, tiles, self.scan_n)
+
+    def check_landing(self, held, placed, tiles, scan_n):
+        """Where the returned tile landed: a sample for the return model, a warning past RETURN_DRIFT_WARN_M
+        from home, and a person putting it back past RETURN_DRIFT_RESET_M or out of the hover's reach (the
+        next pickup would start from there)."""
+        home, name = held["home_xy"], held["tile_name"]
+        tile = landed_tile(tiles, name, home)
+        if tile is None:
+            print(f"  {name} not seen within 50mm of its home after the return")
+            self.session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home, landed_xy=None)
+            return
+        landed = list(tile["xy"])
+        error = math.dist(landed, home)
+        self.session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home,
+                           landed_xy=landed, error_m=error)
+        append_record(return_record(held["detection_xy"], held["grasp_xy"], placed["xy"], landed, tile_name=name,
+                                    policy=self.policy.id, spot=held["spot"], home_xy=home,
+                                    return_correction=self.returns.name, session=self.session.dir.name,
+                                    attempt_dir=held["attempt_dir"]), self.returns_path)
+        h = self.policy.hover
+        hx, hy = self.correction.apply(*landed, log=lambda *a: None)
+        reachable = kinematics.hover_command(hx, hy, h["offset_m"], h["gripper"])[0] is not None
+        if error <= config.RETURN_DRIFT_WARN_M and reachable:
+            return
+        print(f"  {name} landed {error * 1000:.0f}mm from its home "
+              f"({(landed[0] - home[0]) * 1000:+.0f}, {(landed[1] - home[1]) * 1000:+.0f})mm"
+              + ("" if reachable else ", out of the hover's reach"))
+        if error <= config.RETURN_DRIFT_RESET_M and reachable:
+            return
+        # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
+        # was the landing itself, not a knock (anything else the scan saw change is still asked about)
+        for check in [c for c in self.scan_checks if c[0]["scan"] == scan_n]:
+            diff = check[1][1]
+            if not (diff["moved"] or diff.get("turned") or diff["gone"]) and \
+                    [t["xy"] for t in diff["appeared"]] == [list(tile["xy"])]:
+                self.scan_checks.remove(check)
+                self.session.event("scan_review", scan=scan_n, proposed=check[1][0], kinds=[],
+                                   note="the returned tile landing off its home")
+        drain_stdin()
+        input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
+        # what the next scan sees move was a person putting it back: say so instead of asking again
+        self.scan("after_reset", confirmed=["tile_reset"], attempt_dir=held["attempt_dir"])
 
     def discard(self, ask=True):
         if not config.DISCARD_POSE.exists():
@@ -369,7 +439,7 @@ class Bench:
         plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
                 for policy in (self.policies if i % 2 == 0 else self.policies[::-1])]
         done, skipped = [], set()       # done: (spot id, policy id, success)
-        self.batch, self.homes = True, {}
+        self.batch = True
         try:
             for spot, i, policy in plan:
                 where = spot["id"] if spot else None

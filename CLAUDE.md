@@ -46,6 +46,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
+| `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
@@ -74,6 +75,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `RAISED_REST` and folded it back before doing anything. Re-measure it if the arm or its stops change.
 - **The right stick moves height or wrist roll, never both** (`gamepad.EXCLUSIVE_AXES`): a pull down leaked
   into roll past XLeRobot's 25° snap and turned the wrist mid-descent (2026-10-27, 7B).
+- **Returns aim at the tile's home, never where the jaws closed.** Returning to each grasp point carried
+  every return's error into the next pickup: tiles walked 77mm (4D, 9 rounds) and 100mm (6C, 10 rounds)
+  toward the edge of the reach on 2026-10-27. Over 95 bench returns a pick + return moved a tile 5.7mm
+  (median), leaning +2.8mm in y; the jaws pull a tile only partway to their centre (55-65% of its offset
+  in the jaws stays with it), so where it lands depends on that grasp, which the return model
+  (`mahjong/return_correction.py`) takes as input (landing error 10.5mm → 6.8mm RMS, leave-one-position-out).
+  Unconfirmed on the arm that aiming with it keeps tiles within ~10mm of home over many rounds.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
   ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return

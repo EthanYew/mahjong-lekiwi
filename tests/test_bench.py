@@ -220,7 +220,7 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert done["spots"] == ["L", "L", "R", "R"] and done["skipped_spots"] == ["empty"]
 
 
-def test_every_return_in_a_trial_run_goes_where_the_first_round_closed(tmp_path, monkeypatch):
+def test_every_return_in_a_trial_run_lands_at_the_tiles_home(tmp_path, monkeypatch):
     """2026-10-27: returning each round to its own grasp point walked the tile 8cm in 10 rounds."""
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
@@ -234,7 +234,8 @@ def test_every_return_in_a_trial_run_goes_where_the_first_round_closed(tmp_path,
     attempts = [e for e in events if e["type"] == "attempt"]
     returns = [e for e in events if e["type"] == "return"]
     assert len({tuple(a["grasp_xy"]) for a in attempts}) == 3          # the sim grasps where it hovered: offset each round
-    assert len(returns) == 3 and all(r["asked_xy"] == attempts[0]["grasp_xy"] for r in returns)
+    assert len(returns) == 3 and all(r["home_xy"] == attempts[0]["detection_xy"] for r in returns)
+    assert all(e["error_m"] < 0.001 for e in events if e["type"] == "return_landed")
 
 
 def test_an_attempt_the_wrist_camera_dropped_out_of_is_void_and_run_again(tmp_path, monkeypatch):
@@ -261,3 +262,62 @@ def test_an_attempt_the_wrist_camera_dropped_out_of_is_void_and_run_again(tmp_pa
     assert [a["success"] for a in attempts] == [True]
     assert void[0]["attempt_dir"] != attempts[0]["attempt_dir"]
     assert next(e for e in events if e["type"] == "trials_done")["results"] == [True]
+
+
+def test_returns_aim_at_the_home_so_a_crept_tile_goes_back(tmp_path, monkeypatch):
+    import builtins
+    from mahjong.return_correction import landings
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    monkeypatch.setattr(builtins, "input", lambda prompt: "")      # the creep between rounds: as the scans say
+    try:
+        b.trials(1, "8D")
+        b.realsense.nudge("8D", 0.010, 0.0)         # it crept 10mm since (a person, a knock)
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    first, second = [e for e in events if e["type"] == "return"]
+    assert first["home_xy"] == second["home_xy"]
+    (landed_1, landed_2) = [e for e in events if e["type"] == "return_landed"]
+    assert landed_1["error_m"] < 0.001 and landed_2["error_m"] < 0.001      # the sim mat lands it where it's set down
+    assert [r["error_m"] < 0.001 for r in landings(events)] == [True, True]
+    assert len(read_all(b.session.dir / "return_corrections.jsonl")) == 2     # sim samples stay out of data/
+
+
+def test_a_return_landing_far_off_its_home_is_put_back_by_a_person(tmp_path, monkeypatch):
+    import builtins
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    b.arm.robot.on_release = lambda xy, clearance: mat.release([xy[0] + 0.03, xy[1]], clearance)     # lands 30mm off
+    asked = []
+
+    def person(prompt):
+        asked.append(prompt)
+        if "Put 8D back" in prompt:
+            mat.nudge("8D", -0.03, 0.0)
+        return ""
+    monkeypatch.setattr(builtins, "input", person)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    (landed,) = [e for e in events if e["type"] == "return_landed"]
+    assert landed["error_m"] == pytest.approx(0.03, abs=0.001)
+    assert len(asked) == 1           # the reset, and nothing about a knock
+    assert [e["label"] for e in events if e["type"] == "detections"][-1] == "after_reset"
+    found = interventions.derive(events)
+    assert [(i["kind"], i["class"]) for i in found] == [("tile_reset", "reset")]
+
+
+def test_a_return_landing_a_little_off_is_only_noted(tmp_path, monkeypatch, capsys):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    b.arm.robot.on_release = lambda xy, clearance: mat.release([xy[0], xy[1] + 0.015], clearance)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert "8D landed 15mm from its home (+0, +15)mm" in capsys.readouterr().out
+    assert not any(e.get("label") == "after_reset" for e in read_events(b.session.dir))
