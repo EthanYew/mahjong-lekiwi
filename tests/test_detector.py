@@ -148,6 +148,11 @@ def test_capture_then_mine_exports_prelabelled_frames(tmp_path, monkeypatch):
     assert len(mine_frames.pick([session.dir], exam, exam_only=True)[0]) == 2
     assert detector.exam_frames(list((out / "train" / "images").iterdir()), exam)
 
+    # a session given by name alone is found under sessions/; one that isn't there stops with why
+    assert mine_frames.session_folders([Path(session.dir.name)]) == [session.dir]
+    with pytest.raises(SystemExit, match="No scans in"):
+        mine_frames.session_folders([Path("20990101_000000_capture")])
+
 
 def test_sim_sessions_are_never_mined(tmp_path, monkeypatch):
     import mine_frames
