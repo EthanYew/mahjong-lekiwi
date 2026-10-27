@@ -283,12 +283,20 @@ capture_frames.py / bench.py  →  mine_frames.py  →  Roboflow  →  train_det
 **1. Photos.** Every bench scan saves its 5 frames, the depth image and every box YOLO found (down to
 0.25 confidence) in `sessions/<session>/scans/<n>_<label>/`. `capture_frames.py` does the same without
 the arm: a live view with the detector's boxes (green at or above the 0.5 cut, amber below), space
-takes a scan, `l` says the lighting changed, `q` quits.
+takes a scan, `l` says the lighting changed, `q` quits. The keys and what to change before each scan
+are on screen, and under the view a panel counts every tile name scanned so far (as the detector read
+it): red none yet, amber below `--target` (default 3), green there. A scan whose tiles barely moved
+since the last one is flagged in amber: move or swap 5-8 tiles before the next.
 
 ```
-python scripts/capture_frames.py           # photos to train on
-python scripts/capture_frames.py --exam    # photos for the exam (one session per lighting)
+python scripts/capture_frames.py             # photos to train on
+python scripts/capture_frames.py --exam      # photos for the exam (one session per lighting)
+python scripts/capture_frames.py --target 5  # aim for 5 of each name
 ```
+
+Good captures: 12-15 face-up tiles from several suits across the whole mat (edges and corners too),
+one or two scans per arrangement, and a changed scene before every scan (move or swap tiles, turn a
+few, push some together). Many scans of one unchanged scene add little: they're near copies.
 
 **2. The exam.** A fixed set of labelled photos of the current scene that is **never trained on**, so
 scores mean something. Its sessions are listed in `data/detector_exam.json` (commit it). Take one
