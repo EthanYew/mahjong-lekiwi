@@ -30,12 +30,14 @@ class RealSense:
         cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, config.FPS)
         self.pipeline = rs.pipeline()
         profile = self.pipeline.start(cfg)
+        self.depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         i = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         self.intrinsics = {"fx": i.fx, "fy": i.fy, "ppx": i.ppx, "ppy": i.ppy}   # colour = aligned depth
         self.align = rs.align(rs.stream.color)
         self.filters = [rs.spatial_filter(), rs.temporal_filter(), rs.hole_filling_filter()]
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
         self._model = None
+        self.last_frames = []       # the latest scan's frames and boxes (detector.save_scan)
         for _ in range(warmup_frames):
             self.pipeline.wait_for_frames()
 
@@ -59,29 +61,46 @@ class RealSense:
         """A BGR colour frame (for session logs)."""
         return self._frames()[0].copy()
 
+    @property
+    def names(self):
+        """The detector's class names, in class order (once it has loaded)."""
+        return [self._model.names[i] for i in sorted(self._model.names)] if self._model else []
+
     def detect_tiles(self, n_frames=config.DETECTION_FRAMES):
-        """Tiles seen over n_frames, merged into one entry per physical tile."""
+        """Tiles seen over n_frames, merged into one entry per physical tile. Each frame, its filtered
+        depth and every box YOLO found in it (below the confidence cut too) stay in self.last_frames,
+        for the detector's data (detector.save_scan)."""
         if self._model is None:
             from ultralytics import YOLO
             self._model = YOLO(str(config.TILE_DETECTOR))
-        raw = []
+        raw, self.last_frames = [], []
         for _ in range(n_frames):
             color, depth = self._frames()
             intrinsics = depth.profile.as_video_stream_profile().intrinsics
-            for box in self._model(color, iou=0.5, verbose=False)[0].boxes:
-                confidence = float(box.conf[0])
-                if confidence < config.DETECTION_CONFIDENCE:
+            boxes = run_detector(self._model, color)
+            self.last_frames.append({"color": color.copy(), "depth": np.asanyarray(depth.get_data()).copy(),
+                                     "depth_scale_m": self.depth_scale_m, "boxes": boxes})
+            for box in boxes:
+                if box["confidence"] < config.DETECTION_CONFIDENCE:
                     continue
-                x1, y1, x2, y2 = box.xyxy[0]
+                x1, y1, x2, y2 = box["xyxy"]
                 u, v = int((x1 + x2) / 2), int((y1 + y2) / 2)
                 d = robust_depth(depth, u, v)
                 if d == 0.0:
                     continue
                 p_cam = np.array([(u - intrinsics.ppx) * d / intrinsics.fx, (v - intrinsics.ppy) * d / intrinsics.fy, d, 1.0])
                 x, y = (self.T_cam_to_base @ p_cam)[:2]
-                raw.append({"tile_name": self._model.names[int(box.cls[0])], "confidence": confidence,
+                raw.append({"tile_name": box["tile_name"], "confidence": box["confidence"],
                             "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))})
         return merge_tiles(raw)
+
+
+def run_detector(model, color):
+    """Every box the YOLO `model` finds in a BGR frame, down to config.DETECTION_SAVE_CONFIDENCE:
+    [{"tile_name", "confidence", "xyxy"}]. The live scan and the detector's exam both go through here."""
+    return [{"tile_name": model.names[int(box.cls[0])], "confidence": round(float(box.conf[0]), 4),
+             "xyxy": [round(float(c), 1) for c in box.xyxy[0]]}
+            for box in model(color, conf=config.DETECTION_SAVE_CONFIDENCE, iou=0.5, verbose=False)[0].boxes]
 
 
 def robust_depth(depth_frame, u, v, window=5):

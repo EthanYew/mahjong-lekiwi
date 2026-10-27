@@ -281,3 +281,56 @@ the frames from then on are recorded with the operator's actions as labels. Cons
   shouldn't be trained on as demos (keep them, flagged).
 - Log each takeover as a rescue (3), so the scorecard still counts it.
 - DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
+
+## 10. The tile detector
+
+The YOLO detector (`assets/tile_detector.pt`) misses tiles now and then and often names one wrong. It
+was trained on 2026-07-21 on 495 RealSense frames of another table and room, with tiles scattered and
+turned. Since 2026-10-20 the camera is on the rear tripod over this mat, with rows of tiles, a
+keyboard, a person and the discard bin in view: a scene it has never trained on. A tile is ~24×18 px
+in the 848×480 frame, so similar faces (2/3, 7/8 of a suit) are close calls. Inference already runs
+at 1280 px like training (no scale mismatch to fix).
+
+**Built (2026-10-27): photos → exam → mining → retraining** (README, "The tile detector"):
+- Every bench scan saves its 5 frames, depth and every box down to 0.25 confidence
+  (`sessions/*/scans/`); `scripts/capture_frames.py` takes scans without the arm.
+- The exam: whole `--exam` capture sessions listed in `data/detector_exam.json`, labelled in their own
+  Roboflow project, never trained on. `scripts/detector_eval.py` scores found / named right / missed /
+  extra and the mix-ups, by lighting.
+- `scripts/mine_frames.py` exports the frames it struggled with (flicker, dropout, low confidence,
+  glitch answers) and plain current-scene frames, pre-labelled for Roboflow. `scripts/train_detector.py`
+  fine-tunes from the live weights with their July recipe, and refuses exam frames.
+
+**Next, on the hardware:**
+1. Capture the exam: one `--exam` session per lighting (daylight, lamp, ceiling), 40-60 scans in all,
+   arrangements of their own (rows, tiles pushed together, turned tiles, the tilt layout's angles).
+   Label it, score the live detector: the baseline. Commit `data/detector_exam.json` and the scores.
+2. Training frames: a few `capture_frames.py` sessions plus the bench's scans, `mine_frames.py --all`,
+   label them in the July project, train, score against the live one, ship only on a better exam.
+3. Not yet: `record.py`'s scans don't save their frames (the bench and capture do). Add it in its own
+   change (record.py is shared with other work), then recording sessions feed mining too.
+
+**Ideas for later (plan steps 4-6), only if the exam still shows the problem they solve:**
+
+- *Depth tile candidates (missed tiles).* The table plane is already fitted (`config.table_z`), so
+  depth needs no per-frame RANSAC: project the scan's depth (now saved as `depth.npz`) into the base
+  frame, subtract the plane, keep 10-30 mm (a tile is 20 mm tall; depth noise is ~2-3 mm at 0.82 m),
+  and mask to the mat (the arm, base, bin, keyboard and a hand stand above the plane too). Split
+  touching tiles by the 35×26 mm face. Then each blob without a YOLO box is a missed tile (a mining
+  trigger, and a crop to classify), and a box with no blob is likely a false detection. **Keep aiming at
+  the box centre**: the hover correction and v2's memorised move are fitted to `detection_xy`, and a
+  blob centroid would shift it systematically. Depth edges blur by 2-4 px on a 24 px tile: fine for a
+  crop, not an exact box. On the dark desk `layout.find_tile` (white face on dark) does much of this
+  from colour already; depth adds robustness to light and to a light background. Test on synthetic
+  depth (plane + raised blocks, a touching pair, a tall object) and on saved scans.
+- *A crop classifier (wrong names).* Re-running the full-scene YOLO on an upscaled 24 px crop of the
+  same frame gives it no new pixels and an input unlike its training. Better: a small 38-class
+  classifier (e.g. YOLO-cls nano on ~64 px crops) trained on crops cut from the labelled boxes, run on
+  *every* tile, its vote combined with YOLO's. `merge_tiles` takes the single most confident read
+  today; voting across the 5 frames (and both models) would steady flicker too. Only worth it if the
+  exam's mix-up list is still long after retraining.
+- *More pixels per tile.* Stream colour at 1280×720 or 1920×1080 (depth aligned to it): ~1.5-2.3× the
+  pixels on each face. It changes the detector's input, so it means a new capture and labelling round:
+  decide before step 2's big labelling round if the mix-ups are between near-identical faces. The
+  sharpest view of all is the wrist camera at the hover (~4 cm above the tile): a name check there,
+  before ACT starts, would catch a wrong tile before the arm commits to it.

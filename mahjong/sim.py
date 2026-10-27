@@ -99,8 +99,20 @@ class SimPerception:
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
+        self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
+        from .detector import TILE_NAMES
+        self.names = TILE_NAMES
 
     def detect_tiles(self, n_frames=None):
+        """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
+        from .layout import table_to_pixel, tile_corners
+        boxes = []
+        for t in self.tiles:
+            corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
+            (u0, v0), (u1, v1) = corners.min(axis=0), corners.max(axis=0)
+            boxes.append({"tile_name": t["tile_name"], "confidence": 0.9,
+                          "xyxy": [round(float(c), 1) for c in (u0, v0, u1, v1)]})
+        self.last_frames = [{"color": self.snapshot(), "boxes": boxes}]
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
                  "reads": 5, "pixel": (0, 0)} for t in self.tiles]
 
