@@ -108,17 +108,22 @@ def test_capture_then_mine_exports_prelabelled_frames(tmp_path, monkeypatch):
     assert [r["scan"] for r in rows] == ["001_capture", "002_capture"] and not left_out
     out = tmp_path / "export"
     assert detector.export(rows, out) == 2
-    image = out / "images" / f"{session.dir.name}__001_capture__f0.jpg"
+    image = out / "train" / "images" / f"{session.dir.name}__001_capture__f0.jpg"     # Roboflow's export layout
     assert image.exists()
-    labels = detector.read_yolo_labels(out / "labels" / f"{image.stem}.txt", detector.TILE_NAMES, (848, 480))
+    labels = detector.read_yolo_labels(out / "train" / "labels" / f"{image.stem}.txt", detector.TILE_NAMES, (848, 480))
     assert sorted(b["tile_name"] for b in labels) == sorted(t["tile_name"] for t in tiles)
-    assert "names:" in (out / "data.yaml").read_text() and (out / "manifest.csv").exists()
+    assert sorted(p.name for p in out.iterdir()) == ["data.yaml", "train"]       # nothing else for Roboflow to misread
+    assert detector.manifest_path(out).exists()
+    import yaml
+    data = yaml.safe_load((out / "data.yaml").read_text())
+    assert data["names"] == detector.TILE_NAMES and data["nc"] == 38 and data["train"] == "../train/images"
+    assert [(p.name, n) for p, _, n in detector.exam_set(out)][:1] == [(image.name, detector.TILE_NAMES)]
 
     # the same session as an exam session: out of training exports, into exam ones
     exam = {"sessions": {session.dir.name: {"conditions": {}}}}
     assert mine_frames.pick([session.dir], exam, everything=True)[0] == []
     assert len(mine_frames.pick([session.dir], exam, exam_only=True)[0]) == 2
-    assert detector.exam_frames(list((out / "images").iterdir()), exam)
+    assert detector.exam_frames(list((out / "train" / "images").iterdir()), exam)
 
 
 def test_sim_sessions_are_never_mined(tmp_path, monkeypatch):
@@ -138,9 +143,10 @@ def test_evaluate_scores_only_exam_frames(tmp_path, monkeypatch):
     exam_session.close()
     rows = detector.mine(exam_session.dir, everything=True)
     out = tmp_path / "exam"
-    detector.export(rows, out)
-    (out / "images" / "frame_0000_exp200_jpg.rf.abc.jpg").write_bytes((out / "images" / f"{rows[0]['session']}__001_capture__f0.jpg").read_bytes())
-    (out / "labels" / "frame_0000_exp200_jpg.rf.abc.txt").write_text("")
+    detector.export(rows, out, split="test")
+    test = out / "test"
+    (test / "images" / "frame_0000_exp200_jpg.rf.abc.jpg").write_bytes((test / "images" / f"{rows[0]['session']}__001_capture__f0.jpg").read_bytes())
+    (test / "labels" / "frame_0000_exp200_jpg.rf.abc.txt").write_text("")
     truth = mat.last_frames[0]["boxes"]
     wrong_first = [{**truth[0], "tile_name": "WW" if truth[0]["tile_name"] != "WW" else "RD"}] + truth[1:]
     exam = {"sessions": {exam_session.dir.name: {"conditions": {"daylight": "dim", "lamp": True, "ceiling_lights": False}}}}

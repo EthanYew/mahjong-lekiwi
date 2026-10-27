@@ -301,8 +301,9 @@ few, push some together). Many scans of one unchanged scene add little: they're 
 **2. The exam.** A fixed set of labelled photos of the current scene that is **never trained on**, so
 scores mean something. Its sessions are listed in `data/detector_exam.json` (commit it). Take one
 `--exam` session per lighting (daylight, lamp, ceiling lights), about 40-60 scans in all, with tile
-arrangements of their own. Export them with `mine_frames.py --exam`, label them in a **separate**
-Roboflow project, and download that as a YOLO export (e.g. to `data/detector/exam_labelled/`).
+arrangements of their own. Export them with `mine_frames.py --exam`, drag the whole export folder
+(with its `data.yaml`) into a **separate** Roboflow project, label them, and download that as a YOLO
+export with no augmentation and no resize (e.g. to `data/detector/exam_labelled/`).
 Score the live detector first: that's the baseline.
 
 ```
@@ -326,9 +327,12 @@ python scripts/mine_frames.py --list                    # what it would take
 python scripts/mine_frames.py --all --since 20261027    # export to data/detector/mined_<time>/
 ```
 
-Upload the export to the Roboflow training project (the July project, "Mahjong tiles on table"): its
-`labels/` holds the detector's own boxes as a start, and `manifest.csv` says why each frame was
-picked. Correct the boxes, make a new dataset version, and download it as a YOLO export. Then:
+An export is laid out as Roboflow's own YOLO export: `data.yaml` (the label map Roboflow asks for) and
+`train/images/` + `train/labels/` (`test/` for the exam), the labels being the detector's own boxes
+as a start. **Drag the whole export folder into Roboflow's upload, not just the images**, for the
+training project (the July project, "Mahjong tiles on table"). Why each frame was picked is in
+`<export>_manifest.csv` beside the folder. Correct the boxes, make a new dataset version, and
+download it as a YOLO export. Then:
 
 ```
 python scripts/train_detector.py --data data/detector/train_v2/data.yaml --name v2 --dry-run   # counts, exam check
