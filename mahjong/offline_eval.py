@@ -88,7 +88,7 @@ def score_episode(plan, frame, states, actions, actions_raw, fps=config.FPS, str
     onset, demo_onset = descent_onset(probe), descent_onset(actions_raw[start:])
     freeze = onset is None and demo_onset is not None and demo_onset < len(probe)
 
-    grasp_mm = roll_err = demo_roll = close_err_s = None
+    grasp_mm = roll_err = demo_roll = close_err_s = close_dz_mm = None
     plan_closes = False
     if demo_close is not None:
         p = max(0, demo_close - int(GRASP_PROBE_S * fps))
@@ -100,11 +100,16 @@ def score_episode(plan, frame, states, actions, actions_raw, fps=config.FPS, str
         predicted_tool = kinematics.tool_point(dict(zip(config.JOINTS, at)))
         grasp_mm = float(np.hypot(*(np.asarray(predicted_tool[:2]) - demo_xy)) * 1000)
         roll_err = float(at[4] - actions_raw[demo_close][4])
+        # how much higher than the demo the plan has the jaw tip when it shuts (2026-10-27: v3 closed
+        # 10-15mm high on the arm, grips high on the tile; none of the other metrics saw it)
+        tips = [kinematics.pincer_tip(dict(zip(config.JOINTS, q)))[2] for q in (at, actions_raw[demo_close])]
+        close_dz_mm = float((tips[0] - tips[1]) * 1000) if plan_closes else None
         demo_roll = float(actions[demo_close][4])
     return {"frames": n, "arm_mae": arm_mae, "grip_mae": grip_mae, "demo_close_s": None if demo_close is None else demo_close / fps,
             "close_err_s": close_err_s, "never_closes": demo_close is not None and not plan_closes,
             "onset": onset, "demo_onset": demo_onset, "freeze": bool(freeze), "grasp_mm": grasp_mm,
-            "plan_closes": plan_closes, "roll_err_deg": roll_err, "demo_roll_deg": demo_roll}
+            "plan_closes": plan_closes, "roll_err_deg": roll_err, "demo_roll_deg": demo_roll,
+            "close_dz_mm": close_dz_mm}
 
 
 # --- which episodes ---
@@ -263,7 +268,8 @@ def summarise(rows, by="slice"):
                 "never_closes": sum(r["never_closes"] for r in rs), "freezes": sum(r["freeze"] for r in rs),
                 "onset_lag": mean([r["onset"] - r["demo_onset"] for r in rs if r["onset"] is not None and r["demo_onset"] is not None]),
                 "grasp_mm": median([r["grasp_mm"] for r in rs]),
-                "roll_err_deg": mean([r["roll_err_deg"] for r in rs], absolute=True)}
+                "roll_err_deg": mean([r["roll_err_deg"] for r in rs], absolute=True),
+                "close_dz_mm": median([r.get("close_dz_mm") for r in rs])}
             for g, rs in sorted(groups.items())}
 
 
@@ -297,11 +303,11 @@ def table(summary, title):
     def f(v, spec):
         return format(v, spec) if v is not None else format("-", f">{spec.split('.')[0]}")
     lines = [title, f"  {'':<28} {'n':>3} {'arm °':>6} {'grip %':>6} {'close s':>7} {'freeze':>6} {'lag':>5} "
-                    f"{'grasp mm':>8} {'roll °':>6}"]
+                    f"{'grasp mm':>8} {'roll °':>6} {'high mm':>7}"]
     for g, s in summary.items():
         lines.append(f"  {g:<28} {s['episodes']:>3} {f(s['arm_mae'], '6.2f')} {f(s['grip_mae'], '6.1f')} "
                      f"{f(s['close_err_s'], '7.2f')} {s['freezes']:>6} {f(s['onset_lag'], '5.0f')} {f(s['grasp_mm'], '8.1f')} "
-                     f"{f(s['roll_err_deg'], '6.1f')}")
+                     f"{f(s['roll_err_deg'], '6.1f')} {f(s.get('close_dz_mm'), '7.1f')}")
     return "\n".join(lines)
 
 

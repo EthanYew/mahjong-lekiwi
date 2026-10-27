@@ -115,7 +115,8 @@ def main():
             print(offline_eval.table(offline_eval.summarise(rows, by=args.by), f"{policy_id} by {args.by}"))
     print("\n  arm/grip: first-action error, teacher-forced; close: open-loop close timing error (s, abs);"
           "\n  freeze: plan never descends from the hover; lag: plan descent onset - demo's (steps);"
-          "\n  grasp: where the jaws close vs the demo (median mm); roll: wrist roll at the close (deg, abs)")
+          "\n  grasp: where the jaws close vs the demo (median mm); roll: wrist roll at the close (deg, abs);"
+          "\n  high: the jaw tip's height when the plan shuts, above the demo's (median mm; + closes high on the tile)")
     reference = results[1][1] if len(results) > 1 else None
     checks = offline_eval.gates(results[0][1], reference)
     print(f"\nGates for {results[0][0]}" + (f" against {results[1][0]}" if reference else " (freezes only)") + ":")
