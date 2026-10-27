@@ -58,6 +58,29 @@ def test_yolo_labels_round_trip_and_polygons_score_by_their_box(tmp_path):
     assert back[2]["xyxy"] == pytest.approx([84.8, 48, 169.6, 96], abs=0.01)
 
 
+def test_ignored_names_count_for_nothing_but_still_mix_up_others():
+    truth = [box("8D", 1, 100, 100), box("2F", 1, 200, 100), box("1F", 1, 300, 100), box("5C", 1, 400, 100)]
+    said = [box("8D", 0.9, 100, 100), box("4F", 0.8, 200, 100),          # a flower misnamed: ignored
+            box("2F", 0.7, 401, 100),                                   # 5C read as a flower: still a mix-up
+            box("3F", 0.6, 305, 104, 30, 30)]                           # loose box on a flower: not "extra"
+    s = detector.summary(detector.score([{"truth": truth, "said": said}], ignore=("1F", "2F", "3F", "4F"))["all"])
+    assert (s["tiles"], s["found"], s["named_right"], s["missed"], s["extra"]) == (2, 2, 1, 0, 0)
+    assert s["mixups"] == [["5C", "2F", 1]] and s["right_rate"] == 0.5
+
+
+def test_dedupe_merges_a_label_drawn_twice():
+    kept, dropped = detector.dedupe([box("4C", 1, 100, 100), box("4C", 1, 101, 100), box("5C", 1, 100, 100),
+                                     box("4C", 1, 200, 100)])
+    assert [b["tile_name"] for b in kept] == ["4C", "5C", "4C"] and [b["tile_name"] for b in dropped] == ["4C"]
+
+
+def test_ignore_option_expands_groups_and_rejects_unknown_names():
+    import detector_eval
+    assert detector_eval.parse_names("flowers,ew") == ("1F", "2F", "3F", "4F", "EW")
+    with pytest.raises(Exception):
+        detector_eval.parse_names("9F")
+
+
 def test_score_counts_found_named_right_missed_extra_and_mixups():
     truth = [box("8D", 1, 100, 100), box("2B", 1, 200, 100), box("WD", 1, 300, 100)]
     said = [box("8D", 0.9, 101, 100), box("3B", 0.8, 200, 101), box("RD", 0.6, 500, 400)]
@@ -150,8 +173,8 @@ def test_evaluate_scores_only_exam_frames(tmp_path, monkeypatch):
     truth = mat.last_frames[0]["boxes"]
     wrong_first = [{**truth[0], "tile_name": "WW" if truth[0]["tile_name"] != "WW" else "RD"}] + truth[1:]
     exam = {"sessions": {exam_session.dir.name: {"conditions": {"daylight": "dim", "lamp": True, "ceiling_lights": False}}}}
-    scores, outside = detector.evaluate(out, lambda image: wrong_first, exam, by="lighting")
-    assert [p.name for p in outside] == ["frame_0000_exp200_jpg.rf.abc.jpg"]
+    scores, outside, duplicates = detector.evaluate(out, lambda image: wrong_first, exam, by="lighting")
+    assert [p.name for p in outside] == ["frame_0000_exp200_jpg.rf.abc.jpg"] and duplicates == []
     s = detector.summary(scores["all"])
     assert (s["frames"], s["found"], s["named_right"]) == (1, len(truth), len(truth) - 1)
     assert "daylight dim, lamp on, ceiling off" in scores

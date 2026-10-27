@@ -1,0 +1,109 @@
+{
+  "weights": "tile_detector@a6e1c2bd",
+  "time": "2026-10-27T19:24:03",
+  "exam_sessions": [
+    "20261027_172928_capture"
+  ],
+  "exam_dir": "/home/ethanYew/Projects/mahjong-lekiwi/data/detector/exam_labelled",
+  "ignored_names": [
+    "1F",
+    "2F",
+    "3F",
+    "4F"
+  ],
+  "scores": {
+    "all": {
+      "frames": 15,
+      "tiles": 102,
+      "found": 87,
+      "named_right": 70,
+      "missed": 15,
+      "extra": 0,
+      "found_rate": 0.8529411764705882,
+      "named_right_rate": 0.8045977011494253,
+      "right_rate": 0.6862745098039216,
+      "mixups": [
+        [
+          "7C",
+          "6C",
+          2
+        ],
+        [
+          "2C",
+          "3C",
+          2
+        ],
+        [
+          "8C",
+          "5C",
+          2
+        ],
+        [
+          "3D",
+          "5D",
+          2
+        ],
+        [
+          "5C",
+          "2F",
+          1
+        ],
+        [
+          "6C",
+          "5C",
+          1
+        ],
+        [
+          "4B",
+          "6B",
+          1
+        ],
+        [
+          "2B",
+          "4B",
+          1
+        ],
+        [
+          "7B",
+          "6B",
+          1
+        ],
+        [
+          "2B",
+          "3B",
+          1
+        ],
+        [
+          "NW",
+          "EW",
+          1
+        ],
+        [
+          "RD",
+          "1F",
+          1
+        ],
+        [
+          "SW",
+          "WW",
+          1
+        ]
+      ],
+      "missed_names": {
+        "3C": 2,
+        "1C": 2,
+        "5C": 1,
+        "2C": 1,
+        "8C": 1,
+        "7C": 1,
+        "9C": 1,
+        "2B": 1,
+        "1B": 1,
+        "2D": 1,
+        "SW": 1,
+        "WW": 1,
+        "RD": 1
+      }
+    }
+  }
+}

@@ -309,12 +309,21 @@ Score the live detector first: that's the baseline.
 ```
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled                # the live detector
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --by lighting
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --ignore flowers   # tiles that matter for play
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v2/weights/best.pt --against assets/tile_detector.pt
 ```
 
-It reports **found** (labelled tiles it put a box on), **named right** (of those found), missed
-tiles, extra boxes on nothing, and its commonest mix-ups (e.g. `4D->5D x6`). Scores are per frame and
-go in `data/detector_eval/`. Frames in the folder that aren't from an exam session are left out.
+It reports **found** (labelled tiles it put a box on), **named right** (of those found), **right
+overall** (found and named right: the tile accuracy), missed tiles, extra boxes on nothing, and its
+commonest mix-ups (e.g. `4D->5D x6`). `--ignore flowers` (or names, e.g. `flowers,EW`) leaves those
+tiles out: boxes on them count for nothing, while another tile read as one is still a mix-up. A label
+drawn twice on one tile is merged and listed, so you can delete the copy in Roboflow. Scores are per
+frame and go in `data/detector_eval/` (`_without_<names>` when some are left out). Frames in the
+folder that aren't from an exam session are left out.
+
+Baseline (2026-10-27, live detector, exam v4: 15 frames, dim + lamp + ceiling lights): without
+flowers 102 tiles, 85.3% found, 80.5% named right, **68.6% right overall**, no extra boxes. Mostly
+neighbouring numbers within a suit (6/7C, 2/3C, 5/8C, 3D/5D, 2/3/4B).
 
 **3. Mining and retraining.** `mine_frames.py` picks the frames worth labelling: a tile whose name
 changed across a scan's 5 frames (flicker), a tile seen in some frames and not others (dropout), a
