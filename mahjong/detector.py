@@ -217,15 +217,23 @@ def read_yolo_labels(path, names, size):
     return boxes
 
 
-def export(rows, out_dir):
-    """Copy each row's frame to out_dir/images/<session>__<scan>__f<i>.jpg, with the detector's own boxes
-    above the cut as pre-labels in out_dir/labels/, data.yaml (class names) and manifest.csv (why each
-    frame was picked): a folder Roboflow imports as a pre-labelled batch. Returns the number of frames."""
+def manifest_path(out_dir):
+    """Why each exported frame was picked: beside the export, so the upload folder is only the dataset."""
+    return Path(out_dir).parent / f"{Path(out_dir).name}_manifest.csv"
+
+
+def export(rows, out_dir, split="train"):
+    """A pre-labelled batch for Roboflow, laid out as Roboflow's own YOLO export (which it imports back
+    with its class names; a bare images/ + labels/ folder was refused for want of a label map):
+    out_dir/<split>/images/<session>__<scan>__f<i>.jpg, the detector's own boxes above the cut in
+    out_dir/<split>/labels/, and data.yaml (split paths, nc, names). The manifest goes beside the folder
+    (manifest_path). Returns the number of frames."""
     out_dir = Path(out_dir)
-    (out_dir / "images").mkdir(parents=True, exist_ok=True)
-    (out_dir / "labels").mkdir(parents=True, exist_ok=True)
+    images, labels = out_dir / split / "images", out_dir / split / "labels"
+    images.mkdir(parents=True, exist_ok=True)
+    labels.mkdir(parents=True, exist_ok=True)
     names = None
-    with open(out_dir / "manifest.csv", "w", newline="") as f:
+    with open(manifest_path(out_dir), "w", newline="") as f:
         manifest = csv.writer(f)
         manifest.writerow(["file", "session", "scan", "frame", "reasons", "lighting"])
         for row in rows:
@@ -235,14 +243,20 @@ def export(rows, out_dir):
             elif reads["names"] != names:
                 raise SystemExit(f"{row['folder']}: a detector with other class names than the rest — export it apart")
             stem = frame_stem(row["session"], row["scan"], row["frame"])
-            shutil.copy(Path(row["folder"]) / f"f{row['frame']}.jpg", out_dir / "images" / f"{stem}.jpg")
+            shutil.copy(Path(row["folder"]) / f"f{row['frame']}.jpg", images / f"{stem}.jpg")
             boxes = [b for b in reads["frames"][row["frame"]] if b["confidence"] >= config.DETECTION_CONFIDENCE]
             lines = yolo_lines(boxes, names, reads["size"])
-            (out_dir / "labels" / f"{stem}.txt").write_text("".join(line + "\n" for line in lines))
+            (labels / f"{stem}.txt").write_text("".join(line + "\n" for line in lines))
             manifest.writerow([f"{stem}.jpg", row["session"], row["scan"], row["frame"], " ".join(row["reasons"]),
                                lighting(row["conditions"])])
-    (out_dir / "data.yaml").write_text(f"names: {json.dumps(names or [])}\nnc: {len(names or [])}\n")
+    (out_dir / "data.yaml").write_text(data_yaml(names or []))
     return len(rows)
+
+
+def data_yaml(names):
+    """data.yaml as Roboflow writes it in its YOLO exports."""
+    return ("train: ../train/images\nval: ../valid/images\ntest: ../test/images\n\n"
+            f"nc: {len(names)}\nnames: [{', '.join(repr(str(n)) for n in names)}]\n")
 
 
 def lighting(conditions):

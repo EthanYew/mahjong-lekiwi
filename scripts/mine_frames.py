@@ -12,9 +12,11 @@ the current scene and plain frames teach it too.
     python scripts/mine_frames.py --since 20261027       # sessions from that date (name prefix) on
     python scripts/mine_frames.py --exam                 # the exam sessions' frames, for labelling the exam
 
-The export (data/detector/<name>/: images/, labels/ with the detector's own boxes as a start,
-data.yaml, manifest.csv saying why each frame was picked) uploads to Roboflow as a pre-labelled batch:
-correct the boxes there. Training frames go to the training project; exam frames to a project of
+The export (data/detector/<name>/) is laid out as Roboflow's own YOLO export: data.yaml (the label
+map) and <split>/images/ + <split>/labels/ with the detector's own boxes as a start (split train, or
+test for the exam). Drag the whole folder into Roboflow's upload: it comes in pre-labelled; correct
+the boxes there. Why each frame was picked is in <name>_manifest.csv beside it (kept out of the
+upload). Training frames go to the training project; exam frames to a project of
 their own, so a dataset version can't pick them up. Exam sessions (data/detector_exam.json) are never
 in a training export, and simulated sessions never in any.
 """
@@ -87,8 +89,9 @@ def main(argv=None):
     if args.list or not rows:
         return
     out = args.out or config.DETECTOR_DATA / f"{'exam' if args.exam else 'mined'}_{datetime.now():%Y%m%d_%H%M%S}"
-    detector.export(rows, out)
-    print(f"Exported to {out}: upload the folder to Roboflow's "
+    detector.export(rows, out, split="test" if args.exam else "train")
+    print(f"Exported to {out} (why each frame: {detector.manifest_path(out).name}).\nDrag that whole folder "
+          f"(data.yaml included) into Roboflow's "
           f"{'exam project (kept apart from training)' if args.exam else 'training project'} and correct the labels.")
 
 
