@@ -68,7 +68,8 @@ class FakeGamepad:
         pass
 
 
-def run_record(tmp_path, monkeypatch, argv, script, answers=None, prompts=None, gamepad=FakeGamepad, mats=None):
+def run_record(tmp_path, monkeypatch, argv, script, answers=None, prompts=None, gamepad=FakeGamepad, mats=None,
+               cameras=None):
     """record.main(argv) on the sim arm, camera and mat, picking 8D each time. `script`: what the
     keyboard does, in order — ("hover", keys) when the hover is shown, ("rec", keys) after 3 recorded
     frames; keys beyond → (exit_early) e.g. {"rerecord_episode": True} for ←. answers: {prompt substring: reply}
@@ -79,13 +80,14 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
     from mahjong.arm import Arm
     from mahjong.sim import SimCamera, SimPerception, SimRobot
 
-    def connect(needed, gamepad_kwargs=None):
+    def connect(needed, gamepad_kwargs=None, **kwargs):
         mat = SimPerception()
         if mats is not None:
             mats.append(mat)
         arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
         arm.at_connect = {"arm_at_rest": True, "off_rest_deg": 0.0}
-        return {"arm": arm, "wrist_camera": SimCamera(), "realsense": mat, "gamepad": gamepad()}
+        camera = cameras.pop(0) if cameras else SimCamera()         # cameras: handed out in turn (reopens too)
+        return {"arm": arm, "wrist_camera": camera, "realsense": mat, "gamepad": gamepad()}
 
     events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
     listener = types.SimpleNamespace(stop=lambda: None)
@@ -342,3 +344,30 @@ def test_session_report_counts_dagger_takeovers(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "DAgger (fake_v3c): 1 episode(s) saved, 1 taken over at 0.0s" in out
     assert "takeover             rescue" in out and "rescues: 1 in 1 episodes" in out
+
+
+class LostCamera:
+    """A wrist camera that has stopped giving frames (2026-10-28), until it's released and reopened."""
+    def __init__(self):
+        self.reads, self.released = 0, False
+
+    def read(self):
+        self.reads += 1
+        return False, None
+
+    def flush(self, frames=10):
+        pass
+
+    def release(self):
+        self.released = True
+
+
+def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_reopened(tmp_path, monkeypatch):
+    from mahjong.sim import SimCamera
+    lost = LostCamera()
+    script = [("hover", {}), ("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+    dataset, session = run_record(tmp_path, monkeypatch, [], script, cameras=[lost, SimCamera()])
+    assert lost.released and lost.reads == 30                           # 1 s at 30 fps, then reopened
+    discarded = [e for e in read_events(session) if e["type"] == "episode_discarded"]
+    assert [e["reason"] for e in discarded] == ["wrist camera lost"]    # no question asked
+    assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen

@@ -1,9 +1,17 @@
-"""The wrist camera, at the resolution and rate every dataset was recorded at (640x480, 30fps)."""
+"""The wrist camera, at the resolution and rate every dataset was recorded at (640x480, 30fps).
+
+It can stop giving frames mid-session (2026-10-28: from the 3rd of 10 bench trials every read failed;
+the same during wrist_capture.py). No frames for LOST_S means it's lost: every script then releases it
+and opens it again with hardware.reopen_wrist_camera, and redoes what it was doing.
+"""
 import os
+import time
 
 import cv2
 
 from . import config
+
+LOST_S = 1.0       # no wrist frames for this long: the camera is lost, reopen it
 
 
 class WristCamera:
@@ -29,3 +37,15 @@ class WristCamera:
 
     def release(self):
         self.cap.release()
+
+
+def read_within(camera, lost_s=LOST_S, clock=time.monotonic):
+    """A frame from `camera`, trying for up to lost_s: (True, frame), or (False, None) if it's lost. For
+    reads outside a control loop (a loop counts its own failed reads against LOST_S)."""
+    end = clock() + lost_s
+    while True:
+        ok, frame = camera.read()
+        if ok:
+            return True, frame
+        if clock() >= end:
+            return False, None

@@ -53,6 +53,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, kinematics, layout
+from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
@@ -256,6 +257,7 @@ def main(argv=None):
             print("RECORDING — → save, ← discard, Esc save nothing and quit"
                   + (f"; {policy.id} drives, touch the gamepad to take over" if policy else ""))
             frames, roll, actions, takeover = 0, RollTrace(), [], None
+            failed_reads, camera_lost = 0, False
             while not events["exit_early"]:
                 t0 = time.time()
                 if policy is not None and takeover is None and gamepad.touched():
@@ -265,18 +267,22 @@ def main(argv=None):
                     session.intervention("takeover", tile=tile["tile_name"], frame=frames)
                 if policy is not None and takeover is None:
                     ok, frame = camera.read()
-                    if not ok:
-                        continue
-                    state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
-                    command, _ = next_command(policy, frame, state, anchor, limits, last_safe)
-                    arm.send(command)
-                    last_safe = command
                 else:
                     command = gamepad.step(arm, dt)
                     ok, frame = camera.read()
-                    if not ok:
-                        continue
-                    state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
+                if not ok:             # an episode with a gap in its frames can't be trained on
+                    failed_reads += 1
+                    if failed_reads >= LOST_S * config.FPS:
+                        print(f"  no wrist camera frames for {LOST_S:.0f}s — the episode is discarded")
+                        camera_lost = events["rerecord_episode"] = True
+                        break
+                    continue
+                failed_reads = 0
+                state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
+                if policy is not None and takeover is None:
+                    command, _ = next_command(policy, frame, state, anchor, limits, last_safe)
+                    arm.send(command)
+                    last_safe = command
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
                 roll.add(command["wrist_roll"], float(state[ROLL]))
                 actions.append(action)
@@ -291,12 +297,14 @@ def main(argv=None):
             dagger = {"policy": policy.id, "takeover_frame": takeover} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
-                reason = None
-                if not events["stop_recording"]:
+                reason = "wrist camera lost" if camera_lost else None
+                if not events["stop_recording"] and not camera_lost:
                     drain_stdin()
                     reason = ask_one({"ask": "Why discard it", "choices": DISCARD_REASONS}, None, input)
                 session.event("episode_discarded", tile=tile["tile_name"], frames=frames, reason=reason, **dagger,
                               **roll.summary())
+                if camera_lost:
+                    camera = hardware.reopen_wrist_camera(camera)
                 if events["stop_recording"]:
                     break
                 if not returned and ask_same_tile(arm, reason):      # a returned tile has moved

@@ -21,6 +21,7 @@ height, roll). After each set it prints how many views every name has over all w
 which still have fewer than --target.
 """
 import argparse
+import json
 import math
 import random
 import shutil
@@ -35,8 +36,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector
+from mahjong import config, detector, hardware
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
+from mahjong.camera import read_within
 from mahjong.hover_correction import HoverCorrection
 from mahjong.session import Session
 
@@ -181,7 +183,7 @@ def roll_to(arm, offset_deg):
 
 def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n_frames, show, rng, jitter_m,
                  roll_deg):
-    """Every planned view of one tile; returns how many were saved."""
+    """Every planned view of one tile; returns (views saved, the camera: reopened if it was lost)."""
     folder = session.dir / "wrist" / tile["tile_name"]
     folder.mkdir(parents=True, exist_ok=True)
     x, y = tile["xy"]
@@ -203,12 +205,13 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
                           reason="unreachable", detection_xy=[x, y])
             continue
         applied = roll_to(arm, roll)
-        camera.flush()
+        frames = grab_frames(camera, n_frames)
+        if len(frames) < n_frames:              # lost (camera.LOST_S without a frame): reopen, try the view again
+            camera = hardware.reopen_wrist_camera(camera)
+            session.event("wrist_camera_reopened", tile=tile["tile_name"], set=set_n, tile_n=tile_n, view=v)
+            frames = grab_frames(camera, n_frames)
         files = []
-        for k in range(n_frames):
-            ok, frame = camera.read()
-            if not ok:
-                continue
+        for k, frame in enumerate(frames):
             name = f"{set_n:02d}_{tile_n:02d}_v{v:02d}_f{k}.jpg"
             cv2.imwrite(str(folder / name), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
             files.append(name)
@@ -216,7 +219,9 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
                 cv2.imshow("wrist", frame)
                 cv2.waitKey(1)
         if not files:
-            print(f"    view {v + 1}: the wrist camera gave no frame")
+            print(f"    view {v + 1}: no wrist frames even after reopening the camera, skipped")
+            session.event("wrist_view_skipped", tile=tile["tile_name"], set=set_n, tile_n=tile_n, view=v,
+                          reason="wrist camera lost", detection_xy=[x, y])
             continue
         saved += 1
         session.event("wrist_view", tile=tile["tile_name"], detected_as=tile["detected_as"],
@@ -224,22 +229,57 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
                       hover_xy=result["hover_xy"], hover_jitter_xy=[dx, dy], clearance_m=result["clearance_m"],
                       target_clearance_m=clearance, roll_offset_deg=applied, wrist_roll=arm.commanded()["wrist_roll"],
                       files=[f"wrist/{tile['tile_name']}/{f}" for f in files])
-    return saved
+    return saved, camera
 
 
-def views_per_name(sessions_dir=None):
-    """Views saved per tile name over every (not simulated) wrist session."""
-    counts = Counter()
-    for folder in sorted((sessions_dir or config.SESSIONS).glob("*_wrist")):
+def grab_frames(camera, n):
+    """Up to n current frames: fewer if the camera is lost (no frame within camera.LOST_S)."""
+    camera.flush()
+    frames = []
+    for _ in range(n):
+        ok, frame = read_within(camera)
+        if not ok:
+            break
+        frames.append(frame)
+    return frames
+
+
+def views_per_name(sessions_dir=None, recordings_dir=None):
+    """Wrist views at the hover per tile name, by where they came from: {"wrist_capture", "bench",
+    "recordings": Counter}. A bench attempt's wrist_0000.jpg is its first frame, at the hover, under the
+    name in its folder (<n>_<time>_<NAME>); a recorded episode starts at the hover too (its episode log
+    names the tile). Simulated sessions don't count."""
+    sessions_dir = sessions_dir or config.SESSIONS
+    sources = {"wrist_capture": Counter(), "bench": Counter(), "recordings": Counter()}
+    for folder in sorted(sessions_dir.glob("*_wrist")):
         if detector.is_sim(folder) or not (folder / "wrist").is_dir():
             continue
         for name_dir in (folder / "wrist").iterdir():
-            counts[name_dir.name] += len(list(name_dir.glob("*_f0.jpg")))
-    return counts
+            sources["wrist_capture"][name_dir.name] += len(list(name_dir.glob("*_f0.jpg")))
+    for folder in sorted(sessions_dir.glob("*_bench")):
+        if detector.is_sim(folder):
+            continue
+        for first in folder.glob("*/wrist_0000.jpg"):
+            sources["bench"][first.parent.name.rsplit("_", 1)[-1]] += 1
+    if recordings_dir is None:
+        try:
+            from lerobot.utils.constants import HF_LEROBOT_HOME
+            recordings_dir = Path(HF_LEROBOT_HOME)
+        except ImportError:
+            recordings_dir = None
+    if recordings_dir is not None:
+        from mahjong.dataset import EPISODE_LOGS
+        for log in sorted(p for name in EPISODE_LOGS for p in Path(recordings_dir).glob(f"*/*/{name}")):
+            for line in log.read_text().splitlines():
+                if line.strip():
+                    sources["recordings"][json.loads(line).get("tile_name")] += 1
+    return sources
 
 
-def report(counts, target):
-    print("Views per name over all wrist sessions:")
+def report(sources, target):
+    """Print each name's views (all sources) and which are below target; returns those."""
+    counts = sum(sources.values(), Counter())
+    print("Wrist views at the hover per name (" + ", ".join(f"{k} {sum(c.values())}" for k, c in sources.items()) + "):")
     for suit in ("B", "C", "D", "F"):
         names = [n for n in detector.TILE_NAMES if n.endswith(suit) and len(n) == 2 and n[0].isdigit()]
         print("  " + "  ".join(f"{n} {counts[n]:>3}" for n in names))
@@ -271,7 +311,6 @@ def main(argv=None, ask=None):
         arm, camera = Arm(SimRobot(), sleep=lambda s: None), SimCamera()
         session = Session("wrist", ask_setup=False, sim=True)
     else:
-        from mahjong import hardware
         devices = hardware.connect(["arm", "wrist_camera", "realsense"])
         arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
         session = Session("wrist", sim=False)
@@ -301,11 +340,12 @@ def main(argv=None, ask=None):
             for i, tile in enumerate(tiles, 1):
                 print(f"  tile {i}/{len(tiles)}: {tile['tile_name']}")
                 views = plan_views(args.views, args.jitter_mm / 1000, clearances, args.roll_deg, rng)
-                done[tile["tile_name"]] += capture_tile(arm, camera, session, correction, tile, views, set_n, i,
-                                                        args.frames, show, rng, args.jitter_mm / 1000, args.roll_deg)
+                saved, camera = capture_tile(arm, camera, session, correction, tile, views, set_n, i, args.frames,
+                                             show, rng, args.jitter_mm / 1000, args.roll_deg)
+                done[tile["tile_name"]] += saved
             arm.rest()
             short_of = [t["tile_name"] for t in tiles if done[t["tile_name"]] < args.views]
-            report(views_per_name(session.dir.parent) if not args.sim else done, args.target)
+            report(views_per_name(session.dir.parent) if not args.sim else {"this set": done}, args.target)
             notify(f"Set {set_n} done: {sum(done.values())} views of {len(tiles)} tiles"
                    + (f" (fewer than {args.views} for {', '.join(sorted(set(short_of)))})" if short_of else "")
                    + ". Put the next set of tiles down.", sim=args.sim)

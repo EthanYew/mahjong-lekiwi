@@ -305,12 +305,9 @@ class Bench:
         return success
 
     def reopen_camera(self):
-        """Release and reopen the wrist camera (hardware.connect offers retry / quit if it won't open)."""
-        if self.args.sim:
-            return
+        """Release and reopen the wrist camera (hardware.reopen_wrist_camera: retry / quit if it won't open)."""
         from mahjong import hardware
-        self.camera.release()
-        self.camera = hardware.connect(["wrist_camera"])["wrist_camera"]
+        self.camera = hardware.reopen_wrist_camera(self.camera)
 
     def review(self, attempt_dir, tile_name, run):
         """Ask about an aborted or marked attempt: {abort_reason, mark_kind, mark_note}; {} (no question)

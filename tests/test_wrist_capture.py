@@ -29,7 +29,7 @@ def test_sim_set_saves_every_view_under_the_confirmed_names(tmp_path, monkeypatc
     assert any(abs(v["roll_offset_deg"]) > 0 for v in views)                     # the other views roll
     assert {round(v["target_clearance_m"], 3) for v in views} == {0.04, 0.055, 0.07}
     assert [e for e in read_events(session) if e["type"] == "wrist_set_done"][0]["short_of"] == []
-    assert wrist_capture.views_per_name(tmp_path)["9D"] == 0                   # a sim session never counts
+    assert not wrist_capture.views_per_name(tmp_path, tmp_path)["wrist_capture"]     # a sim session never counts
 
 
 def test_plan_views_stay_inside_the_jitter_and_roll():
@@ -68,3 +68,42 @@ def test_a_failed_question_is_never_read_as_enter():
         raise EOFError
     with pytest.raises(EOFError):
         wc.ask_pumping(closed, pump=lambda: None)("Names right? ")
+
+
+def test_a_lost_wrist_camera_is_reopened_and_the_view_taken_again(tmp_path, monkeypatch):
+    import wrist_capture
+    from mahjong import hardware, sim
+    from mahjong.sim import SimCamera
+
+    class Lost(SimCamera):
+        simulated = False
+
+        def read(self):
+            return False, None
+
+    reopened = []
+    def reopen(camera, ask=None, openers=None):
+        reopened.append(camera)
+        return SimCamera()
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(sim, "SimCamera", Lost)                 # the script's camera, until reopened
+    monkeypatch.setattr(hardware, "reopen_wrist_camera", reopen)
+    monkeypatch.setattr(wrist_capture, "read_within", lambda camera: camera.read())   # no 1 s waits
+    answers = iter(["-2 -3", ""])                                # just 9D
+    wrist_capture.main(["--sim", "--sets", "1", "--views", "2", "--seed", "0"], ask=lambda p: next(answers))
+    session = next(tmp_path.glob("*_wrist"))
+    assert len(reopened) == 1                                    # once: the reopened camera then works
+    assert len([e for e in read_events(session) if e["type"] == "wrist_view"]) == 2
+    assert [e["type"] for e in read_events(session)].count("wrist_camera_reopened") == 1
+
+
+def test_views_count_bench_attempts_and_recorded_episodes_too(tmp_path):
+    import wrist_capture
+    sessions, recordings = tmp_path / "sessions", tmp_path / "hf"
+    (sessions / "20261028_102732_bench" / "013_103524_6C").mkdir(parents=True)
+    (sessions / "20261028_102732_bench" / "013_103524_6C" / "wrist_0000.jpg").write_bytes(b"")
+    (sessions / "20261028_102732_bench" / "014_103600_6C").mkdir()          # no hover frame: not counted
+    (recordings / "Yewy" / "mat").mkdir(parents=True)
+    (recordings / "Yewy" / "mat" / "episode_log.jsonl").write_text('{"tile_name": "8D"}\n{"tile_name": "8D"}\n')
+    sources = wrist_capture.views_per_name(sessions, recordings)
+    assert sources["bench"]["6C"] == 1 and sources["recordings"]["8D"] == 2 and not sources["wrist_capture"]

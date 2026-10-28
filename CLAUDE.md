@@ -122,8 +122,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   v3b and v3c then went 13mm deeper than the demos there and bumped a neighbour once.
 - **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
-  `policy.run` stops after 1s without frames (`stop_reason` "camera"); the bench records the attempt as
-  `attempt_void`, reopens the camera and runs it again.
+  No frames for `camera.LOST_S` (1s) means it's lost, in every script: `policy.run` stops (`stop_reason`
+  "camera") and the bench records `attempt_void` and runs it again; record.py discards the episode
+  ("wrist camera lost"); wrist_capture.py takes the view again. Each reopens it with
+  `hardware.reopen_wrist_camera` (retry / quit if it won't open): use that in any new script.
 - The hover correction, the return correction and the table plane are tied to `assets/T_cam_to_base.npy`;
   recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
   then aim at home + the grasp's offset until new returns are logged) and may move the plane.
