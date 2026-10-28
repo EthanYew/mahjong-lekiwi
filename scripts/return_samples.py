@@ -15,8 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import config
-from mahjong.hover_correction import append_record, read_all
+from mahjong import config, hover_correction
 from mahjong.return_correction import landings, return_record
 from mahjong.session import read_events
 from hover_samples import setup_since
@@ -35,20 +34,9 @@ def session_records(session_dir):
 
 
 def import_records(records, path=None, since=None):
-    """Append the records not already in the file and not older than `since`. Returns (added, already, too_old)."""
-    path = path or config.RETURN_CORRECTIONS
-    have = {(r.get("session"), r.get("attempt_dir")) for r in read_all(path)}
-    added = already = too_old = 0
-    for record in records:
-        if (record["session"], record["attempt_dir"]) in have:
-            already += 1
-        elif since is None or record["timestamp"] < since:
-            too_old += 1
-        else:
-            append_record(record, path)
-            have.add((record["session"], record["attempt_dir"]))
-            added += 1
-    return added, already, too_old
+    """hover_correction.import_records, by bench attempt."""
+    return hover_correction.import_records(records, lambda r: (r.get("session"), r.get("attempt_dir")),
+                                           path or config.RETURN_CORRECTIONS, since)
 
 
 def main(argv=None):
