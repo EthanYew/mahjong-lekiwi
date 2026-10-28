@@ -51,6 +51,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
+| `mahjong/handoff_trace.py`, `scripts/handoff_report.py` | what the arm does once the gamepad has it (collect_corrections' `handoff/` traces): sag, drift, command moves |
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
@@ -135,6 +136,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   the base along the reach circle, which looks like a sag. `gamepad.warn_if_at_reach` says so after
   the hover (record, collect_corrections). Reach such tiles by tilting the jaws forward (L/R), or keep
   tiles inside base r ~0.27m.
+- **Hand corrections record the commanded tool point, not where the jaws were.** In the 25 gamepad
+  corrections of 2026-10-22 the measured tool point at → sat 10.6mm short in reach (median; up to 17mm
+  far out), 2-18mm low, and up to ±12mm toward the centre line (−10mm for +y tiles, +8mm for −y: the
+  pan stopping short of its command). That error depends on how the arm was last moved, so it isn't the
+  same at the next hover. The arm also drops and drifts after the gamepad takes over: collect_corrections
+  traces every teleop step (`mahjong/handoff_trace.py`, `scripts/handoff_report.py`) to tell sinking
+  servos from a moving command or XLeRobot's IK easing on the first push. Unverified which it is.
 - **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   No frames for `camera.LOST_S` (1s) means it's lost, in every script: `policy.run` stops (`stop_reason`

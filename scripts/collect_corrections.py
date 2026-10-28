@@ -7,10 +7,13 @@ every record is valid fitting data whatever the hover started from. ← skips a 
 Put the midpoint between the jaw tips over the centre of the tile's top face; lowering close to the
 tile makes it easier to judge. A "wrist" window shows the wrist camera while you line up (--no-view: none),
 and the frame at → is saved in the session (aligned/), so how each correction was lined up can be checked
-afterwards. Aim for 15-20 tiles over the whole table, far corners included.
+afterwards. Each tile's teleop is traced (session handoff/: command, measured joints and input every step),
+so a drop or drift after the handoff can be told apart from a moving command (mahjong/handoff_trace.py).
+Aim for 15-20 tiles over the whole table, far corners included.
 
     python scripts/collect_corrections.py
     python -m mahjong.hover_correction        # the fit
+    python scripts/handoff_report.py          # what the arm did once the gamepad had it, per tile
 """
 import argparse
 import math
@@ -26,6 +29,7 @@ from mahjong import config, hardware, kinematics
 from mahjong.arm import ADJUST_TIME_S
 from mahjong.camera import LOST_S
 from mahjong.gamepad import warn_if_at_reach
+from mahjong.handoff_trace import HandoffTrace, describe
 from mahjong.hover_correction import HoverCorrection, append_record
 from mahjong.perception import drain_stdin
 from mahjong.session import Session
@@ -48,7 +52,7 @@ def main(argv=None):
     listener, events = init_keyboard_listener()
     correction = HoverCorrection.load()
     print(f"Hover correction: {'off (--raw)' if args.raw else correction.summary()}")
-    recorded, dt = 0, 1.0 / config.FPS
+    recorded, lined_up, dt = 0, 0, 1.0 / config.FPS
     try:
         while True:
             arm.rest()
@@ -69,11 +73,12 @@ def main(argv=None):
                 warn_if_at_reach(hx, hy)
                 print("  line up, then → record / ← skip / Esc finish")
                 gamepad.start(arm)
+                trace = HandoffTrace(arm, gamepad)
                 label = f"[{i}/{len(tiles)}] {tile['tile_name']}: line up, -> record / <- skip / Esc finish"
                 frame, failed_reads = None, 0
                 while not events["exit_early"]:
                     t0 = time.time()
-                    gamepad.step(arm, dt)
+                    trace.add(arm, gamepad.step(arm, dt), gamepad)
                     if camera is not None:
                         ok, latest = camera.read()
                         if ok:
@@ -86,6 +91,8 @@ def main(argv=None):
                                 gamepad.start(arm)
                     time.sleep(max(0.0, dt - (time.time() - t0)))
                 commanded = arm.commanded()
+                lined_up += 1
+                save_trace(session, lined_up, tile["tile_name"], trace, hover)
                 arm.move_to(hover["command"], ADJUST_TIME_S)     # straight back up before anything moves sideways
                 if events["stop_recording"]:
                     stop = True
@@ -135,6 +142,17 @@ def show(frame, text):
     cv2.putText(frame, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     cv2.imshow("wrist", frame)
     cv2.waitKey(1)
+
+
+def save_trace(session, n, tile_name, trace, hover):
+    """The handoff trace as session/handoff/<n>_<tile>.jsonl, its summary as a handoff_trace event (with the
+    hover's settle sag, the reference before the gamepad had it) and printed."""
+    path = trace.save(session.dir / "handoff" / f"{n:02d}_{tile_name}.jsonl")
+    summary = trace.summary()
+    for line in describe(summary):
+        print(f"  {line}")
+    session.event("handoff_trace", tile=tile_name, trace=str(path.relative_to(session.dir)),
+                  hover_sag_xyz_m=hover.get("sag_xyz_m"), **summary)
 
 
 def save_frame(session, n, tile_name, frame):

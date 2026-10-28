@@ -23,7 +23,10 @@ class FakeGamepad:
         self.steps += 1
         if self.steps % self.every == 0:
             self.events.update(exit_early=True, rerecord_episode=(self.steps // self.every) in self.skip)
-        return arm.commanded()
+        command = arm.commanded()
+        arm.send(command)
+        self.last = {"measured": arm.measured(), "buttons": [], "sticks": {"lx": 0.0, "ly": 0.0, "rx": 0.0, "ry": 0.0}}
+        return command
 
     def close(self):
         pass
@@ -94,6 +97,23 @@ def test_the_wrist_view_is_shown_while_lining_up_and_each_record_keeps_its_frame
         assert (session / e["wrist_frame"]).is_file()
     rows = [json.loads(line) for line in (tmp_path / "hover_corrections.jsonl").read_text().splitlines()]
     assert len(rows) == len(recorded) and all("wrist_frame" not in r for r in rows)   # the log stays fitting data
+
+
+def test_every_lined_up_tile_is_traced_and_the_report_reads_the_traces(tmp_path, monkeypatch):
+    import handoff_report
+    session, _, gamepad, _ = run(tmp_path, monkeypatch, skip={2})
+    events = read_events(session)
+    traces = [e for e in events if e["type"] == "handoff_trace"]
+    lined_up = [e for e in events if e["type"] in ("correction_recorded", "correction_skipped")]
+    assert len(traces) == len(lined_up) >= 2                          # skipped tiles are traced too
+    for e in traces:
+        rows = [json.loads(line) for line in (session / e["trace"]).read_text().splitlines()]
+        assert len(rows) == e["steps"] + 1 == gamepad.every + 1        # the seed, then one row per step
+        assert e["idle_command_moved_mm"] == 0 and e["first_input_s"] is None
+        assert e["worst_sag_mm"] > 0                                   # the sim arm sags under its command
+    summaries = handoff_report.report(session, log=lambda *a: None)
+    assert len(summaries) == len(traces)
+    assert all(path.with_suffix(".png").is_file() for path, _ in summaries)
 
 
 def test_no_view_needs_no_wrist_camera(tmp_path, monkeypatch):
