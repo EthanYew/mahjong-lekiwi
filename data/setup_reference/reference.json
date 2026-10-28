@@ -1,0 +1,101 @@
+{
+  "region": [
+    307,
+    383,
+    602,
+    480
+  ],
+  "table": {
+    "offset_mm": -5.172684745870667,
+    "slope_x_mm": 0.25862689865343463,
+    "slope_y_mm": 0.6697759467932336,
+    "samples": 140,
+    "outliers": 49
+  },
+  "mat_brightness": 65.0,
+  "wrist_brightness": 65.0,
+  "parked": {
+    "shoulder_pan": -90.28571428571429,
+    "shoulder_lift": -101.45054945054945,
+    "elbow_flex": 97.0989010989011,
+    "wrist_flex": 68.57142857142857,
+    "wrist_roll": -99.56043956043956,
+    "gripper": 89.65517241379311
+  },
+  "hover_correction": "gamepad/affine/23",
+  "layout": "eval_familiar",
+  "spots": [
+    {
+      "id": "F2",
+      "xy": [
+        0.1297,
+        0.186
+      ],
+      "yaw_deg": 8.5,
+      "label": "RD",
+      "tile": {
+        "centre_px": [
+          322.57025146484375,
+          206.04629516601562
+        ],
+        "area_px": 14279.5,
+        "angle_deg": 78.38147640228271,
+        "size_px": [
+          141.27833557128906,
+          123.78446960449219
+        ]
+      },
+      "wrist": "wrist_F2.jpg"
+    },
+    {
+      "id": "F3",
+      "xy": [
+        0.222,
+        0.022
+      ],
+      "yaw_deg": 2.0,
+      "label": "WW",
+      "tile": {
+        "centre_px": [
+          61.637184143066406,
+          131.23104858398438
+        ],
+        "area_px": 17815.5,
+        "angle_deg": 77.73522567749023,
+        "size_px": [
+          165.39772033691406,
+          147.97850036621094
+        ]
+      },
+      "wrist": "wrist_F3.jpg"
+    },
+    {
+      "id": "F6",
+      "xy": [
+        0.1565,
+        -0.1726
+      ],
+      "yaw_deg": -2.9,
+      "label": "9D",
+      "tile": {
+        "centre_px": [
+          354.0416259765625,
+          204.25099182128906
+        ],
+        "area_px": 14617.5,
+        "angle_deg": -88.63607025146484,
+        "size_px": [
+          137.55624389648438,
+          118.25218963623047
+        ]
+      },
+      "wrist": "wrist_F6.jpg"
+    }
+  ],
+  "time": "2026-10-28T18:09:32",
+  "realsense": "realsense.png",
+  "calibration": {
+    "follower_id": "ethan_lekiwi_arm",
+    "t_cam_to_base_sha": "abdaa1b17abe"
+  }
+}

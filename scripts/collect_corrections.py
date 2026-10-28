@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, hardware, kinematics
 from mahjong.arm import ADJUST_TIME_S
 from mahjong.camera import LOST_S
+from mahjong.gamepad import warn_if_at_reach
 from mahjong.hover_correction import HoverCorrection, append_record
 from mahjong.perception import drain_stdin
 from mahjong.session import Session
@@ -65,6 +66,7 @@ def main(argv=None):
                     continue
                 for k in ("exit_early", "rerecord_episode", "stop_recording"):
                     events[k] = False
+                warn_if_at_reach(hx, hy)
                 print("  line up, then → record / ← skip / Esc finish")
                 gamepad.start(arm)
                 label = f"[{i}/{len(tiles)}] {tile['tile_name']}: line up, -> record / <- skip / Esc finish"

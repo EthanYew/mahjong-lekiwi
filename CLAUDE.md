@@ -128,6 +128,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   (r 0.24-0.30m) while the jaws grip the tile at the same depth. The settle and the tip floor both use
   FK, so neither sees it; likely link/gear flex under load or a tilted table plane. At (0.19, +0.19) both
   v3b and v3c then went 13mm deeper than the demos there and bumped a neighbour once.
+- **The far row is at the arm's full reach, not past what the servos can hold.** Held 10s at the 1D hover
+  (base r 0.287m) the shoulder and elbow loaded 8% and 13% (overload trips at 80% for 2s), the tip
+  steady (2026-10-28). But the wrist is 3mm from the gamepad's reach limit at 1D's grasp point, and
+  past it at WW (0.291m). Pushing out there does nothing, and lowering slides the gripper back toward
+  the base along the reach circle, which looks like a sag. `gamepad.warn_if_at_reach` says so after
+  the hover (record, collect_corrections). Reach such tiles by tilting the jaws forward (L/R), or keep
+  tiles inside base r ~0.27m.
 - **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   No frames for `camera.LOST_S` (1s) means it's lost, in every script: `policy.run` stops (`stop_reason`

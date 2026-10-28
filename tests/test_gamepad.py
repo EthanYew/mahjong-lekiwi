@@ -127,3 +127,14 @@ def test_touched_on_a_face_button_or_the_dpad_too():
     pad.hat, pad.keys = (0, 0), [ecodes.BTN_TL2]
     teleop.locked_buttons = {"zl"}
     assert not teleop.touched()
+
+
+def test_the_far_row_is_at_the_edge_of_the_gamepad_s_reach():
+    """2026-10-28: WW (base r 0.291) is past it at the tile, 1D (0.287) 3mm short; the middle has room."""
+    from mahjong.gamepad import REACH_WARNING_M, reach_left_m, warn_if_at_reach
+    assert reach_left_m(0.255, -0.14) < 0 < reach_left_m(0.241, 0.155) < REACH_WARNING_M
+    assert reach_left_m(0.21, 0.0) > 0.05
+    lines = []
+    warn_if_at_reach(0.241, 0.155, log=lines.append)
+    warn_if_at_reach(0.21, 0.0, log=lines.append)
+    assert len(lines) == 1 and "tilt the jaws forward" in lines[0]
