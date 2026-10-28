@@ -101,3 +101,13 @@ def test_keep_mask_drops_everything_before_a_dagger_takeover():
     states, actions, deltas = episode()
     keep = keep_mask(states, actions, deltas, trim_idle=False, start=120)
     assert not keep[:120].any() and keep[120:].all()
+
+
+def test_idle_right_after_a_dagger_takeover_is_trimmed():
+    # The policy drifts until the takeover at 80, then the person holds still until the descent. The idle
+    # window mustn't reach back into the policy's dropped frames and keep the still ones (146 frames in v4).
+    states, actions, deltas = episode()
+    deltas[60:80, 0] = np.linspace(-5, 0, 20)
+    keep = keep_mask(states, actions, deltas, trim_sag=False, start=80)
+    assert not keep[:95].any()
+    assert keep[110:130].all()
