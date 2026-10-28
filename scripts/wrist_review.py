@@ -50,6 +50,9 @@ class Reviewer:
     def __init__(self, all_photos, review, names, show_all=False, log=None):
         self.photos, self.review, self.show_all = all_photos, review, show_all
         self.log = log or wrist_photos.REVIEW
+        # hidden: tiles reviewed before this run. Ones reviewed now stay, so p / [ go back to them (they
+        # vanished, leaving a blank page, when hidden by the live review)
+        self.reviewed_before = set(review)
         self.names = [n for n in names if self._rows(n)]
         self.name_i, self.page = 0, 0
         self.rows = self._rows(self.names[0]) if self.names else []
@@ -64,7 +67,7 @@ class Reviewer:
                 groups.setdefault(key, []).append(photo)
         rows = []
         for group, members in groups.items():
-            if not self.show_all and all(m["key"] in self.review for m in members):
+            if not self.show_all and all(m["key"] in self.reviewed_before for m in members):
                 continue
             rows += [members[i:i + COLUMNS] for i in range(0, len(members), COLUMNS)]
         return rows
@@ -139,11 +142,16 @@ class Reviewer:
             self.page = self.pages() - 1
 
     def change_name(self, step):
-        if not 0 <= self.name_i + step < len(self.names):
-            return False
-        self.name_i += step
-        self.rows, self.page = self._rows(self.name), 0
-        return True
+        """To the next (step +1) or previous (-1) name with photos to show (all of one's photos may have
+        been renamed away). False, staying put, if there's none that way."""
+        i = self.name_i + step
+        while 0 <= i < len(self.names):
+            rows = self._rows(self.names[i])
+            if rows:
+                self.name_i, self.rows, self.page = i, rows, 0
+                return True
+            i += step
+        return False
 
     def render(self, load=lambda path: cv2.imread(str(path))):
         width = LABEL_W + COLUMNS * (THUMB_W + GAP)
@@ -154,6 +162,9 @@ class Reviewer:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 1)
         cv2.putText(canvas, "click: wrong   click label: whole tile   right-click: rename   shift-click: full size   space: ok + next   "
                     "p: back   ] [: name   q: quit", (8, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.4, GREY, 1)
+        if not self.page_rows():
+            cv2.putText(canvas, f"No {self.name} photos left to show here (renamed away?): ] or [ for another name",
+                        (8, HEADER_H + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, AMBER, 1)
         for r, row in enumerate(self.page_rows()):
             y = HEADER_H + r * (THUMB_H + GAP)
             first = row[0]
