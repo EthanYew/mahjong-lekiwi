@@ -99,7 +99,7 @@ def evaluate(policy, dataset_repo, hover):
     """(replay MAE on training episodes — optimistic, mean freeze-probe descent onset in plan steps)."""
     import cv2
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    from mahjong.offline_eval import descent_onset, to_bgr
+    from mahjong.offline_eval import NARROWED_HOVER_BELOW, descent_onset, to_bgr
     ds = LeRobotDataset(dataset_repo)
     errors = []
     for e in np.linspace(0, ds.num_episodes - 1, 3).astype(int):
@@ -112,7 +112,7 @@ def evaluate(policy, dataset_repo, hover):
             errors.append(np.abs(first - item["action"].numpy()).mean())
     # The freeze frames were captured after the jaws had been narrowed from a 90% hover (gripper delta
     # -31); a policy recorded from a narrowed hover starts at that opening, i.e. delta 0.
-    probe_state = np.array([0, 0, 0, 0, 0, -31.0 if hover["gripper"] > 50 else 0.0], np.float32)
+    probe_state = np.array([0, 0, 0, 0, 0, 0.0 if hover["gripper"] < NARROWED_HOVER_BELOW else -31.0], np.float32)
     onsets = []
     for name in FREEZE_FRAMES:
         plan = policy.plan(cv2.imread(str(config.DATA / "fixtures" / "freeze_frames" / name)), probe_state)

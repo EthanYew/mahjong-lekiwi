@@ -139,7 +139,7 @@ def wrist_look(arm, camera, correction, xy):
     camera — reopened if it was lost)."""
     hx, hy = correction.apply(*xy, log=lambda *_: None) if correction else xy
     arm.lift()
-    hover = arm.hover(hx, hy, config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, config.HOVER_GRIPPER, log=lambda *_: None)
+    hover = arm.hover(hx, hy, **config.DEFAULT_HOVER, log=lambda *_: None)
     if hover is None:
         return None, None, camera
     frames = grab_frames(camera, 3)
