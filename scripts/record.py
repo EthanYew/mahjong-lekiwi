@@ -188,10 +188,7 @@ def main(argv=None):
                 retry = None
                 arm.lift()
             else:
-                arm.rest()
-                if arm.holding()[0]:
-                    print("Releasing the tile from the last episode at rest.")
-                    arm.set_gripper(hover["gripper"])
+                rest_and_release(arm, hover)
                 placement = {}
                 if args.layout:
                     if not todo:
@@ -367,10 +364,7 @@ def main(argv=None):
         if dataset.has_pending_frames():
             dataset.clear_episode_buffer()
         dataset.finalize()
-        arm.rest()
-        if arm.holding()[0]:           # the last episode's tile: a gripper left stalled on it at 0 overloads
-            print("Releasing the tile from the last episode at rest.")
-            arm.set_gripper(hover["gripper"])
+        rest_and_release(arm, hover)
         arm.disconnect()
         camera.release()
         realsense.close()
@@ -455,6 +449,15 @@ def return_tile(arm, actions, hovered, held, returns, realsense, session, correc
         input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
         session.intervention("tile_reset", tile=name, home_xy=home)
     return True
+
+
+def rest_and_release(arm, hover):
+    """Rest, then let go of a tile still held (--no-return, or a return out of reach) by opening to the hover
+    gripper: a gripper left stalled on it at 0 overloads."""
+    arm.rest()
+    if arm.holding()[0]:
+        print("Releasing the tile from the last episode at rest.")
+        arm.set_gripper(hover["gripper"])
 
 
 def ask_same_tile(arm, reason):
