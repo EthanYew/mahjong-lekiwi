@@ -31,16 +31,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, hardware, kinematics
 from mahjong.arm import ADJUST_TIME_S
 from mahjong.camera import LOST_S
-from mahjong.gamepad import input_text, moving, warn_if_at_reach
+from mahjong.gamepad import DEADZONE, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.handoff_trace import HandoffTrace, describe
 from mahjong.hover_correction import HoverCorrection, append_record
 from mahjong.perception import drain_stdin
 from mahjong.session import Session
-
-# 2026-10-28: a resting thumb read 0.22-0.44 of full travel (median 0.37) and XLeRobot's 0.15 let it pull the
-# arm 87mm; at 0.35 that is 11mm. Deliberate gentle pushes read 0.35-0.40 too, so no deadzone separates them:
-# the window's input line and the off-centre warning are what show it.
-DEADZONE = 0.35
 
 
 def main(argv=None):
@@ -153,19 +148,9 @@ def show(frame, text, last=None):
     frame = frame.copy()
     cv2.putText(frame, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     if last:
-        colour = (0, 0, 255) if moving(last) else (0, 200, 0)
-        cv2.putText(frame, input_text(last), (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+        draw_input(frame, last)
     cv2.imshow("wrist", frame)
     cv2.waitKey(1)
-
-
-def warn_off_centre(gamepad, session, tile_name):
-    """Say so if a stick rests off centre as the gamepad takes over: a thumb on it, or drift, moves the arm."""
-    off = gamepad.off_centre() if hasattr(gamepad, "off_centre") else {}
-    for side, (x, y) in off.items():
-        print(f"  {side} stick reads ({x:+.2f}, {y:+.2f}) untouched? — let go of it, or raise --deadzone if it drifts")
-    if off:
-        session.event("stick_off_centre", tile=tile_name, sticks=off)
 
 
 def save_trace(session, n, tile_name, trace, hover):

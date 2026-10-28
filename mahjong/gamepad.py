@@ -110,6 +110,27 @@ def moving(last):
     return any(last.get("sticks", {}).values()) or bool(last.get("buttons"))
 
 
+def draw_input(frame, last):
+    """input_text along the bottom of a wrist frame, red while the input moves the arm."""
+    import cv2
+    colour = (0, 0, 255) if moving(last) else (0, 200, 0)
+    cv2.putText(frame, input_text(last), (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+
+
+def warn_off_centre(gamepad, session, tile_name):
+    """Say so if a stick rests off centre as the gamepad takes over: a thumb on it, or drift, moves the arm."""
+    off = gamepad.off_centre() if hasattr(gamepad, "off_centre") else {}
+    for side, (x, y) in off.items():
+        print(f"  {side} stick reads ({x:+.2f}, {y:+.2f}) untouched? — let go of it, or raise --deadzone if it drifts")
+    if off:
+        session.event("stick_off_centre", tile=tile_name, sticks=off)
+
+
+# 2026-10-28: a resting thumb read 0.22-0.44 of full travel (median 0.37) and XLeRobot's 0.15 let it pull the
+# arm 87mm; at 0.35 that is 11mm. Deliberate gentle pushes read 0.35-0.40 too, so no deadzone separates them:
+# the window's input line (draw_input) and the off-centre warning are what show it. Every script that hands
+# over the gamepad uses it (collect_corrections, record, bench's teach-discard); --deadzone where offered.
+DEADZONE = 0.35
 EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
 TAKEOVER_KEY = 305                    # evdev BTN_EAST: the rightmost face button (A), probed on the ZhiXu pad
 
@@ -147,7 +168,7 @@ class GamepadTeleop:
 
     deadzone = None             # None: XLeRobot's (0.15)
 
-    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=None):
+    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=DEADZONE):
         """deadzone: of the sticks' travel (0-1), round, as XLeRobot shapes it; None keeps XLeRobot's."""
         self.utils, self.ee = _load_xlerobot()
         self.pad = self.utils.Gamepad(self.utils.find_gamepad(device))

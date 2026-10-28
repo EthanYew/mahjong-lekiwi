@@ -57,7 +57,7 @@ import numpy as np
 from mahjong import config, hardware, kinematics, layout
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
-from mahjong.gamepad import warn_if_at_reach
+from mahjong.gamepad import DEADZONE, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
@@ -90,6 +90,9 @@ def parse_args(argv=None):
                         "before descending; v2n's trimmed episodes start at 27.2 (record at that to compare with v2n)")
     p.add_argument("--stick-commit-s", type=float, default=0.1,
                    help="a gamepad stick moves the arm only once held this long, so flicks don't (default %(default)s)")
+    p.add_argument("--deadzone", type=float, default=DEADZONE,
+                   help="stick deadzone, fraction of full travel (default %(default)s, as collect_corrections: a resting "
+                        "thumb past XLeRobot's 0.15 pulled the arm 87mm; lower it if gentle pushes don't register)")
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
@@ -155,10 +158,12 @@ def main(argv=None):
         todo = layout.schedule(spots, args.repeats, args.start_spot)
         ghost = layout.load_ghost(args.layout)
     devices = hardware.connect(["arm", "wrist_camera", "realsense", "gamepad"],
-                               gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s})
+                               gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s,
+                                               "deadzone": args.deadzone})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
+                      deadzone=args.deadzone,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
                       hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
                       jitter_seed=args.jitter_seed, policy=args.policy)
@@ -258,6 +263,7 @@ def main(argv=None):
 
             if policy is None:
                 gamepad.start(arm)
+                warn_off_centre(gamepad, session, tile["tile_name"])
             else:
                 policy.reset()
                 camera.flush()
@@ -278,6 +284,7 @@ def main(argv=None):
                 if policy is not None and takeover is None and gamepad.takeover_pressed():
                     takeover = frames
                     gamepad.start(arm)          # from the policy's last command: no drop, the gripper held
+                    warn_off_centre(gamepad, session, tile["tile_name"])
                     print(f"  t={frames / config.FPS:4.1f}s you have it")
                     session.intervention("takeover", tile=tile["tile_name"], frame=frames)
                 if policy is not None and takeover is None:
@@ -306,7 +313,9 @@ def main(argv=None):
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
                 driver = "" if policy is None else (" POLICY drives: A takes over" if takeover is None else " YOU")
-                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame)
+                yours = policy is None or takeover is not None
+                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame,
+                     getattr(gamepad, "last", None) if yours else None)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
             fps = round(frames / max(time.time() - started, 1e-6), 1)
@@ -465,7 +474,8 @@ def next_offset(args, rng, saved):
     return random_offset(rng, args.hover_jitter_mm / 1000, args.jitter_zero_fraction)
 
 
-def show(camera, disabled, text, frame=None):
+def show(camera, disabled, text, frame=None, last=None):
+    """The wrist frame with `text`, and under it what the gamepad reads (`last`) while you drive."""
     if disabled:
         return
     if frame is None:
@@ -474,6 +484,8 @@ def show(camera, disabled, text, frame=None):
             return
     frame = frame.copy()
     cv2.putText(frame, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    if last:
+        draw_input(frame, last)
     cv2.imshow("wrist", frame)
     cv2.waitKey(1)
 

@@ -90,13 +90,15 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
         arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
         arm.at_connect = {"arm_at_rest": True, "off_rest_deg": 0.0}
         camera = cameras.pop(0) if cameras else SimCamera()         # cameras: handed out in turn (reopens too)
-        return {"arm": arm, "wrist_camera": camera, "realsense": mat, "gamepad": gamepad()}
+        pad = gamepad()
+        pad.kwargs = gamepad_kwargs
+        return {"arm": arm, "wrist_camera": camera, "realsense": mat, "gamepad": pad}
 
     events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
     listener = types.SimpleNamespace(stop=lambda: None)
     steps, frames = iter(script), []
 
-    def show(camera, disabled, text, frame=None):
+    def show(camera, disabled, text, frame=None, last=None):
         phase = "hover" if text.startswith("hovering") else "rec"
         if phase == "rec":
             frames.append(text)
@@ -237,6 +239,24 @@ def test_a_held_tile_is_set_back_down_on_the_mat_not_dropped_at_rest(tmp_path, m
     # a returned tile has moved, so a discard doesn't offer the same hover again
     hovers = [e for e in events if e["type"] == "hover"]
     assert [h["same_tile_retry"] for h in hovers] == [False, False, False]
+
+
+def test_the_gamepad_gets_the_wider_deadzone_and_a_resting_thumb_is_said(tmp_path, monkeypatch, capsys):
+    """2026-10-28: a thumb resting on the left stick, past XLeRobot's 0.15, pulled the arm 87mm (collect_corrections);
+    record hands over the gamepad at every episode, so it gets the same deadzone and warning."""
+    pads = []
+
+    class ThumbOnStick(FakeGamepad):
+        def __init__(self):
+            pads.append(self)
+
+        def off_centre(self):
+            return {"left": (0.0, -0.3)}
+    _, session = run_record(tmp_path, monkeypatch, ["--episodes", "1"], [("hover", {}), ("rec", {})], gamepad=ThumbOnStick)
+    assert pads[0].kwargs["deadzone"] == 0.35
+    assert "left stick reads (+0.00, -0.30)" in capsys.readouterr().out
+    (event,) = [e for e in read_events(session) if e["type"] == "stick_off_centre"]
+    assert event["tile"] == "8D" and event["sticks"] == {"left": [0.0, -0.3]}
 
 
 def test_no_return_leaves_the_tile_to_be_released_at_rest(tmp_path, monkeypatch):
@@ -426,7 +446,7 @@ def test_a_second_right_arrow_straight_after_the_first_doesnt_save(tmp_path, mon
     events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
     frames, clock = [], [0.0]
 
-    def show(camera, disabled, text, frame=None):
+    def show(camera, disabled, text, frame=None, last=None):
         if text.startswith("hovering"):
             events["exit_early"] = True            # → to start
         else:
