@@ -3,3 +3,4 @@
 # its own timestamp, so line order doesn't matter.
 data/hover_corrections.jsonl merge=union
 data/return_corrections.jsonl merge=union
+data/wrist_review.jsonl merge=union
