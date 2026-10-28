@@ -55,6 +55,7 @@ import numpy as np
 from mahjong import config, hardware, kinematics, layout
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
+from mahjong.gamepad import warn_if_at_reach
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.session import Session, ask_one
@@ -233,6 +234,7 @@ def main(argv=None):
                 continue
             session.event("hover", tile=tile["tile_name"], detection_xy=[x, y], hover_jitter_xy=list(offset),
                           same_tile_retry=retrying, **result)
+            warn_if_at_reach(*result["hover_xy"])
 
             print(f"Hovering. → {'START recording with ' + policy.id + ' driving' if policy else 'take control and START recording'}"
                   f", ← re-hover, Esc quit")

@@ -73,6 +73,33 @@ class CommittedSticks:
 
 EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
 
+# 2026-10-28: at the far row the wrist is within a few mm of XLeRobot's reach limit (l1 + l2 less its
+# margin, in the arm's plane) at the tile, WW past it. Pushing out there does nothing, and lowering at
+# the limit slides the gripper back toward the base along the reach circle: it looked like a sag.
+REACH_WARNING_M = 0.008
+
+
+def reach_left_m(x, y):
+    """How far the wrist can still reach out (m, in XLeRobot's arm plane) with the jaws pointing straight
+    down at the grasp point over (x, y); negative past the gamepad's reach, None if the IK refuses."""
+    import math
+    from . import kinematics
+    q, _ = kinematics.hover_command(x, y, 0.0, 0.0)
+    if q is None:
+        return None
+    _, ee = _load_xlerobot()
+    kin = ee.SO101Kinematics()
+    px, py = kin.forward_kinematics(q["shoulder_lift"], q["elbow_flex"])
+    return kin.l1 + kin.l2 - ee.REACH_MARGIN - math.hypot(px, py)
+
+
+def warn_if_at_reach(x, y, log=print):
+    """A line saying how to work a tile at the edge of the gamepad's reach, if it's there."""
+    left = reach_left_m(x, y)
+    if left is not None and left < REACH_WARNING_M:
+        log(f"  at the edge of the gamepad's reach ({left * 1000:+.0f}mm left at the tile): tilt the jaws forward "
+            f"with L/R rather than pushing out; at full reach, lowering slides the arm back toward the base")
+
 
 class GamepadTeleop:
     """Drives an Arm from the gamepad. start() seeds from the arm's *commanded* pose — seeding from
