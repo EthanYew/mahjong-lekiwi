@@ -4,8 +4,10 @@ Each episode: the arm rests, the RealSense detects tiles, you pick one, the arm 
 (measured hover correction, settled from above to the clearance), and holds. → hands you the gamepad
 and starts recording from exactly that pose; → again saves, ← discards, Esc ends. After a discard that
 moved nothing, Enter at "Same tile, same hover again?" lifts and hovers over the same tile again, skipping
-the trip to rest and the tile choice. A tile still in the jaws when an episode ends is set back down where
-the jaws closed on it (as bench.py's return), then the arm rests; --no-return drops it at rest instead.
+the trip to rest and the tile choice. A tile still in the jaws when an episode ends is set back down at its
+home, where it was first seen this session (as bench.py's return, aimed with the return model), and a
+RealSense scan logs where it landed, a sample for data/return_corrections.jsonl; then the arm rests.
+--no-return drops it at rest instead.
 
 The hover settings (offset, clearance, gripper opening) are written per episode to
 <dataset>/episode_log.jsonl; make_policy.py stores them with the trained policy so it's deployed from
@@ -58,6 +60,7 @@ from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import warn_if_at_reach
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
+from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_one
 
 JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
@@ -162,6 +165,9 @@ def main(argv=None):
     session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
+    returns, homes = None if args.no_return else ReturnCorrection.load(), Homes()
+    if returns:
+        print(f"Return correction: {returns.summary()}")
     dataset = open_dataset(args.dataset)
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
@@ -219,6 +225,7 @@ def main(argv=None):
                     session.event("attempt_skipped", reason="cancelled" if tiles else "no_tiles")
                     continue
             x, y = tile["xy"]
+            home = homes(tile, {"id": placement["spot"]} if placement else None)
             hx, hy = correction.apply(x, y) if correction else (x, y)
             if offset is None:
                 offset = next_offset(args, rng, saved)
@@ -305,7 +312,10 @@ def main(argv=None):
             fps = round(frames / max(time.time() - started, 1e-6), 1)
             if frames and fps < 0.9 * config.FPS:     # the policy and the gamepad both assume 30 steps a second
                 print(f"  recorded at {fps:.0f} fps, not {config.FPS}: the loop is running slow")
-            returned = not args.no_return and return_tile(arm, actions, result, session, tile["tile_name"])
+            held = {"tile_name": tile["tile_name"], "detection_xy": [x, y], "home_xy": home, "attempt_dir": None,
+                    "spot": placement.get("spot")}
+            returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
+                                                          correction, hover, args.policy or "teleop")
             dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
@@ -395,31 +405,47 @@ class RollTrace:
                 "roll_command_travel_deg": round(self.travel, 1), "roll_lag_max_deg": round(self.lag, 1)}
 
 
-RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the grasp to the hover
+RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the return target to the hover
 
 
-def return_tile(arm, actions, hovered, session, tile_name):
-    """Set a tile still in the jaws back down where they closed on it (the first command shut; the hover if
-    none was), then rest, instead of dropping it at rest. Teleop reaches further than the IK plans (9B at
-    the left edge, 29cm out, 2026-10-27), so an unreachable grasp point walks back toward the hover, which
-    the IK reached. True if it was set down."""
+def return_tile(arm, actions, hovered, held, returns, realsense, session, correction, hover, policy_id):
+    """Set a tile still in the jaws back down so it lands at its home (held["home_xy"]: where it was first
+    seen this session), aimed with the return model from where the jaws closed (the first command shut; the
+    hover if none was), then check where it landed. Returning to the grasp point instead walked tiles 25-31mm
+    in one recording (2026-10-28). Teleop reaches further than the IK plans (9B at the left edge, 29cm out,
+    2026-10-27), so an unreachable target walks back toward the hover, which the IK reached. True if it was
+    set down."""
     if not arm.holding()[0]:
         return False
     _, grasp_xy = kinematics.grasp_point(actions)
-    gx, gy = grasp_xy or hovered["hover_xy"]
+    held = {**held, "grasp_xy": grasp_xy or hovered["hover_xy"]}
+    home, name = held["home_xy"], held["tile_name"]
+    print(f"Returning {name} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
+    tx, ty = returns.target(home, held["detection_xy"], held["grasp_xy"])
     hx, hy = hovered["hover_xy"]
-    print(f"Returning {tile_name} to ({gx:.3f}, {gy:+.3f})")
     for k in RETURN_TOWARD_HOVER:
-        x, y = gx + (hx - gx) * k, gy + (hy - gy) * k
+        x, y = tx + (hx - tx) * k, ty + (hy - ty) * k
         placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None)
         if placed is not None:
-            if k:
-                print(f"  set down {np.hypot(x - gx, y - gy) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
-            session.event("return", tile=tile_name, asked_xy=[gx, gy], toward_hover=k, **placed)
-            return True
-    print("  Out of reach even at the hover: it's released at rest instead.")
-    session.event("return_skipped", reason="unreachable", tile=tile_name, xy=[gx, gy])
-    return False
+            break
+    else:
+        print("  Out of reach even at the hover: it's released at rest instead.")
+        session.event("return_skipped", reason="unreachable", tile=name, xy=[tx, ty])
+        return False
+    if k:
+        print(f"  set down {np.hypot(x - tx, y - ty) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
+    session.event("return", tile=name, asked_xy=[tx, ty], home_xy=home, toward_hover=k,
+                  return_correction=returns.name, **placed)
+    tiles = realsense.detect_tiles()
+    session.event("detections", label="after_return", target_xy=home,
+                  tiles=[{f: t[f] for f in ("tile_name", "xy", "confidence") if f in t} for t in tiles])
+    _, reset = check_landing(held, placed["xy"], tiles, session, config.RETURN_CORRECTIONS, correction, hover,
+                             policy=policy_id, source="record", return_correction=returns.name)
+    if reset:
+        drain_stdin()
+        input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
+        session.intervention("tile_reset", tile=name, home_xy=home)
+    return True
 
 
 def ask_same_tile(arm, reason):

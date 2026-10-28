@@ -35,7 +35,7 @@ import math
 
 import numpy as np
 
-from . import config
+from . import config, kinematics
 from .hover_correction import (EXTRAPOLATION_MARGIN_M, POSITION_CELL_M, append_record, position_cells, read_all,
                                setup_fingerprint)
 
@@ -79,6 +79,55 @@ def landings(events):
                         "home_xy": home, "landed_xy": landed, "error_m": math.dist(landed, home) if landed else None})
             attempt = ret = None
     return out
+
+
+class Homes:
+    """Where each tile picked up this session is returned to: where its spot's (or its name's) tile was first
+    seen, unless it's now more than HOME_RADIUS_M from there (moved on purpose: a new home). Returning to
+    each round's own grasp point walked tiles ~1cm a round (8cm in 10, 2026-10-27, v3b at 6C; 25-31mm in
+    one recording, 2026-10-28): any off-centre grip carried into the next round."""
+
+    def __init__(self):
+        self.homes = {}
+
+    def __call__(self, tile, spot=None):
+        key = spot["id"] if spot else tile["tile_name"]
+        home = self.homes.get(key)
+        if home is None or math.dist(tile["xy"], home) > config.HOME_RADIUS_M:
+            home = self.homes[key] = [float(v) for v in tile["xy"]]
+        return home
+
+    def get(self, key):
+        return self.homes.get(key)
+
+
+def check_landing(held, placed_xy, tiles, session, path, correction, hover, **provenance):
+    """Where a returned tile landed in the after-return scan `tiles`: a `return_landed` event, a sample for
+    the return model in `path`, and a print past RETURN_DRIFT_WARN_M from home. held: {tile_name,
+    detection_xy, grasp_xy, home_xy, attempt_dir, spot}; hover: the policy's (whether the next hover can
+    reach the tile). Returns the landed detection (None if not seen) and whether a person should put it
+    back home (past RETURN_DRIFT_RESET_M, or out of the hover's reach: the next pickup would start there)."""
+    home, name = held["home_xy"], held["tile_name"]
+    tile = landed_tile(tiles, name, home)
+    if tile is None:
+        print(f"  {name} not seen within {LANDED_WITHIN_M * 1000:.0f}mm of its home after the return")
+        session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home, landed_xy=None)
+        return None, False
+    landed = list(tile["xy"])
+    error = math.dist(landed, home)
+    session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home,
+                  landed_xy=landed, error_m=error)
+    append_record(return_record(held["detection_xy"], held["grasp_xy"], placed_xy, landed, tile_name=name,
+                                spot=held["spot"], home_xy=home, session=session.dir.name,
+                                attempt_dir=held["attempt_dir"], **provenance), path)
+    hx, hy = correction.apply(*landed, log=lambda *a: None) if correction else landed
+    reachable = kinematics.hover_command(hx, hy, hover["offset_m"], hover["gripper"])[0] is not None
+    if error <= config.RETURN_DRIFT_WARN_M and reachable:
+        return tile, False
+    print(f"  {name} landed {error * 1000:.0f}mm from its home "
+          f"({(landed[0] - home[0]) * 1000:+.0f}, {(landed[1] - home[1]) * 1000:+.0f})mm"
+          + ("" if reachable else ", out of the hover's reach"))
+    return tile, not (error <= config.RETURN_DRIFT_RESET_M and reachable)
 
 
 def _arrays(records):

@@ -94,7 +94,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   4mm) with no build-up, vs 11mm (worst 17mm) at 6C the day before; other spots unchecked. Homes last the
   session, by spot or tile name: a tile moved on purpose less than `HOME_RADIUS_M` (40mm) is put back at
   its old home. The fit pools every policy; one that grips differently may need its own
-  (`docs/retrospectives/2026-10-28_return_homes.md`).
+  (`docs/retrospectives/2026-10-28_return_homes.md`). record.py kept returning to the grasp point until
+  2026-10-28 (tiles walked 25-31mm in one recording, `20261028_225113_record`); it now shares the homes and
+  landing check (`return_correction.Homes`, `check_landing`), and its teleop returns are logged as `policy`
+  "teleop", `source` "record".
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
   ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return
