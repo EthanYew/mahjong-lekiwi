@@ -11,7 +11,9 @@ Steps: the arm goes to rest; the RealSense looks at the robot's base and the mat
 was in the image, a window shows the reference blended with the live view and an arrow: nudge the tripod
 until the box turns green, then Enter (moving it back keeps T_cam_to_base and both corrections valid;
 recalibrating doesn't). Then for each check spot: place one tile until its outline is green, the arm hovers
-over it as the bench does and the wrist camera looks; the arm rests before the next spot. At the end the arm
+over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
+(by the RealSense at the spot, or in the wrist view at the hover) is asked about: reposition it, chasing green
+again, and Enter looks again; s skips the spot, q stops the tile test. At the end the arm
 is switched off and settles onto its stops, and that pose is compared too.
 
 The reference lives in data/setup_reference/ (commit it: it's what "set up correctly" means). Each run writes
@@ -105,24 +107,31 @@ def place_sim_tile(realsense, spot):
     realsense.tiles = [{"tile_name": spot.get("label") or "6B", "xy": [float(v) for v in true_xy]}]
 
 
-def tile_at(realsense, spot, sim):
-    """Place the tile at `spot` and measure where it is: (x, y) or None (skipped / not found), and whether to
-    quit."""
+def tile_at(realsense, spot, sim, again=False):
+    """Place the tile at `spot` (the window: move it until its outline is green) and measure where it is.
+    Returns ((x, y) or None, "ok" / "missing" (the RealSense finds no tile there) / "skip" / "quit")."""
     K, T = realsense.intrinsics, realsense.T_cam_to_base
     if sim:
         place_sim_tile(realsense, spot)
     else:
-        print(f"  Put a tile on {spot['id']} until its outline is green, then Enter in the window.")
+        print(f"  {'Move the tile on' if again else 'Put a tile on'} {spot['id']} until its outline is green, then "
+              "Enter in the window (s skips the spot, q stops the tile test).")
         placed = layout.place(realsense.snapshot, [spot], spot["id"], K, T, window=WINDOW)
-        if placed["action"] == "quit":
-            return None, True
-        if placed["action"] == "skip":
-            return None, False
+        if placed["action"] in ("quit", "skip"):
+            return None, placed["action"]
+        if placed["status"] != "ok":
+            print(f"  (accepted while {placed['status']}, not green)")
     row = layout.capture(realsense.snapshot, [spot], K, T, frames=3 if sim else layout.CAPTURE_FRAMES)[0]
     if "dx_mm" not in row:
-        print(f"  {spot['id']}: no tile found there")
-        return None, False
-    return (spot["xy"][0] + row["dx_mm"] / 1000, spot["xy"][1] + row["dy_mm"] / 1000), False
+        return None, "missing"
+    return (spot["xy"][0] + row["dx_mm"] / 1000, spot["xy"][1] + row["dy_mm"] / 1000), "ok"
+
+
+def ask_again(ask, spot, problem):
+    """A tile wasn't found: "retry" (reposition it and look again), "skip" the spot, or "quit" the tile test."""
+    answer = ask(f"  {spot['id']}: {problem}. Reposition the tile (chase green in the window), then Enter to try "
+                 "again; s skips this spot, q stops the tile test: ").strip().lower()
+    return {"s": "skip", "q": "quit"}.get(answer[:1], "retry")
 
 
 def wrist_look(arm, camera, correction, xy):
@@ -140,38 +149,64 @@ def wrist_look(arm, camera, correction, xy):
     return (frames[-1] if frames else None), hover, camera
 
 
-def tile_test(arm, camera, realsense, correction, spots, reference, session, sim):
-    """Every spot: place, hover, look. Returns ({id: per-spot result}, {id: wrist frame}, camera)."""
+def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input):
+    """Every spot: place, hover, look. A tile not found (by the RealSense, or in the wrist view at the hover)
+    is repositioned and looked at again, until it's found or the person skips the spot / stops. Returns
+    ({id: per-spot result}, {id: wrist frame}, camera)."""
     by_id = {s["id"]: s for s in (reference or {}).get("spots", [])}
     results, frames = {}, {}
     for spot in spots:
-        arm.rest()
-        xy, quit_ = tile_at(realsense, spot, sim)
-        if quit_:
-            break
-        if xy is None:
-            results[spot["id"]] = {"status": "skipped", "why": "no tile placed"}
-            continue
-        frame, hover, camera = wrist_look(arm, camera, correction, xy)
-        if frame is None:
-            results[spot["id"]] = {"status": "fail", "why": "out of reach" if hover is None else "no wrist frames"}
-        else:
-            frames[spot["id"]] = frame
-            ref = by_id.get(spot["id"])
-            found = sc.wrist_tile(frame)
-            result = sc.wrist_result(found, ref["tile"] if ref else None) if reference else \
-                {**(found or {}), "status": "pass" if found else "fail", "why": "" if found else "no tile found in the wrist view"}
-            results[spot["id"]] = {**result, "measured_xy": list(xy), "hover_xy": hover["hover_xy"],
-                                   "brightness": sc.brightness(frame)}
-            cv2.imwrite(str(session.dir / f"wrist_{spot['id']}.jpg"), frame)
-            if reference and ref and ref.get("wrist_image") is not None:
-                cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_vs_reference.jpg"),
-                            sc.side_by_side(ref["wrist_image"], frame, found, ref["tile"], spot["id"]))
+        attempt, stop = 0, False
+        while True:                     # until the tile is found, or the person skips / quits
+            arm.rest()
+            xy, action = tile_at(realsense, spot, sim, again=attempt > 0)
+            attempt += 1
+            if action == "quit":
+                stop = True
+                break
+            if action == "skip":
+                results[spot["id"]] = {"status": "skipped", "why": "no tile placed"}
+                break
+            problem, frame, hover, found = "the RealSense finds no tile there", None, None, None
+            if xy is not None:
+                frame, hover, camera = wrist_look(arm, camera, correction, xy)
+                found = sc.wrist_tile(frame) if frame is not None else None
+                problem = None if frame is None or found is not None else "no tile in the wrist view at the hover"
+            if problem is None:
+                break
+            print(f"  {spot['id']}: {problem}")
+            session.event("setup_tile_not_found", spot=spot["id"], attempt=attempt, problem=problem)
+            if frame is not None:
+                cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_not_found_{attempt}.jpg"), frame)
+            arm.lift()
+            choice = ask_again(ask, spot, problem)
+            if choice != "retry":
+                results[spot["id"]] = {"status": "fail" if xy is not None else "skipped", "why": problem,
+                                       "attempts": attempt}
+                stop = choice == "quit"
+                break
+        if spot["id"] not in results:
+            if stop:                    # quit before anything was measured here
+                break
+            if frame is None:
+                results[spot["id"]] = {"status": "fail", "why": "out of reach" if hover is None else "no wrist frames"}
+            else:
+                frames[spot["id"]] = frame
+                ref = by_id.get(spot["id"])
+                result = sc.wrist_result(found, ref["tile"] if ref else None) if reference else {**found, "status": "pass"}
+                results[spot["id"]] = {**result, "measured_xy": list(xy), "hover_xy": hover["hover_xy"],
+                                       "brightness": sc.brightness(frame), "attempts": attempt}
+                cv2.imwrite(str(session.dir / f"wrist_{spot['id']}.jpg"), frame)
+                if reference and ref and ref.get("wrist_image") is not None:
+                    cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_vs_reference.jpg"),
+                                sc.side_by_side(ref["wrist_image"], frame, found, ref["tile"], spot["id"]))
         r = results[spot["id"]]
         print(f"  {spot['id']}: {r['status']} — " + (sc.wrist_text(r) if reference and "du_px" in r else r.get("why") or
                                                      f"tile at {r['centre_px'][0]:.0f}, {r['centre_px'][1]:.0f}px"))
         session.event("setup_tile", spot=spot["id"], **{k: v for k, v in r.items()})
         arm.lift()
+        if stop:
+            break
     arm.rest()
     return results, frames, camera
 
@@ -208,6 +243,9 @@ def main(argv=None, ask=None, devices=None):
     start = datetime.now().isoformat(timespec="seconds")
     session = Session("setup", ask_setup=not args.sim, sim=args.sim)
     show = not (args.sim or args.no_view)
+    if show:              # the windows keep answering while a question waits in the terminal
+        from wrist_capture import ask_pumping
+        ask = ask_pumping(ask)
     overall = "skipped"
     try:
         session.event("setup_check_start", mode="save" if args.save_reference else "check", reference=str(folder),
@@ -238,7 +276,7 @@ def main(argv=None, ask=None, devices=None):
                 results["table"] = {**table, "text": sc.table_text(table)}
             if not args.skip_tiles:
                 print(f"Tile test on {', '.join(s['id'] for s in spots)}:")
-                tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim)
+                tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim, ask)
                 if reference is not None:
                     shown = [f"{i} {r.get('shift_mm', float('nan')):.1f}mm" if "shift_mm" in r else f"{i} {r['status']}"
                              for i, r in tiles.items()]
