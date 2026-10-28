@@ -136,7 +136,9 @@ class Player:
         return name
 
     def end_step(self):
-        """What the scans saw change during the step (a knock, a tile put back): asked now."""
+        """What happened during the step, asked now: pickups marked with → or stopped with Esc (the bench's
+        pickup queues them when it doesn't ask), and what the scans saw change (a knock, a tile put back)."""
+        self.bench.review_queued()
         self.bench.check_scans()
 
     def expect_appeared(self, xy):

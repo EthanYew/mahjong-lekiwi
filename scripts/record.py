@@ -162,6 +162,7 @@ def main(argv=None):
                                                "deadzone": args.deadzone})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
+    dataset = open_dataset(args.dataset)      # before the session folder: it refuses a dataset of another layout
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
                       deadzone=args.deadzone,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
@@ -173,7 +174,6 @@ def main(argv=None):
     returns, homes = None if args.no_return else ReturnCorrection.load(), Homes()
     if returns:
         print(f"Return correction: {returns.summary()}")
-    dataset = open_dataset(args.dataset)
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
     rng, offset = random.Random(args.jitter_seed), None     # offset: the next saved episode's, kept until it's saved
@@ -188,10 +188,7 @@ def main(argv=None):
                 retry = None
                 arm.lift()
             else:
-                arm.rest()
-                if arm.holding()[0]:
-                    print("Releasing the tile from the last episode at rest.")
-                    arm.set_gripper(hover["gripper"])
+                rest_and_release(arm, hover)
                 placement = {}
                 if args.layout:
                     if not todo:
@@ -348,7 +345,7 @@ def main(argv=None):
                       "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
-                      "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
+                      "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
@@ -367,10 +364,7 @@ def main(argv=None):
         if dataset.has_pending_frames():
             dataset.clear_episode_buffer()
         dataset.finalize()
-        arm.rest()
-        if arm.holding()[0]:           # the last episode's tile: a gripper left stalled on it at 0 overloads
-            print("Releasing the tile from the last episode at rest.")
-            arm.set_gripper(hover["gripper"])
+        rest_and_release(arm, hover)
         arm.disconnect()
         camera.release()
         realsense.close()
@@ -455,6 +449,15 @@ def return_tile(arm, actions, hovered, held, returns, realsense, session, correc
         input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
         session.intervention("tile_reset", tile=name, home_xy=home)
     return True
+
+
+def rest_and_release(arm, hover):
+    """Rest, then let go of a tile still held (--no-return, or a return out of reach) by opening to the hover
+    gripper: a gripper left stalled on it at 0 overloads."""
+    arm.rest()
+    if arm.holding()[0]:
+        print("Releasing the tile from the last episode at rest.")
+        arm.set_gripper(hover["gripper"])
 
 
 def ask_same_tile(arm, reason):

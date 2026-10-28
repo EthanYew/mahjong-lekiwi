@@ -112,11 +112,11 @@ class Bench:
             from lerobot.common.control_utils import init_keyboard_listener
             from mahjong import hardware
             from mahjong.policy import Policy
+            self.policies = [Policy(i) for i in ids]       # before connecting, so a mistyped id fails fast
             # hardware first: nothing (not even the session folder) is created until it's all there
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
-            self.policies = [Policy(i) for i in ids]
             self.listener, self.events = init_keyboard_listener()
         self.abort, self.mark = Abort(self.events), Mark(self.events)
         if self.arm.at_connect:
@@ -283,8 +283,6 @@ class Bench:
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
                                   attempt_dir=attempt.name)
-            if any(perturb):
-                sample["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
             append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),

@@ -112,7 +112,7 @@ def main(argv=None):
                 delta = [float(aligned[0] - x), float(aligned[1] - y)]
                 record = append_record({
                     "source": "gamepad", "tile_name": tile["tile_name"], "confidence": tile["confidence"], "detection_xy": [x, y],
-                    "hover_target_xy": [hx, hy], "hover_correction": "off" if args.raw else correction.kind,
+                    "hover_target_xy": [hx, hy], "hover_correction": "off" if args.raw else correction.name,
                     "aligned_commanded_joints": commanded, "aligned_measured_joints": arm.measured(),
                     "aligned_tool_xyz": [float(v) for v in aligned], "delta_xy": delta, "session": session.dir.name})
                 session.event("correction_recorded", **record, **save_frame(session, recorded + 1, tile["tile_name"], frame))

@@ -321,3 +321,23 @@ def test_a_return_landing_a_little_off_is_only_noted(tmp_path, monkeypatch, caps
         b.close()
     assert "8D landed 15mm from its home (+0, +15)mm" in capsys.readouterr().out
     assert not any(e.get("label") == "after_reset" for e in read_events(b.session.dir))
+
+
+def test_a_mistyped_policy_fails_before_anything_connects(tmp_path, monkeypatch):
+    """A policy id that isn't registered used to fail after the hardware connected and the setup questions
+    made a session folder: an empty session."""
+    import types
+    import bench
+    from mahjong import hardware, policy
+
+    def unknown(policy_id):
+        raise SystemExit(f"unknown policy {policy_id}")
+    connected = []
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(policy, "Policy", unknown)
+    monkeypatch.setattr(hardware, "connect", lambda needed, **kw: connected.append(needed))
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
+                        types.SimpleNamespace(init_keyboard_listener=lambda: (None, {})))
+    with pytest.raises(SystemExit, match="unknown policy pickup_mat_typo"):
+        bench.Bench(bench.parse_args(["--policy", "pickup_mat_typo"]))
+    assert connected == [] and not list(tmp_path.iterdir())
