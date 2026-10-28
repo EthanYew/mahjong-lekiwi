@@ -39,6 +39,7 @@ not a worktree, or the sessions go when the worktree does.
 | Test a specific policy | `python scripts/bench.py --policy pickup_mat_cl_v1 --trials 5 --tile 8D` |
 | Check a policy steers to the tile (vs. a memorised move) | `python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y` |
 | See what happened in the last session | `python scripts/session_report.py` |
+| See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout hand13` |
@@ -352,6 +353,24 @@ python scripts/hover_samples.py --sessions sessions/20261023_123549_bench       
 `collect_corrections.py --device PATH` picks the gamepad (default: the first one found). A `wrist` window
 shows the wrist camera while you line up, and the frame at → is saved as `sessions/<time>_corrections/aligned/<n>_<tile>.jpg`;
 `--no-view` runs without the window (and without the wrist camera plugged in).
+
+Each tile's teleop is traced too (`handoff/<n>_<tile>.jsonl`: command, measured joints and gamepad input
+every step), and a few lines after → / ← say what the arm did once you had it. To look back at a session:
+
+```
+python scripts/handoff_report.py                 # the latest session with traces: a table per tile + a plot each
+python scripts/handoff_report.py sessions/20261029_101500_corrections --no-plot
+```
+
+| Column | Means |
+|---|---|
+| sag at handoff / at end | measured − commanded tool point (x reach, y robot's left, z up), mm. At the end, it's error the correction records (it stores the commanded point) |
+| drift before input | how far the arm moved under an unchanged command before you touched anything: sinking servos |
+| cmd idle | how far the *command* moved in steps with nothing pressed: should be 0 (else a teleop bug) |
+| IK deg | how far the hover is from XLeRobot's own IK solution: the first stick push eases onto it |
+
+In the plots (`handoff/<n>_<tile>.png`) a red (measured) line leaving a flat blue (commanded) one is the
+servos; blue moving outside the grey (input) stretches is the teleop.
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
 policies (they replay a memorised move from it; see `CLAUDE.md`).

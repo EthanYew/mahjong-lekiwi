@@ -145,9 +145,13 @@ class GamepadTeleop:
             self.speed_index = min(max(self.speed_index + ("plus" in new) - ("minus" in new), 0),
                                    len(self.ee.SPEED_LEVELS) - 1)
             print(f"  speed {self.ee.SPEED_LEVELS[self.speed_index]:.2f}x")
-        targets = self.teleop.update(arm.measured(), self.sticks, buttons, self.ee.SPEED_LEVELS[self.speed_index], dt)
+        measured = arm.measured()
+        targets = self.teleop.update(measured, self.sticks, buttons, self.ee.SPEED_LEVELS[self.speed_index], dt)
         command = {j: float(v) for j, v in targets.items()}
         arm.send(command)
+        # what this step read, for handoff_trace: the sticks as they reached the arm (after the commit delay)
+        self.last = {"measured": measured, "buttons": sorted(buttons),
+                     "sticks": {name: self.sticks.stick(name) for name in self.sticks.stick_names}}
         return command
 
     def close(self):
