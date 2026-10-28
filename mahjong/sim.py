@@ -99,6 +99,7 @@ class SimPerception:
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
+        self.T_render = self.T_cam_to_base      # where the camera really is: a test moves it to fake a knocked tripod
         self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
         from .detector import TILE_NAMES
         self.names = TILE_NAMES
@@ -136,9 +137,75 @@ class SimPerception:
 
     def snapshot(self):
         from .layout import render
-        return render([(*t["xy"], 0.0) for t in self.tiles], self.intrinsics, self.T_cam_to_base)
+        image = render([(*t["xy"], 0.0) for t in self.tiles], self.intrinsics, self.T_render)
+        return draw_robot(image, self.intrinsics, self.T_render)
+
+    def depth_snapshot(self):
+        """(colour, depth in metres): the table plane seen from where the camera really is (T_render)."""
+        h, w = 480, 848
+        u, v = np.meshgrid(np.arange(w), np.arange(h))
+        rays = np.stack([(u - self.intrinsics["ppx"]) / self.intrinsics["fx"],
+                         (v - self.intrinsics["ppy"]) / self.intrinsics["fy"], np.ones((h, w))], axis=-1) @ self.T_render[:3, :3].T
+        o = self.T_render[:3, 3]
+        # table_z is linear (Z0 + sx x + sy y): the ray's depth t where it meets it, in one step
+        t = ((config.TABLE_Z0 + config.TABLE_SLOPE_X * o[0] + config.TABLE_SLOPE_Y * o[1] - o[2])
+             / (rays[..., 2] - config.TABLE_SLOPE_X * rays[..., 0] - config.TABLE_SLOPE_Y * rays[..., 1]))
+        return self.snapshot(), np.where(t > 0, t, 0).astype(np.float32)
 
     def close(self):
+        pass
+
+
+ROBOT_TOP = ((-0.12, 0.05), (-0.15, 0.15), 0.06)     # x range, y range, height above the table: the base's top
+
+
+def draw_robot(image, intrinsics, T_cam_to_base):
+    """Paint a fixed texture where the LeKiwi base would be, so the image has features that move with the
+    camera (setup_check's camera check matches them)."""
+    import cv2
+    from .layout import table_to_pixel
+    (x0, x1), (y0, y1), height = ROBOT_TOP
+    z = config.table_z(0.0, 0.0) + height
+    quad = table_to_pixel([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], intrinsics, T_cam_to_base)
+    texture = cv2.resize(np.random.default_rng(7).integers(0, 255, (24, 40), dtype=np.uint8), (400, 240),
+                         interpolation=cv2.INTER_NEAREST)
+    texture = cv2.cvtColor(texture, cv2.COLOR_GRAY2BGR)
+    th, tw = texture.shape[:2]
+    H = cv2.getPerspectiveTransform(np.float32([(0, 0), (0, th), (tw, th), (tw, 0)]), np.float32(quad))
+    h, w = image.shape[:2]
+    warped = cv2.warpPerspective(texture, H, (w, h))
+    mask = cv2.warpPerspective(np.full((th, tw), 255, np.uint8), H, (w, h)) > 0
+    image[mask] = warped[mask]
+    return image
+
+
+class SimWristCamera:
+    """A wrist camera over a SimPerception mat: the tile nearest the jaws as a white face on a dark mat, placed
+    by where it really is relative to the tool point and sized by the jaws' height (4px/mm at the 40mm hover)."""
+    simulated = True
+    SHAPE, PX_PER_MM_AT_HOVER = (480, 640), 4.0
+
+    def __init__(self, arm, mat):
+        self.arm, self.mat = arm, mat
+
+    def read(self):
+        import cv2
+        image = np.full((*self.SHAPE, 3), (25, 25, 25), np.uint8)
+        x, y, _ = kinematics.tool_point(self.arm.measured())
+        tile = self.mat.nearest(x, y, within_m=0.05)
+        if tile is not None:
+            scale = self.PX_PER_MM_AT_HOVER * config.HOVER_CLEARANCE_M * 1000 / max(self.arm.robot.measured_clearance_mm(), 5.0)
+            centre = (self.SHAPE[1] / 2 - (tile["xy"][1] - y) * 1000 * scale,     # left in the image = +y
+                      self.SHAPE[0] / 2 - (tile["xy"][0] - x) * 1000 * scale)     # up = +x (away)
+            size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
+            box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
+            cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
+        return True, image
+
+    def flush(self, frames=10):
+        pass
+
+    def release(self):
         pass
 
 

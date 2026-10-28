@@ -32,6 +32,7 @@ not a worktree, or the sessions go when the worktree does.
 | I want to... | Command |
 |---|---|
 | Check nothing's broken (no hardware, seconds) | `python -m pytest -m "not slow"` |
+| Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
 | Run the bench without the robot | `python scripts/bench.py --sim --trials 3 --tile 8D` |
 | Test a policy on the arm, interactively | `python scripts/bench.py` |
 | Run N pickup trials on one tile | `python scripts/bench.py --trials 5 --tile 8D` |
@@ -60,6 +61,44 @@ Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v3c`, 
 demos, so it steers to the tile; also `pickup_mat_cl_v3b`, `pickup_mat_cl_v3`, `pickup_mat_cl` (v2),
 `pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval
 episodes left out).
+
+---
+
+## Checking the setup after a pack-up: `scripts/setup_check.py`
+
+The policies, the hover correction and the return correction assume the RealSense, the arm and the table
+are where they were when they were recorded and fitted. A few mm off and every hover lands off-target with
+no error. `setup_check.py` compares the setup with a reference taken once on a setup you trust:
+
+| Check | What it measures | Warn / fail |
+|---|---|---|
+| camera | where the LeKiwi base and the folded arm appear in the RealSense image (1px ≈ 1.5mm on the mat) | 2 / 5mm, 0.5 / 1.5° |
+| table | the mat's height and tilt from the RealSense depth, vs the reference | 3 / 6mm, 2 / 4mm per 10cm |
+| tiles | a tile placed to green on 3 spots; the arm hovers over it as the bench does; where the tile sits in the wrist view | 3 / 6mm, size 10 / 20%, 5 / 10° |
+| brightness | the mat (RealSense) and the wrist view, vs the reference | outside 0.7-1.4x |
+| parked | where the arm settles when switched off at the end (a recalibrated servo shows here) | 3 / 6° |
+
+```
+python scripts/setup_check.py --save-reference     # once, on a good setup (e.g. right after a good bench session); commit data/setup_reference/
+python scripts/setup_check.py                      # after every setup; exits 1 if a check fails
+python scripts/setup_check.py --skip-tiles         # camera, table, parked pose only
+python scripts/setup_check.py --sim --save-reference && python scripts/setup_check.py --sim   # no hardware
+```
+
+If the camera check isn't green, a window blends the reference with the live view and draws an arrow: nudge
+the tripod (or the LeKiwi) until the box turns green, then Enter. Moving it back keeps `T_cam_to_base` and
+both corrections valid; recalibrating sets the corrections aside. Each run writes `sessions/<time>_setup/`
+(the RealSense frame, `camera_vs_reference.jpg`, each spot's `wrist_<spot>_vs_reference.jpg`, and a
+`setup_check` event).
+
+| Option | What it does |
+|---|---|
+| `--save-reference` | measure this setup and save it as the reference (asks before replacing one) |
+| `--layout NAME`, `--spots IDS` | with `--save-reference`: the check spots (default `eval_familiar`, `F2,F3,F6`); a check uses the reference's |
+| `--skip-tiles` | no tile test |
+| `--reference DIR` | another reference folder (default `data/setup_reference`; `sessions/sim_setup_reference` with `--sim`) |
+| `--no-view` | no alignment window |
+| `--sim` | simulated arm, cameras and mat |
 
 ---
 
