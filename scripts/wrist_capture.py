@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, hardware
+from mahjong import config, detector, hardware, wrist_photos
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection
@@ -232,23 +232,12 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
     return saved, camera
 
 
-def views_per_name(sessions_dir=None, recordings_dir=None):
+def views_per_name(sessions_dir=None, recordings_dir=None, review=None):
     """Wrist views at the hover per tile name, by where they came from: {"wrist_capture", "bench",
-    "recordings": Counter}. A bench attempt's wrist_0000.jpg is its first frame, at the hover, under the
-    name in its folder (<n>_<time>_<NAME>); a recorded episode starts at the hover too (its episode log
-    names the tile). Simulated sessions don't count."""
-    sessions_dir = sessions_dir or config.SESSIONS
-    sources = {"wrist_capture": Counter(), "bench": Counter(), "recordings": Counter()}
-    for folder in sorted(sessions_dir.glob("*_wrist")):
-        if detector.is_sim(folder) or not (folder / "wrist").is_dir():
-            continue
-        for name_dir in (folder / "wrist").iterdir():
-            sources["wrist_capture"][name_dir.name] += len(list(name_dir.glob("*_f0.jpg")))
-    for folder in sorted(sessions_dir.glob("*_bench")):
-        if detector.is_sim(folder):
-            continue
-        for first in folder.glob("*/wrist_0000.jpg"):
-            sources["bench"][first.parent.name.rsplit("_", 1)[-1]] += 1
+    "recordings": Counter}. The first two are mahjong.wrist_photos' photos as reviewed (wrist_review.py:
+    a photo marked wrong counts under its right name, or not at all); a recorded episode starts at the
+    hover too (its episode log names the tile). Simulated sessions don't count."""
+    sources = {**wrist_photos.counts(sessions_dir or config.SESSIONS, review), "recordings": Counter()}
     if recordings_dir is None:
         try:
             from lerobot.utils.constants import HF_LEROBOT_HOME
