@@ -223,8 +223,12 @@ Return accuracy, moved to 8, is done (2026-10-28): returns go to the tile's home
   How to avoid a repeat is in CLAUDE.md "Worktrees and merging" (`data/hover_corrections.jsonl` now
   merges by union).
 - End-to-end sim tests for the user-run scripts that have none (they're what catch a merge that's
-  clean but broken): `collect_corrections.py`, `layout.py` teach/view/capture, `make_policy.py` (a
-  `--skip-build/--skip-train` path), `offline_eval.py --make-split/--add-eval-set`; `mahjong/quality.py`.
+  clean but broken): `layout.py` teach/view/capture, `make_policy.py` (a `--skip-build/--skip-train`
+  path), `offline_eval.py` main and `--make-split/--add-eval-set`, `quality_report.py`, `mine_frames.py`.
+  (collect_corrections and `mahjong/quality.py` have theirs.)
+- ~~Review the scripts against each other after the 2026-10-23..28 worktrees~~ Done 2026-10-29 (the
+  consolidate-* branches): record.py returns to homes and logs return samples, the gamepad deadzone and off-centre
+  warning at every handoff, play reviews marked pickups, one copy of each shared helper.
 - Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
   the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
   interventions and the CLAUDE.md says to run it first.
@@ -281,7 +285,7 @@ copies left tracked with ukeire.
 **Built (2026-10-28), checked in `--sim` only:** `scripts/play.py` (README, "Autonomous play") on the
 bench's pieces; `mahjong/game.py` (our own shanten, checked against the `mahjong` library, which this
 package's name shadows; the discard choice; the hand checks); `mahjong/identity.py` (name votes per slot
-over every scan, reset when a tile moves; uses the scan-voting branch's `votes` once merged);
+over every scan, reset when a tile moves; reads the scans' per-frame `votes`);
 `mahjong/markers.py` (the drop zone); the `ask` intervention class and `interventions.hand_grade`;
 `session_report.py` prints a hand, `--all` every hand; `detector_eval.py` prints the wrong-name bound.
 

@@ -25,11 +25,12 @@ from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--dataset", required=True)
-    p.add_argument("--worst", type=int, default=15)
-    p.add_argument("--flag", type=float, default=DEFAULT_FLAG_SCORE)
-    p.add_argument("--episode", type=int, default=None)
-    p.add_argument("--csv", default=None)
+    p.add_argument("--dataset", required=True, help="recorded dataset repo id, e.g. Yewy/mahjong_mat_pickup_v3")
+    p.add_argument("--worst", type=int, default=15, help="rows of the ranking shown (default %(default)s)")
+    p.add_argument("--flag", type=float, default=DEFAULT_FLAG_SCORE,
+                   help="score at which an episode is flagged (default %(default)s)")
+    p.add_argument("--episode", type=int, default=None, help="this episode's events: when each reversal happened")
+    p.add_argument("--csv", default=None, help="save the table to this path")
     p.add_argument("--phases", action="store_true", help="print each episode's pickup phases")
     p.add_argument("--against", metavar="REPO", help="compare hover→grasp moves with this recording, spot by spot")
     p.add_argument("--drop", metavar="EPS", help="comma-separated episodes to leave out of training (data/dropped_episodes.json)")
