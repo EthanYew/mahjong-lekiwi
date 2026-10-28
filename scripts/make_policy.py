@@ -146,6 +146,9 @@ def main():
         left_out = set(offline_eval.excluded_episodes(repo)) | set(dropped_episodes(repo))
         episodes = sorted(int(e) for e in set(added.index) - left_out)
         records = episode_log(repo)
+        if not records:     # without it DAgger episodes can't be told from demos: the policy's frames would be trained on
+            raise SystemExit(f"{repo} has no episode_log.jsonl: copy the recorded dataset folder itself "
+                             f"(a Hub download leaves it out)")
         takeovers = [e for e in episodes if records.get(e, {}).get("takeover_frame") is not None]
         dagger = [e for e in episodes if "policy" in records.get(e, {})]
         extra.append((repo, episodes, gripper_fixes(repo)))
