@@ -7,7 +7,7 @@ import pytest
 
 from mahjong import config
 from mahjong.hover_correction import (HoverCorrection, active_sources, grasp_record, parse_offsets, parse_sources,
-                                      random_offset, setup_fingerprint, source_of, MAX_CORRECTION_M)
+                                      random_offset, read_all, setup_fingerprint, source_of, MAX_CORRECTION_M)
 
 
 def records(xy, delta_fn, noise=0.002, seed=1, **extra):
@@ -50,9 +50,12 @@ def test_correction_is_capped_and_held_at_the_edge():
 
 
 def test_migrated_records_reproduce_the_old_correction():
+    """The 2026-10-22 gamepad records migrated from MahjongBot, fitted on their own: retired from the live
+    hover on 2026-10-28 ("superseded": the setup shifted), but the migration still has to hold."""
     old = json.loads((config.DATA / "fixtures" / "old_hover_correction.json").read_text())
-    model = HoverCorrection.load()
-    operator_excluded = [r for r in model.excluded if source_of(r) == "gamepad"]   # not e.g. perturbed bench samples
+    migrated = [r for r in read_all() if source_of(r) == "gamepad" and r["timestamp"] < "2026-10-23"]
+    operator_excluded = [r for r in migrated if r.get("excluded") and not r["excluded"].startswith("superseded")]
+    model = HoverCorrection([r for r in migrated if r not in operator_excluded])
     assert (model.kind, model.n, len(operator_excluded)) == (old["kind"], old["n"], 2)
     for x, y, dx, dy in old["deltas"]:
         assert model.delta_at(x, y) == pytest.approx((dx, dy), abs=1e-9)
