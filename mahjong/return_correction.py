@@ -51,12 +51,11 @@ def return_record(detection_xy, grasp_xy, target_xy, landed_xy, **provenance):
             "target_xy": [float(v) for v in target_xy], "landed_xy": [float(v) for v in landed_xy], **provenance}
 
 
-def landed_tile(tiles, tile_name, home_xy, within_m=LANDED_WITHIN_M):
-    """The returned tile in a scan: the detection named `tile_name` nearest home_xy (any name if none
-    is), within `within_m`; None if there's none."""
-    pool = [t for t in tiles if t["tile_name"] == tile_name] or tiles
-    best = min(pool, key=lambda t: math.dist(t["xy"], home_xy), default=None)
-    return best if best is not None and math.dist(best["xy"], home_xy) <= within_m else None
+def landed_tile(tiles, tile_name, home_xy):
+    """The returned tile in a scan: the detection named `tile_name` nearest its home (any name if none is),
+    within LANDED_WITHIN_M; None if there's none."""
+    from .layout import nearest_tile
+    return nearest_tile(tiles, home_xy, LANDED_WITHIN_M, tile_name)
 
 
 def landings(events):

@@ -114,6 +114,8 @@ def test_nearest_tile_within_the_merge_radius():
     assert layout.nearest_tile(tiles, (0.153, 0.06))["tile_name"] == "2B"
     assert layout.nearest_tile(tiles, (0.22, -0.10)) is None
     assert layout.nearest_tile([], (0.15, 0.0)) is None
+    assert layout.nearest_tile(tiles, (0.153, 0.06), 0.05, name="3B")["tile_name"] == "3B"      # that name first
+    assert layout.nearest_tile(tiles, (0.153, 0.06), name="9D")["tile_name"] == "2B"      # none: a misread
 
 
 def test_green_holds_through_jitter_at_the_tolerance_edge():
