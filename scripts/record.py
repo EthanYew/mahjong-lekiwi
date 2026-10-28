@@ -348,7 +348,7 @@ def main(argv=None):
                       "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
-                      "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
+                      "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
