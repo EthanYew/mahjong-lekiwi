@@ -201,6 +201,9 @@ def main():
     print(f"{session_dir.name}: {start.get('kind')} at commit {start.get('commit')}")
     if setup_text(start):
         print(f"  setup: {setup_text(start)}")
+    bench_setup = next((e for e in events if e["type"] == "bench_setup"), {})
+    if bench_setup.get("hover_gripper_override") is not None:
+        print(f"  hover gripper {bench_setup['hover_gripper_override']:g}% (bench --hover-gripper), not the policy's own")
     attempts = [e for e in events if e["type"] == "attempt"]
     if attempts:
         print(f"\n{len(attempts)} pickup attempt(s), {sum(a['success'] for a in attempts)} picked up")

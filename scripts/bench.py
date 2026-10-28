@@ -140,18 +140,25 @@ class Bench:
         self.homes = {}
         self.policy = self.policies[0]      # the one single commands use; trials take turns
         for policy in self.policies:
-            print(f"Policy: {policy.id}, hover {policy.hover}")
+            print(f"Policy: {policy.id}, hover {self.hover_of(policy)}")
         print(f"Hover correction: {self.correction.summary()}")
         print(f"Return correction: {self.returns.summary()}")
         if self.spots:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
-        self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
-                           policies=[{"id": p.id, "hover": p.hover} for p in self.policies],
+        self.session.event("bench_setup", policy=self.policy.id, hover=self.hover_of(self.policy),
+                           policies=[{"id": p.id, "hover": self.hover_of(p)} for p in self.policies],
                            layout=args.layout, spots=self.spots,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
-                           hover_perturb_offsets_m=args.hover_perturb_mm)
+                           hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper)
 
     # --- pieces ---
+
+    def hover_of(self, policy):
+        """The policy's hover (data/policies.json), with --hover-gripper's opening if given. The policy
+        moves the gripper as deltas from it, so its narrowing on the way down shifts by the difference."""
+        if self.args.hover_gripper is None:
+            return policy.hover
+        return {**policy.hover, "gripper": self.args.hover_gripper}
 
     def scan(self, label, confirmed=None, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
@@ -222,7 +229,7 @@ class Bench:
         if any(perturb):
             hx, hy = hx + perturb[0], hy + perturb[1]
             print(f"  hover perturbed by ({perturb[0] * 1000:+.0f}, {perturb[1] * 1000:+.0f})mm on purpose")
-        h = self.policy.hover
+        h = self.hover_of(self.policy)
         result = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
         if result is None:
             print("Unreachable from the closed-loop hover.")
@@ -286,7 +293,7 @@ class Bench:
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
                            correction=self.correction.name, hover_perturb_xy=list(perturb),
-                           hover_sag_xyz_m=hover.get("sag_xyz_m"),
+                           hover_sag_xyz_m=hover.get("sag_xyz_m"), hover_gripper=self.hover_of(self.policy)["gripper"],
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                            **run, **review)
         self.last_attempt = attempt.name
@@ -364,7 +371,7 @@ class Bench:
                                     policy=self.policy.id, spot=held["spot"], home_xy=home,
                                     return_correction=self.returns.name, session=self.session.dir.name,
                                     attempt_dir=held["attempt_dir"]), self.returns_path)
-        h = self.policy.hover
+        h = self.hover_of(self.policy)
         hx, hy = self.correction.apply(*landed, log=lambda *a: None)
         reachable = kinematics.hover_command(hx, hy, h["offset_m"], h["gripper"])[0] is not None
         if error <= config.RETURN_DRIFT_WARN_M and reachable:
@@ -556,6 +563,9 @@ def parse_args(argv=None):
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
     p.add_argument("--hover-perturb-mm", type=parse_offsets, default=None,
                    help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
+    p.add_argument("--hover-gripper", type=float, default=None,
+                   help="gripper opening at the hover (%%) for every policy, instead of the one its episodes started "
+                        "at (data/policies.json; v3c 26.8). Its narrowing on the way down shifts by the same amount")
     return p.parse_args(argv)
 
 

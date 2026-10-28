@@ -53,6 +53,28 @@ def test_perturbed_trials_offset_the_hover_and_set_their_samples_aside(tmp_path,
     assert not plain.get("excluded") and perturbed["excluded"]
 
 
+def test_hover_gripper_overrides_the_policys_opening_and_is_logged(tmp_path, monkeypatch):
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--tile", "8D", "--hover-gripper", "25"]))
+    opened_at, run = [], b.policy.run
+
+    def wrapped(arm, *args, **kwargs):
+        opened_at.append(arm.commanded()["gripper"])
+        return run(arm, *args, **kwargs)
+    b.policy.run = wrapped
+    try:
+        b.arm.rest()
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert opened_at == [pytest.approx(25.0)] and b.policy.hover["gripper"] != 25.0
+    events = read_events(next(tmp_path.iterdir()))
+    setup = next(e for e in events if e["type"] == "bench_setup")
+    assert setup["hover_gripper_override"] == 25.0 and setup["hover"]["gripper"] == 25.0
+    assert [e["hover_gripper"] for e in events if e["type"] == "attempt"] == [25.0]
+
+
 def sim_bench(tmp_path, monkeypatch, trials=2):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
