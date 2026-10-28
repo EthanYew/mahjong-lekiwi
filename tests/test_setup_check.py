@@ -7,7 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import config
+from mahjong import config, kinematics
 from mahjong import setup_check as sc
 from mahjong.session import read_events
 
@@ -74,6 +74,38 @@ def test_saving_asks_before_replacing_a_reference(tmp_path, monkeypatch):
                             ask=lambda prompt: prompts.append(prompt) or "", devices=sim_devices()) == "skipped"
     assert "Replace the reference" in prompts[-1]
     assert (tmp_path / "reference" / "reference.json").read_text() == before
+
+
+def test_a_tile_not_found_is_repositioned_and_looked_at_again(tmp_path, monkeypatch):
+    import setup_check
+    from mahjong.sim import SimWristCamera
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+
+    class Blind(SimWristCamera):          # sees no tile the first time it looks at F3 (the only spot past x 0.2)
+        looks = 0
+
+        def read(self):
+            ok, image = super().read()
+            x, _, _ = kinematics.tool_point(self.arm.measured())
+            if x > 0.2 and Blind.looks < 3:       # the 3 frames of its first look
+                Blind.looks += 1
+                return ok, np.full_like(image, 25)
+            return ok, image
+
+    devices = sim_devices()
+    devices["wrist_camera"] = Blind(devices["arm"], devices["realsense"])
+    assert run(tmp_path, [], [""], devices=devices) == "pass"        # Enter: placed again, found
+    check, session = last_check(tmp_path)
+    assert check["results"]["tiles"]["spots"]["F3"]["attempts"] == 2
+    assert [e["spot"] for e in read_events(session) if e["type"] == "setup_tile_not_found"] == ["F3"]
+
+    # the RealSense finds no tile (none placed): F2 retried then skipped, F3 stops the tile test
+    monkeypatch.setattr(setup_check, "place_sim_tile", lambda realsense, spot: setattr(realsense, "tiles", []))
+    run(tmp_path, [], ["", "s", "q"])
+    tiles = last_check(tmp_path)[0]["results"]["tiles"]["spots"]
+    assert tiles["F2"]["status"] == "skipped" and tiles["F2"]["attempts"] == 2
+    assert tiles["F3"]["status"] == "skipped" and "F6" not in tiles
 
 
 def test_image_shift_reads_a_known_shift():

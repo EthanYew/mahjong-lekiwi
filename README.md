@@ -90,7 +90,10 @@ python scripts/setup_check.py --sim --save-reference && python scripts/setup_che
 
 If the camera check isn't green, a window blends the reference with the live view and draws an arrow: nudge
 the tripod (or the LeKiwi) until the box turns green, then Enter. Moving it back keeps `T_cam_to_base` and
-both corrections valid; recalibrating sets the corrections aside. Each run writes `sessions/<time>_setup/`
+both corrections valid; recalibrating sets the corrections aside. If a tile isn't found (by the RealSense
+at its spot, or in the wrist view at the hover), the check asks you to reposition it: the placing window
+opens again to chase green, then it looks again (Enter), or `s` skips the spot, `q` stops the tile test.
+Each run writes `sessions/<time>_setup/`
 (the RealSense frame, `camera_vs_reference.jpg`, each spot's `wrist_<spot>_vs_reference.jpg`, and a
 `setup_check` event).
 
