@@ -136,11 +136,14 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   the base along the reach circle, which looks like a sag. `gamepad.warn_if_at_reach` says so after
   the hover (record, collect_corrections). Reach such tiles by tilting the jaws forward (L/R), or keep
   tiles inside base r ~0.27m.
-- **Hand corrections record the commanded tool point, not where the jaws were.** In the 25 gamepad
-  corrections of 2026-10-22 the measured tool point at → sat 10.6mm short in reach (median; up to 17mm
-  far out), 2-18mm low, and up to ±12mm toward the centre line (−10mm for +y tiles, +8mm for −y: the
-  pan stopping short of its command). That error depends on how the arm was last moved, so it isn't the
-  same at the next hover. The arm also drops and drifts after the gamepad takes over: collect_corrections
+- **Hand corrections record the commanded tool point, not where the jaws were — and that's fine.** In the
+  23 gamepad corrections of 2026-10-22 the measured tool point at → sat ~11mm short in reach (median; up to
+  17mm far out), 2-18mm low, and up to ±12mm toward the centre line (−7mm for +y tiles, +6mm for −y: the
+  pan stopping short of its command). A settled hover sags the same way (41 bench hovers: x −11 to −12,
+  y −7 left / +8 right), so the commanded fit already carries it. Refit offline on the measured point
+  (2026-10-28): leave-one-position-out 9.0mm vs 10.6mm, and the hover would move only 0-4mm once its own
+  sag is compensated — not worth an x/y settle loop. The noise is the lining up: the same tile aligned
+  twice differs by ~9mm (RMS, 8 pairs), commanded or measured. The arm also drops and drifts after the gamepad takes over: collect_corrections
   traces every teleop step (`mahjong/handoff_trace.py`, `scripts/handoff_report.py`) to tell sinking
   servos from a moving command or XLeRobot's IK easing on the first push. The first trace
   (`20261028_195346_corrections`, 5D) was none of them: the arm held still for 5s, then a thumb resting on
