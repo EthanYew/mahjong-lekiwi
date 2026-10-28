@@ -257,6 +257,7 @@ def main(argv=None):
             print("RECORDING — → save, ← discard, Esc save nothing and quit"
                   + (f"; {policy.id} drives, touch the gamepad to take over" if policy else ""))
             frames, roll, actions, takeover = 0, RollTrace(), [], None
+            started = time.time()
             failed_reads, camera_lost = 0, False
             while not events["exit_early"]:
                 t0 = time.time()
@@ -293,8 +294,11 @@ def main(argv=None):
                 show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s", frame)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
+            fps = round(frames / max(time.time() - started, 1e-6), 1)
+            if frames and fps < 0.9 * config.FPS:     # the policy and the gamepad both assume 30 steps a second
+                print(f"  recorded at {fps:.0f} fps, not {config.FPS}: the loop is running slow")
             returned = not args.no_return and return_tile(arm, actions, result, session, tile["tile_name"])
-            dagger = {"policy": policy.id, "takeover_frame": takeover} if policy else {}
+            dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
                 reason = "wrist camera lost" if camera_lost else None

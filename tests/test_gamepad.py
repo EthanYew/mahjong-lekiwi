@@ -11,7 +11,11 @@ DT = 1 / 30
 
 class ScriptedPad:
     def __init__(self):
-        self.values = {}
+        self.values, self.keys, self.hat = {}, [], (0, 0)
+        self.device = type("Device", (), {"active_keys": lambda _: list(self.keys)})()
+
+    def dpad(self):
+        return self.hat
 
     def stick(self, name):
         return self.values.get(name, 0.0)
@@ -108,4 +112,18 @@ def test_touched_on_any_stick_or_button_at_once_but_not_a_locked_one():
     assert not teleop.touched()
     teleop.sticks.disabled = {"ly"}
     pad.values["ly"] = 0.3
+    assert not teleop.touched()
+
+
+def test_touched_on_a_face_button_or_the_dpad_too():
+    """A/B/X/Y and the d-pad aren't teleop controls, but pressing one is still someone taking over."""
+    from evdev import ecodes
+    pad = ScriptedPad()
+    teleop = teleop_with(pad)
+    pad.keys = [ecodes.BTN_SOUTH]
+    assert teleop.touched()
+    pad.keys, pad.hat = [], (0, -1)
+    assert teleop.touched()
+    pad.hat, pad.keys = (0, 0), [ecodes.BTN_TL2]
+    teleop.locked_buttons = {"zl"}
     assert not teleop.touched()
