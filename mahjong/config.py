@@ -15,6 +15,7 @@ FOLLOWER_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B61034124-if00"  
 FOLLOWER_ID = "ethan_lekiwi_arm"
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 ARM_JOINTS = JOINTS[:5]
+GRIPPER = JOINTS.index("gripper")      # its column in rows of joint values
 
 # Where the unpowered arm settles (sessions/parked_pose.json, 2026-10-27 09:55 and 10:25, ±0.5°), so
 # switching the motors off or on doesn't move it. The old folded rest (lift -106.3, elbow 105.6) sagged

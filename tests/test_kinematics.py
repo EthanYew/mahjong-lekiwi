@@ -47,3 +47,12 @@ def test_reachability_matches_old_closed_loop_stack():
             assert tilt == case["reach_tilt"]
             for joint in config.ARM_JOINTS:
                 assert q[joint] == pytest.approx(case["reach_cfg"][joint], abs=0.01)
+
+
+def test_grasp_frame_is_the_first_step_commanding_the_gripper_shut():
+    import numpy as np
+    from mahjong.kinematics import grasp_frame, grasp_point
+    open_, shut = [0.0, 0.0, 0.0, 0.0, 0.0, 30.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert grasp_frame([]) is None and grasp_frame([open_, open_]) is None
+    assert grasp_frame([open_, shut, shut]) == 1 == grasp_frame(np.array([open_, shut, shut]))
+    assert grasp_point([open_, shut])[0] == 1 and grasp_point([]) == (None, None)

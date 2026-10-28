@@ -73,10 +73,19 @@ def tool_point(q):
     return forward(q)[0]
 
 
+def grasp_frame(actions):
+    """The first step commanding the gripper shut (below GRIP_CLOSED_BELOW), or None. actions: steps x
+    config.JOINTS."""
+    if not len(actions):
+        return None
+    shut = np.asarray(actions)[:, config.GRIPPER] < config.GRIP_CLOSED_BELOW
+    return int(np.argmax(shut)) if shut.any() else None
+
+
 def grasp_point(actions):
     """(step, tool-point xy) of the first command with the gripper shut — where the jaws closed on the
     tile — or (None, None). actions: steps x config.JOINTS, absolute."""
-    grasp = next((k for k in range(len(actions)) if actions[k][5] < config.GRIP_CLOSED_BELOW), None)
+    grasp = grasp_frame(actions)
     if grasp is None:
         return None, None
     return grasp, [float(v) for v in tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]

@@ -51,11 +51,6 @@ GATE_GRASP_MM_SLACK = 3.0                              # fail if median grasp_mm
 
 # --- metrics on arrays ---
 
-def first_below(values, threshold):
-    hits = np.flatnonzero(np.asarray(values) < threshold)
-    return int(hits[0]) if len(hits) else None
-
-
 def descent_onset(joints, threshold=DESCENT_DEG):
     """First step where lift or elbow is `threshold` from step 0 (rows of joint values), or None."""
     joints = np.asarray(joints)
@@ -93,7 +88,7 @@ def score_episode(plan, frame, states, actions, actions_raw, fps=config.FPS, str
     if demo_close is not None:
         p = max(0, demo_close - int(GRASP_PROBE_S * fps))
         grasp_plan = anchor + chunk_at(p)
-        c = first_below(grasp_plan[:, 5], config.GRIP_CLOSED_BELOW)
+        c = kinematics.grasp_frame(grasp_plan)
         plan_closes = c is not None
         close_err_s = (p + c - demo_close) / fps if plan_closes else None
         at = grasp_plan[c if plan_closes else -1]

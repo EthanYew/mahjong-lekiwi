@@ -58,8 +58,8 @@ def takeover_sag_end(states_raw):
 def narrowing_end(actions_raw):
     """First frame where the commanded gripper is within NARROWING_TOLERANCE of the opening it held
     just before closing on the tile (0 if the episode never narrows from a wider start)."""
-    grip = actions_raw[:, 5]
-    close = int(np.argmax(grip < config.GRIP_CLOSED_BELOW))
+    grip = actions_raw[:, config.GRIPPER]
+    close = kinematics.grasp_frame(actions_raw) or 0
     if close == 0:
         return 0
     plateau = float(np.median(grip[max(0, close - 30):max(1, close - 15)]))

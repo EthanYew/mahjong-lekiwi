@@ -103,18 +103,12 @@ JAW_TOLERANCE_MM = 6.0         # the jaws still close on a tile this far off; a 
 PHASE_COLUMNS = ["narrow_s", "wait_s", "approach_s", "pause_s", "approach_rev", "path_ratio", "after_s", "wobble_mm"]
 
 
-def grasp_frame(joints):
-    """First frame commanding the gripper shut, or None."""
-    shut = joints[:, 5] < config.GRIP_CLOSED_BELOW
-    return int(np.argmax(shut)) if shut.any() else None
-
-
 def phases(joints, fps):
     """Seconds per phase of one pickup (narrowing, wait at the hover, approach to the close, after it), the
     pauses and reversals within the approach, its path over the straight line, and the tip's wobble (mm RMS).
     None if the gripper never shuts."""
     from .dataset import narrowing_end
-    close = grasp_frame(joints)
+    close = kinematics.grasp_frame(joints)
     if close is None:
         return None
     tips = np.array([kinematics.pincer_tip(dict(zip(config.JOINTS, q))) for q in joints]) * 1000
@@ -141,7 +135,7 @@ def phases(joints, fps):
 def hover_move(joints, jitter_xy=(0.0, 0.0)):
     """The pincer tip's x/y move from the hover (first frame) to the close, mm, with a deliberate hover
     offset added back — what the hover itself missed by. None if the gripper never shuts."""
-    close = grasp_frame(joints)
+    close = kinematics.grasp_frame(joints)
     if close is None:
         return None
     start, end = (kinematics.pincer_tip(dict(zip(config.JOINTS, joints[i]))) for i in (0, close))
