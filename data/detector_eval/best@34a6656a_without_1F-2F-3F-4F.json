@@ -1,0 +1,48 @@
+{
+  "weights": "best@34a6656a",
+  "time": "2026-10-28T12:16:20",
+  "exam_sessions": [
+    "20261027_172928_capture"
+  ],
+  "exam_dir": "data/detector/exam_labelled",
+  "ignored_names": [
+    "1F",
+    "2F",
+    "3F",
+    "4F"
+  ],
+  "scores": {
+    "all": {
+      "frames": 15,
+      "tiles": 102,
+      "found": 100,
+      "named_right": 97,
+      "missed": 2,
+      "extra": 4,
+      "found_rate": 0.9803921568627451,
+      "named_right_rate": 0.97,
+      "right_rate": 0.9509803921568627,
+      "mixups": [
+        [
+          "5C",
+          "9C",
+          1
+        ],
+        [
+          "2C",
+          "3C",
+          1
+        ],
+        [
+          "3D",
+          "5D",
+          1
+        ]
+      ],
+      "missed_names": {
+        "7C": 1,
+        "2B": 1
+      }
+    }
+  }
+}
