@@ -92,6 +92,8 @@ class Mark:
 
 
 class Bench:
+    SESSION_KIND = "bench"          # the session folder's suffix (scripts/play.py builds on the bench as "play")
+
     def __init__(self, args):
         self.args = args
         ids = parse_policies(args.policy)
@@ -105,7 +107,7 @@ class Bench:
             self.policies = [SimPolicy(mat=mat, policy_id=i or "sim") for i in ids]
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
             self.listener = None
-            self.session = Session("bench", ask_setup=False, policy=args.policy or "sim", sim=True)
+            self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True)
         else:
             from lerobot.common.control_utils import init_keyboard_listener
             from mahjong import hardware
@@ -113,7 +115,7 @@ class Bench:
             # hardware first: nothing (not even the session folder) is created until it's all there
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
-            self.session = Session("bench", policy=args.policy or "default", sim=False)
+            self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
             self.policies = [Policy(i) for i in ids]
             self.listener, self.events = init_keyboard_listener()
         self.abort, self.mark = Abort(self.events), Mark(self.events)

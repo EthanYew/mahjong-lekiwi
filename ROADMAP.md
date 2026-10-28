@@ -271,6 +271,32 @@ given how off-centre the jaws held it. Each after-return scan logs the landing. 
 `ReturnCorrection.target(home, detection, grasp)`. Still to check: other spots, the reach's edge, a
 `--layout` walk.
 
+**Plan (2026-10-28): `docs/autonomy_plan.md`**: a review of MahjongBot's `mahjong_autonomous_play.py`,
+what a clean hand means (a person only puts drawn tiles down; ~23 pickups, 23 set-downs and 27 name reads
+a hand, so each must work ~99.7% of the time for 8 in 10 hands to be clean), no silent wrong tiles as a
+gate, and the targets and guardrails. Decided: ArUco marker under the drawn tile (move it beside the zone
+if zone pickups fall below the mat's ~95% or the detector reads its edge), a 2-row hand, no calls,
+copies left tracked with ukeire.
+
+**Built (2026-10-28), checked in `--sim` only:** `scripts/play.py` (README, "Autonomous play") on the
+bench's pieces; `mahjong/game.py` (our own shanten, checked against the `mahjong` library, which this
+package's name shadows; the discard choice; the hand checks); `mahjong/identity.py` (name votes per slot
+over every scan, reset when a tile moves; uses the scan-voting branch's `votes` once merged);
+`mahjong/markers.py` (the drop zone); the `ask` intervention class and `interventions.hand_grade`;
+`session_report.py` prints a hand, `--all` every hand; `detector_eval.py` prints the wrong-name bound.
+
+Next, on the arm:
+1. Teach `hand13` and the drop zone; `bench.py --layout hand13 --trials 2` (pickups and returns at every
+   slot, 57mm apart), and paired pickups on the marker vs a mat spot (the marker's pivot trigger).
+2. A scripted hand: a fixed wall set out by hand, so it can be played again identically.
+3. Set `identity.py`'s bars from the exam (they're guesses), after more exam sessions (one per
+   lighting, ~1000 tiles: section 8 of the plan).
+4. The soak: 10 hands across the lighting conditions, battery full to low. Target: 8 of 10 clean, no
+   silent errors.
+5. Not built yet: the drop-zone reading station and its self-labelling capture, a wrist name check (only
+   if a classifier trained on `wrist_capture.py`'s photos passes an exam), battery / servo-temperature /
+   brightness health checks each turn.
+
 ## 9. DAgger: corrections on the policy's own mistakes
 
 Comes after v3 (sequence step 6), not before 8: DAgger fixes the situations the *deployed* policy gets
