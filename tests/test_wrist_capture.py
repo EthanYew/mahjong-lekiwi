@@ -1,5 +1,7 @@
 import random
 import sys
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -48,3 +50,21 @@ def test_name_edits_are_checked():
 def wrist_capture_module():
     import wrist_capture
     return wrist_capture
+
+
+def test_windows_keep_answering_through_sleeps_and_questions():
+    import time as _time
+    wc = wrist_capture_module()
+    pumped = []
+    wc.pumping_sleep(0.02, pump=lambda: pumped.append(1))
+    assert pumped == [1]
+    asking = wc.ask_pumping(lambda prompt: (_time.sleep(0.05), prompt.upper())[1], pump=lambda: pumped.append(1) or _time.sleep(0.005))
+    assert asking("ok?") == "OK?" and len(pumped) > 2              # pumped while the question waited
+
+
+def test_a_failed_question_is_never_read_as_enter():
+    wc = wrist_capture_module()
+    def closed(prompt):
+        raise EOFError
+    with pytest.raises(EOFError):
+        wc.ask_pumping(closed, pump=lambda: None)("Names right? ")
