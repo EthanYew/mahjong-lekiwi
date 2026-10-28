@@ -141,6 +141,10 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 `7 rest`, `8 note` (log something you did by hand), `9 setup` (lighting/battery changed mid-session),
 `10 quit`.
 
+**A tile the trials can't find** (not detected by name, or nothing near a `--layout` spot) stops for you:
+put it back where it belongs, Enter rescans (logged as a reset), `s` skips the spot (`--tile`: ends the
+trials). An unattended run waits there.
+
 **During a pickup:** `Esc` stops the policy. `→` marks "something happened here" without stopping it
 (a hand on the tile, a caught drop, the arm bumping a neighbour); you're asked what afterwards. A
 pickup stops itself once the tile has been held and lifted for 1.5s (max 16s). Every attempt saves the

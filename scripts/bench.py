@@ -172,31 +172,58 @@ class Bench:
         self.scan_checks = []
 
     def choose(self, tile_name=None, spot=None):
-        """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick."""
-        if not self.arm.is_at_rest():
-            self.arm.rest()
-        tiles = self.scan("choose")
-        if not self.batch:
-            self.check_scans()          # before the arm moves, while what happened is in front of you
+        """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick. In trials, a tile
+        that isn't found is repositioned by a person and the mat rescanned (s skips it): a flickering
+        detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run."""
+        confirmed = None
+        while True:
+            if not self.arm.is_at_rest():
+                self.arm.rest()
+            tiles = self.scan("choose", confirmed=confirmed)
+            if not self.batch:
+                self.check_scans()          # before the arm moves, while what happened is in front of you
+            tile, reason, missing = self.find(tiles, tile_name, spot)
+            if tile is not None or reason == "cancelled" or not (self.batch and self.reposition(missing, tile_name, spot)):
+                break
+            confirmed = ["tile_reset"]
+        if tile is None:
+            self.session.event("attempt_skipped", reason=reason, tile=tile_name,
+                               **({"spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}))
+        return tile
+
+    def find(self, tiles, tile_name=None, spot=None):
+        """(tile, None) or (None, skip reason, what was missing) from one scan's tiles."""
         if not tiles:
             print("No tiles detected.")
-            self.session.event("attempt_skipped", reason="no_tiles", tile=tile_name)
-            return None
+            return None, "no_tiles", "No tiles detected"
         if spot is not None:
             tile = layout.nearest_tile(tiles, spot["xy"])
+            missing = f"No tile detected within {config.TILE_MERGE_RADIUS_M * 1000:.0f}mm of spot {spot['id']}"
             if tile is None:
-                print(f"No tile detected within {config.TILE_MERGE_RADIUS_M * 1000:.0f}mm of spot {spot['id']}")
-                self.session.event("attempt_skipped", reason="not_at_spot", spot=spot["id"], spot_xy=spot["xy"])
-            return tile
+                print(missing)
+            return tile, "not_at_spot", missing
         if tile_name is None:
             drain_stdin()
         tile = choose_tile(tiles, tile_name=tile_name)
-        if tile is None:
-            if tile_name is not None:
-                print(f"{tile_name} not detected (seen: {', '.join(t['tile_name'] for t in tiles)})")
-            self.session.event("attempt_skipped", reason="cancelled" if tile_name is None else "not_detected",
-                               tile=tile_name)
-        return tile
+        if tile is None and tile_name is not None:
+            missing = f"{tile_name} not detected"
+            print(f"{missing} (seen: {', '.join(t['tile_name'] for t in tiles)})")
+            return None, "not_detected", missing
+        return tile, "cancelled", None
+
+    def reposition(self, missing, tile_name=None, spot=None):
+        """Ask a person to put the missing tile where it belongs; True if they did (rescan), False to skip."""
+        home = spot["xy"] if spot else self.homes.get(tile_name)
+        where = f" at ({home[0]:.3f}, {home[1]:+.3f})" if home else ""
+        name = tile_name or (spot or {}).get("label") or "the tile"
+        drain_stdin()
+        answer = input(f"  {missing}. Put {name}{where} squarely, then Enter to rescan, "
+                       f"or s to skip: ").strip().lower()
+        if answer.startswith("s"):
+            return False
+        self.session.intervention("tile_reset", attempt_dir=self.last_attempt, tile=tile_name,
+                                  reason="repositioned: not detected", **({"spot": spot["id"]} if spot else {}))
+        return True
 
     def hover_over(self, tile, perturb=(0.0, 0.0)):
         x, y = tile["xy"]

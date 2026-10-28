@@ -195,8 +195,11 @@ def test_paired_policies_take_turns_from_the_same_offset_and_their_own_hover(tmp
 
 
 def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkeypatch):
+    import builtins
     import bench
     from mahjong import interventions, layout
+    asked = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: asked.append(prompt) or "s")    # nothing to put there: skip
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
     layout.save("walk", [{"id": "L", "xy": [0.21, 0.02]}, {"id": "empty", "xy": [0.25, 0.10]},
@@ -218,6 +221,32 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert [(i["kind"], i["class"]) for i in interventions.derive(events)] == [("spot_empty", "observation")]
     (done,) = [e for e in events if e["type"] == "trials_done"]
     assert done["spots"] == ["L", "L", "R", "R"] and done["skipped_spots"] == ["empty"]
+    assert len(asked) == 1 and "spot empty" in asked[0]
+
+
+def test_a_tile_not_detected_in_trials_is_put_back_by_a_person_and_rescanned(tmp_path, monkeypatch):
+    import builtins
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    tile = next(t for t in mat.tiles if t["tile_name"] == "8D")
+    mat.tiles.remove(tile)                          # not seen: a flickering read, or knocked off its spot
+    asked = []
+
+    def person(prompt):
+        asked.append(prompt)
+        mat.tiles.append(tile)
+        return ""
+    monkeypatch.setattr(builtins, "input", person)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    assert len(asked) == 1 and "8D not detected" in asked[0] and "Enter to rescan" in asked[0]
+    assert [a["success"] for a in events if a["type"] == "attempt"] == [True]
+    assert not any(e["type"] == "attempt_skipped" for e in events)
+    assert [(i["kind"], i["class"]) for i in interventions.derive(events)] == [("tile_reset", "reset")]
 
 
 def test_every_return_in_a_trial_run_lands_at_the_tiles_home(tmp_path, monkeypatch):
