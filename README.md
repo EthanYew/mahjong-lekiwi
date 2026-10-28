@@ -55,6 +55,7 @@ not a worktree, or the sessions go when the worktree does.
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
 | Photograph every tile on the mat with the wrist camera from jittered hovers | `python scripts/wrist_capture.py` (rings when a set is done) |
+| Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
@@ -501,6 +502,25 @@ At the names prompt: Enter starts, `3=2C` renames tile 3, `-3` leaves it out, `r
 quits. Photos land in `sessions/<time>_wrist/wrist/<NAME>/` (one folder per name), with a `wrist_view`
 event per view. A view takes ~8 s, so 8 views of 13 tiles is ~15 minutes a set. As of 2026-10-28 the
 recordings and bench runs had no wrist views of 1-5C, 7-9C, the flowers, 1B or 5B: put those down first.
+
+**Checking the wrist photos.** A photo's name came from the detector (you confirm it in wrist_capture,
+not at the bench), so a misdetected tile's photos can slip in under the wrong name. `wrist_review.py`
+shows each name's photos, one row per physical tile (all its views), with the bench attempts' hover
+frames packed by session. Click a photo to mark it wrong, click a row's label for the whole tile,
+right-click to give it its right name (asked in the terminal: a 2C filed as 3C becomes a 2C photo),
+Shift+click to see it at full size (several tiles are in view; the one between the jaws is the one).
+Space marks the page's unmarked photos ok and moves on; `p` back, `]` `[` change name, `q` quits.
+
+```
+python scripts/wrist_review.py                  # every name, what isn't reviewed yet
+python scripts/wrist_review.py --name 3C --only
+python scripts/wrist_review.py --all            # reviewed photos too
+```
+
+Nothing is moved or deleted: the photos stay in their sessions (the record), and each verdict is a
+line in `data/wrist_review.jsonl` (commit it; it merges by union). The counts in wrist_capture.py and
+any training set read the photos through it (`mahjong/wrist_photos.py`): a renamed photo counts under
+its right name, one marked wrong without a name doesn't count.
 
 ## Tests
 
