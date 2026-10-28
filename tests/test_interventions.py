@@ -227,3 +227,15 @@ def test_asking_about_a_mark():
     assert iv.ask_mark("attempt 3", ask=answering("9", "6", "tile slid off the mat")) == ("other", "tile slid off the mat")
     assert iv.ask_abort("attempt 3", ask=answering("1")) == "frozen"
     assert iv.ask_abort("attempt 3", ask=answering("")) is None
+
+
+def test_a_hand_grades_by_the_most_a_person_had_to_do():
+    def i(kind, source="logged"):
+        return {"kind": kind, "class": iv.class_of(kind), "source": source}
+    assert iv.hand_grade([]) == "clean"
+    assert iv.hand_grade([i("scan_glitch", "scans")]) == "clean"            # nobody was asked
+    assert iv.hand_grade([i("scan_glitch", "confirmed")]) == "attended"     # a person answered a scan question
+    assert iv.hand_grade([i("name_asked")]) == "attended"
+    assert iv.hand_grade([i("name_asked"), i("pickup_failed")]) == "rescued"
+    assert iv.hand_grade([i("tile_reset")]) == "rescued"
+    assert iv.hand_grade([i("name_asked"), i("silent_error")]) == "silent error"
