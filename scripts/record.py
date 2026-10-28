@@ -291,7 +291,8 @@ def main(argv=None):
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
-                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s", frame)
+                driver = "" if policy is None else (" POLICY drives: any button takes over" if takeover is None else " YOU")
+                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
             fps = round(frames / max(time.time() - started, 1e-6), 1)
