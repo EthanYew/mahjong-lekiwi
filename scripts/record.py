@@ -162,6 +162,7 @@ def main(argv=None):
                                                "deadzone": args.deadzone})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
+    dataset = open_dataset(args.dataset)      # before the session folder: it refuses a dataset of another layout
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
                       deadzone=args.deadzone,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
@@ -173,7 +174,6 @@ def main(argv=None):
     returns, homes = None if args.no_return else ReturnCorrection.load(), Homes()
     if returns:
         print(f"Return correction: {returns.summary()}")
-    dataset = open_dataset(args.dataset)
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
     rng, offset = random.Random(args.jitter_seed), None     # offset: the next saved episode's, kept until it's saved
