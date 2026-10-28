@@ -7,10 +7,13 @@ camera; nothing here does that).
 """
 import sys
 import time
+from collections import defaultdict
 
 import numpy as np
 
 from . import config
+
+MIN_FRAMES_SEEN = 2     # of a scan's frames: a tile in just one is more likely a flicker than a tile
 
 
 class RealSense:
@@ -72,22 +75,20 @@ class RealSense:
         return [self._model.names[i] for i in sorted(self._model.names)] if self._model else []
 
     def detect_tiles(self, n_frames=config.DETECTION_FRAMES):
-        """Tiles seen over n_frames, merged into one entry per physical tile. Each frame, its filtered
-        depth and every box YOLO found in it (below the confidence cut too) stay in self.last_frames,
-        for the detector's data (detector.save_scan)."""
+        """Tiles seen over n_frames, merged into one entry per physical tile by a vote (merge_tiles), which
+        counts every box down to config.DETECTION_SAVE_CONFIDENCE. Each frame, its filtered depth and
+        every box YOLO found in it stay in self.last_frames, for the detector's data (detector.save_scan)."""
         if self._model is None:
             from ultralytics import YOLO
             self._model = YOLO(str(config.TILE_DETECTOR))
         raw, self.last_frames = [], []
-        for _ in range(n_frames):
+        for k in range(n_frames):
             color, depth = self._frames()
             intrinsics = depth.profile.as_video_stream_profile().intrinsics
             boxes = run_detector(self._model, color)
             self.last_frames.append({"color": color.copy(), "depth": np.asanyarray(depth.get_data()).copy(),
                                      "depth_scale_m": self.depth_scale_m, "boxes": boxes})
             for box in boxes:
-                if box["confidence"] < config.DETECTION_CONFIDENCE:
-                    continue
                 x1, y1, x2, y2 = box["xyxy"]
                 u, v = int((x1 + x2) / 2), int((y1 + y2) / 2)
                 d = robust_depth(depth, u, v)
@@ -95,9 +96,9 @@ class RealSense:
                     continue
                 p_cam = np.array([(u - intrinsics.ppx) * d / intrinsics.fx, (v - intrinsics.ppy) * d / intrinsics.fy, d, 1.0])
                 x, y = (self.T_cam_to_base @ p_cam)[:2]
-                raw.append({"tile_name": box["tile_name"], "confidence": box["confidence"],
+                raw.append({"tile_name": box["tile_name"], "confidence": box["confidence"], "frame": k,
                             "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))})
-        return merge_tiles(raw)
+        return merge_tiles(raw, n_frames)
 
 
 def run_detector(model, color):
@@ -115,18 +116,35 @@ def robust_depth(depth_frame, u, v, window=5):
     return float(np.median(depths)) if depths else 0.0
 
 
-def merge_tiles(detections, radius_m=config.TILE_MERGE_RADIUS_M):
+def merge_tiles(detections, n_frames=1, radius_m=config.TILE_MERGE_RADIUS_M, min_frames=MIN_FRAMES_SEEN,
+                confident=config.DETECTION_CONFIDENCE):
     """One entry per physical tile: detections within radius_m of a cluster's first are the same tile
-    (by position, not label — labels flicker between frames). Label from the most confident read,
-    position averaged."""
+    (by position, not label — labels flicker between frames), position averaged. The name is a vote:
+    the one with the most confidence summed over the frames; "vote_confidence" is that sum over the
+    frames the tile was seen in, "confidence" stays its best single read (what interventions' 0.6 was
+    measured on). A tile seen in fewer than min_frames frames, or voted below `confident`, is dropped.
+    "votes" keeps every name's sum, so a split read (8C 2.46 vs 9C 1.53) can be told from a sure one.
+    The single most confident read named a 9C as 8C on the exam (8C 0.69 vs 9C 0.68 in one frame); the
+    vote doesn't name it 9C either (8C read in 4 of 5 frames) but leaves it out. v6x3 on the exam's
+    scans: 98.0% right both ways, mix-ups 1 -> 0, found 99.0% -> 98.0% (2026-10-28)."""
     remaining, merged = list(detections), []
     while remaining:
         seed = remaining.pop(0)
         cluster = [seed] + [t for t in remaining if np.hypot(t["xy"][0] - seed["xy"][0], t["xy"][1] - seed["xy"][1]) <= radius_m]
         remaining = [t for t in remaining if t not in cluster]
-        best = max(cluster, key=lambda t: t["confidence"])
+        seen = {t.get("frame", i) for i, t in enumerate(cluster)}
+        votes = defaultdict(float)
+        for t in cluster:
+            votes[t["tile_name"]] += t["confidence"]
+        name = max(votes, key=votes.get)
+        confidence = votes[name] / len(seen)
+        if len(seen) < min(min_frames, n_frames) or confidence < confident:
+            continue
+        best = max((t for t in cluster if t["tile_name"] == name), key=lambda t: t["confidence"])
         x, y = float(np.mean([t["xy"][0] for t in cluster])), float(np.mean([t["xy"][1] for t in cluster]))
-        merged.append({**best, "xy": (x, y), "z": config.grasp_z(x, y), "reads": len(cluster)})
+        merged.append({**best, "xy": (x, y), "z": config.grasp_z(x, y), "vote_confidence": round(confidence, 4),
+                       "reads": len(cluster), "frames_seen": len(seen),
+                       "votes": {n: round(v, 4) for n, v in sorted(votes.items(), key=lambda nv: -nv[1])}})
     return sorted(merged, key=lambda t: -t["xy"][1])      # left to right
 
 

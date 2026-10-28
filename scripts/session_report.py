@@ -1,14 +1,16 @@
 """Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials,
-where returned tiles landed from their home, interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes); and a
-contact sheet (one row per attempt: overview before/after, wrist frames).
+where returned tiles landed from their home, interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes),
+a play session's hand (scripts/play.py: result, grade, questions, turn times); and a contact sheet (one
+row per attempt: overview before/after, wrist frames).
 
     python scripts/session_report.py                 # the latest session
     python scripts/session_report.py sessions/20261024_101500_bench
-    python scripts/session_report.py --all           # every bench session side by side, with its setup
+    python scripts/session_report.py --all           # every bench session side by side, then every played hand
 """
 import argparse
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -172,6 +174,18 @@ def all_sessions():
         rescues = interventions.summary(interventions.derive(events), attempts)["rescues_per_10"]
         print(f"{folder.name:<24} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
               f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}")
+    hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play"))
+             if (folder / "events.jsonl").exists()]
+    hands = [(folder, events, next(e for e in events if e["type"] == "hand_end")) for folder, events in hands
+             if any(e["type"] == "hand_end" for e in events)]
+    if hands:
+        grades = Counter(end["grade"] for _, _, end in hands)
+        print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7}  setup   "
+              f"({len(hands)} hands: " + ", ".join(f"{n} {g}" for g, n in grades.most_common()) + ")")
+        for folder, events, end in hands:
+            start = next((e for e in events if e["type"] == "session_start"), {})
+            print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end['grade']:<12} {end['asks']:>4} "
+                  f"{end['rescues']:>7}  {setup_text(start)}")
 
 
 def main():
@@ -241,6 +255,36 @@ def main():
             print(f"{kind}: {n}" + (f" ({len(shifts)} set down closer to fit the reach: "
                                     + ", ".join(f"{s:.0f}mm" for s in shifts) + ")" if shifts else ""))
     returns_report(events)
+    play_report(events, found)
+
+
+def play_report(events, found):
+    """A played hand (scripts/play.py): how it ended, its grade (clean / attended / rescued / silent error,
+    docs/autonomy_plan.md section 3), what a person was asked, and how long turns took."""
+    turns = [e for e in events if e["type"] == "turn_done"]
+    end = next((e for e in events if e["type"] == "hand_end"), None)
+    if not turns and not end:
+        return
+    print("\nhand: " + (f"{end['result']} after {end['turns']} turns, {end['grade']}" if end
+                        else f"{len(turns)} turns, not finished (--resume carries on)"))
+    if end:
+        print(f"  hand {' '.join(end['hand'])}; discards {' '.join(end['discards']) or '-'}")
+    asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
+    if asked:
+        print("  asked: " + ", ".join(f"{kind} {n}" for kind, n in asked.most_common()))
+    if end and end["silent_errors"]:
+        print(f"  SILENT ERRORS: {end['silent_errors']} tile(s) the robot had wrong without asking")
+    # a turn: from the first scan of its drawn tile to its turn_done
+    starts, seconds = None, []
+    for e in events:
+        if e["type"] == "detections" and e.get("label") == "drawn" and starts is None:
+            starts = datetime.fromisoformat(e["time"])
+        elif e["type"] == "turn_done" and starts is not None:
+            seconds.append((datetime.fromisoformat(e["time"]) - starts).total_seconds())
+            starts = None
+    if seconds:
+        print(f"  turn time: median {np.median(seconds):.0f}s, p90 {np.percentile(seconds, 90):.0f}s "
+              f"(from the drawn tile's first scan to the end of the turn)")
 
 
 def returns_report(events):

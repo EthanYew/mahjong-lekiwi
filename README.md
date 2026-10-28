@@ -41,6 +41,8 @@ not a worktree, or the sessions go when the worktree does.
 | See what happened in the last session | `python scripts/session_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
+| Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout hand13` |
+| Play a hand without the robot | `python scripts/play.py --sim` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
 | Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
@@ -157,6 +159,52 @@ python scripts/session_report.py --all                           # every bench s
 
 Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, interventions (rescues
 per 10 attempts, clean vs. assisted successes) and saves a contact sheet (one image row per attempt).
+For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
+`--all` ends with one line per hand.
+
+## Autonomous play: `scripts/play.py`
+
+The robot plays one closed hand (no calls, no flowers). Your only job is to put each drawn tile on the
+drop zone and press Enter. Why it works the way it does, and the targets it's measured against:
+`docs/autonomy_plan.md`.
+
+```
+python scripts/play.py --layout hand13                 # play a hand
+python scripts/play.py --layout hand13 --teach-zone    # find the drop-zone marker again first
+python scripts/play.py --layout hand13 --resume        # carry on the latest play session's hand
+python scripts/play.py --sim                           # no hardware: a fixed hand that wins in 3 draws
+```
+
+Before the first hand:
+1. **The hand slots**: teach a 13-spot layout in two rows (13 in one row don't fit the reach) with
+   `python scripts/layout.py --name hand13 --teach`, inside the area pickups were checked on. Then check
+   it with `bench.py --layout hand13 --trials 2`: pickups and returns at every slot.
+2. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered.
+   The first run finds it and saves its position (`data/drop_zone.json`, tied to the RealSense
+   calibration). The drawn tile goes on top of it.
+3. **The discard pose**: `bench.py`, `teach-discard`, over the container.
+
+A hand: it reads the 13 tiles (asking about any it isn't sure of), then each turn reads the drawn tile,
+checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
+tiles still left, then kinds), drops it in the container, and if it came from the hand moves the drawn
+tile into the slot it left, aimed so it lands on the slot's home. Type `end` at the draw prompt when the
+wall is empty. At the end you check its hand against the table: Enter if it's right, or the wrong slots
+as `H3=5D`.
+
+It asks rather than guess: a name the votes over the scans aren't clearly for, a slot that reads
+differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
+question is logged, and the hand is graded **clean** (nothing asked), **attended** (questions only),
+**rescued** (you touched something) or **silent error** (the end check found a tile it had wrong).
+Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
+holds a tile).
+
+| Option | What it does |
+|---|---|
+| `--layout NAME` | **required** (except `--sim`): the 13 hand slots |
+| `--policy ID` | policy from `data/policies.json` (default: the registry's default) |
+| `--teach-zone` | find the drop-zone marker again (after moving it or the camera); it must be uncovered |
+| `--resume [FOLDER]` | carry on a play session's hand (default: the latest) |
+| `--sim` | simulated arm, cameras, mat and policy |
 
 ## Recording demonstrations: `scripts/record.py`
 
@@ -404,8 +452,10 @@ It reports **found** (labelled tiles it put a box on), **named right** (of those
 overall** (found and named right: the tile accuracy), missed tiles, extra boxes on nothing, and its
 commonest mix-ups (e.g. `4D->5D x6`). `--ignore flowers` (or names, e.g. `flowers,EW`) leaves those
 tiles out: boxes on them count for nothing, while another tile read as one is still a mix-up. A label
-drawn twice on one tile is merged and listed, so you can delete the copy in Roboflow. Scores are per
-frame and go in `data/detector_eval/` (`_without_<names>` when some are left out). Frames in the
+drawn twice on one tile is merged and listed, so you can delete the copy in Roboflow. **Wrong names**
+says how many found tiles it named wrong and the highest wrong-name rate the exam can't rule out (95%):
+0 of 99 still allows 3%, so showing under 0.3% (what autonomous play needs) takes ~1000 exam tiles.
+Scores are per frame and go in `data/detector_eval/` (`_without_<names>` when some are left out). Frames in the
 folder that aren't from an exam session are left out.
 
 Baseline (2026-10-27, live detector, exam v4: 15 frames, dim + lamp + ceiling lights): without

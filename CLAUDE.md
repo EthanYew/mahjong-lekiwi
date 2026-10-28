@@ -36,6 +36,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane, a tile
   in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken
   with `--save-reference` on a setup that worked. Nudge the camera back to green rather than recalibrating.
+- Autonomous play: `python scripts/play.py --layout hand13` (`--sim` without hardware). One session is one
+  hand; it asks instead of guessing a tile name, and the hand grades clean / attended / rescued / silent
+  error (`interventions.hand_grade`). Silent wrong tiles are a gate, not a target: one stops play.
 - Score a policy offline (GPU, minutes): `python scripts/offline_eval.py --policy pickup_mat_cl --against
   pickup_mat_cl_v1 [--by spot|lighting]`; tables per slice and the gates.
 
@@ -54,6 +57,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
+| `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `mahjong/layout.py`, `scripts/layout.py`, `spot_novelty.py` | tile layouts (`data/layouts.json`, committed once a recording uses one; ghost photos and captures in `data/layouts/` stay local) drawn on the RealSense view; place tiles to green; how far each spot is from a training recording's tiles |
 | `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
@@ -203,4 +207,4 @@ in `ROADMAP.md`.
 - Second row and far corners untested with v2; far corners (e.g. 7B) are out of reach after correction.
 - RealSense recalibration at table height across the workspace would shrink the correction needed.
 - Recording/deploying at servo I=8 would remove most sag; needs a new dataset and corrections.
-- Autonomous play isn't ported yet.
+- Autonomous play runs in `--sim` only so far (`scripts/play.py`): `hand13`, the drop zone and its marker are untaught; ROADMAP 8 has the steps on the arm.

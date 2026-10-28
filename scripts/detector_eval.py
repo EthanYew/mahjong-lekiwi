@@ -24,6 +24,7 @@ assets/tile_detector.pt and commit it, with these numbers in the message.
 import argparse
 import hashlib
 import json
+import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -74,6 +75,20 @@ def pct(value):
     return "  -  " if value is None else f"{value * 100:5.1f}%"
 
 
+def wrong_rate_bound(wrong, n, confidence=0.95):
+    """The exact (Clopper-Pearson) upper bound on a rate seen `wrong` times in `n`: with 0 in n, ~3/n."""
+    if wrong >= n:
+        return 1.0
+
+    def at_most(p):         # P(X <= wrong) for X ~ Binomial(n, p)
+        return sum(math.comb(n, k) * p ** k * (1 - p) ** (n - k) for k in range(wrong + 1))
+    lo, hi = wrong / n, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if at_most(mid) > 1 - confidence else (lo, mid)
+    return hi
+
+
 def report(name, scores, mixups):
     print(f"\n{name}")
     print(f"  {'':<40} {'frames':>6} {'tiles':>6} {'found':>7} {'named right':>11} {'right overall':>13} "
@@ -83,6 +98,12 @@ def report(name, scores, mixups):
         print(f"  {group:<40} {s['frames']:>6} {s['tiles']:>6} {pct(s['found_rate']):>7} "
               f"{pct(s['named_right_rate']):>11} {pct(s['right_rate']):>13} {s['missed']:>6} {s['extra']:>6}")
     s = detector.summary(scores["all"])
+    wrong = s["found"] - s["named_right"]
+    if s["found"]:
+        # a wrong name is what autonomous play can't afford (a silent error, docs/autonomy_plan.md section 4):
+        # what this exam can rule out, as the highest rate still consistent with what it saw
+        print(f"  wrong names: {wrong} of {s['found']} found; the true rate could still be up to "
+              f"{pct(wrong_rate_bound(wrong, s['found'])).strip()} (95%)")
     if s["mixups"]:
         print("  mix-ups (true -> said): " + ", ".join(f"{t}->{w} x{n}" for t, w, n in s["mixups"][:mixups]))
     if s["missed_names"]:

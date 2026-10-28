@@ -7,6 +7,8 @@ Classes, because only one of them measures the policy:
   override     a person's verdict differs from the automatic one (the success prompt): the check's error
   failure      not a step-in, but something went wrong (a knocked neighbour, the arm bumping a tile)
   observation  listed, not counted (a mark that only says "look at this", a cancelled choice)
+  ask          a person answered a question and touched nothing (autonomous play: a tile name the robot
+               wasn't sure of, a recount). Not a rescue, but a hand with one isn't clean (hand_grade)
 
 Most are derived (derive()) from what a session logs anyway: attempts, the `detections` scans around
 each attempt, session_end. A person is asked only after marking an attempt (→ during ACT), aborting it
@@ -18,7 +20,7 @@ from collections import Counter
 
 from . import config, kinematics, session
 
-RESCUE, RESET, OVERRIDE, FAILURE, OBSERVATION = "rescue", "reset", "override", "failure", "observation"
+RESCUE, RESET, OVERRIDE, FAILURE, OBSERVATION, ASK = "rescue", "reset", "override", "failure", "observation", "ask"
 
 # kind: (what a person is shown, class)
 KINDS = {
@@ -50,6 +52,12 @@ KINDS = {
     "knocked": ("a tile other than the target moved", FAILURE),
     "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),
     "arm_moved_while_off": ("arm not where it settled at the last disconnect (moved while off)", OBSERVATION),
+    # autonomous play (scripts/play.py)
+    "name_asked": ("said what a tile is: the robot wasn't sure of its name", ASK),
+    "zone_asked": ("put the drawn tile on the drop zone again: none was seen there", ASK),
+    "recount": ("checked the hand: the table didn't match what the robot thought it held", ASK),
+    "pickup_failed": ("moved a tile by hand: the robot couldn't pick it up after its retries", RESCUE),
+    "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
 }
 MARK_KINDS = ["touched_tile", "collided", "helped_arm", "caught_drop", "look", "other"]
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
@@ -290,6 +298,23 @@ def summary(interventions, attempts):
     return {"attempts": n, "rescues": rescues, "rescues_per_10": 10 * rescues / n if n else None,
             "attempts_per_rescue": n / rescues if rescues else None, "resets": counts[RESET],
             "overrides": counts[OVERRIDE], "failures": counts[FAILURE], "observations": counts[OBSERVATION],
+            "asks": counts[ASK],
             "knocks": sum(i["kind"] == "knocked" for i in interventions),
             "collisions": sum(i["kind"] == "collided" for i in interventions),
             "successes": len(successes), "clean_successes": len(successes) - assisted, "assisted_successes": assisted}
+
+
+def hand_grade(interventions):
+    """One hand of autonomous play (docs/autonomy_plan.md, section 3): "silent error" if the end-of-hand
+    check found a tile the robot had wrong, else "rescued" if a person touched anything (a rescue or a
+    reset), else "attended" if they only answered questions (asks, scan questions, a knock), else
+    "clean": a person did nothing but put the drawn tiles down."""
+    kinds = {i["kind"] for i in interventions}
+    classes = {i["class"] for i in interventions}
+    if "silent_error" in kinds:
+        return "silent error"
+    if classes & {RESCUE, RESET}:
+        return "rescued"
+    if ASK in classes or FAILURE in classes or any(i["source"] == "confirmed" for i in interventions):
+        return "attended"
+    return "clean"
