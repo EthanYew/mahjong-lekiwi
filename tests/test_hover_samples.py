@@ -55,6 +55,15 @@ def test_bench_samples_are_successful_real_attempts(tmp_path):
     assert hover_samples.bench_records(write_session(tmp_path / "sim_bench", [attempt(1)], sim=True)) == []
 
 
+def test_a_bench_attempt_from_a_perturbed_hover_is_imported_excluded(tmp_path):
+    """bench.py excludes these as it writes them; a backfill used to import them as clean samples."""
+    folder = write_session(tmp_path / "20261023_101808_bench",
+                           [attempt(1), {**attempt(2), "hover_perturb_xy": [0.006, 0.0]},
+                            {**attempt(3), "hover_perturb_xy": [0.0, 0.0]}])
+    records = hover_samples.bench_records(folder)
+    assert ["excluded" in r for r in records] == [False, True, False]
+
+
 def test_import_skips_duplicates_and_samples_older_than_the_setup(tmp_path):
     path = tmp_path / "c.jsonl"
     folder = write_session(tmp_path / "20261023_101808_bench", [attempt(1), attempt(2)])

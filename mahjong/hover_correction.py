@@ -93,10 +93,16 @@ def random_offset(rng, radius_m, zero_fraction=0.0):
 
 
 def grasp_record(source, detection_xy, grasp_xy, **provenance):
-    """A sample from where the gripper closed (demo or bench): the grasp tool point minus the detection."""
-    return {"source": source, "detection_xy": [float(v) for v in detection_xy],
-            "grasp_xy": [float(v) for v in grasp_xy],
-            "delta_xy": [float(grasp_xy[0] - detection_xy[0]), float(grasp_xy[1] - detection_xy[1])], **provenance}
+    """A sample from where the gripper closed (demo or bench): the grasp tool point minus the detection. A
+    bench attempt from a hover moved on purpose (bench.py --hover-perturb-mm) is kept but excluded: it tests
+    whether the policy follows the tile, and v2's grasp followed the moved hover ~1mm per mm. (A jittered
+    demo stays in: the operator had to steer to the tile.)"""
+    record = {"source": source, "detection_xy": [float(v) for v in detection_xy],
+              "grasp_xy": [float(v) for v in grasp_xy],
+              "delta_xy": [float(grasp_xy[0] - detection_xy[0]), float(grasp_xy[1] - detection_xy[1])], **provenance}
+    if source == "bench" and any(provenance.get("hover_perturb_xy") or ()):
+        record["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
+    return record
 
 
 def append_record(record, path=None):
