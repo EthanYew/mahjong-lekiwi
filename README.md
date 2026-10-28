@@ -412,6 +412,17 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
+v6x3 (2026-10-28, live since: `tile_detector@0c4b15eb`): v6 = the July frames + 190 session frames
+(capture and bench scans), split by scene, with the session frames repeated 3× in train. Without
+flowers 97.1% found, 100% named right, **97.1% right overall** (was 68.6%); with flowers 94.4% (was
+66.7%). v6 without the repeats: 95.1% / 90.5% (its misses were 1F/3F). No training frame shares more
+than 17% of an exam frame's tiles, so this isn't a leak. Box centres moved < 0.1 px against the old
+weights (the hover correction holds).
+
+The exam scores Roboflow's re-encoded copies of the frames: on the session's own frames (what the
+robot sees) the old weights got 81% right, not 69%, so absolute numbers undersell every detector; the
+comparisons hold, since both score on the same copies.
+
 `train_detector.py` starts from the live weights with their July recipe (1280 px, no mirror flips: a
 mirrored tile face isn't a real tile) and refuses a dataset with any exam frame in it. Ship the new
 weights only if they beat the old ones on the exam: copy `best.pt` to `assets/tile_detector.pt` and
