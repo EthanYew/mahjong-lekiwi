@@ -21,7 +21,6 @@ height, roll). After each set it prints how many views every name has over all w
 which still have fewer than --target.
 """
 import argparse
-import json
 import math
 import random
 import shutil
@@ -40,7 +39,7 @@ from mahjong import config, detector, hardware, wrist_photos
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection
-from mahjong.session import Session
+from mahjong.session import Session, read_jsonl
 
 WINDOW = "wrist capture"
 ROLL_MARGIN_DEG = 5.0        # a rolled view stays this far inside the roll's command limits
@@ -247,9 +246,8 @@ def views_per_name(sessions_dir=None, recordings_dir=None, review=None):
     if recordings_dir is not None:
         from mahjong.dataset import EPISODE_LOGS
         for log in sorted(p for name in EPISODE_LOGS for p in Path(recordings_dir).glob(f"*/*/{name}")):
-            for line in log.read_text().splitlines():
-                if line.strip():
-                    sources["recordings"][json.loads(line).get("tile_name")] += 1
+            for record in read_jsonl(log):
+                sources["recordings"][record.get("tile_name")] += 1
     return sources
 
 
@@ -282,15 +280,12 @@ def main(argv=None, ask=None):
     clearances = [float(c) / 1000 for c in args.clearances_mm.split(",")]
     rng = random.Random(args.seed)
     if args.sim:
-        from mahjong.arm import Arm
-        from mahjong.sim import SimCamera, SimPerception, SimRobot
-        realsense = SimPerception()
-        arm, camera = Arm(SimRobot(), sleep=lambda s: None), SimCamera()
-        session = Session("wrist", ask_setup=False, sim=True)
+        from mahjong import sim
+        devices = sim.connect()
     else:
         devices = hardware.connect(["arm", "wrist_camera", "realsense"])
-        arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
-        session = Session("wrist", sim=False)
+    arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
+    session = Session("wrist", ask_setup=not args.sim, sim=args.sim)
     session.event("wrist_capture_start", views=args.views, jitter_mm=args.jitter_mm, clearances_m=clearances,
                   roll_deg=args.roll_deg, frames=args.frames, seed=args.seed)
     if arm.at_connect:

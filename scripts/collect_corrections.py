@@ -68,7 +68,7 @@ def main(argv=None):
                 x, y = tile["xy"]
                 print(f"\n[{i}/{len(tiles)}] {tile['tile_name']} at ({x:.3f}, {y:+.3f})")
                 hx, hy = (x, y) if args.raw else correction.apply(x, y)
-                hover = arm.hover(hx, hy, config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, config.HOVER_GRIPPER)
+                hover = arm.hover(hx, hy, **config.DEFAULT_HOVER)
                 if hover is None:
                     print("  unreachable — skipped")
                     session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])

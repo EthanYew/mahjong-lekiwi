@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config
+from .session import read_jsonl
 
 REVIEW = config.DATA / "wrist_review.jsonl"
 SOURCES = ("wrist_capture", "bench")
@@ -52,14 +53,7 @@ def photos(sessions_dir=None):
 
 def load_review(path=None):
     """{photo key: its latest verdict record}."""
-    path = Path(path or REVIEW)
-    review = {}
-    if path.exists():
-        for line in path.read_text().splitlines():
-            if line.strip():
-                record = json.loads(line)
-                review[record["photo"]] = record
-    return review
+    return {record["photo"]: record for record in read_jsonl(path or REVIEW)}
 
 
 def record(keys, verdict, name=None, path=None):

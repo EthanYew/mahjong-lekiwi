@@ -63,6 +63,17 @@ def save_session_scan(realsense, session, scan_n, label):
     return {"frames": str(folder.relative_to(session.dir))}
 
 
+def log_scan(realsense, session, scan_n, label, **fields):
+    """Detect tiles, save the scan's frames (save_session_scan) and log it as a `detections` event. Returns
+    (tiles, the event)."""
+    tiles = realsense.detect_tiles()
+    frames = save_session_scan(realsense, session, scan_n, label)
+    event = session.event("detections", label=label, scan=scan_n, **fields, **frames,
+                          tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
+                                 for t in tiles])
+    return tiles, event
+
+
 def load_reads(folder):
     return json.loads((Path(folder) / "reads.json").read_text())
 

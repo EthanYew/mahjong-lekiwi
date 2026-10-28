@@ -222,6 +222,16 @@ class SimCamera:
         pass
 
 
+def connect(tiles=SIM_TILES, wrist_view=False):
+    """The simulated counterpart of hardware.connect(["arm", "wrist_camera", "realsense"]): a mat of `tiles`
+    that a release near the table puts the held tile back on, an arm that doesn't wait, and a wrist camera
+    that renders the mat under it (wrist_view) or gives blank frames."""
+    from .arm import Arm
+    mat = SimPerception(tiles)
+    arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
+    return {"arm": arm, "wrist_camera": SimWristCamera(arm, mat) if wrist_view else SimCamera(), "realsense": mat}
+
+
 class SimPolicy:
     """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
     policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it

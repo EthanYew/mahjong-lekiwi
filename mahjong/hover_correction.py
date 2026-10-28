@@ -34,6 +34,7 @@ from datetime import datetime
 import numpy as np
 
 from . import config
+from .session import read_jsonl
 
 MIN_POINTS_AFFINE = 6
 AFFINE_MIN_GAIN = 0.10
@@ -114,9 +115,26 @@ def append_record(record, path=None):
     return record
 
 
+def import_records(records, key, path=None, since=None):
+    """Append the records not already in the file (by `key(record)`) and not older than `since`, the current
+    setup's first gamepad correction (None, no corrections for this setup: none are imported, since any could
+    predate a recalibration). Returns (added, already, too_old)."""
+    have = {key(r) for r in read_all(path)}
+    added = already = too_old = 0
+    for record in records:
+        if key(record) in have:
+            already += 1
+        elif since is None or record["timestamp"] < since:
+            too_old += 1
+        else:
+            append_record(record, path)
+            have.add(key(record))
+            added += 1
+    return added, already, too_old
+
+
 def read_all(path=None):
-    path = path or config.HOVER_CORRECTIONS
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    return read_jsonl(path or config.HOVER_CORRECTIONS)
 
 
 def load_records(path=None, sources=None):

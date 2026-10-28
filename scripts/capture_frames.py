@@ -54,11 +54,8 @@ def parse_args(argv=None):
 
 def take_scan(realsense, session, scan_n):
     """One scan, saved and logged as a `detections` event. Returns (tiles, issues Counter)."""
-    tiles = realsense.detect_tiles()
-    frames = detector.save_session_scan(realsense, session, scan_n, "capture")
-    session.event("detections", label="capture", scan=scan_n, **frames,
-                  tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t} for t in tiles])
-    issues = detector.scan_issues(detector.load_reads(session.dir / frames["frames"]))[0] if frames else {}
+    tiles, scan = detector.log_scan(realsense, session, scan_n, "capture")
+    issues = detector.scan_issues(detector.load_reads(session.dir / scan["frames"]))[0] if "frames" in scan else {}
     return tiles, issues
 
 

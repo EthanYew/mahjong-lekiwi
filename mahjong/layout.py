@@ -319,8 +319,10 @@ def load_ghost(name):
     return cv2.imread(str(path)) if path.exists() else None
 
 
-def nearest_tile(tiles, xy, radius_m=config.TILE_MERGE_RADIUS_M):
-    """The detected tile (perception.detect_tiles) closest to xy, if within radius_m."""
+def nearest_tile(tiles, xy, radius_m=config.TILE_MERGE_RADIUS_M, name=None):
+    """The detected tile (perception.detect_tiles) closest to xy, if within radius_m. With `name`: the closest
+    of that name, unless none is detected (then a misread: the closest of any)."""
+    tiles = [t for t in tiles if t["tile_name"] == name] or tiles if name else tiles
     if not tiles:
         return None
     tile = min(tiles, key=lambda t: math.hypot(t["xy"][0] - xy[0], t["xy"][1] - xy[1]))

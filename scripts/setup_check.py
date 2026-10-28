@@ -139,7 +139,7 @@ def wrist_look(arm, camera, correction, xy):
     camera — reopened if it was lost)."""
     hx, hy = correction.apply(*xy, log=lambda *_: None) if correction else xy
     arm.lift()
-    hover = arm.hover(hx, hy, config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, config.HOVER_GRIPPER, log=lambda *_: None)
+    hover = arm.hover(hx, hy, **config.DEFAULT_HOVER, log=lambda *_: None)
     if hover is None:
         return None, None, camera
     frames = grab_frames(camera, 3)
@@ -232,11 +232,8 @@ def main(argv=None, ask=None, devices=None):
                          f"{'--sim ' if args.sim else ''}--save-reference first.")
     spots = check_spots(args, reference)
     if devices is None and args.sim:
-        from mahjong.arm import Arm
-        from mahjong.sim import SimPerception, SimRobot, SimWristCamera
-        realsense = SimPerception(tiles=[])
-        arm = Arm(SimRobot(), sleep=lambda s: None)
-        devices = {"arm": arm, "wrist_camera": SimWristCamera(arm, realsense), "realsense": realsense}
+        from mahjong import sim
+        devices = sim.connect(tiles=[], wrist_view=True)
     if devices is None:
         devices = hardware.connect(["arm", "wrist_camera", "realsense"])
     arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
