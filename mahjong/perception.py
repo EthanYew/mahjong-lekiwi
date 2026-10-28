@@ -64,6 +64,11 @@ class RealSense:
         """A BGR colour frame (for session logs)."""
         return self._frames()[0].copy()
 
+    def depth_snapshot(self):
+        """(BGR colour frame, depth in metres aligned to it; 0 where there's no reading)."""
+        color, depth = self._frames()
+        return color.copy(), np.asanyarray(depth.get_data()).astype(np.float32) * self.depth_scale_m
+
     @property
     def names(self):
         """The detector's class names, in class order (once it has loaded)."""

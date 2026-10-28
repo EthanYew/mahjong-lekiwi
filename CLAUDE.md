@@ -33,6 +33,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
+- After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane, a tile
+  in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken
+  with `--save-reference` on a setup that worked. Nudge the camera back to green rather than recalibrating.
 - Autonomous play: `python scripts/play.py --layout hand13` (`--sim` without hardware). One session is one
   hand; it asks instead of guessing a tile name, and the hand grades clean / attended / rescued / silent
   error (`interventions.hand_grade`). Silent wrong tiles are a gate, not a target: one stops play.
@@ -52,6 +55,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
+| `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |

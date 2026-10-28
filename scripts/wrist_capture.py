@@ -38,7 +38,7 @@ import cv2
 
 from mahjong import config, detector, hardware, wrist_photos
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
-from mahjong.camera import read_within
+from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection
 from mahjong.session import Session
 
@@ -230,18 +230,6 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
                       target_clearance_m=clearance, roll_offset_deg=applied, wrist_roll=arm.commanded()["wrist_roll"],
                       files=[f"wrist/{tile['tile_name']}/{f}" for f in files])
     return saved, camera
-
-
-def grab_frames(camera, n):
-    """Up to n current frames: fewer if the camera is lost (no frame within camera.LOST_S)."""
-    camera.flush()
-    frames = []
-    for _ in range(n):
-        ok, frame = read_within(camera)
-        if not ok:
-            break
-        frames.append(frame)
-    return frames
 
 
 def views_per_name(sessions_dir=None, recordings_dir=None, review=None):

@@ -72,7 +72,7 @@ def test_a_failed_question_is_never_read_as_enter():
 
 def test_a_lost_wrist_camera_is_reopened_and_the_view_taken_again(tmp_path, monkeypatch):
     import wrist_capture
-    from mahjong import hardware, sim
+    from mahjong import camera as camera_module, hardware, sim
     from mahjong.sim import SimCamera
 
     class Lost(SimCamera):
@@ -88,7 +88,7 @@ def test_a_lost_wrist_camera_is_reopened_and_the_view_taken_again(tmp_path, monk
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(sim, "SimCamera", Lost)                 # the script's camera, until reopened
     monkeypatch.setattr(hardware, "reopen_wrist_camera", reopen)
-    monkeypatch.setattr(wrist_capture, "read_within", lambda camera: camera.read())   # no 1 s waits
+    monkeypatch.setattr(camera_module, "read_within", lambda camera: camera.read())   # no 1 s waits
     answers = iter(["-2 -3", ""])                                # just 9D
     wrist_capture.main(["--sim", "--sets", "1", "--views", "2", "--seed", "0"], ask=lambda p: next(answers))
     session = next(tmp_path.glob("*_wrist"))
