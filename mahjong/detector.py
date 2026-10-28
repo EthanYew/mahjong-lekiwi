@@ -10,8 +10,9 @@ The exam is labelled frames of the current scene that are never trained on: whol
 listed in data/detector_exam.json (a scan's 5 frames are near copies, so a session is split as one).
 Exported frames are named <session>__<scan>__f<i>.jpg; Roboflow keeps that stem (as
 <stem>_jpg.rf.<hash>.jpg), so original_name() finds a labelled frame's session again, and that is how
-exam frames are kept out of training. Scores are per frame, while the live scan merges 5 frames
-(perception.merge_tiles), so the exam is a little harsher than the bench.
+exam frames are kept out of training. Scores are per frame, while the live scan votes over 5 frames
+(perception.merge_tiles), so the exam is harsher than the bench; and Roboflow re-encodes its copies of
+the frames, which alone cost the July weights ~8% of their confident boxes (2026-10-28).
 """
 import csv
 import json
