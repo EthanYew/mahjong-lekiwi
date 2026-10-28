@@ -349,7 +349,9 @@ python scripts/hover_samples.py --sessions                                      
 python scripts/hover_samples.py --sessions sessions/20261023_123549_bench           # ...or just these
 ```
 
-`collect_corrections.py --device PATH` picks the gamepad (default: the first one found).
+`collect_corrections.py --device PATH` picks the gamepad (default: the first one found). A `wrist` window
+shows the wrist camera while you line up, and the frame at → is saved as `sessions/<time>_corrections/aligned/<n>_<tile>.jpg`;
+`--no-view` runs without the window (and without the wrist camera plugged in).
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
 policies (they replay a memorised move from it; see `CLAUDE.md`).
