@@ -149,3 +149,24 @@ def test_the_report_shows_the_hand(tmp_path, monkeypatch, capsys):
     session_report.play_report(events, interventions.derive(events))
     out = capsys.readouterr().out
     assert "hand: win after 2 turns, clean" in out and "discards GD RD" in out and "turn time" in out
+
+
+def test_a_pickup_marked_during_play_is_asked_about_at_the_end_of_the_step(tmp_path, monkeypatch):
+    """Play's pickups don't ask as they go (bench.pickup(ask=False) queues marked or stopped ones); play
+    never asked about the queue, so a → during play went unrecorded."""
+    import builtins
+    prompts = []
+    monkeypatch.setattr(builtins, "input", lambda prompt="": prompts.append(prompt) or "1")   # 1: touched the tile
+    p = player(tmp_path, monkeypatch, Answers())
+    run_policy, marked = p.bench.policy.run, []
+
+    def mark_the_first(*a, **kw):
+        if not marked:
+            marked.append(True)
+            p.bench.events["exit_early"] = True        # → as the policy starts
+        return run_policy(*a, **kw)
+    monkeypatch.setattr(p.bench.policy, "run", mark_the_first)
+    run(p)
+    (review,) = [e for e in events_of(p) if e["type"] == "attempt_review"]
+    assert review["mark_kind"] == "touched_tile"
+    assert any("what happened" in q for q in prompts)
