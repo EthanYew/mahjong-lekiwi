@@ -436,8 +436,10 @@ it scans the mat, lists the tiles left to right with the detector's names (numbe
 view) for you to confirm, then hovers over each one `--views` times (default 8): the first centred at
 40 mm, the rest moved by up to `--jitter-mm` (8), at heights cycled from `--clearances-mm` (40,55,70)
 and the wrist rolled by up to `--roll-deg` (15). It never touches a tile. When the set is done the arm
-rests, the terminal rings (plus a desktop notification), and it prints every name's views over all
-wrist sessions and which are still below `--target` (10); put down a new set and press Enter.
+rests, the terminal rings (plus a desktop notification), and it prints every name's wrist views at the
+hover from all sources (its own sessions, bench attempts' first frames, recorded episodes) and which
+are still below `--target` (10); put down a new set and press Enter. A wrist camera that stops giving
+frames is reopened and the view taken again (as the bench and record.py do).
 
 ```
 python scripts/wrist_capture.py                      # until you press q at a set change

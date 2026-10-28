@@ -20,10 +20,11 @@ import torchvision.transforms.functional as F
 
 from . import config, kinematics
 from .arm import holds_tile
+from .camera import LOST_S
 
 STALL_CHECK_S = 4.0
 STALL_MOVE_DEG = 2.0
-CAMERA_LOST_S = 1.0     # no wrist frames for this long: stop the attempt, it can't count
+CAMERA_LOST_S = LOST_S  # no wrist frames for this long: stop the attempt, it can't count
 IMAGE_SIZE = (224, 224)
 
 # A pickup is done once the tile is held and lifted, and stays so for HOLD_CONFIRM_S while the policy

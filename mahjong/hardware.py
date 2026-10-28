@@ -62,6 +62,19 @@ CLOSE = {"arm": lambda a: a.disconnect(), "wrist_camera": lambda c: c.release(),
          "gamepad": lambda g: g.close()}
 
 
+def reopen_wrist_camera(camera, ask=None, openers=None):
+    """Release a wrist camera that stopped giving frames (camera.LOST_S) and open it again; if it won't
+    open, the usual retry / quit (connect). Returns the new camera; a simulated one comes back as is."""
+    if getattr(camera, "simulated", False):
+        return camera
+    try:
+        camera.release()
+    except Exception:
+        pass
+    print("Wrist camera lost: reopening it.")
+    return connect(["wrist_camera"], ask=ask, openers=openers)["wrist_camera"]
+
+
 def connect(needed, gamepad_kwargs=None, ask=None, openers=None):
     """Open every device in `needed` (names from OPENERS). Returns {name: device}. Lists what's missing
     and offers retry (Enter) or quit (q, raises SystemExit after closing whatever did open)."""

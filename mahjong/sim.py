@@ -143,6 +143,8 @@ class SimPerception:
 
 
 class SimCamera:
+    simulated = True        # hardware.reopen_wrist_camera leaves it be
+
     def read(self):
         return True, np.zeros((480, 640, 3), dtype=np.uint8)
 
