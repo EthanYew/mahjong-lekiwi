@@ -59,6 +59,7 @@ import cv2
 
 from mahjong import config, detector, interventions, layout
 from mahjong.arm import Arm
+from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
@@ -380,6 +381,7 @@ class Bench:
             return print("teach-discard cancelled")
         self.arm.raise_from_rest()
         gamepad.start(self.arm)
+        warn_off_centre(gamepad, self.session, None)
         self.abort.clear()
         print("Drive over the discard container's opening, then → to save (Esc cancels).")
         while not (self.events["exit_early"] or self.events["stop_recording"]):

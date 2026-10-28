@@ -265,6 +265,7 @@ with when you took over. Use a dataset of their own, never an eval slice.
 | `--no-return` | don't set a held tile back down: it's released at rest, as before |
 | `--policy ID` | DAgger: this registered policy drives from its own hover until you press A on the gamepad (see above) |
 | `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't. The right stick moves height *or* wrist roll: whichever moves first, until it's back at centre |
+| `--deadzone F` | stick deadzone, fraction of its travel (default 0.35, as collect_corrections: a thumb resting past XLeRobot's 0.15 pulled the arm 87mm). The wrist window's bottom line shows what the sticks read (red while they move the arm), and a stick off centre when you take over is said in the terminal. Lower it if gentle pushes don't register |
 | `--device PATH` | gamepad device path (default: the first gamepad found) |
 
 ## Reviewing a dataset: `scripts/quality_report.py`
