@@ -58,7 +58,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 
 from mahjong import config, detector, interventions, layout
-from mahjong.arm import Arm
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -100,11 +99,10 @@ class Bench:
         # before connecting anything, so a typo fails fast
         self.spots = layout.load(args.layout)["spots"] if args.layout else None
         if args.sim:
-            from mahjong.sim import SimCamera, SimPerception, SimPolicy, SimRobot
-            mat = SimPerception()
-            self.arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
-            self.camera, self.realsense = SimCamera(), mat
-            self.policies = [SimPolicy(mat=mat, policy_id=i or "sim") for i in ids]
+            from mahjong import sim
+            devices = sim.connect()
+            self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
+            self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
             self.listener = None
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True)

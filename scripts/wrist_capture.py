@@ -280,15 +280,12 @@ def main(argv=None, ask=None):
     clearances = [float(c) / 1000 for c in args.clearances_mm.split(",")]
     rng = random.Random(args.seed)
     if args.sim:
-        from mahjong.arm import Arm
-        from mahjong.sim import SimCamera, SimPerception, SimRobot
-        realsense = SimPerception()
-        arm, camera = Arm(SimRobot(), sleep=lambda s: None), SimCamera()
-        session = Session("wrist", ask_setup=False, sim=True)
+        from mahjong import sim
+        devices = sim.connect()
     else:
         devices = hardware.connect(["arm", "wrist_camera", "realsense"])
-        arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
-        session = Session("wrist", sim=False)
+    arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
+    session = Session("wrist", ask_setup=not args.sim, sim=args.sim)
     session.event("wrist_capture_start", views=args.views, jitter_mm=args.jitter_mm, clearances_m=clearances,
                   roll_deg=args.roll_deg, frames=args.frames, seed=args.seed)
     if arm.at_connect:
