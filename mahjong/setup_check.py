@@ -19,7 +19,6 @@ pack-up nothing says whether they do; a few mm off and every hover lands off-tar
 - brightness: of the mat (RealSense) and the wrist view, vs the reference (lighting is part of the
   policy's input).
 """
-import hashlib
 import json
 import math
 from datetime import datetime
@@ -28,6 +27,7 @@ import cv2
 import numpy as np
 
 from . import config
+from .hover_correction import setup_fingerprint
 from .layout import FACE_MAX_S, FACE_MIN_V, table_to_pixel, wrap_yaw
 
 REFERENCE_DIR = config.DATA / "setup_reference"
@@ -331,11 +331,6 @@ def parked_text(result):
 
 # --- the reference ---
 
-def calibration_id(path=None):
-    """Short hash of the hand-eye transform the reference belongs to."""
-    return hashlib.sha1((path or config.T_CAM_TO_BASE).read_bytes()).hexdigest()[:10]
-
-
 def load_reference(folder=None):
     folder = folder or REFERENCE_DIR
     path = folder / "reference.json"
@@ -357,7 +352,7 @@ def save_reference(measured, realsense_bgr, wrist_frames, folder=None):
         old.unlink()
     cv2.imwrite(str(folder / "realsense.png"), realsense_bgr)
     record = {**measured, "time": datetime.now().isoformat(timespec="seconds"), "realsense": "realsense.png",
-              "calibration": calibration_id()}
+              "calibration": setup_fingerprint()}     # the hand-eye transform and arm it belongs to
     for spot in record.get("spots", []):
         if spot["id"] in wrist_frames:
             spot["wrist"] = f"wrist_{spot['id']}.jpg"

@@ -31,7 +31,7 @@ import numpy as np
 from mahjong import config, hardware, layout
 from mahjong import setup_check as sc
 from mahjong.camera import grab_frames
-from mahjong.hover_correction import HoverCorrection
+from mahjong.hover_correction import HoverCorrection, setup_fingerprint
 from mahjong.session import Session
 
 WINDOW = "setup check"
@@ -214,9 +214,9 @@ def main(argv=None, ask=None, devices=None):
                       reference_time=reference and reference.get("time"), spots=[s["id"] for s in spots])
         if arm.at_connect:
             session.event("connect", **arm.at_connect)
-        if reference and reference.get("calibration") != sc.calibration_id():
-            print("Note: assets/T_cam_to_base.npy changed since the reference was taken: if that recalibration is "
-                  "trusted, take a new reference (--save-reference) once the bench confirms it.")
+        if reference and reference.get("calibration") != setup_fingerprint():
+            print("Note: assets/T_cam_to_base.npy or the arm's calibration changed since the reference was taken: if "
+                  "that's trusted, take a new reference (--save-reference) once the bench confirms it.")
         correction = HoverCorrection.load()
         if reference and reference.get("hover_correction") != (correction.name if correction else None):
             print(f"Note: the hover correction changed since the reference ({reference.get('hover_correction')} → "
