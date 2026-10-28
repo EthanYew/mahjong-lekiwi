@@ -11,6 +11,18 @@
         "battery": "full"
       },
       "note": ""
+    },
+    "20261028_162624_capture": {
+      "added": "2026-10-28T16:26:24",
+      "conditions": {
+        "daylight": "bright",
+        "lamp": false,
+        "ceiling_lights": true,
+        "moved": "nothing",
+        "tiles": "few spread",
+        "battery": "full"
+      },
+      "note": ""
     }
   }
 }

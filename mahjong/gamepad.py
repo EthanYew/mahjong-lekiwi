@@ -97,10 +97,17 @@ class GamepadTeleop:
         self.pad.just_pressed(self.pad.pressed())     # a button held while waiting isn't a new press
 
     def touched(self):
-        """Any stick off centre (past XLeRobot's deadzone) or any button held: someone has the pad. No
-        commit delay, so a DAgger takeover starts on the first push."""
-        return (any(self.pad.stick(name) for name in self.utils.STICK_CODES if name not in self.sticks.disabled)
-                or bool(self.pad.pressed() - self.locked_buttons))
+        """Any stick off centre (past XLeRobot's deadzone), d-pad push or button held, face buttons included:
+        someone has the pad. No commit delay, so a DAgger takeover starts on the first push. 2026-10-28:
+        checking only the buttons teleop uses (L/R, ZL/ZR, -/+, HOME) missed A/B/X/Y, and the policy
+        carried on into the tiles while the operator pressed them."""
+        pad = self.pad
+        if any(pad.stick(name) for name in self.utils.STICK_CODES if name not in self.sticks.disabled):
+            return True
+        if pad.pressed() - self.locked_buttons or any(pad.dpad()):
+            return True
+        locked = {code for name in self.locked_buttons for code in self.utils.BUTTON_CODES.get(name, [])}
+        return bool(set(pad.device.active_keys()) - locked)
 
     def step(self, arm, dt):
         """Read the pad, send the next command, return it."""

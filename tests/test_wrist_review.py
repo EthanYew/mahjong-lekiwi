@@ -59,6 +59,23 @@ def test_review_marks_rows_renames_and_counts_follow(tmp_path, monkeypatch):
     assert again.names == []                                             # everything reviewed: nothing to show
 
 
+def test_going_back_shows_what_was_just_reviewed(tmp_path):
+    import wrist_review
+    make_sessions(tmp_path)
+    photos = wrist_photos.photos(tmp_path)
+    photos += [{**photos[0], "key": "x/2C.jpg", "name": "2C", "group": "x/2C", "session": "x"}]   # a second name
+    reviewer = wrist_review.Reviewer(photos, {}, ["2C", "3C"], log=tmp_path / "review.jsonl")
+    assert reviewer.name == "2C" and reviewer.next_page() and reviewer.name == "3C"    # 2C reviewed (ok), on to 3C
+    reviewer.previous_page()                                                            # p: back to 2C's page
+    assert reviewer.name == "2C" and len(reviewer.page_rows()) == 1                     # (was blank: 2C hidden as reviewed)
+    reviewer.change_name(+1)
+    reviewer.change_name(-1)                                                            # ] then [: the same
+    assert reviewer.name == "2C" and reviewer.page_rows()
+    reviewer.rename(wrist_review.LABEL_W + 5, wrist_review.HEADER_H + 5, "9D")         # 2C's one photo was a 9D
+    reviewer.change_name(+1)
+    assert reviewer.change_name(-1) is False and reviewer.name == "3C"                  # nothing left under 2C: skipped
+
+
 def test_main_reviews_with_the_mouse_and_keys(tmp_path, monkeypatch):
     import wrist_review
     make_sessions(tmp_path)
