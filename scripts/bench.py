@@ -154,12 +154,8 @@ class Bench:
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
         mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans), unless
         they already said what it was (`confirmed`: its kinds, e.g. ["tile_reset"])."""
-        tiles = self.realsense.detect_tiles()
         self.scan_n += 1
-        frames = detector.save_session_scan(self.realsense, self.session, self.scan_n, label)
-        scan = self.session.event("detections", label=label, scan=self.scan_n, **fields, **frames,
-                                  tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
-                                         for t in tiles])
+        tiles, scan = detector.log_scan(self.realsense, self.session, self.scan_n, label, **fields)
         proposal = self.mat.propose(scan)
         if proposal and confirmed:
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=confirmed)
