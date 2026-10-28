@@ -159,8 +159,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   No frames for `camera.LOST_S` (1s) means it's lost, in every script: `policy.run` stops (`stop_reason`
   "camera") and the bench records `attempt_void` and runs it again; record.py discards the episode
-  ("wrist camera lost"); wrist_capture.py takes the view again. Each reopens it with
-  `hardware.reopen_wrist_camera` (retry / quit if it won't open): use that in any new script.
+  ("wrist camera lost"); wrist_capture.py and setup_check take the view again; collect_corrections reopens
+  it and restarts the gamepad from the held pose. Each reopens it with `hardware.reopen_wrist_camera`
+  (retry / quit if it won't open): use that in any new script.
 - The hover correction, the return correction and the table plane are tied to `assets/T_cam_to_base.npy`;
   recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
   then aim at home + the grasp's offset until new returns are logged) and may move the plane.

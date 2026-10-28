@@ -44,7 +44,11 @@ not a worktree, or the sessions go when the worktree does.
 | Compare all bench sessions | `python scripts/session_report.py --all` |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout hand13` |
 | Play a hand without the robot | `python scripts/play.py --sim` |
+| Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
+| Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
+| Add hover-correction samples from demos or older bench sessions | `python scripts/hover_samples.py --dataset Yewy/<name>` / `--sessions` |
+| Add return-correction samples from older bench sessions | `python scripts/return_samples.py` |
 | Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
@@ -259,7 +263,7 @@ with when you took over. Use a dataset of their own, never an eval slice.
 | `--repeats N` | with `--layout`: episodes per spot (default 2) |
 | `--start-spot ID` | with `--layout`: start at this spot |
 | `--hover-gripper PCT` | gripper opening at the hover (default 90%). A narrower start skips the slow narrowing: v2n's trimmed episodes start at 27.2, so record at that to compare with v2n. Changing it means a new dataset |
-| `--hover-offset-mm`, `--clearance-mm` | hover position/height tweaks |
+| `--hover-offset-mm`, `--clearance-mm` | the pincer tip is commanded this far above the grasp point (default 45), then settled until it measures this far (default 40) |
 | `--no-correction` | hover over the raw detection |
 | `--no-view` | no wrist camera window |
 | `--no-return` | don't set a held tile back down: it's released at rest, as before |
@@ -329,7 +333,7 @@ the bench decides what ships.
 ```
 python scripts/offline_eval.py --policy pickup_mat_cl                                  # scores per slice
 python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1       # + pass/fail gates vs a reference
-python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting
+python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting (default: --by slice)
 python scripts/offline_eval.py --show                                                  # what's in the eval split
 python scripts/offline_eval.py --make-split Yewy/<training_dataset>                    # hold out 1 per spot, >= 10% (v2: 15/104)
 python scripts/offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1                 # register an eval-only recording
@@ -479,14 +483,14 @@ Score the live detector first: that's the baseline.
 
 ```
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled                # the live detector
-python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --by lighting
+python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --by lighting     # or --by session
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --ignore flowers   # tiles that matter for play
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v2/weights/best.pt --against assets/tile_detector.pt
 ```
 
 It reports **found** (labelled tiles it put a box on), **named right** (of those found), **right
 overall** (found and named right: the tile accuracy), missed tiles, extra boxes on nothing, and its
-commonest mix-ups (e.g. `4D->5D x6`). `--ignore flowers` (or names, e.g. `flowers,EW`) leaves those
+commonest mix-ups (e.g. `4D->5D x6`; `--mixups N` prints N, default 8). `--ignore flowers` (or names, e.g. `flowers,EW`) leaves those
 tiles out: boxes on them count for nothing, while another tile read as one is still a mix-up. A label
 drawn twice on one tile is merged and listed, so you can delete the copy in Roboflow. **Wrong names**
 says how many found tiles it named wrong and the highest wrong-name rate the exam can't rule out (95%):
@@ -531,6 +535,7 @@ python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --o
 python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_v5
 python scripts/train_detector.py --data data/detector/train_v5/data.yaml --name v5 --dry-run   # counts, exam check
 python scripts/train_detector.py --data data/detector/train_v5/data.yaml --name v5             # GPU
+# --start WEIGHTS (default: the live ones), --epochs N (default 40), --batch N (default 6, GPU memory at imgsz 1280)
 python scripts/detector_eval.py --exam-dir data/detector/exam_labelled --weights outputs/detector/v5/weights/best.pt --against assets/tile_detector.pt
 ```
 
@@ -571,6 +576,9 @@ python scripts/wrist_capture.py                      # until you press q at a se
 python scripts/wrist_capture.py --views 12 --sets 3
 python scripts/wrist_capture.py --sim --sets 1       # no hardware
 ```
+
+Also `--frames N` (wrist frames saved per view, default 2), `--seed N` (the jitter and roll), `--no-view`
+(no RealSense / wrist windows).
 
 At the names prompt: Enter starts, `3=2C` renames tile 3, `-3` leaves it out, `r` scans again, `q`
 quits. Photos land in `sessions/<time>_wrist/wrist/<NAME>/` (one folder per name), with a `wrist_view`
