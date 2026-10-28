@@ -52,6 +52,7 @@ not a worktree, or the sessions go when the worktree does.
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
+| Photograph every tile on the mat with the wrist camera from jittered hovers | `python scripts/wrist_capture.py` (rings when a set is done) |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
@@ -428,6 +429,26 @@ mirrored tile face isn't a real tile) and refuses a dataset with any exam frame 
 weights only if they beat the old ones on the exam: copy `best.pt` to `assets/tile_detector.pt` and
 commit it with the scores. Exports and downloads under `data/detector/` aren't in git; Roboflow keeps
 the labels.
+
+**4. Wrist-camera photos (for a name check at the hover).** The wrist camera sees a tile from ~4 cm at
+the hover, far sharper than the RealSense. `wrist_capture.py` collects photos to train a check there:
+it scans the mat, lists the tiles left to right with the detector's names (numbered on the RealSense
+view) for you to confirm, then hovers over each one `--views` times (default 8): the first centred at
+40 mm, the rest moved by up to `--jitter-mm` (8), at heights cycled from `--clearances-mm` (40,55,70)
+and the wrist rolled by up to `--roll-deg` (15). It never touches a tile. When the set is done the arm
+rests, the terminal rings (plus a desktop notification), and it prints every name's views over all
+wrist sessions and which are still below `--target` (10); put down a new set and press Enter.
+
+```
+python scripts/wrist_capture.py                      # until you press q at a set change
+python scripts/wrist_capture.py --views 12 --sets 3
+python scripts/wrist_capture.py --sim --sets 1       # no hardware
+```
+
+At the names prompt: Enter starts, `3=2C` renames tile 3, `-3` leaves it out, `r` scans again, `q`
+quits. Photos land in `sessions/<time>_wrist/wrist/<NAME>/` (one folder per name), with a `wrist_view`
+event per view. A view takes ~8 s, so 8 views of 13 tiles is ~15 minutes a set. As of 2026-10-28 the
+recordings and bench runs had no wrist views of 1-5C, 7-9C, the flowers, 1B or 5B: put those down first.
 
 ## Tests
 
