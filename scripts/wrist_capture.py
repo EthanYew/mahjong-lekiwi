@@ -26,6 +26,8 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -60,6 +62,34 @@ def parse_args(argv=None):
     p.add_argument("--no-view", action="store_true", help="no RealSense / wrist windows")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera and mat")
     return p.parse_args(argv)
+
+
+def pumping_sleep(seconds, pump=lambda: cv2.waitKey(1), clock=time.monotonic, sleep=time.sleep):
+    """Sleep that keeps the OpenCV windows answering: the arm's moves and settles wait through Arm.sleep,
+    and a window whose events nobody handles for a few seconds is marked "not responding"."""
+    end = clock() + seconds
+    pump()
+    sleep(max(0.0, end - clock()))
+
+
+def ask_pumping(ask, pump=lambda: cv2.waitKey(50)):
+    """ask(prompt) on a thread while this one keeps the windows answering (input() blocks them otherwise)."""
+    def asking(prompt):
+        answer = {}
+
+        def run():
+            try:
+                answer["text"] = ask(prompt)
+            except BaseException as error:        # e.g. EOFError: raised here, never read as Enter
+                answer["error"] = error
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        while thread.is_alive():
+            pump()
+        if "error" in answer:
+            raise answer["error"]
+        return answer["text"]
+    return asking
 
 
 def plan_views(n, jitter_m, clearances_m, roll_deg, rng):
@@ -252,6 +282,8 @@ def main(argv=None, ask=None):
     correction = HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
     show = not (args.no_view or args.sim)
+    if show:       # windows stay answering through the arm's moves and while a question waits
+        arm.sleep, ask = pumping_sleep, ask_pumping(ask)
     set_n = 0
     try:
         while args.sets is None or set_n < args.sets:
