@@ -49,3 +49,15 @@ def read_within(camera, lost_s=LOST_S, clock=time.monotonic):
             return True, frame
         if clock() >= end:
             return False, None
+
+
+def grab_frames(camera, n):
+    """Up to n current frames: fewer if the camera is lost (no frame within LOST_S)."""
+    camera.flush()
+    frames = []
+    for _ in range(n):
+        ok, frame = read_within(camera)
+        if not ok:
+            break
+        frames.append(frame)
+    return frames
