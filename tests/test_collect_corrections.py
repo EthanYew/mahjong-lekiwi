@@ -13,11 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 class FakeGamepad:
     """Presses → (or ← for the tiles in `skip`, numbered from 1) after `steps` steps of lining up."""
-    def __init__(self, events, skip=(), steps=5):
+    def __init__(self, events, skip=(), steps=5, off=None):
         self.events, self.skip, self.every, self.steps, self.starts = events, set(skip), steps, 0, 0
+        self.off, self.kwargs, self.shown_inputs = off or {}, None, []
 
     def start(self, arm):
         self.starts += 1
+
+    def off_centre(self):
+        return dict(self.off)
 
     def step(self, arm, dt):
         self.steps += 1
@@ -25,7 +29,8 @@ class FakeGamepad:
             self.events.update(exit_early=True, rerecord_episode=(self.steps // self.every) in self.skip)
         command = arm.commanded()
         arm.send(command)
-        self.last = {"measured": arm.measured(), "buttons": [], "sticks": {"lx": 0.0, "ly": 0.0, "rx": 0.0, "ry": 0.0}}
+        self.last = {"measured": arm.measured(), "buttons": [], "sticks": {"lx": 0.0, "ly": 0.0, "rx": 0.0, "ry": 0.0},
+                     "raw": {"lx": 0.0, "ly": -0.3 if self.off else 0.0, "ry": 0.0}}
         return command
 
     def close(self):
@@ -48,7 +53,7 @@ class DroppingCamera:
         self.released = True
 
 
-def run(tmp_path, monkeypatch, argv=(), skip=(), camera=None, steps=5):
+def run(tmp_path, monkeypatch, argv=(), skip=(), camera=None, steps=5, off=None):
     """collect_corrections.main on the sim arm and mat, one scan, then q. Returns (session dir, shown frames,
     the gamepad, the connect calls)."""
     import builtins
@@ -57,10 +62,11 @@ def run(tmp_path, monkeypatch, argv=(), skip=(), camera=None, steps=5):
     from mahjong.sim import SimPerception, SimRobot, SimWristCamera
 
     events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
-    gamepad, shown, connects = FakeGamepad(events, skip, steps), [], []
+    gamepad, shown, connects = FakeGamepad(events, skip, steps, off), [], []
 
     def connect(needed, gamepad_kwargs=None, **kwargs):
         connects.append(list(needed))
+        gamepad.kwargs = gamepad.kwargs or gamepad_kwargs
         if needed == ["wrist_camera"]:           # a reopen
             return {"wrist_camera": SimWristCamera(arm, mat)}
         devices = {"arm": arm, "realsense": mat, "gamepad": gamepad}
@@ -75,7 +81,10 @@ def run(tmp_path, monkeypatch, argv=(), skip=(), camera=None, steps=5):
     monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
     monkeypatch.setattr(config, "HOVER_CORRECTIONS", tmp_path / "hover_corrections.jsonl")
     monkeypatch.setattr(hardware, "connect", connect)
-    monkeypatch.setattr(collect_corrections, "show", lambda frame, text: shown.append(text))
+    def show(frame, text, last=None):
+        shown.append(text)
+        gamepad.shown_inputs.append(last)
+    monkeypatch.setattr(collect_corrections, "show", show)
     monkeypatch.setattr(collect_corrections.cv2, "destroyAllWindows", lambda: None)
     monkeypatch.setitem(sys.modules, "lerobot.common.control_utils", types.SimpleNamespace(
         init_keyboard_listener=lambda: (types.SimpleNamespace(stop=lambda: None), events)))
@@ -97,6 +106,22 @@ def test_the_wrist_view_is_shown_while_lining_up_and_each_record_keeps_its_frame
         assert (session / e["wrist_frame"]).is_file()
     rows = [json.loads(line) for line in (tmp_path / "hover_corrections.jsonl").read_text().splitlines()]
     assert len(rows) == len(recorded) and all("wrist_frame" not in r for r in rows)   # the log stays fitting data
+
+
+def test_the_gamepad_gets_the_wider_deadzone_and_its_readings_go_to_the_window(tmp_path, monkeypatch):
+    import collect_corrections
+    _, _, gamepad, _ = run(tmp_path, monkeypatch)
+    assert gamepad.kwargs["deadzone"] == collect_corrections.DEADZONE == 0.35
+    assert gamepad.shown_inputs and all(last and "raw" in last for last in gamepad.shown_inputs)
+    _, _, gamepad, _ = run(tmp_path / "again", monkeypatch, argv=["--deadzone", "0.5"])
+    assert gamepad.kwargs["deadzone"] == 0.5
+
+
+def test_a_stick_off_centre_at_the_handoff_is_said_and_logged(tmp_path, monkeypatch, capsys):
+    session, _, _, _ = run(tmp_path, monkeypatch, off={"left": (0.0, -0.3)})
+    assert "left stick reads (+0.00, -0.30)" in capsys.readouterr().out
+    events = [e for e in read_events(session) if e["type"] == "stick_off_centre"]
+    assert events and events[0]["sticks"] == {"left": [0.0, -0.3]}
 
 
 def test_every_lined_up_tile_is_traced_and_the_report_reads_the_traces(tmp_path, monkeypatch):

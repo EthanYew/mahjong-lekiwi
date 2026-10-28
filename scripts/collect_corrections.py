@@ -9,6 +9,9 @@ tile makes it easier to judge. A "wrist" window shows the wrist camera while you
 and the frame at → is saved in the session (aligned/), so how each correction was lined up can be checked
 afterwards. Each tile's teleop is traced (session handoff/: command, measured joints and input every step),
 so a drop or drift after the handoff can be told apart from a moving command (mahjong/handoff_trace.py).
+The window's bottom line is what the gamepad reads (red while it moves the arm), and a stick resting off
+centre at the handoff is said in the terminal: on 2026-10-28 a thumb resting on the left stick pulled the
+arm 87mm back over 8s, which looked like sag. The deadzone is wider than XLeRobot's for the same reason.
 Aim for 15-20 tiles over the whole table, far corners included.
 
     python scripts/collect_corrections.py
@@ -28,11 +31,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, hardware, kinematics
 from mahjong.arm import ADJUST_TIME_S
 from mahjong.camera import LOST_S
-from mahjong.gamepad import warn_if_at_reach
+from mahjong.gamepad import input_text, moving, warn_if_at_reach
 from mahjong.handoff_trace import HandoffTrace, describe
 from mahjong.hover_correction import HoverCorrection, append_record
 from mahjong.perception import drain_stdin
 from mahjong.session import Session
+
+# 2026-10-28: a resting thumb read 0.22-0.44 of full travel (median 0.37) and XLeRobot's 0.15 let it pull the
+# arm 87mm; at 0.35 that is 11mm. Deliberate gentle pushes read 0.35-0.40 too, so no deadzone separates them:
+# the window's input line and the off-centre warning are what show it.
+DEADZONE = 0.35
 
 
 def main(argv=None):
@@ -40,11 +48,13 @@ def main(argv=None):
     p.add_argument("--raw", action="store_true", help="hover over the raw detection, not the current correction")
     p.add_argument("--device", default=None, help="gamepad evdev path (default: the first gamepad found)")
     p.add_argument("--no-view", action="store_true", help="no wrist camera window (and no wrist camera needed)")
+    p.add_argument("--deadzone", type=float, default=DEADZONE,
+                   help=f"stick deadzone, fraction of full travel (default {DEADZONE}; XLeRobot's own is 0.15)")
     args = p.parse_args(argv)
     from lerobot.common.control_utils import init_keyboard_listener
     devices = hardware.connect(["arm", "realsense", "gamepad"] + ([] if args.no_view else ["wrist_camera"]),
                                gamepad_kwargs={"device": args.device, "commit_s": 0.0, "locked_sticks": {"rx"},
-                                               "locked_buttons": {"l", "r"}})
+                                               "locked_buttons": {"l", "r"}, "deadzone": args.deadzone})
     arm, realsense, gamepad = devices["arm"], devices["realsense"], devices["gamepad"]
     camera = devices.get("wrist_camera")
     session = Session("corrections")
@@ -73,6 +83,7 @@ def main(argv=None):
                 warn_if_at_reach(hx, hy)
                 print("  line up, then → record / ← skip / Esc finish")
                 gamepad.start(arm)
+                warn_off_centre(gamepad, session, tile["tile_name"])
                 trace = HandoffTrace(arm, gamepad)
                 label = f"[{i}/{len(tiles)}] {tile['tile_name']}: line up, -> record / <- skip / Esc finish"
                 frame, failed_reads = None, 0
@@ -83,7 +94,7 @@ def main(argv=None):
                         ok, latest = camera.read()
                         if ok:
                             frame, failed_reads = latest, 0
-                            show(frame, label)
+                            show(frame, label, getattr(gamepad, "last", None))
                         else:
                             failed_reads += 1
                             if failed_reads >= LOST_S * config.FPS:     # the arm holds its command meanwhile
@@ -137,11 +148,24 @@ def main(argv=None):
         session.close()
 
 
-def show(frame, text):
+def show(frame, text, last=None):
+    """The wrist frame with `text`, and under it what the gamepad reads: red while it moves the arm."""
     frame = frame.copy()
     cv2.putText(frame, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    if last:
+        colour = (0, 0, 255) if moving(last) else (0, 200, 0)
+        cv2.putText(frame, input_text(last), (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
     cv2.imshow("wrist", frame)
     cv2.waitKey(1)
+
+
+def warn_off_centre(gamepad, session, tile_name):
+    """Say so if a stick rests off centre as the gamepad takes over: a thumb on it, or drift, moves the arm."""
+    off = gamepad.off_centre() if hasattr(gamepad, "off_centre") else {}
+    for side, (x, y) in off.items():
+        print(f"  {side} stick reads ({x:+.2f}, {y:+.2f}) untouched? — let go of it, or raise --deadzone if it drifts")
+    if off:
+        session.event("stick_off_centre", tile=tile_name, sticks=off)
 
 
 def save_trace(session, n, tile_name, trace, hover):

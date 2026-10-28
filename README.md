@@ -354,6 +354,12 @@ python scripts/hover_samples.py --sessions sessions/20261023_123549_bench       
 shows the wrist camera while you line up, and the frame at → is saved as `sessions/<time>_corrections/aligned/<n>_<tile>.jpg`;
 `--no-view` runs without the window (and without the wrist camera plugged in).
 
+The window's bottom line is what the gamepad reads: each stick as it reaches the arm, with its raw position
+in brackets, red while it's moving the arm and green while it isn't. If a stick rests off centre when you
+take over, the terminal says so: let go of it. `--deadzone` (default 0.35 of the stick's travel; XLeRobot's
+own is 0.15) is wider so a thumb resting on a stick doesn't drive the arm; push a bit further for the same
+slow speed.
+
 Each tile's teleop is traced too (`handoff/<n>_<tile>.jsonl`: command, measured joints and gamepad input
 every step), and a few lines after → / ← say what the arm did once you had it. To look back at a session:
 

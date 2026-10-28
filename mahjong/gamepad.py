@@ -71,6 +71,45 @@ class CommittedSticks:
         return getattr(self.gamepad, attr)
 
 
+class DeadzonePad:
+    """The pad with its sticks shaped by XLeRobot's shape_stick at another deadzone (its own is 0.15). 2026-10-28:
+    lining up a correction, a thumb resting on the left stick read 0.22-0.44 of full travel for 8s and pulled the
+    arm 87mm back toward the base; it looked like the arm sagging."""
+
+    def __init__(self, pad, shape_stick, deadzone):
+        self.pad, self.shape_stick, self.deadzone = pad, shape_stick, deadzone
+
+    def stick(self, name):
+        side = name[0]
+        x, y = self.shape_stick(self.pad._raw_axis(f"{side}x"), self.pad._raw_axis(f"{side}y"), deadzone=self.deadzone)
+        return y if name[1] == "y" else x
+
+    def __getattr__(self, attr):
+        return getattr(self.pad, attr)
+
+
+def raw_stick(pad, name):
+    """A stick axis before any deadzone, in [-1, 1] (a pad without raw axes: its shaped value)."""
+    raw = getattr(pad, "_raw_axis", None)
+    return float(raw(name) if raw else pad.stick(name))
+
+
+def input_text(last):
+    """One line for a window: the sticks as they reach the arm, raw in brackets, and buttons held."""
+    sticks, raw = last.get("sticks", {}), last.get("raw", {})
+    parts = []
+    for side, label in (("l", "L"), ("r", "R")):
+        x, y = sticks.get(f"{side}x", 0.0), sticks.get(f"{side}y", 0.0)
+        rx, ry = raw.get(f"{side}x", 0.0), raw.get(f"{side}y", 0.0)
+        parts.append(f"{label} {x:+.2f},{y:+.2f} (raw {rx:+.2f},{ry:+.2f})")
+    return "  ".join(parts) + (f"  {'+'.join(last['buttons'])}" if last.get("buttons") else "")
+
+
+def moving(last):
+    """Whether this step's input moves the arm (a stick past the deadzone, or a button)."""
+    return any(last.get("sticks", {}).values()) or bool(last.get("buttons"))
+
+
 EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
 
 # 2026-10-28: at the far row the wrist is within a few mm of XLeRobot's reach limit (l1 + l2 less its
@@ -105,9 +144,15 @@ class GamepadTeleop:
     """Drives an Arm from the gamepad. start() seeds from the arm's *commanded* pose — seeding from
     the measured (sagged) pose re-commands the arm lower and it drops at takeover."""
 
-    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=()):
+    deadzone = None             # None: XLeRobot's (0.15)
+
+    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=None):
+        """deadzone: of the sticks' travel (0-1), round, as XLeRobot shapes it; None keeps XLeRobot's."""
         self.utils, self.ee = _load_xlerobot()
         self.pad = self.utils.Gamepad(self.utils.find_gamepad(device))
+        self.deadzone = deadzone
+        if deadzone is not None:
+            self.pad = DeadzonePad(self.pad, self.utils.shape_stick, deadzone)
         self.sticks = CommittedSticks(self.pad, commit_s, self.utils.STICK_CODES, disabled=locked_sticks,
                                       exclusive=EXCLUSIVE_AXES)
         self.locked_buttons = set(locked_buttons)
@@ -149,10 +194,27 @@ class GamepadTeleop:
         targets = self.teleop.update(measured, self.sticks, buttons, self.ee.SPEED_LEVELS[self.speed_index], dt)
         command = {j: float(v) for j, v in targets.items()}
         arm.send(command)
-        # what this step read, for handoff_trace: the sticks as they reached the arm (after the commit delay)
+        # what this step read, for handoff_trace: the sticks as they reached the arm (after the commit delay),
+        # and raw, before the deadzone (how far off centre a resting thumb or a drifting stick sits)
         self.last = {"measured": measured, "buttons": sorted(buttons),
-                     "sticks": {name: self.sticks.stick(name) for name in self.sticks.stick_names}}
+                     "sticks": {name: self.sticks.stick(name) for name in self.sticks.stick_names},
+                     "raw": self.raw_sticks()}
         return command
+
+    def raw_sticks(self):
+        return {name: raw_stick(self.pad, name) for name in self.sticks.stick_names if name not in self.sticks.disabled}
+
+    def off_centre(self, fraction=0.5):
+        """Sticks resting at least `fraction` of the deadzone off centre: {"left"/"right": (x, y) raw}. Said at the
+        handoff, so a thumb on a stick (or a drifting one) is known before it moves the arm."""
+        deadzone = self.deadzone if self.deadzone is not None else self.utils.STICK_DEADZONE
+        raw = self.raw_sticks()
+        out = {}
+        for side, name in (("l", "left"), ("r", "right")):
+            x, y = raw.get(f"{side}x", 0.0), raw.get(f"{side}y", 0.0)
+            if (x or y) and (x * x + y * y) ** 0.5 >= fraction * deadzone:
+                out[name] = (round(x, 2), round(y, 2))
+        return out
 
     def close(self):
         self.pad.device.close()

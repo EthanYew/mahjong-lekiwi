@@ -138,3 +138,41 @@ def test_the_far_row_is_at_the_edge_of_the_gamepad_s_reach():
     warn_if_at_reach(0.241, 0.155, log=lines.append)
     warn_if_at_reach(0.21, 0.0, log=lines.append)
     assert len(lines) == 1 and "tilt the jaws forward" in lines[0]
+
+
+class RawPad(ScriptedPad):
+    """A pad with raw axes, as XLeRobot's Gamepad has (before its deadzone)."""
+    def _raw_axis(self, name):
+        return self.values.get(name, 0.0)
+
+
+def test_a_wider_deadzone_ignores_a_resting_thumb_that_xlerobots_lets_drive():
+    """2026-10-28: a thumb resting on the left stick at ~0.37 of its travel pulled the arm 87mm toward the base."""
+    from mahjong.gamepad import DeadzonePad
+    utils, _ = _load_xlerobot()
+    pad = RawPad()
+    pad.values["ly"] = -0.30
+    assert utils.shape_stick(0.0, -0.30)[1] < 0                      # XLeRobot's 0.15 moves the arm
+    assert DeadzonePad(pad, utils.shape_stick, 0.35).stick("ly") == 0.0
+    pad.values["ly"] = -1.0
+    assert DeadzonePad(pad, utils.shape_stick, 0.35).stick("ly") == pytest.approx(-1.0)   # full push: full speed
+
+
+def test_a_stick_resting_off_centre_is_said_at_the_handoff_and_every_step_keeps_the_raw_reading():
+    from mahjong.gamepad import DeadzonePad, input_text, moving
+    utils, _ = _load_xlerobot()
+    pad = RawPad()
+    teleop = teleop_with(DeadzonePad(pad, utils.shape_stick, 0.35))
+    teleop.deadzone = 0.35
+    assert teleop.off_centre() == {}
+    pad.values["ly"] = -0.30
+    assert teleop.off_centre() == {"left": (0.0, -0.3)}
+    arm, _ = hovering_arm()
+    teleop.start(arm)
+    teleop.step(arm, DT)
+    assert teleop.last["raw"]["ly"] == pytest.approx(-0.30) and teleop.last["sticks"]["ly"] == 0.0
+    assert not moving(teleop.last) and "raw +0.00,-0.30" in input_text(teleop.last)
+    pad.values["ly"] = -0.9
+    for _ in range(10):                                              # past the commit time
+        teleop.step(arm, DT)
+    assert moving(teleop.last) and teleop.last["sticks"]["ly"] < 0

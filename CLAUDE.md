@@ -142,7 +142,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   pan stopping short of its command). That error depends on how the arm was last moved, so it isn't the
   same at the next hover. The arm also drops and drifts after the gamepad takes over: collect_corrections
   traces every teleop step (`mahjong/handoff_trace.py`, `scripts/handoff_report.py`) to tell sinking
-  servos from a moving command or XLeRobot's IK easing on the first push. Unverified which it is.
+  servos from a moving command or XLeRobot's IK easing on the first push. The first trace
+  (`20261028_195346_corrections`, 5D) was none of them: the arm held still for 5s, then a thumb resting on
+  the left stick (0.22-0.44 of its travel, past XLeRobot's 0.15 deadzone) pulled it 87mm toward the base
+  over 8s, the servos lagging up to 12mm low while it moved. collect_corrections now uses a 0.35 deadzone,
+  shows the stick readings in the wrist window and warns of a stick off centre at the handoff.
 - **The wrist camera can drop out mid-session** (2026-10-28: from the 3rd of 10 v3c trials every read
   failed, and the policy ran blind to the 16s cap, so 8 misses were scored that said nothing about v3c).
   No frames for `camera.LOST_S` (1s) means it's lost, in every script: `policy.run` stops (`stop_reason`
