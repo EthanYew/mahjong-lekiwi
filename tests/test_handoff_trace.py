@@ -28,6 +28,16 @@ def test_a_still_command_with_a_sinking_arm_is_drift_not_a_command_move():
     assert any("drifted" in line for line in describe(s)) and not any("COMMAND" in line for line in describe(s))
 
 
+def test_the_step_that_first_sees_input_is_not_counted_as_moving_before_input():
+    """2026-10-28: 7 of 27 tiles said "the COMMAND moved ~1mm before any input" while nothing-pressed steps
+    showed 0: the first input's own step was counted as idle."""
+    rows = [row(0.0, hover(), hover()), row(0.1, hover(), hover()),
+            row(0.2, hover(0.0, 0.0015), hover(), {"ly": 0.3})]
+    s = summarize(rows)
+    assert s["idle_command_moved_mm"] == 0 and s["command_moved_untouched_mm"] == 0
+    assert not any("COMMAND" in line for line in describe(s))
+
+
 def test_a_command_moving_with_nothing_pressed_is_flagged():
     rows = [row(0.0, hover(), hover()), row(0.1, hover(-0.004), hover(-0.004)), row(0.2, hover(-0.004), hover(-0.004))]
     s = summarize(rows)

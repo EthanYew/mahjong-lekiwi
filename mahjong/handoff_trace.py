@@ -92,7 +92,8 @@ def summarize(rows, ik_mismatch_deg=None):
     inputs = [touched(r) for r in rows]
     known = all(i is not None for i in inputs[1:])
     first = next((k for k, i in enumerate(inputs) if i), None)
-    idle_end = first if first is not None else len(rows) - 1
+    # the last row before any input: the first input's row already carries the command it produced
+    idle_end = first - 1 if first is not None else len(rows) - 1
     step = np.diff(cmd, axis=0)
     idle_steps = [k for k in range(1, len(rows)) if inputs[k] is False]
     no_height_input = [k for k in range(1, len(rows)) if inputs[k] and not rows[k]["sticks"].get("ry")
