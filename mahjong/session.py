@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from . import config
 
@@ -153,6 +154,11 @@ def _jsonable(value):
     return str(value)
 
 
-def read_events(session_dir):
-    path = session_dir / "events.jsonl"
+def read_jsonl(path):
+    """The records of a .jsonl file (events, traces, sample logs, episode logs), or [] if there's none."""
+    path = Path(path)
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+
+
+def read_events(session_dir):
+    return read_jsonl(session_dir / "events.jsonl")

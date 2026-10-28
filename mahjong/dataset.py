@@ -20,12 +20,12 @@ delta from the hover too.
 (data/eval_split.json), offline_eval.py builds only those. `extra` adds episodes of other recorded
 datasets (make_policy.py --add, e.g. DAgger corrections) after them.
 """
-import json
 from pathlib import Path
 
 import numpy as np
 
 from . import config, kinematics
+from .session import read_jsonl
 
 IDLE_WINDOW = 7
 IDLE_DELTA = 0.5
@@ -190,15 +190,8 @@ def episode_log(repo_id):
     """{episode index: record} from a recorded dataset's sidecar log (EPISODE_LOGS: record.py's, and the
     pre-rebuild recorder's), or {}."""
     from lerobot.utils.constants import HF_LEROBOT_HOME
-    records = {}
-    for name in EPISODE_LOGS:
-        path = Path(HF_LEROBOT_HOME) / repo_id / name
-        if path.exists():
-            for line in path.read_text().splitlines():
-                if line.strip():
-                    record = json.loads(line)
-                    records[record["episode_index"]] = record
-    return records
+    return {record["episode_index"]: record for name in EPISODE_LOGS
+            for record in read_jsonl(Path(HF_LEROBOT_HOME) / repo_id / name)}
 
 
 def hover_settings(src_repo, built_summary):
