@@ -87,8 +87,12 @@ def finish_close(grip, default_rate=1.67):
 
 
 def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False, start=0):
-    """start: the first frame that can be kept (a DAgger episode's takeover)."""
-    drop = idle_mask(actions) if trim_idle else np.zeros(len(actions), bool)
+    """start: the first frame that can be kept (a DAgger episode's takeover). Idle is checked only from
+    there on, so the window doesn't reach into the dropped pre-takeover frames the policy drove (a
+    different enough regime to mask real idling right after the takeover)."""
+    drop = np.zeros(len(actions), bool)
+    if trim_idle:
+        drop[start:] = idle_mask(actions[start:])
     drop[:start] = True
     if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
         drop[:takeover_sag_end(states_raw)] = True
