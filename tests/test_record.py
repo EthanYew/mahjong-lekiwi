@@ -61,7 +61,10 @@ class FakeGamepad:
     def step(self, arm, dt):
         return arm.commanded()
 
-    def touched(self):
+    def arm_takeover(self):
+        pass
+
+    def takeover_pressed(self):
         return False
 
     def close(self):
@@ -110,6 +113,7 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
     monkeypatch.setattr(hardware, "connect", connect)
     monkeypatch.setattr(record, "open_dataset", lambda repo_id: dataset)
     monkeypatch.setattr(record, "show", show)
+    monkeypatch.setattr(record, "KEY_REPEAT_S", 0.0)       # the scripted → comes 3 frames in, well inside it
     monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
                         types.SimpleNamespace(init_keyboard_listener=lambda: (listener, events)))
     def reply(prompt=""):
@@ -276,13 +280,13 @@ class DescendingPolicy:
 
 
 class TouchedAt(FakeGamepad):
-    """Someone takes the gamepad on its `at`-th check (never, if None); counts its starts."""
+    """Someone presses A on the `at`-th check (never, if None); counts its starts."""
     at = 2
 
     def __init__(self):
         self.checks, self.starts = 0, []
 
-    def touched(self):
+    def takeover_pressed(self):
         self.checks += 1
         return self.at is not None and self.checks >= self.at
 
@@ -297,7 +301,7 @@ def run_dagger(tmp_path, monkeypatch, gamepad, argv=()):
                       [("hover", {}), ("rec", {})], gamepad=gamepad)
 
 
-def test_dagger_the_policy_drives_until_the_gamepad_is_touched_then_you_have_it(tmp_path, monkeypatch):
+def test_dagger_the_policy_drives_until_a_is_pressed_then_you_have_it(tmp_path, monkeypatch):
     pads = []
 
     def pad():
@@ -371,3 +375,44 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     discarded = [e for e in read_events(session) if e["type"] == "episode_discarded"]
     assert [e["reason"] for e in discarded] == ["wrist camera lost"]    # no question asked
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
+
+
+def test_a_second_right_arrow_straight_after_the_first_doesnt_save(tmp_path, monkeypatch):
+    """The → that starts recording, counted twice, used to end the episode at once."""
+    import builtins, record
+    from mahjong.arm import Arm
+    from mahjong.sim import SimCamera, SimPerception, SimRobot
+
+    events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
+    frames, clock = [], [0.0]
+
+    def show(camera, disabled, text, frame=None):
+        if text.startswith("hovering"):
+            events["exit_early"] = True            # → to start
+        else:
+            frames.append(text)
+            if len(frames) == 1:
+                events["exit_early"] = True        # the same press, counted again 0.0s in
+            elif len(frames) == 5:
+                clock[0] += 1.0
+                events["exit_early"] = True        # a real → to save
+
+    def connect(needed, gamepad_kwargs=None):
+        mat = SimPerception()
+        arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
+        arm.at_connect = {"arm_at_rest": True, "off_rest_deg": 0.0}
+        return {"arm": arm, "wrist_camera": SimCamera(), "realsense": mat, "gamepad": FakeGamepad()}
+
+    dataset = FakeDataset(tmp_path / "dataset")
+    dataset.root.mkdir()
+    real_time = record.time.time
+    monkeypatch.setattr(record.time, "time", lambda: real_time() + clock[0])
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(hardware, "connect", connect)
+    monkeypatch.setattr(record, "open_dataset", lambda repo_id: dataset)
+    monkeypatch.setattr(record, "show", show)
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
+                        types.SimpleNamespace(init_keyboard_listener=lambda: (types.SimpleNamespace(stop=lambda: None), events)))
+    monkeypatch.setattr(builtins, "input", lambda prompt="": "8D" if "Which tile" in prompt else "")
+    record.main(["--dataset", "test/record", "--episodes", "1"])
+    assert dataset.saved == [5]

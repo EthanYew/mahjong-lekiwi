@@ -313,7 +313,7 @@ the frames from then on are recorded with the operator's actions as labels. Cons
 - DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
 
 **Built (2026-10-28):** `record.py --policy ID` (README, DAgger). The policy drives until the first
-gamepad touch (`GamepadTeleop.touched`, no commit delay), then the gamepad starts from `Arm.commanded()`.
+press of A (`GamepadTeleop.takeover_pressed`; any touch took over at t=0 from stick drift), then the gamepad starts from `Arm.commanded()`.
 Every frame is recorded, with `policy` / `takeover_frame` in the episode-log row and a `takeover`
 rescue in the session. `dataset.build` keeps the frames from the takeover on, anchored at the hover
 (frame 0), and leaves out episodes with no takeover. `make_policy.py --add REPO` trains on such a

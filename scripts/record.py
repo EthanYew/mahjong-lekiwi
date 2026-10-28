@@ -26,8 +26,8 @@ episode keeps its offset through ← re-hovers and discards — rejecting the ha
 dataset back toward the clean hover. Each episode log row has hover_jitter_xy and the unjittered target.
 
 DAgger (ROADMAP 9): with --policy ID the policy drives from its own hover once → starts the episode, and
-the first touch of the gamepad (any stick or button) hands it to you, from the pose the policy last
-commanded (gripper held). Every frame is recorded; the episode log row has the policy and takeover_frame,
+pressing A (the rightmost face button) hands it to you, from the pose the policy last commanded
+(gripper held); sticks and other buttons do nothing until then. Every frame is recorded; the episode log row has the policy and takeover_frame,
 and training (make_policy.py --add) keeps only your frames, as deltas from the hover like every other
 episode. Record these into a dataset of their own.
 
@@ -108,7 +108,7 @@ def parse_args(argv=None):
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
     p.add_argument("--policy", default=None,
                    help="DAgger: this registered policy drives from its own hover (replacing --hover-offset-mm, "
-                        "--clearance-mm, --hover-gripper) until you touch the gamepad; only your frames are trained on")
+                        "--clearance-mm, --hover-gripper) until you press A on the gamepad; only your frames are trained on")
     p.add_argument("--no-return", action="store_true",
                    help="don't set a held tile back down after an episode: it's released at rest, as before")
     return p.parse_args(argv)
@@ -145,7 +145,7 @@ def main(argv=None):
         from mahjong.policy import Policy, next_command
         policy = Policy(args.policy)
         hover = dict(policy.hover)
-        print(f"DAgger: {policy.id} drives from its hover {hover}; touch the gamepad to take over")
+        print(f"DAgger: {policy.id} drives from its hover {hover}; press A on the gamepad to take over")
     spots, todo, ghost = [], [], None
     if args.layout:            # before connecting anything, so a typo fails fast
         spots = layout.load(args.layout)["spots"]
@@ -255,15 +255,20 @@ def main(argv=None):
                 policy.reset()
                 camera.flush()
                 limits, last_safe = arm.joint_limits(), arm.commanded()
+                gamepad.arm_takeover()
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
             print("RECORDING — → save, ← discard, Esc save nothing and quit"
-                  + (f"; {policy.id} drives, touch the gamepad to take over" if policy else ""))
+                  + (f"; {policy.id} drives, A on the gamepad takes over" if policy else ""))
             frames, roll, actions, takeover = 0, RollTrace(), [], None
             started = time.time()
             failed_reads, camera_lost = 0, False
-            while not events["exit_early"]:
+            while True:
+                if events["exit_early"]:
+                    if time.time() - started >= KEY_REPEAT_S or events["rerecord_episode"] or events["stop_recording"]:
+                        break
+                    events["exit_early"] = False      # the → that started it, counted twice: not a save
                 t0 = time.time()
-                if policy is not None and takeover is None and gamepad.touched():
+                if policy is not None and takeover is None and gamepad.takeover_pressed():
                     takeover = frames
                     gamepad.start(arm)          # from the policy's last command: no drop, the gripper held
                     print(f"  t={frames / config.FPS:4.1f}s you have it")
@@ -293,7 +298,7 @@ def main(argv=None):
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
-                driver = "" if policy is None else (" POLICY drives: any button takes over" if takeover is None else " YOU")
+                driver = "" if policy is None else (" POLICY drives: A takes over" if takeover is None else " YOU")
                 show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
@@ -358,6 +363,7 @@ def main(argv=None):
 
 
 ROLL = config.JOINTS.index("wrist_roll")
+KEY_REPEAT_S = 0.3     # a → this soon after the → that started recording is the same press counted twice
 
 
 class RollTrace:

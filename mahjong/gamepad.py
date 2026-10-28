@@ -111,6 +111,7 @@ def moving(last):
 
 
 EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
+TAKEOVER_KEY = 305                    # evdev BTN_EAST: the rightmost face button (A), probed on the ZhiXu pad
 
 # 2026-10-28: at the far row the wrist is within a few mm of XLeRobot's reach limit (l1 + l2 less its
 # margin, in the arm's plane) at the tile, WW past it. Pushing out there does nothing, and lowering at
@@ -168,18 +169,21 @@ class GamepadTeleop:
         self.sticks.reset()
         self.pad.just_pressed(self.pad.pressed())     # a button held while waiting isn't a new press
 
-    def touched(self):
-        """Any stick off centre (past XLeRobot's deadzone), d-pad push or button held, face buttons included:
-        someone has the pad. No commit delay, so a DAgger takeover starts on the first push. 2026-10-28:
-        checking only the buttons teleop uses (L/R, ZL/ZR, -/+, HOME) missed A/B/X/Y, and the policy
-        carried on into the tiles while the operator pressed them."""
-        pad = self.pad
-        if any(pad.stick(name) for name in self.utils.STICK_CODES if name not in self.sticks.disabled):
-            return True
-        if pad.pressed() - self.locked_buttons or any(pad.dpad()):
-            return True
-        locked = {code for name in self.locked_buttons for code in self.utils.BUTTON_CODES.get(name, [])}
-        return bool(set(pad.device.active_keys()) - locked)
+    def arm_takeover(self):
+        """Before a DAgger episode: a takeover button already held now (e.g. since the hover) won't count."""
+        self._takeover_held = self.takeover_down()
+
+    def takeover_down(self):
+        return TAKEOVER_KEY in self.pad.device.active_keys()
+
+    def takeover_pressed(self):
+        """A fresh press of the takeover button (the pad's rightmost face button, A on this layout). Only
+        that: on 2026-10-28 "any stick or key" took over at t=0 again and again, the sticks drifting past
+        the deadzone or a key reading held, and A/B/X/Y aren't teleop controls, so A can't move the arm."""
+        down = self.takeover_down()
+        pressed = down and not getattr(self, "_takeover_held", False)
+        self._takeover_held = down
+        return pressed
 
     def step(self, arm, dt):
         """Read the pad, send the next command, return it."""
