@@ -110,6 +110,7 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
     dataset = FakeDataset(tmp_path / "dataset")
     dataset.root.mkdir()
     monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(config, "RETURN_CORRECTIONS", tmp_path / "return_corrections.jsonl")
     monkeypatch.setattr(hardware, "connect", connect)
     monkeypatch.setattr(record, "open_dataset", lambda repo_id: dataset)
     monkeypatch.setattr(record, "show", show)
@@ -201,7 +202,9 @@ def test_a_knocked_tile_discard_defaults_to_choosing_again(tmp_path, monkeypatch
 
 
 class GrippingGamepad(FakeGamepad):
-    """Closes the jaws on the tile under the hover: the sim mat hands it over, the gripper stalls on it."""
+    """Closes the jaws on the tile under the hover: the sim mat hands it over, the gripper stalls on it. Run
+    with --no-correction: the sim has no camera-to-arm offset for the hover correction to undo, so a corrected
+    hover closes ~50mm off the tile and the return lands it there."""
     def start(self, arm):
         self.mat = arm.robot.on_release.__self__
         x, y = kinematics.tool_point(arm.commanded())[:2]
@@ -215,11 +218,11 @@ class GrippingGamepad(FakeGamepad):
         return arm.commanded()
 
 
-def test_a_held_tile_is_set_back_down_where_it_was_picked_not_dropped_at_rest(tmp_path, monkeypatch):
+def test_a_held_tile_is_set_back_down_on_the_mat_not_dropped_at_rest(tmp_path, monkeypatch):
     mats = []
     script = [("hover", {}), ("rec", {}), ("hover", {}), ("rec", {"rerecord_episode": True}),
               ("hover", {}), ("rec", {})]
-    dataset, session = run_record(tmp_path, monkeypatch, [], script, gamepad=GrippingGamepad, mats=mats)
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction"], script, gamepad=GrippingGamepad, mats=mats)
     assert dataset.saved == [3, 3]
     events = read_events(session)
     returns = [e for e in events if e["type"] == "return"]
@@ -228,6 +231,9 @@ def test_a_held_tile_is_set_back_down_where_it_was_picked_not_dropped_at_rest(tm
     assert mat.held is None and any(t["tile_name"] == "8D" for t in mat.tiles)   # on the mat, not dropped
     tile = next(t for t in mat.tiles if t["tile_name"] == "8D")
     assert math.dist(tile["xy"], returns[-1]["asked_xy"]) < 0.002
+    landed = [e for e in events if e["type"] == "return_landed"]
+    assert len(landed) == 3 and all(e["landed_xy"] for e in landed)
+    assert len((tmp_path / "return_corrections.jsonl").read_text().splitlines()) == 3   # samples for the model
     # a returned tile has moved, so a discard doesn't offer the same hover again
     hovers = [e for e in events if e["type"] == "hover"]
     assert [h["same_tile_retry"] for h in hovers] == [False, False, False]
@@ -241,9 +247,37 @@ def test_no_return_leaves_the_tile_to_be_released_at_rest(tmp_path, monkeypatch)
     assert not any(t["tile_name"] == "8D" for t in mats[0].tiles)       # released high at rest: off the mat
 
 
+def test_returns_aim_at_the_home_so_an_off_centre_grasp_doesnt_walk_the_tile(tmp_path, monkeypatch):
+    """2026-10-28: returning each tile where the jaws closed walked it 25-31mm in one recording. Every grasp
+    here is 6mm off the tile (the hover offset); returns aimed at home land 6mm off it, not 6mm more each time."""
+    mats = []
+    script = [("hover", {}), ("rec", {})] * 3
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--hover-offsets-mm", "6x",
+                                                          "--episodes", "3"], script, gamepad=GrippingGamepad, mats=mats)
+    assert dataset.saved == [3, 3, 3]
+    events = read_events(session)
+    landed = [e for e in events if e["type"] == "return_landed"]
+    assert len(landed) == 3 and len({tuple(e["home_xy"]) for e in landed}) == 1
+    assert all(e["error_m"] < 0.008 for e in landed)
+    (home,) = {tuple(e["home_xy"]) for e in landed}
+    tile = next(t for t in mats[0].tiles if t["tile_name"] == "8D")
+    assert math.dist(tile["xy"], home) < 0.008                 # grasp-point returns: ~18mm by now
+
+
+def test_session_report_shows_where_a_recording_s_returns_landed(tmp_path, monkeypatch, capsys):
+    import session_report
+    _, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--hover-offsets-mm", "6x"],
+                            [("hover", {}), ("rec", {})] * 2, gamepad=GrippingGamepad)
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["session_report.py", str(session)])
+    session_report.main()
+    assert "returns landed 6mm from home (median of 2" in capsys.readouterr().out
+
+
 def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
     """2026-10-27: teleop closed on 9B 29cm out at the left edge; even 15mm closer was out of the IK's reach."""
     import record
+    from mahjong.return_correction import ReturnCorrection
     calls = []
 
     class Arm:
@@ -258,10 +292,16 @@ def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
     session = types.SimpleNamespace(event=lambda kind, **kw: events.append((kind, kw)))
     shut = [0.0] * 6
     monkeypatch.setattr(kinematics, "grasp_point", lambda actions: (0, [0.229, 0.223]))
-    assert record.return_tile(Arm(), [shut], {"hover_xy": [0.209, 0.203], "offset_m": 0.05}, session, "9B")
-    assert calls[0] == (0.229, 0.223) and calls[2] == pytest.approx((0.219, 0.213))
-    assert events == [("return", {"tile": "9B", "asked_xy": [0.229, 0.223], "toward_hover": 0.5,
-                                  "xy": pytest.approx([0.219, 0.213]), "shift_m": 0.0})]
+    monkeypatch.setattr(record, "check_landing", lambda *a, **kw: (None, False))
+    held = {"tile_name": "9B", "detection_xy": [0.209, 0.203], "home_xy": [0.209, 0.203], "attempt_dir": None,
+            "spot": None}
+    realsense = types.SimpleNamespace(detect_tiles=lambda: [])
+    assert record.return_tile(Arm(), [shut], {"hover_xy": [0.209, 0.203], "offset_m": 0.05}, held,
+                              ReturnCorrection([]), realsense, session, None, DescendingPolicy.hover, "teleop")
+    assert calls[0] == pytest.approx((0.229, 0.223)) and calls[2] == pytest.approx((0.219, 0.213))
+    kind, ret = events[0]
+    assert kind == "return" and ret["asked_xy"] == pytest.approx([0.229, 0.223]) and ret["toward_hover"] == 0.5
+    assert ret["xy"] == pytest.approx([0.219, 0.213]) and ret["home_xy"] == [0.209, 0.203]
 
 
 class DescendingPolicy:

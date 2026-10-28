@@ -218,10 +218,13 @@ The arm hovers over a tile, then you take over with the gamepad. `→` starts re
 straight back to the same hover (same tile, same jitter offset, no trip to rest), `n` goes to rest and
 asks for a tile. Enter means no after "knocked a tile" or "hover was wrong".
 
-A tile still in the jaws when an episode ends (saved, discarded or Esc) is set back down where the jaws
-closed on it, then the arm rests — no putting it back by hand. It's then a little off from where it was
-detected, so a discard doesn't offer the same hover again. Move tiles to new places now and then: the arm
-puts each one back where it was, and v3 needs spots spread across the mat.
+A tile still in the jaws when an episode ends (saved, discarded or Esc) is set back down at its home (where
+it was first seen this session, as the bench does: aimed with the return model, so tiles don't walk across
+the mat episode after episode), then the arm rests — no putting it back by hand. A RealSense scan then logs
+where it landed (a sample for `data/return_corrections.jsonl`); past 25mm from home, or out of the hover's
+reach, you're asked to put it back. It's a little off from where it was detected, so a discard doesn't offer
+the same hover again. Move tiles to new places now and then (more than 40mm, or they're returned to their
+old home): v3 needs spots spread across the mat.
 
 ```
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3

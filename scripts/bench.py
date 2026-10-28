@@ -49,7 +49,6 @@ session_report.py prints success per spot and policy side by side.
 """
 import argparse
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -58,11 +57,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, interventions, kinematics, layout
+from mahjong import config, detector, interventions, layout
 from mahjong.arm import Arm
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
-from mahjong.return_correction import ReturnCorrection, landed_tile, return_record
+from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_conditions, ask_notes
 
 
@@ -134,10 +133,7 @@ class Bench:
         self.returns = ReturnCorrection.load(self.returns_path)
         # {"tile_name", "detection_xy", "home_xy", "grasp_xy", "approach_offset_m", "attempt_dir", "spot"} while holding a tile
         self.held = None
-        # {spot or tile: where it was first seen this session}: every return aims there. Returning to each
-        # round's own grasp point walked the tile ~1cm a round (8cm in 10, 2026-10-27, v3b at 6C): any
-        # off-centre grip carried into the next round
-        self.homes = {}
+        self.homes = Homes()        # {spot or tile: where it was first seen this session}: every return aims there
         self.policy = self.policies[0]      # the one single commands use; trials take turns
         for policy in self.policies:
             print(f"Policy: {policy.id}, hover {policy.hover}")
@@ -206,15 +202,6 @@ class Bench:
             self.session.event("attempt_skipped", reason="cancelled" if tile_name is None else "not_detected",
                                tile=tile_name)
         return tile
-
-    def home_for(self, tile, spot=None):
-        """Where a tile picked up now is returned to: where this spot's (or this tile's) tile was first seen
-        this session, unless it's now more than HOME_RADIUS_M from there (moved on purpose: a new home)."""
-        key = spot["id"] if spot else tile["tile_name"]
-        home = self.homes.get(key)
-        if home is None or math.dist(tile["xy"], home) > config.HOME_RADIUS_M:
-            home = self.homes[key] = [float(v) for v in tile["xy"]]
-        return home
 
     def hover_over(self, tile, perturb=(0.0, 0.0)):
         x, y = tile["xy"]
@@ -300,7 +287,7 @@ class Bench:
             append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
-                         "home_xy": self.home_for(tile, spot), "grasp_xy": run["grasp_xy"] or hover["hover_xy"],
+                         "home_xy": self.homes(tile, spot), "grasp_xy": run["grasp_xy"] or hover["hover_xy"],
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name,
                          "spot": spot["id"] if spot else None}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
@@ -347,32 +334,13 @@ class Bench:
         self.check_landing(held, placed, tiles, self.scan_n)
 
     def check_landing(self, held, placed, tiles, scan_n):
-        """Where the returned tile landed: a sample for the return model, a warning past RETURN_DRIFT_WARN_M
-        from home, and a person putting it back past RETURN_DRIFT_RESET_M or out of the hover's reach (the
-        next pickup would start from there)."""
+        """Where the returned tile landed (return_correction.check_landing: a sample for the return model, a
+        warning past RETURN_DRIFT_WARN_M from home), and a person putting it back past RETURN_DRIFT_RESET_M
+        or out of the hover's reach (the next pickup would start from there)."""
         home, name = held["home_xy"], held["tile_name"]
-        tile = landed_tile(tiles, name, home)
-        if tile is None:
-            print(f"  {name} not seen within 50mm of its home after the return")
-            self.session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home, landed_xy=None)
-            return
-        landed = list(tile["xy"])
-        error = math.dist(landed, home)
-        self.session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home,
-                           landed_xy=landed, error_m=error)
-        append_record(return_record(held["detection_xy"], held["grasp_xy"], placed["xy"], landed, tile_name=name,
-                                    policy=self.policy.id, spot=held["spot"], home_xy=home,
-                                    return_correction=self.returns.name, session=self.session.dir.name,
-                                    attempt_dir=held["attempt_dir"]), self.returns_path)
-        h = self.policy.hover
-        hx, hy = self.correction.apply(*landed, log=lambda *a: None)
-        reachable = kinematics.hover_command(hx, hy, h["offset_m"], h["gripper"])[0] is not None
-        if error <= config.RETURN_DRIFT_WARN_M and reachable:
-            return
-        print(f"  {name} landed {error * 1000:.0f}mm from its home "
-              f"({(landed[0] - home[0]) * 1000:+.0f}, {(landed[1] - home[1]) * 1000:+.0f})mm"
-              + ("" if reachable else ", out of the hover's reach"))
-        if error <= config.RETURN_DRIFT_RESET_M and reachable:
+        tile, reset = check_landing(held, placed["xy"], tiles, self.session, self.returns_path, self.correction,
+                                    self.policy.hover, policy=self.policy.id, return_correction=self.returns.name)
+        if not reset:
             return
         # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
         # was the landing itself, not a knock (anything else the scan saw change is still asked about)

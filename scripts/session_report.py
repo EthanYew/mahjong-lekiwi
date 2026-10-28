@@ -289,13 +289,17 @@ def play_report(events, found):
 
 def returns_report(events):
     """How far returned tiles landed from their home (sessions from before homes: from where the tile was
-    before that pickup), and how many a person put back."""
-    found = [r for r in landings(events) if r["landed_xy"]]
+    before that pickup), and how many a person put back. Bench and record sessions log each landing
+    (`return_landed`); older bench sessions are read from their scans."""
+    found = [e for e in events if e["type"] == "return_landed" and e.get("landed_xy")] or \
+        [r for r in landings(events) if r["landed_xy"]]
     if not found:
         return
     errors = sorted(r["error_m"] * 1000 for r in found)
     over = sum(e > config.RETURN_DRIFT_WARN_M * 1000 for e in errors)
-    put_back = sum(e["type"] == "detections" and e.get("label") == "after_reset" for e in events)
+    put_back = sum(e["type"] == "detections" and e.get("label") == "after_reset" or        # bench
+                   e["type"] == "intervention" and e.get("kind") == "tile_reset" and "home_xy" in e   # record
+                   for e in events)
     homes = any(e["type"] == "return" and e.get("home_xy") for e in events)
     print(f"returns landed {np.median(errors):.0f}mm from {'home' if homes else 'where the tile was'} (median of "
           f"{len(errors)}; worst {errors[-1]:.0f}mm; {over} over {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm)"
