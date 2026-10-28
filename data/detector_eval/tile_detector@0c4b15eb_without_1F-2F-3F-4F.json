@@ -1,0 +1,33 @@
+{
+  "weights": "tile_detector@0c4b15eb",
+  "time": "2026-10-28T12:17:58",
+  "exam_sessions": [
+    "20261027_172928_capture"
+  ],
+  "exam_dir": "/home/ethanYew/Projects/mahjong-lekiwi/data/detector/exam_labelled",
+  "ignored_names": [
+    "1F",
+    "2F",
+    "3F",
+    "4F"
+  ],
+  "scores": {
+    "all": {
+      "frames": 15,
+      "tiles": 102,
+      "found": 99,
+      "named_right": 99,
+      "missed": 3,
+      "extra": 4,
+      "found_rate": 0.9705882352941176,
+      "named_right_rate": 1.0,
+      "right_rate": 0.9705882352941176,
+      "mixups": [],
+      "missed_names": {
+        "2C": 1,
+        "5C": 1,
+        "9B": 1
+      }
+    }
+  }
+}
