@@ -13,7 +13,8 @@ from mahjong import checkout
 
 
 def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+                          env=checkout.ENV).stdout.strip()
 
 
 def commit(repo, path, text, message):
@@ -26,8 +27,8 @@ def commit(repo, path, text, message):
 @pytest.fixture
 def repo(tmp_path):
     origin, main = tmp_path / "origin.git", tmp_path / "main"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
-    subprocess.run(["git", "clone", "-q", str(origin), str(main)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True, env=checkout.ENV)
+    subprocess.run(["git", "clone", "-q", str(origin), str(main)], check=True, capture_output=True, env=checkout.ENV)
     git(main, "config", "user.email", "t@t"), git(main, "config", "user.name", "t")
     git(main, "checkout", "-q", "-b", "main")
     commit(main, "mahjong/arm.py", "def move_to():\n    pass\n", "start")
@@ -86,7 +87,7 @@ def test_a_worktree_with_uncommitted_code_is_not_removed(repo):
 
 def test_the_checkout_warns_when_main_moved_on_without_it(repo, tmp_path):
     other = tmp_path / "other"
-    subprocess.run(["git", "clone", "-q", str(tmp_path / "origin.git"), str(other)], check=True, capture_output=True)
+    subprocess.run(["git", "clone", "-q", str(tmp_path / "origin.git"), str(other)], check=True, capture_output=True, env=checkout.ENV)
     git(other, "config", "user.email", "t@t"), git(other, "config", "user.name", "t")
     commit(other, "mahjong/arm.py", "def move_to():\n    return 1\n", "merged elsewhere")
     git(other, "push", "-q", "origin", "main")

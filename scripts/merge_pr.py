@@ -35,7 +35,7 @@ DEF = re.compile(r"^\+\s*def (\w+)\(|^\+([A-Z][A-Z0-9_]+) = |add_argument\(\s*\"
 
 def run(cmd, cwd=None, check=True):
     print("$ " + " ".join(str(c) for c in cmd))
-    result = subprocess.run(cmd, cwd=cwd or config.REPO)
+    result = subprocess.run(cmd, cwd=cwd or config.REPO, env=checkout.ENV)
     if check and result.returncode:
         raise SystemExit(f"stopped: {cmd[0]} exited {result.returncode}")
     return result.returncode
