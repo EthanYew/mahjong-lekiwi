@@ -438,7 +438,10 @@ python scripts/return_samples.py                    # import returns from every 
 python scripts/return_samples.py sessions/20261028_090511_bench   # ...or just these
 ```
 
-`session_report.py` prints how far a session's returns landed from home.
+`session_report.py` prints how far a session's returns landed from home, and how the open jaws left the tile:
+how far the measured tip rose of the 30mm commanded after the release, how far it moved sideways doing so,
+and how high it was when the swing to rest began (a return goes higher over the tile first if it's under
+60mm).
 
 ## Tile layouts: `scripts/layout.py`
 

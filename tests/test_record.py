@@ -291,7 +291,9 @@ def test_session_report_shows_where_a_recording_s_returns_landed(tmp_path, monke
     capsys.readouterr()
     monkeypatch.setattr(sys, "argv", ["session_report.py", str(session)])
     session_report.main()
-    assert "returns landed 6mm from home (median of 2" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "returns landed 6mm from home (median of 2" in out
+    assert "return rise: the tip rose" in out and "swing to rest from" in out        # Arm.place's measured rise
 
 
 def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
