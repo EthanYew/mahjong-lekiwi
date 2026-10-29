@@ -125,7 +125,8 @@ def test_a_hand_resumes_from_its_checkpoint(tmp_path, monkeypatch):
         first.close()
     folder = first.session.dir
     assert json.loads((folder / "checkpoint.json").read_text())["turn"] == 1
-    second = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--resume", str(folder)))
+    # its own sessions folder: session folders are named to the second, and the first hand can end within it
+    second = player(tmp_path / "second", monkeypatch, Answers(), argv=("--sim", "--resume", str(folder)))
     second.draws = ["9B", "NW"]
     second.resume(folder)
     assert run(second) == "clean"
