@@ -70,7 +70,8 @@ not a worktree, or the sessions go when the worktree does.
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v5`, v3c's hover-jittered demos plus
-DAgger corrections of v3c and of v4 at 4D/7D; also `pickup_mat_cl_v4` (without v4's corrections),
+DAgger corrections of v3c and of v4 at 4D/7D; also `pickup_mat_cl_v6` (the same + 33 green-mat demos, trained
+with `--augment --replace-mat 0.7`, not benched yet), `pickup_mat_cl_v4` (without v4's corrections),
 `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
 hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
 `pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with
