@@ -82,7 +82,7 @@ no error. `setup_check.py` compares the setup with a reference taken once on a s
 |---|---|---|
 | camera | where the LeKiwi base and the folded arm appear in the RealSense image (1px ≈ 1.5mm on the mat) | 2 / 5mm, 0.5 / 1.5° |
 | table | the mat's height and tilt from the RealSense depth, vs the reference | 3 / 6mm, 2 / 4mm per 10cm |
-| tiles | a tile placed to green on 3 spots; the arm hovers over it as the bench does; where the tile sits in the wrist view | 3 / 6mm, size 10 / 20%, 5 / 10° |
+| tiles | a tile placed to green on 3 spots; the arm hovers over its measured position with the hover correction stored in the reference; where the tile sits in the wrist view. Graded on the median spot; its angle is shown, not graded | median 4 / 7mm, size 10 / 20% |
 | brightness | the mat (RealSense) and the wrist view, vs the reference | outside 0.7-1.4x |
 | parked | where the arm settles when switched off at the end (a recalibrated servo shows here) | 3 / 6° |
 
@@ -98,6 +98,22 @@ the tripod (or the LeKiwi) until the box turns green, then Enter. Moving it back
 both corrections valid; recalibrating sets the corrections aside. If a tile isn't found (by the RealSense
 at its spot, or in the wrist view at the hover), the check asks you to reposition it: the placing window
 opens again to chase green, then it looks again (Enter), or `s` skips the spot, `q` stops the tile test.
+
+The tile test asks only whether the RealSense and the arm still agree about where a tile is, so it leaves out
+what legitimately changes:
+- **The hover correction.** The reference stores the correction it hovered with at each spot, and a check uses
+  that one, so refitting the correction doesn't move the tile in the wrist view. How far the live correction
+  now differs at each spot is printed, not graded. (Refitting it from 23 to 27 samples moved the hover 4-8mm at
+  the check spots, about what the first real check reported, on 2026-10-29.)
+- **How the tile was placed.** The hover follows the tile's measured position, so placement within green
+  cancels. Its angle in the wrist view (green allows ±6°) is shown next to how differently the RealSense saw it
+  placed, and isn't graded.
+- **Noise at one spot.** The test is graded on the median spot: a moved camera or arm shifts them all. One spot
+  past the line makes it a warning.
+
+Saving a reference shows each wrist frame with the tile it found crossed: Enter if the cross is on the tile, `r`
+to reposition and look again. A reference saved before this asks to be saved again.
+
 Each run writes `sessions/<time>_setup/`
 (the RealSense frame, `camera_vs_reference.jpg`, each spot's `wrist_<spot>_vs_reference.jpg`, and a
 `setup_check` event).
