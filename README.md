@@ -31,7 +31,10 @@ not a worktree, or the sessions go when the worktree does.
 
 | I want to... | Command |
 |---|---|
-| Check nothing's broken (no hardware, seconds) | `python -m pytest -m "not slow"` |
+| Check nothing's broken (no hardware, ~11 s) | `python -m pytest -m "not slow" -n 8` |
+| See where things stand (default policy and why, bench totals, layouts, the drop zone, this checkout) | `python scripts/status.py` |
+| Approve and merge a branch's PR, then clean up after it | `python scripts/merge_pr.py` (lists them), then `python scripts/merge_pr.py <number>` |
+| Make another policy the default | `python scripts/status.py --set-default <id> --evidence "sessions/<bench session>: <scores>" --why "..."` |
 | Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
 | Run the bench without the robot | `python scripts/bench.py --sim --trials 3 --tile 8D` |
 | Test a policy on the arm, interactively | `python scripts/bench.py` |
@@ -42,6 +45,7 @@ not a worktree, or the sessions go when the worktree does.
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
+| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout hand14 --trials 2` (a tile on every spot) |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout hand13` |
 | Play a hand without the robot | `python scripts/play.py --sim` |
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
@@ -54,8 +58,8 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct a policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c` (press A on the gamepad to take over) |
-| Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --version v4 --dry-run` |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v4 --policy pickup_mat_cl_v4` (press A on the gamepad to take over) |
+| Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/mahjong_mat_dagger_v4 --version v5 --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
@@ -65,10 +69,12 @@ not a worktree, or the sessions go when the worktree does.
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v3c`, trained on hover-jittered
-demos, so it steers to the tile; also `pickup_mat_cl_v3b`, `pickup_mat_cl_v3`, `pickup_mat_cl` (v2),
-`pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with the gripper narrowing trimmed and the eval
-episodes left out).
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v4`, v3c's hover-jittered demos plus
+DAgger corrections of v3c; also `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
+hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
+`pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with
+the gripper narrowing trimmed and the eval episodes left out). Why the default is the default, and how each
+did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step).
 
 ---
 
@@ -206,12 +212,20 @@ python scripts/play.py --sim                           # no hardware: a fixed ha
 
 Before the first hand:
 1. **The hand slots**: teach a 13-spot layout in two rows (13 in one row don't fit the reach) with
-   `python scripts/layout.py --name hand13 --teach`, inside the area pickups were checked on. Then check
-   it with `bench.py --layout hand13 --trials 2`: pickups and returns at every slot.
-2. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered.
-   The first run finds it and saves its position (`data/drop_zone.json`, tied to the RealSense
-   calibration). The drawn tile goes on top of it.
-3. **The discard pose**: `bench.py`, `teach-discard`, over the container.
+   `python scripts/layout.py --name hand13 --teach`, inside the area pickups were checked on.
+2. **The test layout** `hand14`: the same 13 slots plus one spot where the drawn tile will go (today S13, WW at
+   (0.223, −0.158), at the edge of the reach). Check it with `bench.py --layout hand14 --trials 2`, a tile on
+   every spot: pickups and returns at every slot *and* at the drop zone.
+3. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered, on
+   hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
+   RealSense calibration). The drawn tile goes on top of it.
+4. **The discard pose**: `bench.py`, `teach-discard`, over the container.
+
+Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
+checked: hand14 must still hold all of hand13's slots, have a spot within 25mm of the taught zone, and some
+bench session must have picked up and returned a tile there. If not, it prints the commands that fix it
+(e.g. `layout.py --name hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
+stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
 
 A hand: it reads the 13 tiles (asking about any it isn't sure of), then each turn reads the drawn tile,
 checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
@@ -233,6 +247,7 @@ holds a tile).
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default) |
 | `--teach-zone` | find the drop-zone marker again (after moving it or the camera); it must be uncovered |
 | `--resume [FOLDER]` | carry on a play session's hand (default: the latest) |
+| `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--sim` | simulated arm, cameras, mat and policy |
 
 ## Recording demonstrations: `scripts/record.py`
@@ -256,7 +271,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c                # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v4 --policy pickup_mat_cl_v4                  # DAgger corrections
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
@@ -642,16 +657,70 @@ line in `data/wrist_review.jsonl` (commit it; it merges by union). The counts in
 any training set read the photos through it (`mahjong/wrist_photos.py`): a renamed photo counts under
 its right name, one marked wrong without a name doesn't count.
 
+## Where things stand: `scripts/status.py`
+
+Reads the state from the files that decide it, so it can't go stale the way a doc does:
+
+```
+python scripts/status.py
+python scripts/status.py --set-default pickup_mat_cl_v5 --evidence "sessions/20261101_100000_bench: hand14 paired with v4, 40/40 vs 38/40" --why "fewer S12 misses"
+```
+
+It prints this checkout against origin/main (and warns if it's behind or has uncommitted code), the default
+policy with the evidence it was chosen on, every registered policy's bench total over all sessions, the eval
+sets and detector exam, the layouts and their notes, the drop zone and whether the bench has checked a pickup
+there, and how many merged branches are waiting to be closed.
+
+**Changing the default policy**: always with `--set-default ID --evidence ...` (and `--why`). It writes a
+`default_note` next to the default in `data/policies.json`; a test fails if the default changes without one.
+Then commit `data/policies.json` and update ROADMAP.md's status table.
+
+Every hardware session also warns at its start if the checkout is behind origin/main (as last fetched), has
+uncommitted code, or is a worktree, and logs that in `session_start`.
+
+## Approving merges: `scripts/merge_pr.py`
+
+Branches (usually Claude's, each in a worktree) come back as draft PRs. You approve each one from the main
+checkout:
+
+```
+python scripts/merge_pr.py              # open PRs, and merged branches/worktrees not cleaned up yet
+python scripts/merge_pr.py 34           # check PR 34, ask, merge, pull main, test, clean up its branch
+python scripts/merge_pr.py 34 --slow    # also the GPU tests on the merged tree (automatic if policy.py/dataset.py changed)
+python scripts/merge_pr.py --close      # clean up every merged branch (asks first)
+```
+
+What `merge_pr.py 34` shows you before it asks:
+1. The PR's description, and which of its sections are missing: **What changed**, **Files**, **Overlaps**,
+   **Unverified on the arm**. The last one is what to try on hardware after merging.
+2. Files both `main` and the branch changed since the branch started, and any function, constant or option
+   added on **both** sides. Git merges those without a conflict, and that's how duplicate options and
+   helpers broke `record.py` on 2026-10-23. If it lists one, ask Claude to reconcile before you say yes.
+3. The tests on `main` + the branch merged together, in a scratch folder. If they fail, or the merge
+   conflicts, it stops: ask Claude to merge `main` into the branch and fix it.
+
+On `y` it merges on GitHub, pulls `main` into this checkout (hardware runs here), reruns the fast tests on
+it, and cleans up: the branch's worktree's `sessions/` are moved into this checkout's, then the worktree,
+the local branch and the GitHub branch are deleted. A worktree with uncommitted changes is left alone and
+said so. `--close` does the same for anything merged earlier, and asks separately about branches whose PR
+was closed without merging (printing the commit they can be recovered from).
+
+Don't merge on GitHub's page: it runs no tests, and this checkout stays behind.
+
 ## Tests
 
 ```
-python -m pytest -m "not slow"    # fast: motion, kinematics, correction, dataset trims, bench (no hardware)
-python -m pytest                  # everything; slow tests load policies and need the GPU
+python -m pytest -m "not slow" -n 8   # fast: motion, kinematics, correction, dataset trims, bench, docs (~11 s)
+python -m pytest -m "not slow"        # the same without pytest-xdist (~45 s)
+python -m pytest                      # everything; slow tests load policies and need the GPU
 ```
 
-Git hooks run the fast tests (~20 s) on every commit and every merge, so a broken invariant, or two
-branches that break each other, can't be committed. Turn them on once per clone:
-`git config core.hooksPath scripts/hooks`. Merging worktrees: see "Worktrees and merging" in `CLAUDE.md`.
+Git hooks run the fast tests on every commit and every merge (in parallel when pytest-xdist is installed:
+`pip install pytest-xdist` in the lerobot env), so a broken invariant, or two branches that break each
+other, can't be committed. Turn them on once per clone: `git config core.hooksPath scripts/hooks`.
+`tests/test_docs.py` checks this README and CLAUDE.md against `data/` and the scripts: every option they
+mention exists, every script has a section, the default policy and every registered one are named right.
+Merging worktrees: `merge_pr.py` above, and "Worktrees and merging" in `CLAUDE.md`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or
 `dataset.py` changed). See `CLAUDE.md` for the rules the code follows and why.
