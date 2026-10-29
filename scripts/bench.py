@@ -309,6 +309,7 @@ class Bench:
             self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
                          "home_xy": self.homes(tile, spot), "grasp_xy": run["grasp_xy"] or hover["hover_xy"],
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name,
+                         "grasp_clearance_m": run.get("grasp_clearance_m"),
                          "spot": spot["id"] if spot else None}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         return success
@@ -339,13 +340,14 @@ class Bench:
         home = held["home_xy"]
         print(f"Returning {held['tile_name']} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
         x, y = self.returns.target(home, held["detection_xy"], held["grasp_xy"])
-        placed = self.arm.place(x, y, held["approach_offset_m"])
+        placed = self.arm.place(x, y, held["approach_offset_m"], grasp_clearance_m=held.get("grasp_clearance_m"))
         if placed is None:
             print("Still holding it — discard it instead.")
             self.session.event("return_skipped", reason="unreachable", tile=held["tile_name"], xy=[x, y],
                                attempt_dir=held["attempt_dir"])
             return
         self.session.event("return", tile=held["tile_name"], asked_xy=[x, y], home_xy=home,
+                           grasp_clearance_m=held.get("grasp_clearance_m"),
                            return_correction=self.returns.name, attempt_dir=held["attempt_dir"], **placed)
         # the returned tile, where the camera saw it (the arm's target is in its own frame, ~40mm from that);
         # a change near its home is the return itself, not a knock

@@ -269,7 +269,7 @@ def main(argv=None):
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
             print("RECORDING — → save, ← discard, Esc save nothing and quit"
                   + (f"; {policy.id} drives, A on the gamepad takes over" if policy else ""))
-            frames, roll, actions, takeover = 0, RollTrace(), [], None
+            frames, roll, actions, states, takeover = 0, RollTrace(), [], [], None
             started = time.time()
             failed_reads, camera_lost = 0, False
             while True:
@@ -305,6 +305,7 @@ def main(argv=None):
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
                 roll.add(command["wrist_roll"], float(state[ROLL]))
                 actions.append(action)
+                states.append(state)
                 dataset.add_frame({"observation.state": state - anchor, "action": action - anchor,
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
@@ -321,7 +322,7 @@ def main(argv=None):
             held = {"tile_name": tile["tile_name"], "detection_xy": [x, y], "home_xy": home, "attempt_dir": None,
                     "spot": placement.get("spot")}
             returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
-                                                          correction, hover, args.policy or "teleop")
+                                                          correction, hover, args.policy or "teleop", states)
             dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
@@ -411,16 +412,17 @@ class RollTrace:
 RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the return target to the hover
 
 
-def return_tile(arm, actions, hovered, held, returns, realsense, session, correction, hover, policy_id):
+def return_tile(arm, actions, hovered, held, returns, realsense, session, correction, hover, policy_id, states=()):
     """Set a tile still in the jaws back down so it lands at its home (held["home_xy"]: where it was first
     seen this session), aimed with the return model from where the jaws closed (the first command shut; the
     hover if none was), then check where it landed. Returning to the grasp point instead walked tiles 25-31mm
     in one recording (2026-10-28). Teleop reaches further than the IK plans (9B at the left edge, 29cm out,
     2026-10-27), so an unreachable target walks back toward the hover, which the IK reached. True if it was
-    set down."""
+    set down. It's let go just above where the jaws closed on it (states: the measured joints per frame)."""
     if not arm.holding()[0]:
         return False
     _, grasp_xy = kinematics.grasp_point(actions)
+    closed_at = kinematics.grasp_clearance(states, actions)
     held = {**held, "grasp_xy": grasp_xy or hovered["hover_xy"]}
     home, name = held["home_xy"], held["tile_name"]
     print(f"Returning {name} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
@@ -428,7 +430,8 @@ def return_tile(arm, actions, hovered, held, returns, realsense, session, correc
     hx, hy = hovered["hover_xy"]
     for k in RETURN_TOWARD_HOVER:
         x, y = tx + (hx - tx) * k, ty + (hy - ty) * k
-        placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None)
+        placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None,
+                           grasp_clearance_m=closed_at)
         if placed is not None:
             break
     else:
@@ -437,7 +440,7 @@ def return_tile(arm, actions, hovered, held, returns, realsense, session, correc
         return False
     if k:
         print(f"  set down {np.hypot(x - tx, y - ty) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
-    session.event("return", tile=name, asked_xy=[tx, ty], home_xy=home, toward_hover=k,
+    session.event("return", tile=name, asked_xy=[tx, ty], home_xy=home, toward_hover=k, grasp_clearance_m=closed_at,
                   return_correction=returns.name, **placed)
     tiles = realsense.detect_tiles()
     session.event("detections", label="after_return", target_xy=home,

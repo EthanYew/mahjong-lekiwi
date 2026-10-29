@@ -319,6 +319,11 @@ def rise_report(events):
     print(f"return rise: the tip rose {np.median(up):.0f}mm of {RELEASE_RISE_M * 1000:.0f} commanded (median of "
           f"{len(rises)}; least {up.min():.0f}), {np.median(side):.1f}mm sideways (worst {side.max():.1f}); "
           f"swing to rest from {np.median(swing):.0f}mm (lowest {swing.min():.0f})")
+    drops = np.array([e["released_at_m"] - e["grasp_clearance_m"] for e in events if e["type"] == "return"
+                      and e.get("grasp_clearance_m") is not None and "released_at_m" in e]) * 1000
+    if len(drops):
+        print(f"return release: {np.median(drops):+.1f}mm from where the jaws closed on the tile (median of {len(drops)}; "
+              f"highest {drops.max():+.1f}): above it, the tile drops that far and can tilt as it lands")
 
 
 if __name__ == "__main__":

@@ -91,6 +91,19 @@ def grasp_point(actions):
     return grasp, [float(v) for v in tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
 
 
+def tip_clearance(q):
+    """The pincer tip's height above the grasp point under it (config.grasp_z), m."""
+    tip = pincer_tip(q)
+    return float(tip[2] - config.grasp_z(tip[0], tip[1]))
+
+
+def grasp_clearance(states, actions):
+    """tip_clearance where the servos were (states, measured) at the first step commanding the gripper shut:
+    how high the tip was as the jaws closed on the tile, or None. Rows of config.JOINTS, absolute."""
+    k = grasp_frame(actions)
+    return None if k is None or k >= len(states) else tip_clearance(dict(zip(config.JOINTS, states[k])))
+
+
 def pincer_tip(q):
     """The fixed jaw's tip: what clearances, set-down heights and the table floor are measured on."""
     position, rotation = forward(q)

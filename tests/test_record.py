@@ -294,6 +294,7 @@ def test_session_report_shows_where_a_recording_s_returns_landed(tmp_path, monke
     out = capsys.readouterr().out
     assert "returns landed 6mm from home (median of 2" in out
     assert "return rise: the tip rose" in out and "swing to rest from" in out        # Arm.place's measured rise
+    assert "return release: " in out and "from where the jaws closed" in out
 
 
 def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
@@ -306,7 +307,7 @@ def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
         def holding(self):
             return True, 0.0, 11.0
 
-        def place(self, x, y, offset, log=print):
+        def place(self, x, y, offset, log=print, grasp_clearance_m=None):
             calls.append((x, y))
             return {"xy": [x, y], "shift_m": 0.0} if len(calls) == 3 else None
 

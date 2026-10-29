@@ -78,6 +78,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   over the discard container) turned a neighbour on 2026-10-23. Unconfirmed on hardware that 17% always
   lets go. The policy's own descent opens to its hover gripper (90% for v1/v2, 27.2 for v2n), which
   only a new dataset or trimmed episodes change.
+- **A return lets go where that tile's jaws closed, not at a fixed height.** Grasps close with the measured tip
+  6-8mm above the grasp point near the base and 12-14mm at full reach (flex), v4 5mm lower than v3c, and once
+  at -0.2 to 2mm (7D/4D, 2026-10-29). The fixed 10mm release let go of v4's tiles a median 3.3mm above where
+  they were held (6-9mm that day): they dropped, tilted, and landed further from home (3.4mm under a 3mm drop,
+  6.2mm at 6mm+; 137 returns). `Arm.place` now descends (only down, `_set_down`) to 1mm above the grasp's
+  own height (`kinematics.grasp_clearance`, from the pickup's measured joints). Unconfirmed on the arm.
 - **Heights are above the grasp point** (`config.grasp_z`, table + 5mm); the tile top is ~15mm higher.
 - **Rest is where the unpowered arm settles** (`config.REST_POSE`, from `sessions/parked_pose.json`). The old
   folded rest sagged ~8° onto the stops at every disconnect, and each connect then lifted the arm via

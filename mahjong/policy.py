@@ -233,4 +233,4 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     return {"steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
             "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,
             "descended": descended, "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy,
-            "marks_s": marks}
+            "grasp_clearance_m": kinematics.grasp_clearance(states, actions), "marks_s": marks}

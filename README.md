@@ -441,7 +441,9 @@ python scripts/return_samples.py sessions/20261028_090511_bench   # ...or just t
 `session_report.py` prints how far a session's returns landed from home, and how the open jaws left the tile:
 how far the measured tip rose of the 30mm commanded after the release, how far it moved sideways doing so,
 and how high it was when the swing to rest began (a return goes higher over the tile first if it's under
-60mm).
+60mm). A return lets the tile go just above where the jaws closed on it at the pickup (1mm, measured), so it
+lands as it was held instead of dropping; the report's "return release" line says how far above that each
+one actually let go.
 
 ## Tile layouts: `scripts/layout.py`
 
