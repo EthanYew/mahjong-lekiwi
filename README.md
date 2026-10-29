@@ -161,7 +161,7 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,
 `5 teach-discard` (drive the arm over the discard bin with the gamepad and save it), `6 trials`,
-`7 rest`, `8 note` (log something you did by hand), `9 setup` (lighting/battery changed mid-session),
+`7 rest`, `8 note` (log something you did by hand), `9 setup` (lighting/battery/surface changed mid-session),
 `10 quit`.
 
 **A tile the trials can't find** (not detected by name, or nothing near a `--layout` spot) stops for you:
@@ -358,7 +358,7 @@ python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 -
 | `--add REPO` | train on another recorded dataset as well (repeatable), e.g. DAgger corrections: only their frames from the takeover on |
 | `--trim-narrowing` | also cut the slow gripper narrowing at the start of each episode |
 | `--augment` | colour jitter while training (brightness, contrast, saturation, hue, sharpness; no shifting or rotating the image, the jaws stay put) |
-| `--replace-mat FRACTION` | swap the black mat for another surface (grid mat, plain colour, wood, cloth, paper) in that fraction of episodes, e.g. `0.7`; `--dry-run` saves a preview sheet next to the training output to check before training |
+| `--replace-mat FRACTION` | swap the black table top for another surface (grid mat, plain colour, wood, cloth, paper) in that fraction of episodes, e.g. `0.7`; `--dry-run` saves a preview sheet next to the training output to check before training |
 | `--steps N` | training steps (default ~131 passes over the data) |
 | `--private` | upload as private (default is public under `Yewy/`) |
 | `--skip-build`, `--skip-upload`, `--skip-train` | resume a run partway through |
@@ -384,7 +384,7 @@ the bench decides what ships.
 ```
 python scripts/offline_eval.py --policy pickup_mat_cl                                  # scores per slice
 python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1       # + pass/fail gates vs a reference
-python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting (default: --by slice)
+python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting / surface (default: --by slice)
 python scripts/offline_eval.py --show                                                  # what's in the eval split
 python scripts/offline_eval.py --make-split Yewy/<training_dataset>                    # hold out 1 per spot, >= 10% (v2: 15/104)
 python scripts/offline_eval.py --add-eval-set Yewy/mahjong_mat_eval_v1                 # register an eval-only recording

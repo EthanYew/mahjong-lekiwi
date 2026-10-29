@@ -103,6 +103,7 @@ XLEROBOT_MODEL = Path.home() / "Projects" / "XLeRobot" / "software" / "plugins" 
 # --- session setup questions: asked at the start of every hardware session and stored as `conditions`
 # on session_start, so sessions compare (scripts/session_report.py --all). Choices are a list, or "yn".
 # sticky: Enter keeps the previous session's answer; otherwise Enter means the first choice.
+SURFACE_BEFORE_ASKED = "black table top"    # what every session before the surface question was recorded on
 SETUP_QUESTIONS = [
     {"key": "daylight", "ask": "Daylight in the room", "choices": ["bright", "dim", "none"], "sticky": True},
     {"key": "lamp", "ask": "Lamp behind the robot on", "choices": "yn", "sticky": True},
@@ -111,4 +112,8 @@ SETUP_QUESTIONS = [
      "choices": ["nothing", "realsense", "mat", "lekiwi", "several"], "sticky": False},
     {"key": "tiles", "ask": "Tiles on the mat", "choices": ["one", "few spread", "rows"], "sticky": True},
     {"key": "battery", "ask": "LeKiwi battery", "choices": ["full", "mid", "low"], "sticky": True},
+    # the surface is part of the policy's input like the light: every recording through v5 was on the black
+    # table top, and v5 failed on a green cutting mat (2026-10-29). Earlier sessions: SURFACE_BEFORE_ASKED.
+    {"key": "surface", "ask": "Surface under the tiles",
+     "choices": ["black table top", "green cutting mat", "grey mat", "paper", "brown table", "other"], "sticky": True},
 ]

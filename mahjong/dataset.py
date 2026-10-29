@@ -20,7 +20,7 @@ delta from the hover too.
 (data/eval_split.json), offline_eval.py builds only those. `extra` adds episodes of other recorded
 datasets (make_policy.py --add, e.g. DAgger corrections) after them.
 
-replace_mat (make_policy.py --replace-mat): every recording so far is on the black mat, and v5 closed its
+replace_mat (make_policy.py --replace-mat): every recording so far is on the black table top, and v5 closed its
 jaws in mid-air over a green grid mat (2026-10-29, 20261029_180643_bench). In that fraction of the episodes
 the mat in every wrist frame is swapped for another surface (surface_keep, random_surface), one surface per
 episode, shaded by the original frame so tile shadows and the lamp's glare stay.
@@ -120,7 +120,7 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
     back to its source index (and so to the source's episode log), sources every built one to
     [repo, index], and dagger_episodes lists the built DAgger ones (they start at a takeover, not at a
     zero state delta). replace_mat: the fraction of episodes whose mat is swapped (module docstring); the
-    summary's surfaces names each built episode's surface (None: the black mat as recorded)."""
+    summary's surfaces names each built episode's surface (None: the black table top as recorded)."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from lerobot.utils.constants import HF_LEROBOT_HOME
 
@@ -287,7 +287,7 @@ def replace_surface(rgb, texture):
 
 
 def episode_surface(repo, episode, size=(224, 224), fraction=0.0, seed=0):
-    """(kind, texture) for one episode, or (None, None) to keep the black mat: the same every build of
+    """(kind, texture) for one episode, or (None, None) to keep the black table top: the same every build of
     the same dataset, episode and seed."""
     rng = np.random.default_rng(zlib.crc32(f"{repo}:{episode}:{seed}".encode()))
     if rng.random() >= fraction:

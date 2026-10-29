@@ -60,7 +60,7 @@ def parse_args():
     p.add_argument("--augment", action="store_true",
                    help="colour jitter during training (AUGMENT: brightness, contrast, saturation, hue, sharpness)")
     p.add_argument("--replace-mat", type=float, default=0.0, metavar="FRACTION",
-                   help="swap the black mat for another surface (grid, plain, wood, cloth, paper) in this fraction of "
+                   help="swap the black table top for another surface (grid, plain, wood, cloth, paper) in this fraction of "
                         "the episodes, e.g. 0.7 (mahjong/dataset.py); --dry-run saves a preview")
     p.add_argument("--steps", type=int, default=None, help="training steps (default: ~131 passes over the data)")
     p.add_argument("--private", action="store_true", help="upload the dataset and policy as private")
@@ -95,7 +95,7 @@ def train_command(n, steps, private, augment=False):
 
 def preview_surfaces(repo, path, fraction, count=12):
     """A contact sheet of `count` frames from recorded `repo`, each with the surface its episode would get
-    (black mat where it keeps it), to check the swap before hours of training."""
+    (black table top where it keeps it), to check the swap before hours of training."""
     import cv2
     import torchvision.transforms.functional as F
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -109,7 +109,7 @@ def preview_surfaces(repo, path, fraction, count=12):
         image = (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8")
         kind, texture = episode_surface(repo, int(ep), fraction=fraction)
         out = image if texture is None else replace_surface(image, texture)
-        tiles.append(cv2.putText(cv2.cvtColor(out, cv2.COLOR_RGB2BGR), f"{ep} {kind or 'black mat'}", (4, 14),
+        tiles.append(cv2.putText(cv2.cvtColor(out, cv2.COLOR_RGB2BGR), f"{ep} {kind or 'black top'}", (4, 14),
                                  cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1))
     rows = [np.hstack(tiles[k:k + 4]) for k in range(0, len(tiles), 4)]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +230,7 @@ def main():
             private=args.private, tags=["mahjong", "so101", "lekiwi", "act"],
             dataset_description=f"{' + '.join([args.source, *args.add])}, trimmed (idle frames, pre-fix takeover sag"
                                 f"{', gripper narrowing' if args.trim_narrowing else ''}), "
-                                f"{f'the black mat swapped for other surfaces in {args.replace_mat:.0%} of episodes, ' if args.replace_mat else ''}"
+                                f"{f'the black table top swapped for other surfaces in {args.replace_mat:.0%} of episodes, ' if args.replace_mat else ''}"
                                 f"deltas re-anchored to each "
                                 f"episode's first kept frame, wrist camera at 224x224. {summary['frames']} of "
                                 f"{summary['source_frames']} frames kept. Built by mahjong-lekiwi scripts/make_policy.py.")

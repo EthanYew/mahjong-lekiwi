@@ -114,7 +114,7 @@ def test_idle_right_after_a_dagger_takeover_is_trimmed():
 
 
 def wrist_frame():
-    """A synthetic wrist frame (RGB): black mat with the lamp's brown glare, a white face with a red print,
+    """A synthetic wrist frame (RGB): black table top with the lamp's brown glare, a white face with a red print,
     a green tile back and a cyan jaw."""
     frame = np.full((224, 224, 3), (25, 22, 20), np.uint8)
     frame[:, 120:] = (150, 95, 50)                       # glare on the mat
@@ -132,7 +132,7 @@ def test_a_surface_swap_replaces_the_mat_and_its_glare_but_not_tiles_or_jaws():
     assert kind == "grid" and out.shape == frame.shape
     for rows, cols in ((slice(60, 140), slice(60, 110)), (slice(140, 150), slice(60, 110)), (slice(170, 224), slice(10, 40))):
         assert (out[rows, cols] == frame[rows, cols]).all()             # face (print too), back, jaw
-    assert (out[10:50, 5:50] != frame[10:50, 5:50]).any(axis=2).mean() > 0.9     # the black mat
+    assert (out[10:50, 5:50] != frame[10:50, 5:50]).any(axis=2).mean() > 0.9     # the black table top
     assert (out[10:50, 150:220] != frame[10:50, 150:220]).any(axis=2).mean() > 0.9   # the glare on it
 
 

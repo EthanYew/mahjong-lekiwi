@@ -36,7 +36,7 @@ def parse_args():
     p.add_argument("--add-eval-set", metavar="REPO", help="add an eval-only recording (never trained on)")
     p.add_argument("--policy", help="registered policy id, or a checkpoint's pretrained_model folder")
     p.add_argument("--against", help="reference policy for the gates (e.g. the current default)")
-    p.add_argument("--by", choices=["slice", "spot", "lighting"], default="slice", help="extra breakdown")
+    p.add_argument("--by", choices=["slice", "spot", "lighting", "surface"], default="slice", help="extra breakdown")
     p.add_argument("--max-episodes", type=int, default=None, help="per source, for a quick look")
     p.add_argument("--stride", type=int, default=offline_eval.EVAL_STRIDE,
                    help="score every Nth frame of each episode (default %(default)s)")

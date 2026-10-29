@@ -173,11 +173,18 @@ def lighting(conditions):
             f"ceiling {yn.get(conditions.get('ceiling_lights'), '?')}")
 
 
+def surface(conditions):
+    """The surface under the tiles from a session's setup answers (config.SURFACE_BEFORE_ASKED before it
+    was asked)."""
+    return (conditions or {}).get("surface", config.SURFACE_BEFORE_ASKED)
+
+
 def labels(record, default_slice):
     xy = record.get("detection_xy")
     return {"slice": record.get("slice", default_slice) if record.get("slice") != "train" else default_slice,
             "spot": record.get("spot") or (spot_name(*xy) if xy else "?"),
-            "lighting": lighting(record.get("conditions")), "tile": record.get("tile_name", "")}
+            "lighting": lighting(record.get("conditions")), "surface": surface(record.get("conditions")),
+            "tile": record.get("tile_name", "")}
 
 
 # --- building and running ---
