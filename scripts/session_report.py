@@ -291,6 +291,7 @@ def returns_report(events):
     """How far returned tiles landed from their home (sessions from before homes: from where the tile was
     before that pickup), and how many a person put back. Bench and record sessions log each landing
     (`return_landed`); older bench sessions are read from their scans."""
+    rise_report(events)
     found = [e for e in events if e["type"] == "return_landed" and e.get("landed_xy")] or \
         [r for r in landings(events) if r["landed_xy"]]
     if not found:
@@ -304,6 +305,20 @@ def returns_report(events):
     print(f"returns landed {np.median(errors):.0f}mm from {'home' if homes else 'where the tile was'} (median of "
           f"{len(errors)}; worst {errors[-1]:.0f}mm; {over} over {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm)"
           + (f"; {put_back} put back by a person" if put_back else ""))
+
+
+def rise_report(events):
+    """How the open jaws left a returned tile, measured (Arm.place's `rise`): how far the tip rose of the
+    RELEASE_RISE_M commanded, how far it moved sideways doing so, and how high it was when the swing to rest
+    began."""
+    from mahjong.arm import RELEASE_RISE_M
+    rises = [e["rise"] for e in events if e["type"] == "return" and e.get("rise")]
+    if not rises:
+        return
+    up, side, swing = (np.array([r[k] for r in rises]) * 1000 for k in ("up_m", "sideways_m", "swing_from_m"))
+    print(f"return rise: the tip rose {np.median(up):.0f}mm of {RELEASE_RISE_M * 1000:.0f} commanded (median of "
+          f"{len(rises)}; least {up.min():.0f}), {np.median(side):.1f}mm sideways (worst {side.max():.1f}); "
+          f"swing to rest from {np.median(swing):.0f}mm (lowest {swing.min():.0f})")
 
 
 if __name__ == "__main__":

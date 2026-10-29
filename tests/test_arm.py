@@ -193,3 +193,36 @@ def test_after_a_release_the_open_jaws_rise_straight_up_clear_of_the_tile(tile):
     clear = next(i for i, t in enumerate(tips) if t[2] - tips[0][2] >= RELEASE_RISE_M - 0.001)
     drift = max(np.hypot(*(t[:2] - tips[0][:2])) for t in tips[:clear + 1])
     assert drift < 0.003, f"the jaws moved {drift * 1000:.1f}mm sideways before clearing the tile"
+
+
+def test_lift_never_lowers_an_arm_already_commanded_higher():
+    """After a return's approach (commanded ~95mm) a sagging far-reach arm measures under LIFT_CLEARANCE_M;
+    lift() re-commanded 80mm, lowering it before the swing to rest."""
+    from mahjong.arm import LIFT_CLEARANCE_M
+    q, _ = kinematics.hover_command(0.272, -0.075, 0.095, 17.0)
+    arm, robot = make_arm(start=q)
+    robot._measured_offset = {j: hi for j, (lo, hi) in robot._band().items()}      # arrived from below
+    assert arm.tip_clearance()[0] < LIFT_CLEARANCE_M
+    arm.lift()
+    assert robot.sent == []
+
+
+@pytest.mark.parametrize("tile", ["3B row 1 centre", "9B row 2 right"])
+def test_a_return_logs_its_rise_and_goes_higher_over_the_tile_before_swinging_if_low(tile, monkeypatch):
+    from mahjong import arm as arm_module
+    x, y = TILES[tile]
+    arm, robot = make_arm(start={**config.REST_POSE, "gripper": 0.0}, holding=True)
+    rise = arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None)["rise"]
+    assert 0.015 < rise["up_m"] <= arm_module.RELEASE_RISE_M + 0.001 and rise["sideways_m"] < 0.01
+    assert rise["swing_from_m"] >= arm_module.SWING_CLEARANCE_M
+
+    monkeypatch.setattr(arm_module, "SWING_CLEARANCE_M", rise["swing_from_m"] + 0.01)     # say it's too low
+    arm, robot = make_arm(start={**config.REST_POSE, "gripper": 0.0}, holding=True)
+    logs = []
+    placed = arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=logs.append)
+    assert any("raising before the swing" in line for line in logs)
+    assert placed["rise"]["swing_from_m"] >= arm_module.SWING_CLEARANCE_M - CLEARANCE_TOLERANCE_M
+    release = next(i for i, c in enumerate(robot.sent) if c["gripper"] > 0)
+    swing = next(i for i, c in enumerate(robot.sent) if i > release and
+                 np.hypot(*(kinematics.tool_point(c)[:2] - np.array([x, y]))) > 0.003)
+    assert robot.clearances[swing - 1] >= (arm_module.SWING_CLEARANCE_M - CLEARANCE_TOLERANCE_M) * 1000

@@ -46,7 +46,14 @@ PLACE_DESCEND_TIME_S = 2.0
 # After a release, rise straight up this far above the release height before moving on: one joint move to the
 # approach swung the open jaws sideways through the tile (and dragged it) on the way to rest (2026-10-27)
 RELEASE_RISE_M = 0.030
-RISE_STEP_M, RISE_STEP_S = 0.005, 0.15
+# The rise goes through IK waypoints RISE_STEP_M apart (a straight commanded line), at lift()'s ~70mm/s. At 0.15s a
+# step (33mm/s) the open jaws were seen drifting sideways off the tile on the way up while lift()'s single fast
+# move looked straight (2026-10-29): P-only servos rising against gravity lag, and unequally per joint.
+RISE_STEP_M, RISE_STEP_S = 0.005, 0.075
+RISE_MAX_DEG_S = 60.0     # ...but no joint faster than this (near full reach 5mm up turns a joint several degrees)
+# Before a return swings sideways to rest, the measured tip must be this far above the grasp point (~45mm over
+# the tile top); the commanded approach (~95mm) sits 3-26mm higher than measured (574 hovers, 2026-10-27/28).
+SWING_CLEARANCE_M = 0.060
 RELEASE_TIME_S = 0.6
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
@@ -162,6 +169,10 @@ class Arm:
         above_grasp = float(tip[2] - config.grasp_z(tip[0], tip[1]))
         return above_grasp, above_grasp - (config.TILE_THICKNESS_M - config.GRASP_POINT_ABOVE_TABLE_M)
 
+    def measured_tip(self):
+        """The pincer tip (x, y, z) where the servos are, m."""
+        return kinematics.pincer_tip(self.measured())
+
     def tool_sag(self):
         """Measured minus commanded tool point (x, y, z), m: how far the servos sit from their command."""
         return [float(v) for v in kinematics.tool_point(self.measured()) - kinematics.tool_point(self.commanded())]
@@ -221,7 +232,12 @@ class Arm:
         command = self.commanded()
         x, y, _ = kinematics.tool_point(command)
         clearance, _ = self.tip_clearance()
-        if clearance < LIFT_CLEARANCE_M and np.hypot(x - kinematics.SHOULDER_PAN_X, y) >= LIFT_MIN_RADIUS_M:
+        tip = kinematics.pincer_tip(command)
+        commanded_clearance = float(tip[2] - config.grasp_z(tip[0], tip[1]))
+        # measured low but already commanded higher (a sagging arm after a return's approach): re-commanding
+        # LIFT_CLEARANCE_M would lower it before the swing to rest
+        if clearance < LIFT_CLEARANCE_M and commanded_clearance < LIFT_CLEARANCE_M and \
+                np.hypot(x - kinematics.SHOULDER_PAN_X, y) >= LIFT_MIN_RADIUS_M:
             lifted, _ = kinematics.hover_command(x, y, LIFT_CLEARANCE_M, command["gripper"])
             if lifted is not None:
                 lifted["wrist_roll"] = command["wrist_roll"]          # a lift, not a re-grip
@@ -237,7 +253,9 @@ class Arm:
             if step is None:
                 return
             step["wrist_roll"] = command["wrist_roll"]
-            self.move_to({j: step[j] for j in config.ARM_JOINTS}, RISE_STEP_S)
+            current = self.commanded()
+            turn = max(abs(step[j] - current[j]) for j in config.ARM_JOINTS)
+            self.move_to({j: step[j] for j in config.ARM_JOINTS}, max(RISE_STEP_S, turn / RISE_MAX_DEG_S))
 
     def rest(self):
         """Lift if low over the table, swing in via the raised rest, lower to rest. Never touches the
@@ -339,10 +357,22 @@ class Arm:
         release = min(config.GRIPPER_RELEASE, self.measured()["gripper"] + config.GRIPPER_RELEASE_PAST_HELD)
         self.set_gripper(release)
         self.sleep(0.3)
+        at_release = self.measured_tip()
         self.rise(x, y, settled["offset_m"], settled["offset_m"] + RELEASE_RISE_M)
+        after_rise = self.measured_tip()
         self.move_to({j: above[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
+        self.sleep(SETTLE_S)
+        swing_from, _ = self.tip_clearance()
+        if swing_from < SWING_CLEARANCE_M:      # still low over the tile: higher, over the same point, first
+            log(f"  {swing_from * 1000:.0f}mm over the grasp point after the rise: raising before the swing to rest")
+            raised = self._settle(x, y, above_offset, SWING_CLEARANCE_M, self.commanded()["gripper"], above_offset,
+                                  above_offset + MAX_EXTRA_RAISE_M, log)
+            swing_from = raised["clearance_m"]
         self.rest()
-        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift, "release_gripper": release}
+        rise = {"up_m": float(after_rise[2] - at_release[2]),
+                "sideways_m": float(np.hypot(*(after_rise[:2] - at_release[:2]))), "swing_from_m": swing_from}
+        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift, "release_gripper": release,
+                "rise": rise}
 
     def go_to_pose(self, pose, duration=MOVE_TIME_S):
         """A taught arm pose (e.g. over the discard container), via the raised rest; gripper untouched."""
