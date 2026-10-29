@@ -1,0 +1,113 @@
+"""The git checkout a script runs from, and the branches and worktrees around it.
+
+Hardware runs from the main checkout (sessions/ is per checkout), so it should run the code that's on main:
+on 2026-10-29 the main checkout was 2 merges behind GitHub, PR #33's change to returns included. Sessions
+warn when it's behind origin/main (as of the last fetch: no network here), has uncommitted code, or is a
+worktree. scripts/merge_pr.py and scripts/status.py use the rest: which branches are merged and which
+worktrees are left to close.
+"""
+import os
+import subprocess
+from pathlib import Path
+
+from . import config
+
+BASE = "origin/main"
+# Inside a git hook (the pre-commit tests), git sets these for the repo being committed to, and a `git -C other`
+# would follow them there instead
+ENV = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX")}
+# Written by the scripts as they run (corrections, reviews, layouts...), not code: uncommitted is normal
+DATA_PREFIXES = ("data/", "sessions/")
+
+
+def git(*args, repo=None, check=False, strip=True):
+    """git's stdout, stripped ("" if git fails, unless check)."""
+    try:
+        result = subprocess.run(["git", "-C", str(repo or config.REPO), *args], capture_output=True, text=True,
+                                timeout=60, env=ENV)
+    except (OSError, subprocess.TimeoutExpired):
+        if check:
+            raise
+        return ""
+    if check and result.returncode:
+        raise SystemExit(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
+    if result.returncode:
+        return ""
+    return result.stdout.strip() if strip else result.stdout
+
+
+def behind(repo=None, base=BASE):
+    """Commits on base (as last fetched) that HEAD doesn't have, or None if there's no base."""
+    count = git("rev-list", "--count", f"HEAD..{base}", repo=repo)
+    return int(count) if count.isdigit() else None
+
+
+def changed_code(repo=None):
+    """Tracked files with uncommitted changes, data files left out."""
+    lines = git("status", "--porcelain", "--untracked-files=no", repo=repo, strip=False).splitlines()
+    return [line[3:] for line in lines if line[3:] and not line[3:].startswith(DATA_PREFIXES)]
+
+
+def is_worktree(repo=None):
+    git_dir, common = git("rev-parse", "--absolute-git-dir", repo=repo), git("rev-parse", "--git-common-dir", repo=repo)
+    return bool(git_dir) and Path(git_dir) != (Path(repo or config.REPO) / common).resolve()
+
+
+def warnings(repo=None):
+    """What's off about running hardware from this checkout, one line each."""
+    out = []
+    if (n := behind(repo)):
+        out.append(f"this checkout is {n} commit(s) behind {BASE} (as last fetched): git pull first, or the "
+                   f"session runs older code")
+    if (files := changed_code(repo)):
+        out.append(f"uncommitted code: {', '.join(files[:5])}{' ...' if len(files) > 5 else ''}")
+    if is_worktree(repo):
+        out.append("this is a worktree: its sessions/ go when it's removed (run hardware from the main checkout)")
+    return out
+
+
+def state(repo=None):
+    """For the session_start event: commit, branch, commits behind origin/main, uncommitted code."""
+    return {"branch": git("rev-parse", "--abbrev-ref", "HEAD", repo=repo), "behind": behind(repo),
+            "changed_code": changed_code(repo), "worktree": is_worktree(repo)}
+
+
+def worktrees(repo=None):
+    """[{"path", "branch"}] for every worktree but the main checkout."""
+    found, current = [], {}
+    for line in git("worktree", "list", "--porcelain", repo=repo).splitlines() + [""]:
+        if line.startswith("worktree "):
+            current = {"path": Path(line.split(" ", 1)[1]), "branch": None}
+        elif line.startswith("branch "):
+            current["branch"] = line.split(" ", 1)[1].removeprefix("refs/heads/")
+        elif not line and current:
+            found.append(current)
+            current = {}
+    return found[1:]
+
+
+def merged(branch, repo=None, base=BASE):
+    """Every commit of branch is on base, by content (a merge, a rebase or a cherry-pick all count)."""
+    out = git("cherry", base, branch, repo=repo)
+    return git("rev-parse", "--verify", "--quiet", branch, repo=repo) != "" and \
+        not any(line.startswith("+") for line in out.splitlines())
+
+
+def local_branches(repo=None):
+    return [b for b in git("for-each-ref", "--format=%(refname:short)", "refs/heads", repo=repo).splitlines()
+            if b not in ("main", "master")]
+
+
+def remote_branches(repo=None, remote="origin"):
+    return [b.removeprefix(f"{remote}/") for b in
+            git("for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote}", repo=repo).splitlines()
+            if b not in (f"{remote}/main", f"{remote}/master", f"{remote}/HEAD", remote)]
+
+
+def leftovers(repo=None, base=BASE):
+    """CLAUDE.md's closing step not done: merged branches still with a worktree, a local or a remote branch."""
+    trees = {w["branch"]: w["path"] for w in worktrees(repo) if w["branch"]}
+    local, remote = set(local_branches(repo)), set(remote_branches(repo))
+    return [{"branch": name, "worktree": trees.get(name), "local": name in local, "remote": name in remote}
+            for name in sorted(set(trees) | local | remote)
+            if merged(name if name in local else f"origin/{name}", repo=repo, base=base)]
