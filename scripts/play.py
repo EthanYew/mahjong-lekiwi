@@ -87,6 +87,8 @@ class Player:
             self.mat.tiles = [{"tile_name": n, "xy": list(s["xy"])} for n, s in zip(SIM_HAND, self.slots)]
             self.draws = list(SIM_DRAWS)
         self.zone = {"xy": zone_xy} if zone_xy else self.load_zone(args.teach_zone)
+        if not args.sim:
+            self.check_zone_benched()
         self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "drawn": None, "history": [],
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
@@ -166,6 +168,23 @@ class Player:
             zone = markers.save_zone(xy, session=self.session.dir.name)
             print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}")
         return zone
+
+    def check_zone_benched(self):
+        """The zone is only reached mid-hand: refuse to start unless the bench has checked a tile there
+        (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
+        test = markers.zone_test(self.zone["xy"], self.slots, layout.load(markers.ZONE_TEST_LAYOUT)["spots"],
+                                 play_layout=self.args.layout)
+        self.session.event("zone_test", **test)
+        if test["ok"]:
+            print(f"Drop zone checked on the bench: {markers.ZONE_TEST_LAYOUT} {test['spot']}, "
+                  f"{test['picked']} picked up, {test['returned']} returned")
+            return
+        print("\nThe drop zone isn't checked on the bench yet:\n  " + "\n  ".join(test["problems"])
+              + "\nTo check it:\n  " + "\n  ".join(test["fix"]))
+        if not self.args.skip_zone_test:
+            self.bench.close()
+            raise SystemExit("not starting the hand (--skip-zone-test plays anyway)")
+        self.session.intervention("zone_unchecked", problems=test["problems"])
 
     def check_zone(self):
         """With the zone empty, the marker should be where it was taught: if it moved, so did the camera or
@@ -493,6 +512,9 @@ def parse_args(argv=None):
     p.add_argument("--teach-zone", action="store_true", help="find the drop-zone marker again (it must be uncovered)")
     p.add_argument("--resume", nargs="?", const="latest", default=None,
                    help="carry on a play session's hand from its checkpoint (default: the latest)")
+    p.add_argument("--skip-zone-test", action="store_true",
+                   help=f"play even if the bench hasn't picked up and returned a tile on the drop zone (its spot "
+                        f"in {markers.ZONE_TEST_LAYOUT}); logged")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)
     if not args.sim and not args.layout:

@@ -1,5 +1,11 @@
 {
   "default": "pickup_mat_cl_v4",
+  "default_note": {
+    "policy": "pickup_mat_cl_v4",
+    "since": "2026-10-29",
+    "evidence": "sessions/20261029_094543_bench: hand14, paired with v3c, 3 rounds: v4 37/38, v3c 36/37 (S12 the only misses); then 20261029_123745/124033/142023_bench, v4 11/11",
+    "why": "set by hand in 8ec61fc, reason not recorded; v4 = v3c's demos + its DAgger corrections (dagger_v3c)"
+  },
   "policies": {
     "pickup_mat_cl": {
       "repo": "Yewy/mahjong_mat_pickup_lekiwi_cl_v2_policy",

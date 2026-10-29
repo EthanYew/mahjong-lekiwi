@@ -48,9 +48,24 @@ def spec(policy_id=None):
 def register(policy_id, entry, make_default=False):
     reg = registry()
     reg["policies"][policy_id] = entry
-    if make_default:
-        reg["default"] = policy_id
     config.POLICIES.write_text(json.dumps(reg, indent=2) + "\n")
+    if make_default:
+        set_default(policy_id, evidence="none: made the default at registration (make_policy.py --default)")
+
+
+def set_default(policy_id, evidence, why=""):
+    """Make policy_id the default, with what it was decided on (a bench session, usually). The note travels with
+    the default (tests/test_docs.py fails if they disagree): 2026-10-29's switch to v4 was a hand edit whose
+    reason no file kept."""
+    reg = registry()
+    if policy_id not in reg["policies"]:
+        raise SystemExit(f"{policy_id} isn't registered: {', '.join(reg['policies'])}")
+    if not evidence:
+        raise SystemExit("say what the switch rests on (--evidence, e.g. a bench session folder)")
+    reg["default"] = policy_id
+    reg["default_note"] = {"policy": policy_id, "since": time.strftime("%Y-%m-%d"), "evidence": evidence, "why": why}
+    config.POLICIES.write_text(json.dumps(reg, indent=2) + "\n")
+    return reg["default_note"]
 
 
 class Policy:

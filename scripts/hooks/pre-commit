@@ -4,7 +4,10 @@
 # It tests the working tree, not just what's staged. Skip in an emergency: git commit --no-verify
 PY="${MAHJONG_PYTHON:-$HOME/miniforge3/envs/lerobot/bin/python}"
 cd "$(git rev-parse --show-toplevel)" || exit 1
-if ! "$PY" -m pytest -m "not slow" -q -p no:cacheprovider; then
+# In parallel when pytest-xdist is installed (~11 s on 8 workers vs ~42 s serially)
+PARALLEL=""
+"$PY" -c "import xdist" 2>/dev/null && PARALLEL="-n 8"
+if ! "$PY" -m pytest -m "not slow" -q -p no:cacheprovider $PARALLEL; then
     echo "pre-commit: fast tests failed; commit refused (git commit --no-verify to skip)"
     exit 1
 fi

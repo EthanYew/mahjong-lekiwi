@@ -28,9 +28,11 @@ PINCER_TOOL_OFFSET = np.array([-0.016412, 0.008233, 0.026474])
 
 def _rot(axis, deg):
     c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
-    return {"x": np.array([[1, 0, 0], [0, c, -s], [0, s, c]]),
-            "y": np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]),
-            "z": np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])}[axis]
+    if axis == "x":
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
 def _quat(w, x, y, z):
@@ -40,7 +42,12 @@ def _quat(w, x, y, z):
 
 
 def _pose(rotation, displacement):
-    return np.block([[rotation, np.reshape(displacement, (3, 1))], [0, 0, 0, 1]])
+    # Filled in place, not np.block: the IK refines through ~200 FK calls per solve, and np.block was
+    # 8us of each joint's 9 (a simulated hand spent 12s of 14s here).
+    T = np.eye(4)
+    T[:3, :3] = rotation
+    T[:3, 3] = displacement
+    return T
 
 
 # Each joint: fixed mounting rotation and translation from the URDF, then Rz(angle).
@@ -54,9 +61,11 @@ _JOINT_FRAMES = {
 _TOOL = _pose(_quat(7.07106781e-01, -0.0, 7.07106781e-01, -2.37787926e-17), (0.00332633, 0.00484881, -0.11503887))
 
 
+_MOUNTS = {joint: _quat(*quat) for joint, (quat, _) in _JOINT_FRAMES.items()}
+
+
 def joint_frame(joint, deg):
-    quat, displacement = _JOINT_FRAMES[joint]
-    return _pose(_quat(*quat) @ _rot("z", deg), displacement)
+    return _pose(_MOUNTS[joint] @ _rot("z", deg), _JOINT_FRAMES[joint][1])
 
 
 def forward(q):
