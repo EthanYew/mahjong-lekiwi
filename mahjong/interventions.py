@@ -58,6 +58,7 @@ KINDS = {
     "recount": ("checked the hand: the table didn't match what the robot thought it held", ASK),
     "pickup_failed": ("moved a tile by hand: the robot couldn't pick it up after its retries", RESCUE),
     "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
+    "zone_unchecked": ("played before the bench checked a pickup on the drop zone (--skip-zone-test)", OBSERVATION),
 }
 MARK_KINDS = ["touched_tile", "collided", "helped_arm", "caught_drop", "look", "other"]
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]

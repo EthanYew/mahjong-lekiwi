@@ -175,7 +175,7 @@
   },
   "hand14": {
     "created": "2026-10-28T22:19:14",
-    "note": "",
+    "note": "bench test layout: hand13's slots + S13 (WW), where the drawn tile's drop zone goes; play.py checks the bench picked up there (markers.zone_test)",
     "ghost": "hand14.jpg",
     "spots": [
       {
@@ -308,7 +308,7 @@
   },
   "hand13": {
     "created": "2026-10-28T22:19:52",
-    "note": "",
+    "note": "autonomous play: the 13 hand slots (play.py --layout hand13); bench them with hand14",
     "ghost": "hand13.jpg",
     "spots": [
       {

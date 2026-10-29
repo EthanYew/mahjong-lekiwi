@@ -45,3 +45,42 @@ def test_a_zone_from_another_calibration_is_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr(markers, "setup_fingerprint", lambda: {"t_cam_to_base_sha": "other"})
     assert markers.load_zone(path) is None
     assert markers.moved({"xy": [0.17, -0.05]}, [0.176, -0.05]) and not markers.moved({"xy": [0.17, -0.05]}, [0.172, -0.05])
+
+
+HAND = [{"id": f"S{i + 1}", "xy": [0.15 + 0.06 * (i % 2), 0.17 - 0.057 * (i // 2)]} for i in range(13)]
+ZONE = [0.163, -0.163]
+
+
+def bench_session(sessions, name, spot_xy, success=True, landed=True):
+    import json
+    folder = sessions / f"{name}_bench"
+    folder.mkdir(parents=True)
+    events = [{"type": "attempt", "spot": "S14", "spot_xy": spot_xy, "success": success, "attempt_dir": "001_x"}]
+    if landed:
+        events.append({"type": "return_landed", "attempt_dir": "001_x", "error_m": 0.003})
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(tmp_path):
+    test_layout = HAND + [{"id": "S14", "xy": [0.1627, -0.1626]}]
+    result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
+    assert not result["ok"] and result["spot"] == "S14" and result["attempts"] == 0
+    assert any("bench.py --layout hand14" in f for f in result["fix"])
+
+    bench_session(tmp_path, "20261029_094543", [0.1627, -0.1626], success=False)      # skipped or missed: not yet
+    assert not markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)["ok"]
+    bench_session(tmp_path, "20261030_100000", [0.1627, -0.1626])
+    result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
+    assert result["ok"] and (result["attempts"], result["picked"], result["returned"]) == (2, 1, 1)
+
+
+def test_a_test_layout_off_the_zone_or_missing_a_slot_is_reported_with_the_commands_to_fix_it(tmp_path):
+    bench_session(tmp_path, "20261030_100000", ZONE)
+    off_zone = HAND + [{"id": "S14", "xy": [0.25, 0.0]}]
+    result = markers.zone_test(ZONE, HAND, off_zone, sessions_dir=tmp_path)
+    assert not result["ok"] and result["spot"] is None
+    assert "--remove S14" in result["fix"][0] and "--add S14 0.1630 -0.1630" in result["fix"][1]
+
+    retaught = [dict(s, xy=[s["xy"][0] + 0.01, s["xy"][1]]) if s["id"] == "S3" else s for s in HAND]
+    result = markers.zone_test(ZONE, retaught, HAND + [{"id": "S14", "xy": ZONE}], sessions_dir=tmp_path)
+    assert not result["ok"] and "S3" in result["problems"][0]
