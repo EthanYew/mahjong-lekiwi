@@ -119,6 +119,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   off (2026-10-23). What matters is enough light on the mat, not the lamp itself. Every session
   records daylight / lamp / ceiling lights as structured `conditions`
   (`config.SETUP_QUESTIONS`); compare across sessions with `session_report.py --all`.
+- **So is the surface under the tiles.** Every recording through v5 is on the black mat. On a green cutting mat
+  with a white grid (2026-10-29, `20261029_180643_bench`) v5 closed its jaws 45mm up in the air once and bumped
+  a neighbour the next time. `make_policy.py --augment --replace-mat 0.7` trains on colour jitter and on frames
+  whose mat is swapped for other surfaces (`dataset.surface_keep` keeps faces, green backs and the jaws; faces in
+  the dim recordings are found by growing from their lit part). The swap is fixed in the image, while a real mat
+  moves with the camera, so record a few real episodes on each new surface as well, and score on ones never
+  trained on. A mat is also a few mm thick: run `setup_check.py` on it first (table plane).
 - **v2 repeats a memorised x/y move instead of steering to the tile** (measured at 4D on 2026-10-23:
   the grasp followed a deliberately offset hover at ~1 mm per mm). The demos' hover→grasp move is
   systematic per position (affine/23 misses ~12mm RMS in a pattern), and v2 learned it per position. So

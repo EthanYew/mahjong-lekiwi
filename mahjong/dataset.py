@@ -19,7 +19,13 @@ delta from the hover too.
 `episodes` picks which source episodes go in: make_policy.py leaves out the held-out ones
 (data/eval_split.json), offline_eval.py builds only those. `extra` adds episodes of other recorded
 datasets (make_policy.py --add, e.g. DAgger corrections) after them.
+
+replace_mat (make_policy.py --replace-mat): every recording so far is on the black mat, and v5 closed its
+jaws in mid-air over a green grid mat (2026-10-29, 20261029_180643_bench). In that fraction of the episodes
+the mat in every wrist frame is swapped for another surface (surface_keep, random_surface), one surface per
+episode, shaded by the original frame so tile shadows and the lamp's glare stay.
 """
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -107,13 +113,14 @@ def takeover_frame(record):
 
 
 def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), episodes=None,
-          close_gripper=(), extra=(), log=print):
+          close_gripper=(), extra=(), replace_mat=0.0, seed=0, log=print):
     """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. episodes: the source
     episode indices to include (default all). extra: [(repo, episodes, close_gripper)] of other recorded
     datasets to add after them. Returns a summary; its source_episodes maps each built episode of src_repo
     back to its source index (and so to the source's episode log), sources every built one to
     [repo, index], and dagger_episodes lists the built DAgger ones (they start at a takeover, not at a
-    zero state delta)."""
+    zero state delta). replace_mat: the fraction of episodes whose mat is swapped (module docstring); the
+    summary's surfaces names each built episode's surface (None: the black mat as recorded)."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from lerobot.utils.constants import HF_LEROBOT_HOME
 
@@ -126,33 +133,37 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
     dst = LeRobotDataset.create(repo_id=dst_repo, fps=src.fps, features=features, robot_type=src.meta.robot_type,
                                 use_videos=True)
     trims = dict(trim_idle=trim_idle, trim_sag=trim_sag, trim_narrowing=trim_narrowing)
-    sources, dagger, source_frames, start_grippers = [], [], 0, []
+    surfacing = dict(fraction=replace_mat, seed=seed)
+    sources, dagger, source_frames, start_grippers, surfaces = [], [], 0, [], []
     for repo, eps, closing in [(src_repo, episodes, close_gripper), *extra]:
         ds = src if repo == src_repo else LeRobotDataset(repo)
         if ds.fps != src.fps:
             raise ValueError(f"{repo} is {ds.fps} fps, {src_repo} {src.fps}")
-        built, takeovers, frames, grippers = _add_episodes(dst, ds, repo, eps, set(closing), size, trims, log,
-                                                 label="" if repo == src_repo else f"{repo} ")
+        built, takeovers, frames, grippers, kinds = _add_episodes(dst, ds, repo, eps, set(closing), size, trims, log,
+                                                         label="" if repo == src_repo else f"{repo} ",
+                                                         surfacing=surfacing)
         dagger += [len(sources) + k for k, t in enumerate(takeovers) if t is not None]
         sources += [[repo, ep] for ep in built]
         source_frames += frames
         start_grippers += grippers
+        surfaces += kinds
     dst.finalize()
     return {"episodes": len(sources), "source_episodes": [ep for repo, ep in sources if repo == src_repo],
             "sources": sources, "dagger_episodes": dagger, "frames": int(dst.meta.total_frames), "source_frames": source_frames,
-            "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root)}
+            "start_gripper_median": float(np.median(start_grippers)), "root": str(dst.root),
+            "replace_mat": replace_mat, "surfaces": surfaces}
 
 
-def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, label=""):
+def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, label="", surfacing=None):
     """Add src's `episodes` (default all) to dst. Returns (episodes built, each one's takeover frame or
-    None, their source frames, each one's start gripper)."""
+    None, their source frames, each one's start gripper, each one's surface or None)."""
     import torchvision.transforms.functional as F
     h = src.hf_dataset
     actions, actions_raw, states_raw = (np.stack(h[k]) for k in ("action", "action_raw", "observation.state_raw"))
     actions, actions_raw = actions.copy(), actions_raw.copy()
     records = episode_log(repo)
     episodes = list(range(src.num_episodes)) if episodes is None else sorted(int(e) for e in episodes)
-    built, takeovers, source_frames, start_grippers = [], [], 0, []
+    built, takeovers, source_frames, start_grippers, kinds = [], [], 0, [], []
     for n, ep in enumerate(episodes, start=1):
         meta = src.meta.episodes[ep]
         a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
@@ -171,23 +182,117 @@ def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, lab
             continue
         anchor = states_raw[a] if dagger else states_raw[a + keep[0]]
         start_grippers.append(float(anchor[5]))
+        kind, texture = episode_surface(repo, ep, size, **(surfacing or {}))
         for i in keep:
             item = src[a + int(i)]
             image = F.resize(item["observation.images.wrist"], list(size), antialias=True)
+            image = (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8")
             dst.add_frame({
                 "observation.state": (states_raw[a + i] - anchor).astype("float32"),
                 "action": (actions_raw[a + i] - anchor).astype("float32"),
                 "observation.state_raw": states_raw[a + i].astype("float32"),
                 "action_raw": actions_raw[a + i].astype("float32"),
-                "observation.images.wrist": (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8"),
+                "observation.images.wrist": image if texture is None else replace_surface(image, texture),
                 "task": item["task"]})
         dst.save_episode()
         built.append(ep)
         takeovers.append(takeover)
+        kinds.append(kind)
         source_frames += b - a
         log(f"  {label}episode {ep} ({n}/{len(episodes)}): kept {len(keep)}/{b - a}"
-            + (f" (from the takeover at frame {takeover})" if dagger else ""))
-    return built, takeovers, source_frames, start_grippers
+            + (f" (from the takeover at frame {takeover})" if dagger else "") + (f", on {kind}" if kind else ""))
+    return built, takeovers, source_frames, start_grippers, kinds
+
+
+# --- another surface under the tiles (build(replace_mat=...)) ---
+
+KEEP_WHITE = (80, 0.45, 90)     # HSV (OpenCV 0-180 hue): saturation below, value above this share of the frame's 99th
+                                # percentile and above 90: tile faces, the jaws' pale parts
+KEEP_FACE_SHADE = (0.25, 55)    # ...and the greyer pixels (value above this share, and 55) joined to those: a face's
+                                # shaded side (in the dimmer recordings a face falls to ~60-100)
+KEEP_GREEN = (35, 85, 60)       # hue from, to, saturation above: the tiles' green backs
+KEEP_CYAN = (80, 105, 80)       # the jaws
+SURFACES = ["grid", "solid", "wood", "cloth", "paper"]
+SURFACE_WEIGHTS = [0.35, 0.2, 0.2, 0.15, 0.1]   # grids first (the mat that failed), paper last (as bright as a face)
+
+
+def surface_keep(rgb):
+    """What isn't the mat in a wrist frame (H x W x 3 uint8 RGB): tile faces with their prints filled in, the
+    tiles' green backs and the cyan jaws. The rest is mat, including the lamp's brown glare on it."""
+    import cv2
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    h, s, v = (hsv[..., k].astype(int) for k in range(3))
+    top = np.percentile(v, 99)
+    pale = (s < KEEP_WHITE[0]) & (v > max(KEEP_FACE_SHADE[1], KEEP_FACE_SHADE[0] * top))
+    _, labels = cv2.connectedComponents(pale.astype(np.uint8))
+    lit = pale & (v > max(KEEP_WHITE[2], KEEP_WHITE[1] * top))
+    faces = np.isin(labels, np.unique(labels[lit])) & pale
+    keep = (faces
+            | (h >= KEEP_GREEN[0]) & (h <= KEEP_GREEN[1]) & (s >= KEEP_GREEN[2]) & (v >= 60)
+            | (h >= KEEP_CYAN[0]) & (h <= KEEP_CYAN[1]) & (s >= KEEP_CYAN[2]) & (v >= 60)).astype(np.uint8)
+    keep = cv2.morphologyEx(keep, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    contours, _ = cv2.findContours(keep, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:            # one at a time: drawn together, a face's print counts as a hole
+        if cv2.contourArea(contour) > 30:
+            cv2.drawContours(keep, [contour], -1, 1, -1)
+    return cv2.morphologyEx(keep, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
+
+
+def random_surface(rng, size=(224, 224), kind=None):
+    """(kind, H x W x 3 uint8 RGB texture): a grid mat, a plain colour, wood, cloth or paper, its colour,
+    scale and angle drawn from rng."""
+    import cv2
+    h, w = size
+    kind = kind or rng.choice(SURFACES, p=SURFACE_WEIGHTS)
+    big = int(np.ceil(np.hypot(h, w))) + 2
+
+    def colour(hue=None, sat=(0.0, 0.8), val=(0.15, 0.85)):
+        hsv = np.uint8([[[rng.uniform(0, 180) if hue is None else rng.uniform(*hue), 255 * rng.uniform(*sat),
+                          255 * rng.uniform(*val)]]])
+        return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)[0, 0].astype(float)
+
+    canvas = np.ones((big, big, 3)) * colour()
+    if kind == "grid":
+        line = colour(sat=(0.0, 0.3), val=(0.6, 1.0)) if rng.random() < 0.7 else colour(val=(0.0, 0.3))
+        for spacing, width in ((int(rng.uniform(10, 40)), int(rng.integers(1, 3))), (int(rng.uniform(50, 120)), 2)):
+            for k in range(0, big, spacing):
+                canvas[k:k + width, :] = line
+                canvas[:, k:k + width] = line
+    elif kind == "wood":
+        canvas = np.ones((big, big, 3)) * colour(hue=(5, 25), sat=(0.3, 0.8), val=(0.2, 0.7))
+        y = np.arange(big)[:, None] + 6 * np.sin(np.arange(big)[None, :] / rng.uniform(15, 40))
+        canvas *= (0.85 + 0.15 * np.sin(y / rng.uniform(2, 6)))[..., None]
+    elif kind == "cloth":
+        noise = cv2.GaussianBlur(rng.normal(0, 1, (big, big)), (0, 0), rng.uniform(0.6, 2.0))
+        canvas *= (1 + 0.12 * noise / max(noise.std(), 1e-6))[..., None]
+    elif kind == "paper":
+        canvas = np.ones((big, big, 3)) * colour(sat=(0.0, 0.08), val=(0.75, 0.95))
+        canvas *= (1 + 0.03 * rng.normal(0, 1, (big, big)))[..., None]
+    turn = cv2.getRotationMatrix2D((big / 2, big / 2), rng.uniform(0, 90), 1.0)
+    canvas = cv2.warpAffine(canvas.clip(0, 255).astype(np.uint8), turn, (big, big))
+    top, left = (big - h) // 2, (big - w) // 2
+    return str(kind), np.ascontiguousarray(canvas[top:top + h, left:left + w])
+
+
+def replace_surface(rgb, texture):
+    """The wrist frame with its mat (surface_keep) swapped for `texture`, shaded by the frame's own
+    brightness relative to the mat's median, so shadows beside the tiles and the lamp's glare carry over."""
+    keep = surface_keep(rgb)
+    if keep.all():
+        return rgb
+    value = rgb.max(axis=2).astype(float)
+    shade = np.clip(0.6 + 0.4 * value / max(np.median(value[~keep]), 1.0), 0.5, 1.6)
+    swapped = (texture.astype(float) * shade[..., None]).clip(0, 255).astype(np.uint8)
+    return np.where(keep[..., None], rgb, swapped)
+
+
+def episode_surface(repo, episode, size=(224, 224), fraction=0.0, seed=0):
+    """(kind, texture) for one episode, or (None, None) to keep the black mat: the same every build of
+    the same dataset, episode and seed."""
+    rng = np.random.default_rng(zlib.crc32(f"{repo}:{episode}:{seed}".encode()))
+    if rng.random() >= fraction:
+        return None, None
+    return random_surface(rng, size)
 
 
 def episode_log(repo_id):

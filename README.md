@@ -357,6 +357,8 @@ python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 -
 | `--dry-run` | print the plan and stop. Always do this first |
 | `--add REPO` | train on another recorded dataset as well (repeatable), e.g. DAgger corrections: only their frames from the takeover on |
 | `--trim-narrowing` | also cut the slow gripper narrowing at the start of each episode |
+| `--augment` | colour jitter while training (brightness, contrast, saturation, hue, sharpness; no shifting or rotating the image, the jaws stay put) |
+| `--replace-mat FRACTION` | swap the black mat for another surface (grid mat, plain colour, wood, cloth, paper) in that fraction of episodes, e.g. `0.7`; `--dry-run` saves a preview sheet next to the training output to check before training |
 | `--steps N` | training steps (default ~131 passes over the data) |
 | `--private` | upload as private (default is public under `Yewy/`) |
 | `--skip-build`, `--skip-upload`, `--skip-train` | resume a run partway through |

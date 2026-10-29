@@ -36,6 +36,14 @@ from mahjong import config
 EPOCHS = 131                # what v1 and v2 were trained for
 BATCH = 96
 FREEZE_FRAMES = ["180956_8D_step0300.jpg", "181050_8D_step0300.jpg", "181145_8D_step0300.jpg"]
+# --augment: LeRobot's colour jitter, wider than its defaults (lighting has already caught a policy out, v2),
+# without its RandomAffine: the jaws sit at a fixed place in the wrist image and the task is lining the tile
+# up against them. At most 3 of these per frame.
+AUGMENT = {"brightness": {"weight": 1.0, "type": "ColorJitter", "kwargs": {"brightness": [0.6, 1.4]}},
+           "contrast": {"weight": 1.0, "type": "ColorJitter", "kwargs": {"contrast": [0.6, 1.4]}},
+           "saturation": {"weight": 1.0, "type": "ColorJitter", "kwargs": {"saturation": [0.5, 1.5]}},
+           "hue": {"weight": 1.0, "type": "ColorJitter", "kwargs": {"hue": [-0.08, 0.08]}},
+           "sharpness": {"weight": 1.0, "type": "SharpnessJitter", "kwargs": {"sharpness": [0.5, 1.5]}}}
 
 
 def parse_args():
@@ -49,6 +57,11 @@ def parse_args():
                         "record.py --policy: only their frames from the takeover on, episodes without one left out")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="also drop the opening gripper narrowing (start episodes at the pre-grasp opening)")
+    p.add_argument("--augment", action="store_true",
+                   help="colour jitter during training (AUGMENT: brightness, contrast, saturation, hue, sharpness)")
+    p.add_argument("--replace-mat", type=float, default=0.0, metavar="FRACTION",
+                   help="swap the black mat for another surface (grid, plain, wood, cloth, paper) in this fraction of "
+                        "the episodes, e.g. 0.7 (mahjong/dataset.py); --dry-run saves a preview")
     p.add_argument("--steps", type=int, default=None, help="training steps (default: ~131 passes over the data)")
     p.add_argument("--private", action="store_true", help="upload the dataset and policy as private")
     p.add_argument("--default", action="store_true", help="make it the registry's default policy")
@@ -69,13 +82,38 @@ def names(args):
             "policy_id": args.policy_id or f"pickup_mat_cl_{args.version}"}
 
 
-def train_command(n, steps, private):
+def train_command(n, steps, private, augment=False):
     return [str(Path(sys.executable).parent / "lerobot-train"),
             f"--dataset.repo_id={n['dataset']}", "--policy.type=act", "--policy.device=cuda",
             f"--policy.repo_id={n['policy_repo']}", "--policy.push_to_hub=true", f"--policy.private={str(private).lower()}",
             "--policy.tags=[mahjong,so101,lekiwi,act]", f"--output_dir={n['output_dir']}", f"--job_name={n['job']}",
             f"--steps={steps}", f"--batch_size={BATCH}", "--num_workers=10", f"--save_freq={max(int(steps) // 7, 1000)}",
-            "--log_freq=200", "--seed=1000", "--wandb.enable=false"]
+            "--log_freq=200", "--seed=1000", "--wandb.enable=false"] + (
+        ["--dataset.image_transforms.enable=true", f"--dataset.image_transforms.tfs={json.dumps(AUGMENT)}"]
+        if augment else [])
+
+
+def preview_surfaces(repo, path, fraction, count=12):
+    """A contact sheet of `count` frames from recorded `repo`, each with the surface its episode would get
+    (black mat where it keeps it), to check the swap before hours of training."""
+    import cv2
+    import torchvision.transforms.functional as F
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from mahjong.dataset import episode_surface, replace_surface
+    ds = LeRobotDataset(repo)
+    tiles = []
+    for ep in np.linspace(0, ds.num_episodes - 1, count).astype(int):
+        meta = ds.meta.episodes[int(ep)]
+        a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
+        image = F.resize(ds[a + (b - a) // 2]["observation.images.wrist"], [224, 224], antialias=True)
+        image = (image.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype("uint8")
+        kind, texture = episode_surface(repo, int(ep), fraction=fraction)
+        out = image if texture is None else replace_surface(image, texture)
+        tiles.append(cv2.putText(cv2.cvtColor(out, cv2.COLOR_RGB2BGR), f"{ep} {kind or 'black mat'}", (4, 14),
+                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1))
+    rows = [np.hstack(tiles[k:k + 4]) for k in range(0, len(tiles), 4)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), np.vstack(rows))
 
 
 def verify(dataset_repo, trimmed_idle, dagger=()):
@@ -162,17 +200,24 @@ def main():
         est = int(frames * (0.56 if args.trim_narrowing else 0.70))   # measured on the first dataset
         steps = args.steps or max(10_000, int(round(EPOCHS * est / BATCH, -3)))
         print(f"2. build: trims idle + pre-fix sag{' + gripper narrowing' if args.trim_narrowing else ''}, "
-              f"~{est} frames kept (estimate)\n3. verify\n4. upload ({'private' if args.private else 'public'})\n"
-              f"5. train {steps} steps (~{steps / 4.6 / 3600:.1f}h at 4.6 steps/s):\n   {' '.join(train_command(n, steps, args.private))}\n"
+              f"~{est} frames kept (estimate)"
+              + (f"; the mat swapped in ~{args.replace_mat:.0%} of episodes" if args.replace_mat else "")
+              + f"\n3. verify\n4. upload ({'private' if args.private else 'public'})\n"
+              f"5. train {steps} steps (~{steps / 4.6 / 3600:.1f}h at 4.6 steps/s){', colour jitter on' if args.augment else ''}:\n"
+              f"   {' '.join(train_command(n, steps, args.private, args.augment))}\n"
               f"6. evaluate each checkpoint in {n['output_dir']}/checkpoints\n7. register {n['policy_id']}"
               f"{' as default' if args.default else ''}")
+        if args.replace_mat:
+            path = n["output_dir"].parent / f"{n['output_dir'].name}_surfaces.jpg"
+            preview_surfaces(args.source, path, args.replace_mat)
+            print(f"   surface preview (one frame per sampled episode, as the build will swap it): {path}")
         return
 
     from lerobot.utils.constants import HF_LEROBOT_HOME
     print("2. build")
     if not args.skip_build:
         summary = build(args.source, n["dataset"], trim_narrowing=args.trim_narrowing, episodes=train_episodes,
-                        close_gripper=set(gripper_fixes(args.source)), extra=extra)
+                        close_gripper=set(gripper_fixes(args.source)), extra=extra, replace_mat=args.replace_mat)
         (HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").write_text(json.dumps(summary, indent=2))
     summary = json.loads((HF_LEROBOT_HOME / n["dataset"] / "build_summary.json").read_text())
     print(f"   kept {summary['frames']}/{summary['source_frames']} frames")
@@ -184,13 +229,15 @@ def main():
         LeRobotDataset(n["dataset"]).push_to_hub(
             private=args.private, tags=["mahjong", "so101", "lekiwi", "act"],
             dataset_description=f"{' + '.join([args.source, *args.add])}, trimmed (idle frames, pre-fix takeover sag"
-                                f"{', gripper narrowing' if args.trim_narrowing else ''}), deltas re-anchored to each "
+                                f"{', gripper narrowing' if args.trim_narrowing else ''}), "
+                                f"{f'the black mat swapped for other surfaces in {args.replace_mat:.0%} of episodes, ' if args.replace_mat else ''}"
+                                f"deltas re-anchored to each "
                                 f"episode's first kept frame, wrist camera at 224x224. {summary['frames']} of "
                                 f"{summary['source_frames']} frames kept. Built by mahjong-lekiwi scripts/make_policy.py.")
     steps = args.steps or max(10_000, int(round(EPOCHS * summary["frames"] / BATCH, -3)))
     if not args.skip_train:
         print(f"5. train {steps} steps")
-        subprocess.run(train_command(n, steps, args.private), cwd=config.LEROBOT_REPO, check=True)
+        subprocess.run(train_command(n, steps, args.private, args.augment), cwd=config.LEROBOT_REPO, check=True)
     hover = hover_settings(args.source, summary)
     print(f"6. evaluate checkpoints (hover {hover})")
     from mahjong.policy import Policy, spec
@@ -221,7 +268,9 @@ def main():
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
                               "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
-                                       f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
+                                       + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
+                                       + ("colour jitter (AUGMENT); " if args.augment else "")
+                                       + f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
                                        f"{[(c, round(m, 2), o, sl) for c, m, o, sl in results]}"},
              make_default=args.default)
     print(f"Done. Try it: python scripts/bench.py --policy {n['policy_id']} --trials 5 --tile 8D")
