@@ -37,5 +37,9 @@
     "118": "closed high: tip 18mm above the grasp point",
     "120": "closed high (20mm) and began closing 30mm up",
     "128": "went 26mm the wrong way before closing"
+  },
+  "Yewy/mahjong_mat_dagger_v4": {
+    "20": "never closed after the takeover (jaws stopped at 8%), 5 x/y reversals",
+    "25": "wandered 56mm with 5 x/y reversals over 11.8s after the takeover before closing"
   }
 }
