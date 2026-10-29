@@ -329,6 +329,19 @@ python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 -
 | `--private` | upload as private (default is public under `Yewy/`) |
 | `--skip-build`, `--skip-upload`, `--skip-train` | resume a run partway through |
 
+**What the names mean.** There are three kinds of repo under `Yewy/`, and only the first is yours to name:
+
+| Kind | Made by | Name |
+|---|---|---|
+| recorded dataset (raw episodes) | `record.py --dataset` | whatever you choose, e.g. `mahjong_mat_pickup_jitter_v3`, `mahjong_mat_dagger_v3c` |
+| training dataset (trimmed, 224px) | `make_policy.py` | `<--source>_<version>_224`, e.g. `mahjong_mat_pickup_jitter_v3_v4_224` |
+| policy | `make_policy.py` | `<--source>_<version>_policy`, registered as `pickup_mat_cl_<version>` |
+
+So in `jitter_v3_v4`, `jitter_v3` is the recording and `v4` the policy version. `--add` datasets don't
+show in the name, only in the policy's `notes` in `data/policies.json` (v4 = `jitter_v3` + `dagger_v3c`).
+Record DAgger corrections to a new dataset named after the policy that drove, e.g.
+`mahjong_mat_dagger_v4` for `--policy pickup_mat_cl_v4`, never to a `_224` or `_policy` repo.
+
 ## Scoring offline: `scripts/offline_eval.py`
 
 Scores a policy on recorded episodes it never trained on (GPU, minutes, no arm). Good for screening;
