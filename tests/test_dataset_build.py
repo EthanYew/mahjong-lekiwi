@@ -42,13 +42,17 @@ record("t/dagger", [20, 20], [{"episode_index": 0, "policy": "p", "takeover_fram
                               {"episode_index": 1, "policy": "p", "takeover_frame": None}])
 summary = dataset.build("t/demos", "t/built", trim_idle=False, size=(24, 32), extra=[("t/dagger", None, ())],
                         log=lambda *a: None)
+record("t/green", [20], [{"episode_index": 0, "conditions": {"surface": "green cutting mat"}}])
+swapped = dataset.build("t/demos", "t/swapped", trim_idle=False, size=(24, 32), extra=[("t/green", None, ())],
+                        replace_mat=1.0, log=lambda *a: None)
 built = LeRobotDataset("t/built")
 h = built.hf_dataset
 ep = np.array(h["episode_index"])
 state, raw = np.stack(h["observation.state"]), np.stack(h["observation.state_raw"])
 print(json.dumps({"summary": summary, "lengths": [int((ep == e).sum()) for e in range(built.num_episodes)],
                   "first_state": [state[ep == e][0].tolist() for e in range(built.num_episodes)],
-                  "first_raw": [raw[ep == e][0].tolist() for e in range(built.num_episodes)]}))
+                  "first_raw": [raw[ep == e][0].tolist() for e in range(built.num_episodes)],
+                  "swapped_surfaces": swapped["surfaces"]}))
 '''
 
 
@@ -64,3 +68,6 @@ def test_a_dagger_episode_keeps_its_frames_from_the_takeover_as_deltas_from_the_
     assert result["first_state"][0] == [0.0] * 6                        # a demo starts at a zero delta
     assert result["first_state"][1] == [8.0] * 6                        # DAgger: 8 frames on from the hover
     assert result["first_raw"][1] == [8, 18, 28, 38, 48, 35]
+    assert summary["surfaces"] == [None, None]                          # replace_mat off
+    black, green = result["swapped_surfaces"]                           # replace_mat=1.0: every black-top episode,
+    assert black is not None and green is None                          # never one recorded on another surface

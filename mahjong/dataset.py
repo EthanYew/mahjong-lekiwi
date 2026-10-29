@@ -22,7 +22,8 @@ datasets (make_policy.py --add, e.g. DAgger corrections) after them.
 
 replace_mat (make_policy.py --replace-mat): every recording so far is on the black table top, and v5 closed its
 jaws in mid-air over a green grid mat (2026-10-29, 20261029_180643_bench). In that fraction of the episodes
-the mat in every wrist frame is swapped for another surface (surface_keep, random_surface), one surface per
+recorded on the black table top (others are already another surface, and the mask is tuned to the black top:
+a green mat would pass for tile backs) the mat in every wrist frame is swapped for another surface (surface_keep, random_surface), one surface per
 episode, shaded by the original frame so tile shadows and the lamp's glare stay.
 """
 import zlib
@@ -182,7 +183,9 @@ def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, lab
             continue
         anchor = states_raw[a] if dagger else states_raw[a + keep[0]]
         start_grippers.append(float(anchor[5]))
-        kind, texture = episode_surface(repo, ep, size, **(surfacing or {}))
+        recorded_on = (records.get(ep, {}).get("conditions") or {}).get("surface", config.SURFACE_BEFORE_ASKED)
+        kind, texture = (episode_surface(repo, ep, size, **(surfacing or {}))     # surface_keep knows only the black top
+                         if recorded_on == config.SURFACE_BEFORE_ASKED else (None, None))
         for i in keep:
             item = src[a + int(i)]
             image = F.resize(item["observation.images.wrist"], list(size), antialias=True)
