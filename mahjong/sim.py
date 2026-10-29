@@ -137,7 +137,7 @@ class SimPerception:
 
     def snapshot(self):
         from .layout import render
-        image = render([(*t["xy"], 0.0) for t in self.tiles], self.intrinsics, self.T_render)
+        image = render([(*t["xy"], t.get("yaw_deg", 0.0)) for t in self.tiles], self.intrinsics, self.T_render)
         return draw_robot(image, self.intrinsics, self.T_render)
 
     def depth_snapshot(self):

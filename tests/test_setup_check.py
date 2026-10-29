@@ -135,12 +135,92 @@ def test_table_fit_sees_a_mat_lower_than_config():
     assert abs(lower["change"]["offset_mm"] + 5) < 0.5 and lower["status"] == "warn"
 
 
-def test_wrist_tile_finds_the_face_and_ignores_glare():
+def test_a_refit_hover_correction_doesnt_count_against_the_setup(tmp_path, monkeypatch):
+    import setup_check
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+
+    class Refit:                          # the live correction moved 22mm since the reference
+        name = "gamepad/affine/99"
+
+        def delta_at(self, x, y):
+            return 0.02, 0.01
+    monkeypatch.setattr(setup_check.HoverCorrection, "load", classmethod(lambda cls, *a, **k: Refit()))
+    assert run(tmp_path, []) == "pass"
+    spots = last_check(tmp_path)[0]["results"]["tiles"]["spots"]
+    assert all(r["shift_mm"] < 0.5 and r["live_correction_change_mm"] > 15 for r in spots.values())
+
+
+def test_a_tile_placed_turned_within_green_still_passes(tmp_path, monkeypatch):
+    import setup_check
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    place = setup_check.place_sim_tile
+
+    def turned_5(realsense, spot):
+        place(realsense, spot)
+        realsense.tiles[0]["yaw_deg"] = 5.0
+    monkeypatch.setattr(setup_check, "place_sim_tile", turned_5)
+    assert run(tmp_path, []) == "pass"
+    for r in last_check(tmp_path)[0]["results"]["tiles"]["spots"].values():
+        assert abs(abs(r["angle_change_deg"]) - 5) < 1.5 and abs(r["placed_turn_deg"] - 5) < 2.5    # shown, not graded
+
+
+def test_saving_a_reference_asks_whether_the_cross_is_on_the_tile(tmp_path, monkeypatch):
+    import setup_check
+    from mahjong import layout, sim
+    from mahjong.session import Session
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    devices = sim.connect(tiles=[], wrist_view=True)
+    session = Session("setup", ask_setup=False, sim=True)
+    answers = iter(["retry", "ok"])                  # F2's first find rejected, then accepted
+    spots = [s for s in layout.load("eval_familiar")["spots"] if s["id"] == "F2"]
+    results, frames, _ = setup_check.tile_test(devices["arm"], devices["wrist_camera"], devices["realsense"], None,
+                                               spots, None, session, True, ask=lambda p: "",
+                                               confirm=lambda spot, frame, found: next(answers))
+    session.close()
+    assert results["F2"]["attempts"] == 2 and "F2" in frames and results["F2"]["hover_delta_mm"] == [0.0, 0.0]
+
+
+def test_an_old_reference_is_asked_to_be_saved_again(tmp_path, monkeypatch):
+    import json
+    import pytest
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    path = tmp_path / "reference" / "reference.json"
+    reference = json.loads(path.read_text())
+    for spot in reference["spots"]:
+        del spot["hover_delta_mm"]
+    path.write_text(json.dumps(reference))
+    with pytest.raises(SystemExit, match="--save-reference again"):
+        run(tmp_path, [])
+    assert run(tmp_path, ["--skip-tiles"]) == "pass"
+
+
+def test_tiles_are_graded_on_the_median_spot():
+    spot = {"shift_mm": 2.0, "size_pct": 1.0, "status": "pass"}
+    one_off = sc.tiles_result({"F2": spot, "F3": {**spot, "shift_mm": 9.0, "status": "fail"}, "F6": spot})
+    assert one_off["status"] == "warn" and one_off["median_shift_mm"] == 2.0          # one spot: worth a look
+    all_off = sc.tiles_result({i: {**spot, "shift_mm": 8.0, "status": "fail"} for i in ("F2", "F3", "F6")})
+    assert all_off["status"] == "fail"                                                 # every spot: the setup
+
+
+def test_wrist_tile_finds_the_tile_among_neighbours_glare_and_the_jaw():
     image = np.full((480, 640, 3), 25, np.uint8)
     cv2.fillPoly(image, [np.int32([(270, 180), (380, 180), (380, 330), (270, 330)])], (225, 235, 240))
     cv2.ellipse(image, (80, 400), (60, 20), 30, 0, 300, (200, 200, 200), -1)   # an irregular bright patch
     tile = sc.wrist_tile(image)
     assert np.allclose(tile["centre_px"], (325, 255), atol=2)
+    glare = image.copy()
+    cv2.rectangle(glare, (0, 60), (120, 200), (235, 235, 235), -1)            # tile-sized glare at the image edge
+    cv2.fillPoly(glare, [np.int32([(450, 200), (560, 200), (560, 350), (450, 350)])], (225, 235, 240))   # a neighbour
+    cv2.line(glare, (300, 330), (300, 470), (200, 205, 205), 12)              # the pale jaw tip touching the face
+    cv2.rectangle(glare, (150, 440), (500, 470), (230, 230, 230), -1)         # ... and the bright table edge
+    assert np.allclose(sc.wrist_tile(glare)["centre_px"], (325, 255), atol=3)
+    assert np.allclose(sc.wrist_tile(glare, near_px=(500, 280))["centre_px"], (505, 275), atol=3)
+    assert sc.wrist_tile(glare, near_px=(60, 130)) is None                    # the glare never counts
+    dim = (image.astype(np.float32) * 0.6).astype(np.uint8)                  # a dimmer room: still found
+    assert np.allclose(sc.wrist_tile(dim)["centre_px"], (325, 255), atol=2)
     moved = sc.wrist_result({**tile, "centre_px": [tile["centre_px"][0] + 40, tile["centre_px"][1]]}, tile)
     assert moved["status"] in ("warn", "fail") and moved["shift_mm"] > 3
     assert sc.wrist_result(None, tile)["status"] == "fail"
