@@ -1,10 +1,10 @@
 {
-  "default": "pickup_mat_cl_v4",
+  "default": "pickup_mat_cl_v5",
   "default_note": {
-    "policy": "pickup_mat_cl_v4",
+    "policy": "pickup_mat_cl_v5",
     "since": "2026-10-29",
-    "evidence": "sessions/20261029_094543_bench: hand14, paired with v3c, 3 rounds: v4 37/38, v3c 36/37 (S12 the only misses); then 20261029_123745/124033/142023_bench, v4 11/11",
-    "why": "set by hand in 8ec61fc, reason not recorded; v4 = v3c's demos + its DAgger corrections (dagger_v3c)"
+    "evidence": "sessions/20261029_163730/164226/165537_bench: paired with v4 at 4D, 7D and hand14 (1 round): v5 19/20, v4 19/20 (both missed WW); attempts with a collision or knocked tile v5 6/20, v4 10/20; v5 closes ~4mm further out at 4D and ~4mm higher at 7D, but pauses at the hover at 4D (held at 10-12s vs ~8.5s)",
+    "why": "v4's demos and DAgger plus 30 DAgger corrections at 4D/7D (dagger_v4): same success, fewer bumped tiles"
   },
   "policies": {
     "pickup_mat_cl": {

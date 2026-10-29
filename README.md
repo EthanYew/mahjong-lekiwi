@@ -58,7 +58,7 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v4 --policy pickup_mat_cl_v4` (press A on the gamepad to take over) |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v5 --policy pickup_mat_cl_v5` (press A on the gamepad to take over) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
@@ -69,8 +69,8 @@ not a worktree, or the sessions go when the worktree does.
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v4`, v3c's hover-jittered demos plus
-DAgger corrections of v3c; also `pickup_mat_cl_v5` (the same + the corrections of v4, not benched yet),
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v5`, v3c's hover-jittered demos plus
+DAgger corrections of v3c and of v4 at 4D/7D; also `pickup_mat_cl_v4` (without v4's corrections),
 `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
 hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
 `pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with
@@ -272,7 +272,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v4 --policy pickup_mat_cl_v4                  # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v5 --policy pickup_mat_cl_v5                  # DAgger corrections
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After

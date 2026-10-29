@@ -9,11 +9,11 @@ names the current default. Sections below hold the reasoning.
 
 | Item | State (2026-10-29) | Evidence | Next |
 |---|---|---|---|
-| Default policy | **`pickup_mat_cl_v4`**: v3c's demos + DAgger corrections of v3c (9) | `data/policies.json` default_note; `20261029_094543_bench` (hand14, paired: v4 37/38, v3c 36/37) | Perturbation test on v4 (1); record why in the next ship decision (CLAUDE.md conventions) |
+| Default policy | **`pickup_mat_cl_v5`**: v4 + DAgger corrections of v4 at 4D/7D (9) | `data/policies.json` default_note; `20261029_163730/164226/165537_bench` (paired with v4: 19/20 each, both missed WW; bumped tiles 6 vs 10 of 20) | Perturbation test on v5 (1); WW at the edge of reach (`layout.py` r) |
 | Steering vs memorised move (1) | **Not solved.** Jittered data cut it but not to ~0: v3 x +1.26 / y +0.91 mm per mm, v3b +1.57 / +0.38, v3c +0.56 / +0.37 (another v3b run +1.19 / +0.27) | `20261027_160415`, `20261027_192340`, `20261028_084359`, `20261028_092447` (bench `--hover-perturb-mm`, 4D) | The test on v4, and at an x ≥ 0.21 tile. Hover A/B (1, Next 3) waits for a slope near 0 |
 | Golden eval set (2) | Recorded and registered: `Yewy/mahjong_mat_eval_v1`; layouts `eval_familiar`, `eval_new`, `eval_tilt` | `7ed5e58`, `905f35a`; `data/eval_split.json` | Score v4 on it (`offline_eval.py --policy pickup_mat_cl_v4 --against pickup_mat_cl_v3c`); check v2 does worse on `jitter` (sequence step 4, not found in `data/offline_eval/`) |
 | v2n / v3 / v3b / v3c (7) | Trained, scored offline, benched. v2n vs v3 paired 10/10 vs 9/10 | `20261027_161356_bench`; `data/offline_eval/`; `python scripts/status.py` | Retire from the bench once v4 holds up |
-| DAgger (9) | Round 1 on v3c → v4 (shipped). Round 2 on v4 (`Yewy/mahjong_mat_dagger_v4`, episodes 20, 25 dropped) → **`pickup_mat_cl_v5`** registered, not the default: 40310 frames, 55000 steps, scored offline | `0957a61`, `b6e2095`; `20261029_111756_record`, `20261029_115104_record`; `data/offline_eval/pickup_mat_cl_v5@*` | Bench v5 paired vs v4 on hand14 (`bench.py --policy pickup_mat_cl_v4,pickup_mat_cl_v5 --layout hand14 --trials 3`), then `status.py --set-default` if it wins |
+| DAgger (9) | Round 1 on v3c → v4 (shipped). Round 2 on v4 (`Yewy/mahjong_mat_dagger_v4`, episodes 20, 25 dropped) → **`pickup_mat_cl_v5`**, the default since 2026-10-29: 40310 frames, 55000 steps | `0957a61`, `b6e2095`; `20261029_111756_record`, `20261029_115104_record`; `data/offline_eval/pickup_mat_cl_v5@*` | Round 3 on v5 (`Yewy/mahjong_mat_dagger_v5`): WW with a neighbour beside it, or move WW inside comfortable reach; v5's pause at the 4D hover |
 | Returns (8) | Aim at home (3mm median at 6C); let go at the grasp's own height (#33) | `docs/retrospectives/2026-10-28_return_homes.md`; `bf75394` | #33's release height unconfirmed on the arm: check `session_report` "return release" on the next bench |
 | Autonomous play (8) | Built, `--sim` only. `hand13` taught; `hand14` = hand13 + the drawn tile's spot S13 (WW), benched 73/75 (S13 6/6; S12 the only misses, 1/3) | `20261029_094543_bench`; `data/layouts.json` | Teach the drop zone on hand14's S13 (play checks it was benched, `markers.zone_test`); discard pose; the scripted hand (8, Next 2) |
 | Scorecard (4) | Draft outside the repo (`~/.claude/plans/reviewing-item-4-in-soft-blanket.md`) | | Write `docs/scorecard.md`, then build it into `session_report.py` |
@@ -339,7 +339,7 @@ dataset next to the main one.
 **Round 1 done (2026-10-28/29):** corrections on v3c (`Yewy/mahjong_mat_dagger_v3c`) → `pickup_mat_cl_v4`
 (34195 frames, 47000 steps), default since 2026-10-29 after the hand14 paired run (Status). **Round 2:**
 `Yewy/mahjong_mat_dagger_v4`, corrections on v4 → `pickup_mat_cl_v5` (both DAgger sets, registered 2026-10-29,
-`b6e2095`). Next: bench v5 paired against v4. Still worth targeting: the far spots, where v3b and v3c descended ~13mm deeper
+`b6e2095`), default since 2026-10-29 after the paired bench against v4 (Status). Still worth targeting: the far spots, where v3b and v3c descended ~13mm deeper
 than the demos (FK heights drift with reach, CLAUDE.md), and S12 (7D), the only hand14 misses.
 
 ## 10. The tile detector
