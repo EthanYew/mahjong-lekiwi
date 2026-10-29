@@ -6,11 +6,15 @@ draws each spot as a tile outline: green when the tile there is within 5mm / 6°
 
     python scripts/layout.py --name eval_v1 --teach            # place tiles, t saves them (+ a ghost photo)
     python scripts/layout.py --name eval_v1 --teach --append --prefix N   # more spots, ids N1, N2, ...
-    python scripts/layout.py --name eval_v1                    # live view: n/p spot, a all, g ghost, c capture, q quit
+    python scripts/layout.py --name eval_v1                    # live view: n/p spot, a all, g ghost, r reach, c capture, q quit
     python scripts/layout.py --name eval_v1 --add T1 --like S2 --yaw 15   # a tilted copy of a spot
     python scripts/layout.py --name eval_v1 --add N7 0.24 0.17
     python scripts/layout.py --name eval_v1 --remove N7
     python scripts/layout.py --list
+
+In the live view and while teaching, r tints where the arm reaches a tile comfortably (green), only at
+the edge of its reach (amber: 1D and WW on hand14, where corrections and pickups struggled), or not at
+all (untinted), through the hover correction as the bench applies it. Keep taught spots in the green.
 
 In the live view, c captures every spot's reading at once (averaged over 30 frames): offset, yaw,
 their frame-to-frame spread, and whether the yaw error drifts across the mat. It's printed and saved
@@ -32,6 +36,32 @@ import cv2
 from mahjong import config, hardware, layout
 
 WINDOW = "layout"
+
+
+class Reach:
+    """r toggles the reach mask over the view (worked out on first use: a few seconds)."""
+
+    def __init__(self, realsense):
+        self.realsense, self.masks, self.on, self.correction = realsense, None, False, None
+
+    def toggle(self, shape, spots=()):
+        """On or off; turning it on also prints the spots outside the green (the mask's 1cm cells are
+        coarse where a spot sits on the boundary, as 1D and WW do)."""
+        if self.masks is None:
+            from mahjong.hover_correction import HoverCorrection
+            print("  working out the reach (a few seconds)...")
+            self.correction = HoverCorrection.load()
+            self.masks = layout.reach_mask(shape, self.realsense.intrinsics, self.realsense.T_cam_to_base,
+                                           self.correction)
+        self.on = not self.on
+        if self.on and spots:
+            bands = {s["id"]: layout.reach_band(*s["xy"], self.correction) for s in spots}
+            outside = [f"{i} ({b or 'out of reach'})" for i, b in bands.items() if b != "comfortable"]
+            print(f"  outside comfortable reach: {', '.join(outside)}" if outside else
+                  f"  all {len(spots)} spots within comfortable reach")
+
+    def draw(self, out):
+        return layout.draw_reach(out, self.masks) if self.on else out
 
 
 def parse_args():
@@ -83,16 +113,18 @@ def edit(args):
 
 def teach(realsense, args):
     existing = layout.load_layouts().get(args.name, {}).get("spots", []) if args.append else []
-    print("Place the tiles. d: detect, t: save these as the layout, q: quit without saving")
-    candidates = []
+    print("Place the tiles. d: detect, t: save these as the layout, r: reach on/off, q: quit without saving")
+    candidates, reach = [], Reach(realsense)
     while True:
         image = realsense.snapshot()
-        out = layout.draw(image, existing + candidates, realsense.intrinsics, realsense.T_cam_to_base)
-        cv2.putText(out, f"{len(candidates)} new spots — d detect, t save, q quit", (10, out.shape[0] - 10),
+        out = reach.draw(layout.draw(image, existing + candidates, realsense.intrinsics, realsense.T_cam_to_base))
+        cv2.putText(out, f"{len(candidates)} new spots — d detect, t save, r reach, q quit", (10, out.shape[0] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.imshow(WINDOW, out)
         key = cv2.waitKey(30) & 0xFF
-        if key == ord("d"):
+        if key == ord("r"):
+            reach.toggle(image.shape, existing + candidates)
+        elif key == ord("d"):
             start = 1 + sum(s["id"].startswith(args.prefix) for s in existing)
             candidates = layout.spots_from_tiles(realsense.detect_tiles(), image, realsense.intrinsics,
                                                  realsense.T_cam_to_base, prefix=args.prefix)
@@ -115,8 +147,8 @@ def view(realsense, args):
     spots = layout.load(args.name)["spots"]
     ghost = layout.load_ghost(args.name)
     ids = [s["id"] for s in spots]
-    active, use_ghost, smoother = None, False, layout.Smoother()
-    print("n/p: next/previous spot, a: all spots, g: ghost photo on/off, c: capture all readings, q: quit")
+    active, use_ghost, smoother, reach = None, False, layout.Smoother(), Reach(realsense)
+    print("n/p: next/previous spot, a: all spots, g: ghost photo on/off, r: reach on/off, c: capture all readings, q: quit")
     while True:
         image = realsense.snapshot()
         found, states = {}, {}
@@ -125,6 +157,7 @@ def view(realsense, args):
                 s, layout.find_tile(image, s, realsense.intrinsics, realsense.T_cam_to_base))
         out = layout.draw(image, spots, realsense.intrinsics, realsense.T_cam_to_base, found=found, active=active,
                           ghost=ghost if use_ghost else None, states=states)
+        out = reach.draw(out)
         ok = sum(state == "ok" for state in states.values())
         cv2.putText(out, f"{ok}/{len(spots)} placed", (10, out.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (255, 255, 255), 1)
@@ -135,6 +168,8 @@ def view(realsense, args):
             active = ids[(k + (1 if key == ord("n") else -1)) % len(ids)]
         elif key == ord("a"):
             active = None
+        elif key == ord("r"):
+            reach.toggle(image.shape, spots)
         elif key == ord("c"):
             capture(realsense, args.name, spots)
         elif key == ord("g"):

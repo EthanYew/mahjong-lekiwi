@@ -141,7 +141,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   past it at WW (0.291m). Pushing out there does nothing, and lowering slides the gripper back toward
   the base along the reach circle, which looks like a sag. `gamepad.warn_if_at_reach` says so after
   the hover (record, collect_corrections). Reach such tiles by tilting the jaws forward (L/R), or keep
-  tiles inside base r ~0.27m.
+  tiles inside base r ~0.27m. `layout.py`'s `r` shows that boundary on the mat (`layout.reach_band`): on
+  hand14 1D and WW are at the edge, and both v4 and v5 missed WW with a neighbour beside it (2026-10-29).
 - **Hand corrections record the commanded tool point, not where the jaws were — and that's fine.** A
   settled hover sags the same way the lined-up arm does, so the commanded fit already carries it (a refit on
   the measured point moves the hover only 0-4mm); the noise is the lining up (~9mm RMS, same tile twice).

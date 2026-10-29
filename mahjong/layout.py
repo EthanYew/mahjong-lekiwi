@@ -254,7 +254,66 @@ def draw(image_bgr, spots, intrinsics, T_cam_to_base, found=None, active=None, g
     return out
 
 
-PLACE_HELP = "place the tile until its outline is green — Space/Enter: done, g: ghost on/off, s: skip spot, q: quit"
+# --- where the arm can comfortably work ---
+
+REACH_GRID_M = 0.01                # the mask's cell size
+REACH_AREA_M = ((0.05, 0.40), (-0.35, 0.35))    # x, y range searched (base frame)
+REACH_ALPHA = 0.3
+REACH_COLOURS = {"comfortable": (0, 160, 0), "edge": (0, 170, 255)}
+
+
+def reach_band(x, y, correction=None, offset_m=config.HOVER_OFFSET_M):
+    """How the arm reaches a tile the RealSense sees at (x, y): "comfortable", "edge" (the hover reaches it,
+    but at grasp height the wrist is within gamepad.REACH_WARNING_M of the gamepad's reach or past the IK:
+    1D and WW, where corrections and pickups struggled, 2026-10-28/29) or None (no hover). The arm goes to
+    the hover correction's point, ~40mm from the camera's (correction: a HoverCorrection)."""
+    from . import gamepad, kinematics
+    hx, hy = correction.apply(x, y, log=lambda *a: None) if correction else (x, y)
+    if kinematics.hover_command(hx, hy, offset_m, config.HOVER_GRIPPER)[0] is None:
+        return None
+    try:
+        left = gamepad.reach_left_m(hx, hy)
+    except RuntimeError:            # no XLeRobot checkout: only whether the IK reaches grasp height
+        left = math.inf if kinematics.hover_command(hx, hy, 0.0, config.HOVER_GRIPPER)[0] is not None else None
+    return "comfortable" if left is not None and left >= gamepad.REACH_WARNING_M else "edge"
+
+
+def reach_mask(shape, intrinsics, T_cam_to_base, correction=None, grid_m=REACH_GRID_M):
+    """{band: uint8 mask} over an image of `shape`: the table cells in each reach_band, as the camera sees
+    them. Takes a few seconds (one IK per cell), so callers compute it once."""
+    h, w = shape[:2]
+    masks = {band: np.zeros((h, w), np.uint8) for band in REACH_COLOURS}
+    (x0, x1), (y0, y1) = REACH_AREA_M
+    for x in np.arange(x0, x1, grid_m):
+        for y in np.arange(y0, y1, grid_m):
+            corners = [(x + dx, y + dy) for dx, dy in ((0, 0), (grid_m, 0), (grid_m, grid_m), (0, grid_m))]
+            pixels = table_to_pixel([(cx, cy, config.table_z(cx, cy)) for cx, cy in corners], intrinsics, T_cam_to_base)
+            if not ((pixels[:, 0] > -w) & (pixels[:, 0] < 2 * w) & (pixels[:, 1] > -h) & (pixels[:, 1] < 2 * h)).all():
+                continue
+            u, v = pixels.mean(axis=0)
+            if not (0 <= u < w and 0 <= v < h):
+                continue
+            band = reach_band(x + grid_m / 2, y + grid_m / 2, correction)
+            if band:
+                cv2.fillPoly(masks[band], [np.round(pixels).astype(np.int32)], 255)
+    return masks
+
+
+def draw_reach(image_bgr, masks):
+    """The reach masks tinted over the frame, each band's edge outlined, and a legend."""
+    out = image_bgr.copy()
+    for band, mask in masks.items():
+        tint = out.copy()
+        tint[mask > 0] = REACH_COLOURS[band]
+        out = np.where(mask[..., None] > 0, cv2.addWeighted(out, 1 - REACH_ALPHA, tint, REACH_ALPHA, 0), out)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(out, contours, -1, REACH_COLOURS[band], 1)
+    cv2.putText(out, "reach: green comfortable, amber edge of reach, untinted out of reach", (10, 45),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+    return out
+
+
+PLACE_HELP ="place the tile until its outline is green — Space/Enter: done, g: ghost on/off, s: skip spot, q: quit"
 
 
 def place(snapshot, spots, spot_id, intrinsics, T_cam_to_base, ghost=None, show=None, wait_key=None, window="layout"):

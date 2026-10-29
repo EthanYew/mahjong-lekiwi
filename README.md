@@ -473,11 +473,17 @@ only valid for the current camera placement and stays out of git.
 python scripts/layout.py --list                                   # all layouts (add --name X for its spots)
 python scripts/layout.py --name eval_v1 --teach                   # place tiles, d detects them, t saves them as spots
 python scripts/layout.py --name eval_v1 --teach --append --prefix N   # add more spots (N1, N2, ...)
-python scripts/layout.py --name eval_v1                           # live view: n/p spot, a all, g ghost, c capture, q quit
+python scripts/layout.py --name eval_v1                           # live view: n/p spot, a all, g ghost, r reach, c capture, q quit
 python scripts/layout.py --name eval_v1 --add T1 --like S2 --yaw 15   # a tilted copy of a spot
 python scripts/layout.py --name eval_v1 --add N7 0.24 0.17        # a spot at x y (metres, arm base frame)
 python scripts/layout.py --name eval_v1 --remove N7
 ```
+
+**Is it in reach?** `r` (live view and `--teach`) tints the mat where the arm reaches a tile comfortably
+(green), only at the edge of its reach (amber), or not at all (untinted), and prints the spots outside the
+green. Amber means the hover gets there but at grasp height the wrist is within 8mm of the gamepad's reach
+or past it: on hand14 that's 1D and WW, the spots pickups and corrections struggled with. Keep new spots
+in the green. It goes through the hover correction as the bench does, and takes a few seconds the first time.
 
 In the live view, `c` captures every spot at once (averaged over 30 frames): offset, yaw, how much each
 wobbles, and whether the yaw reading drifts across the mat. It prints a table and saves
