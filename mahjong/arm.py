@@ -39,7 +39,21 @@ AT_REST_TOLERANCE_DEG = 3.0
 PARK_SETTLE_S = 1.0
 PARKED_TOLERANCE_DEG = 3.0
 
-PLACE_TIP_CLEARANCE_M = 0.010     # recorded grasps closed with the tip at 7mm (median)
+PLACE_TIP_CLEARANCE_M = 0.010     # release height when the grasp's isn't known (recorded grasps closed at 7mm, median)
+# A return lets go RELEASE_ABOVE_GRASP_M above where this tile's own jaws closed (measured tip), so it lands as it
+# was held. The fixed 10mm let go of v4's tiles a median 3.3mm above that (6-9mm at 7D/4D on 2026-10-29), and
+# landings got worse with the drop: 3.4mm from home under 3mm, 6.2mm at 6mm or more (137 returns). Grasps close
+# at 6-8mm near the base and 12-14mm at full reach (flex the FK doesn't see), and v3c and v4 differ by 5mm.
+RELEASE_ABOVE_GRASP_M = 0.001
+RELEASE_MIN_M, RELEASE_MAX_M = -0.003, 0.020     # the grasp point is 5mm above the table: from 2mm above it
+# A set-down only ever goes down, SET_DOWN_GAIN of the measured height still to go at a time, and stops within
+# PLACE_TOLERANCE_M above the release height. _settle's raises (overshoot up, come back down) can end lower than they
+# started at full reach, and with a tighter tolerance they ended 4-10mm under the target in the sim; the full step
+# overshoots down 2mm, 0.8 lands 0.1-1.3mm above it (9 spots x 5 heights).
+SET_DOWN_GAIN = 0.8
+SET_DOWN_ADJUSTS = 4
+PLACE_TOLERANCE_M = 0.0015
+PLACE_MIN_OFFSET_M = -0.003       # the lowest commanded tip at a set-down: 2mm above the table
 RETURN_EXTRA_CLEARANCE_M = 0.030
 PLACE_MAX_SHIFT_M = 0.015         # a return may move this far toward the shoulder to fit the reach (place_point)
 PLACE_DESCEND_TIME_S = 2.0
@@ -64,7 +78,15 @@ def holds_tile(command_gripper, measured_gripper):
     return command_gripper < config.GRIP_CLOSED_BELOW and measured_gripper - command_gripper > config.HOLDING_MARGIN
 
 
-def place_point(x, y, approach_offset_m, gripper):
+def release_height(grasp_clearance_m=None):
+    """The measured tip height to let a held tile go at: just above where its grasp closed, or
+    PLACE_TIP_CLEARANCE_M if that isn't known."""
+    if grasp_clearance_m is None:
+        return PLACE_TIP_CLEARANCE_M
+    return float(min(max(grasp_clearance_m + RELEASE_ABOVE_GRASP_M, RELEASE_MIN_M), RELEASE_MAX_M))
+
+
+def place_point(x, y, approach_offset_m, gripper, release_m=PLACE_TIP_CLEARANCE_M):
     """(x, y), or the nearest point toward the shoulder (at most PLACE_MAX_SHIFT_M in), from which the
     whole set-down is reachable: every height from the release up to the approach. (x, y, shift_m), or
     None. 2026-10-23: the policy closed on 4D 11-12mm beyond its hover, ~0.29m from the shoulder and
@@ -72,7 +94,7 @@ def place_point(x, y, approach_offset_m, gripper):
     13mm in fit. Tiles sit 57mm+ apart, so 15mm still clears the neighbours. Reaching the approach
     height alone isn't enough: 4mm in reached 50mm up but not the release, and would drop the tile."""
     r = np.hypot(x - kinematics.SHOULDER_PAN_X, y)
-    heights = np.append(np.arange(PLACE_TIP_CLEARANCE_M, approach_offset_m, 0.005), approach_offset_m)
+    heights = np.append(np.arange(release_m, approach_offset_m, 0.005), approach_offset_m)
     for shift in np.arange(0.0, PLACE_MAX_SHIFT_M + 1e-9, 0.001):
         k = 1 - shift / r
         px, py = kinematics.SHOULDER_PAN_X + (x - kinematics.SHOULDER_PAN_X) * k, y * k
@@ -165,8 +187,7 @@ class Arm:
 
     def tip_clearance(self):
         """(pincer tip above the grasp point, above the tile's top face) under the measured tip, m."""
-        tip = kinematics.pincer_tip(self.measured())
-        above_grasp = float(tip[2] - config.grasp_z(tip[0], tip[1]))
+        above_grasp = kinematics.tip_clearance(self.measured())
         return above_grasp, above_grasp - (config.TILE_THICKNESS_M - config.GRASP_POINT_ABOVE_TABLE_M)
 
     def measured_tip(self):
@@ -327,14 +348,36 @@ class Arm:
         return {"offset_m": offset, "clearance_m": clearance, "tile_top_gap_m": gap, "adjusts": adjusts,
                 "tilt_deg": tilt, "first_sag_xyz_m": first_sag, "sag_xyz_m": self.tool_sag()}
 
-    def place(self, x, y, approach_offset_m, log=print):
+    def _set_down(self, x, y, offset, target_m, gripper):
+        """From commanded `offset` over (x, y), lower until the measured tip is within PLACE_TOLERANCE_M above
+        target_m: never up, SET_DOWN_GAIN of what's left each time. Returns {offset_m, clearance_m, adjusts}."""
+        clearance, _ = self.tip_clearance()
+        adjusts = []
+        for _ in range(SET_DOWN_ADJUSTS):
+            left = clearance - target_m
+            if left <= PLACE_TOLERANCE_M:
+                break
+            new_offset = max(offset - SET_DOWN_GAIN * left, PLACE_MIN_OFFSET_M)
+            command, _ = kinematics.hover_command(x, y, new_offset, gripper)
+            if command is None or new_offset >= offset:
+                break
+            self.move_to(command, ADJUST_TIME_S if offset - new_offset < 0.03 else PLACE_DESCEND_TIME_S)
+            self.sleep(SETTLE_S)
+            offset = new_offset
+            clearance, _ = self.tip_clearance()
+            adjusts.append({"offset_m": offset, "clearance_m": clearance})
+        return {"offset_m": offset, "clearance_m": clearance, "adjusts": adjusts}
+
+    def place(self, x, y, approach_offset_m, log=print, grasp_clearance_m=None):
         """Set a held tile down with the tool point over (x, y): approach from above (extra height for
-        the swing), measure the sag, descend until the measured tip is PLACE_TIP_CLEARANCE_M above the
-        grasp point, release, lift, rest. Beyond reach, (x, y) moves toward the shoulder (place_point).
-        Returns {released_at_m (the measured clearance at release), xy, shift_m}, or None if out of reach
-        even so (nothing moved)."""
+        the swing), measure the sag, descend until the measured tip is at release_height(grasp_clearance_m)
+        (just above where the jaws closed on this tile, kinematics.grasp_clearance), release, lift, rest.
+        Beyond reach, (x, y) moves toward the shoulder (place_point). Returns {released_at_m (the measured
+        clearance at release), release_target_m, xy, shift_m, ...}, or None if out of reach even so (nothing
+        moved)."""
         held = self.commanded()["gripper"]
-        point = place_point(x, y, approach_offset_m, held)
+        target = release_height(grasp_clearance_m)
+        point = place_point(x, y, approach_offset_m, held, target)
         if point is None:
             log(f"  ({x:.3f}, {y:+.3f}) is out of reach, even {PLACE_MAX_SHIFT_M * 1000:.0f}mm closer — not moving")
             return None
@@ -350,10 +393,12 @@ class Arm:
         self.raise_from_rest()
         self.move_to(above, MOVE_TIME_S)
         self.sleep(SETTLE_S)
-        settled = self._settle(x, y, above_offset, PLACE_TIP_CLEARANCE_M, held, 0.0, above_offset, log)
+        settled = self._set_down(x, y, above_offset, target, held)
         released_at = settled["clearance_m"]
         log(f"  setting down: tip {released_at * 1000:.0f}mm above the grasp point "
-            f"(commanded {settled['offset_m'] * 1000:.0f}mm)")
+            f"(commanded {settled['offset_m'] * 1000:.0f}mm; "
+            + (f"the jaws closed at {grasp_clearance_m * 1000:.0f}mm)" if grasp_clearance_m is not None
+               else "where they closed isn't known)"))
         release = min(config.GRIPPER_RELEASE, self.measured()["gripper"] + config.GRIPPER_RELEASE_PAST_HELD)
         self.set_gripper(release)
         self.sleep(0.3)
@@ -371,8 +416,8 @@ class Arm:
         self.rest()
         rise = {"up_m": float(after_rise[2] - at_release[2]),
                 "sideways_m": float(np.hypot(*(after_rise[:2] - at_release[:2]))), "swing_from_m": swing_from}
-        return {"released_at_m": released_at, "xy": [x, y], "shift_m": shift, "release_gripper": release,
-                "rise": rise}
+        return {"released_at_m": released_at, "release_target_m": target, "xy": [x, y], "shift_m": shift,
+                "release_gripper": release, "rise": rise}
 
     def go_to_pose(self, pose, duration=MOVE_TIME_S):
         """A taught arm pose (e.g. over the discard container), via the raised rest; gripper untouched."""

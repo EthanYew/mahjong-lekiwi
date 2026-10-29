@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from mahjong import config
+from mahjong.arm import release_height
 from mahjong.hover_correction import read_all
 from mahjong.session import read_events
 
@@ -24,7 +25,11 @@ def test_sim_trials_write_a_complete_session(tmp_path, monkeypatch):
     events = read_events(session)
     attempts = [e for e in events if e["type"] == "attempt"]
     assert [a["success"] for a in attempts] == [True, True]
-    assert sum(e["type"] == "return" for e in events) == 2
+    returns = [e for e in events if e["type"] == "return"]
+    assert len(returns) == 2
+    for a, r in zip(attempts, returns):        # let go just above where that pickup's jaws closed
+        assert r["grasp_clearance_m"] == a["grasp_clearance_m"] is not None
+        assert r["release_target_m"] == release_height(r["grasp_clearance_m"])
     assert len({a["attempt_dir"] for a in attempts}) == 2
     for a in attempts:
         assert (session / a["attempt_dir"] / "overview_before.jpg").exists()

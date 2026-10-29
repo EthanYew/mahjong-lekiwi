@@ -226,3 +226,36 @@ def test_a_return_logs_its_rise_and_goes_higher_over_the_tile_before_swinging_if
     swing = next(i for i, c in enumerate(robot.sent) if i > release and
                  np.hypot(*(kinematics.tool_point(c)[:2] - np.array([x, y]))) > 0.003)
     assert robot.clearances[swing - 1] >= (arm_module.SWING_CLEARANCE_M - CLEARANCE_TOLERANCE_M) * 1000
+
+
+def test_the_release_height_is_just_above_where_the_jaws_closed():
+    from mahjong.arm import RELEASE_ABOVE_GRASP_M, RELEASE_MAX_M, RELEASE_MIN_M, release_height
+    assert release_height(None) == PLACE_TIP_CLEARANCE_M
+    assert release_height(0.004) == pytest.approx(0.004 + RELEASE_ABOVE_GRASP_M)
+    assert release_height(-0.01) == RELEASE_MIN_M and release_height(0.05) == RELEASE_MAX_M
+
+
+def test_grasp_clearance_is_the_measured_tip_as_the_jaws_were_commanded_shut():
+    hover, _ = kinematics.hover_command(0.2, 0.0, 0.040, 30.0)
+    low, _ = kinematics.hover_command(0.2, 0.0, 0.004, 30.0)
+    states = [[hover[j] for j in config.JOINTS], [low[j] for j in config.JOINTS], [low[j] for j in config.JOINTS]]
+    actions = [s[:5] + [30.0] for s in states[:2]] + [states[2][:5] + [0.0]]
+    assert kinematics.grasp_clearance(states, actions) == pytest.approx(kinematics.tip_clearance(low))
+    assert kinematics.grasp_clearance(states, [a[:5] + [30.0] for a in actions]) is None
+
+
+@pytest.mark.parametrize("tile", TILES)
+@pytest.mark.parametrize("closed_at", [-0.002, 0.001, 0.006, 0.013])
+def test_a_tile_is_let_go_just_above_where_its_jaws_closed_never_below(tile, closed_at):
+    """2026-10-29: a fixed 10mm release let go of v4's tiles 3-9mm above where they had been held; they dropped
+    and tilted. The set-down comes down to the grasp's own height and doesn't overshoot below it."""
+    from mahjong.arm import PLACE_TOLERANCE_M, release_height
+    x, y = TILES[tile]
+    arm, robot = make_arm(start={**config.REST_POSE, "gripper": 0.0}, holding=True)
+    placed = arm.place(x, y, approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None, grasp_clearance_m=closed_at)
+    target = release_height(closed_at)
+    assert placed["release_target_m"] == target
+    assert target - 0.0002 <= placed["released_at_m"] <= target + PLACE_TOLERANCE_M
+    release = next(i for i, c in enumerate(robot.sent) if c["gripper"] > 0)
+    assert min(robot.clearances[:release]) >= (target - 0.0002) * 1000          # never under it on the way down
+    assert_no_jumps(robot, {**config.REST_POSE, "gripper": 0.0})

@@ -253,6 +253,7 @@ class SimPolicy:
         if mark is not None and mark.is_set():
             mark.clear()
             marks.append(2.0)
+        closed_at = arm.tip_clearance()[0]
         arm.move_to({"gripper": 0.0}, 0.5)
         arm.robot.holding = True
         if tile is not None:
@@ -261,4 +262,4 @@ class SimPolicy:
         arm.move_to(up, 2.0)
         return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
-                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "marks_s": marks}
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks}
