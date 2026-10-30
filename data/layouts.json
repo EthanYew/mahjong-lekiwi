@@ -684,7 +684,7 @@
   },
   "even-hand14": {
     "created": "2026-10-30T17:30:03",
-    "note": "close-hand14 squared up: same spot order, labels and spacing (51mm along each row, 50mm between rows: far x 0.192, near x 0.142), yaw 0, both rows straight. Centred 12mm toward -y so the far corners have equal reach (18.8mm S1, 20.9mm S13 to the gamepad's limit; close-hand14's 1D had 17.6). close-hand14 was taught on the green mat, whose detections skewed spacing and yaw; its logs keep that name",
+    "note": "close-hand14 squared up: same spot order and spacing, no tile labels (51mm along each row, 50mm between rows: far x 0.192, near x 0.142), yaw 0, both rows straight. Centred 12mm toward -y so the far corners have equal reach (18.8mm S1, 20.9mm S13 to the gamepad's limit; close-hand14's 1D had 17.6). close-hand14 was taught on the green mat, whose detections skewed spacing and yaw; its logs keep that name",
     "ghost": null,
     "spots": [
       {
@@ -693,8 +693,7 @@
           0.192,
           0.141
         ],
-        "yaw_deg": 0.0,
-        "label": "1D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S2",
@@ -702,8 +701,7 @@
           0.142,
           0.141
         ],
-        "yaw_deg": 0.0,
-        "label": "5D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S3",
@@ -711,8 +709,7 @@
           0.192,
           0.09
         ],
-        "yaw_deg": 0.0,
-        "label": "WD"
+        "yaw_deg": 0.0
       },
       {
         "id": "S4",
@@ -720,8 +717,7 @@
           0.142,
           0.09
         ],
-        "yaw_deg": 0.0,
-        "label": "6D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S5",
@@ -729,8 +725,7 @@
           0.192,
           0.039
         ],
-        "yaw_deg": 0.0,
-        "label": "SW"
+        "yaw_deg": 0.0
       },
       {
         "id": "S6",
@@ -738,8 +733,7 @@
           0.142,
           0.039
         ],
-        "yaw_deg": 0.0,
-        "label": "2D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S7",
@@ -747,8 +741,7 @@
           0.192,
           -0.012
         ],
-        "yaw_deg": 0.0,
-        "label": "NW"
+        "yaw_deg": 0.0
       },
       {
         "id": "S8",
@@ -756,8 +749,7 @@
           0.142,
           -0.012
         ],
-        "yaw_deg": 0.0,
-        "label": "9D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S9",
@@ -765,8 +757,7 @@
           0.192,
           -0.063
         ],
-        "yaw_deg": 0.0,
-        "label": "GD"
+        "yaw_deg": 0.0
       },
       {
         "id": "S10",
@@ -774,8 +765,7 @@
           0.142,
           -0.063
         ],
-        "yaw_deg": 0.0,
-        "label": "3D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S11",
@@ -783,8 +773,7 @@
           0.192,
           -0.114
         ],
-        "yaw_deg": 0.0,
-        "label": "8D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S12",
@@ -792,8 +781,7 @@
           0.142,
           -0.114
         ],
-        "yaw_deg": 0.0,
-        "label": "7D"
+        "yaw_deg": 0.0
       },
       {
         "id": "S13",
@@ -801,8 +789,7 @@
           0.192,
           -0.165
         ],
-        "yaw_deg": 0.0,
-        "label": "WW"
+        "yaw_deg": 0.0
       },
       {
         "id": "S14",
@@ -810,8 +797,7 @@
           0.142,
           -0.165
         ],
-        "yaw_deg": 0.0,
-        "label": "4D"
+        "yaw_deg": 0.0
       }
     ]
   }
