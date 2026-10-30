@@ -69,11 +69,11 @@ KINDS = {
 }
 MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other"]
 # Pressed during a pickup or a return (the bench's KeyMarks): what happened, said as it happens. 2026-10-30: the
-# questions at the end of a batch couldn't be answered accurately, nor told apart by attempt.
-KEYS = {"b": "collided", "p": "pushed_target", "h": "touched_tile", "a": "helped_arm", "c": "caught_drop",
-        "l": "look"}
-KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "h": "I touched the tile to help",
-              "a": "I held the arm or base", "c": "I caught a drop", "l": "look at this"}
+# questions at the end of a batch couldn't be answered accurately, nor told apart by attempt. Only what the arm
+# does: a person helping (touched the tile, held the arm, caught a drop) never happens on the bench, and is
+# still a → and an answer if it does.
+KEYS = {"b": "collided", "p": "pushed_target", "l": "look"}
+KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "l": "look at this"}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
@@ -451,8 +451,7 @@ def summary(interventions, attempts):
     n = len(attempts)
     counts = Counter(i["class"] for i in interventions)
     rescues = counts[RESCUE]
-    assisted_dirs = {i["attempt_dir"] for i in interventions if i["class"] == RESCUE and (
-        i["source"] == "mark" or (i["source"] == "key" and i.get("during") == "pickup"))}
+    assisted_dirs = {i["attempt_dir"] for i in interventions if i["source"] == "mark" and i["class"] == RESCUE}
     successes = [a for a in attempts if a.get("success")]
     assisted = sum(a.get("attempt_dir") in assisted_dirs for a in successes)
     return {"attempts": n, "rescues": rescues, "rescues_per_10": 10 * rescues / n if n else None,

@@ -249,20 +249,14 @@ def keys(attempt_dir, during, *kinds_at):
 
 
 def test_a_key_during_the_pickup_says_what_happened_and_the_mark_asks_nothing_more():
-    events = session(keys("001_WW", "pickup", ("h", 3.1), ("h", 3.4), ("b", 5.0)), attempt(1, marks_s=[3.2]),
+    events = session(keys("001_WW", "pickup", ("p", 3.1), ("p", 3.4), ("b", 5.0)), attempt(1, marks_s=[3.2]),
                      keys("001_WW", "return", ("b", 1.0)))
     found = iv.derive(events)
     assert [(i["kind"], i["source"], i["during"]) for i in found] == [
-        ("touched_tile", "key", "pickup"), ("collided", "key", "pickup"), ("collided", "key", "return")]
+        ("pushed_target", "key", "pickup"), ("collided", "key", "pickup"), ("collided", "key", "return")]
     assert found[0]["at_s"] == [3.1, 3.4]
     s = iv.summary(found, [e for e in events if e["type"] == "attempt"])
-    assert (s["assisted_successes"], s["collisions"], s["rescues"]) == (1, 2, 1)
-
-
-def test_a_help_keyed_during_the_return_leaves_the_pickup_clean():
-    events = session(attempt(1), keys("001_WW", "return", ("h", 1.0)))
-    s = iv.summary(iv.derive(events), [e for e in events if e["type"] == "attempt"])
-    assert (s["rescues"], s["clean_successes"]) == (1, 1)
+    assert (s["clean_successes"], s["collisions"], s["target_pushes"], s["rescues"]) == (1, 2, 1, 0)
 
 
 def watched(watch, scan_n, tiles, previous):

@@ -173,19 +173,17 @@ put it back where it belongs, Enter rescans (logged as a reset), `s` skips the s
 trials). An unattended run waits there.
 
 **While the arm picks up or returns a tile, say what you see with a key** (no Enter; the terminal prints
-`[b] bumped another tile (noted)`). Keys typed at a prompt or the menu don't count.
+`[b] bumped another tile (noted)`; the keys are printed as each pickup and return starts). Keys typed at a
+prompt or the menu don't count.
 
 | Key | Means | Counts as |
 |---|---|---|
 | `b` | the arm bumped another tile | a collision (failure; the success stays clean), and a neighbour that moved is a knock without asking |
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
-| `h` | I touched the tile to help | a rescue (the success becomes assisted) |
-| `a` | I held the arm or base | a rescue |
-| `c` | I caught a drop | a rescue |
 | `l` | look at this (nothing touched) | an observation |
 
-`Esc` stops the policy. `→` marks "something happened here" without stopping it; a `→` with no key is
-asked about right after that attempt (not at the end of a batch). A pickup stops itself once the tile
+`Esc` stops the policy. `→` marks "something happened here" without stopping it (a hand on the tile, a
+caught drop); a `→` with no key is asked about right after that attempt (not at the end of a batch). A pickup stops itself once the tile
 has been held and lifted for 1.5s (max 16s). Every attempt saves the full wrist video (`wrist.mp4`) in
 its folder, so a new policy can be replayed on it.
 

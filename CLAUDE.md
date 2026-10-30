@@ -29,9 +29,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored, so a
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed while the arm
-  picks up or returns say what happened as it happens (`b` bumped another tile, `p` pushed its own, `h`
-  helped, `a` held the arm, `c` caught a drop, `l` look; `interventions.KEYS`), → marks a moment (asked
-  right after, unless a key said it). The RealSense scans around each attempt catch knocked or replaced
+  picks up or returns say what happened as it happens (`b` bumped another tile, `p` pushed its own, `l`
+  look; `interventions.KEYS`, printed as each pickup and return starts), → marks a moment such as a hand
+  on the tile (asked right after, unless a key said it). The RealSense scans around each attempt catch knocked or replaced
   tiles: a neighbour that moved or turned is a knock if `b` was pressed, else asked then; every other change
   (far tiles, gone / appeared) is settled by the next scans (`interventions.ChangeWatch`: undone = YOLO
   flicker, still there 3 scans on = real), not asked. No questions wait for the end of a batch. "Touched the tile to help" is a rescue

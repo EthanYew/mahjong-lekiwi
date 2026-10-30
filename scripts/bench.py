@@ -13,14 +13,12 @@
    10 quit
 
 Type a number or a name. While the arm picks up or returns a tile, say what you see as it happens with a
-key (no Enter):
+key (no Enter; the keys are printed as each pickup and return starts):
 
-    b  the arm bumped another tile          h  I touched the tile to help
-    p  the arm pushed the tile it's taking  a  I held the arm or base
-    l  look at this (nothing touched)       c  I caught a drop
+    b  the arm bumped another tile    p  the arm pushed the tile it's picking up    l  look at this
 
-During a pickup, Esc stops the policy, and → marks the moment without stopping it; a → with no key is
-asked about right after the attempt. Clean attempts ask nothing. Everything goes in a session folder
+During a pickup, Esc stops the policy, and → marks the moment without stopping it (a hand on the tile, a
+caught drop); a → with no key is asked about right after the attempt. Clean attempts ask nothing. Everything goes in a session folder
 (sessions/<time>_bench/): the terminal log, events.jsonl (with a RealSense scan before and after each
 pickup, return and discard, so knocked tiles and tiles put back by hand show up without anyone saying
 so; each scan's frames and boxes go in scans/, for the tile detector's data: scripts/mine_frames.py),
@@ -123,7 +121,10 @@ class KeyMarks:
                 self.listener.start()
 
     def start(self, phase):
+        """Count keys from now (`phase`: pickup or return), with a reminder of which."""
         self.phase, self.presses, self.t0 = phase, [], time.time()
+        keys = "  ".join(f"{k} {label}" for k, label in interventions.KEY_LABELS.items())
+        print(f"  keys: {keys}" + ("  |  → mark  Esc stop" if phase == "pickup" else ""))
 
     def press(self, char):
         kind = interventions.KEYS.get((char or "").lower())

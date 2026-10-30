@@ -227,7 +227,7 @@ def test_a_marked_trial_is_asked_about_right_after_it(tmp_path, monkeypatch):
 def test_a_mark_with_a_key_asks_nothing(tmp_path, monkeypatch):
     from mahjong import interventions
     b = sim_bench(tmp_path, monkeypatch, trials=1)
-    after_each_run(b, lambda: (b.events.update(exit_early=True), b.keys.press("h")))
+    after_each_run(b, lambda: (b.events.update(exit_early=True), b.keys.press("l"), b.keys.press("h")))
     asked = no_questions(monkeypatch)
     try:
         b.trials(1, "8D")
@@ -235,10 +235,8 @@ def test_a_mark_with_a_key_asks_nothing(tmp_path, monkeypatch):
         b.close()
     assert asked == []
     events = read_events(b.session.dir)
-    (helped,) = interventions.derive(events)
-    assert (helped["kind"], helped["source"], helped["during"]) == ("touched_tile", "key", "pickup")
-    s = interventions.summary([helped], [e for e in events if e["type"] == "attempt"])
-    assert s["assisted_successes"] == 1
+    (look,) = interventions.derive(events)        # h is no key: not noted
+    assert (look["kind"], look["class"], look["source"], look["during"]) == ("look", "observation", "key", "pickup")
 
 
 def test_a_discard_that_missed_and_a_note(tmp_path, monkeypatch):
