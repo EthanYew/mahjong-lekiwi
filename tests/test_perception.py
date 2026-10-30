@@ -34,3 +34,27 @@ def test_choose_tile_by_name():
     tiles = merge_tiles([det("8D", 0.16, -0.16, 0.9), det("9D", 0.14, 0.2, 0.8)])
     assert choose_tile(tiles, tile_name="8d")["tile_name"] == "8D"
     assert choose_tile(tiles, tile_name="7B") is None
+
+
+class DepthFrame:
+    """pyrealsense2's depth frame as far as robust_depth uses it: raises outside the frame, as it does."""
+    def __init__(self, w=848, h=480, d=0.5):
+        self.w, self.h, self.d = w, h, d
+
+    def get_width(self):
+        return self.w
+
+    def get_height(self):
+        return self.h
+
+    def get_distance(self, x, y):
+        if not (0 <= x < self.w and 0 <= y < self.h):
+            raise RuntimeError('out of range value for argument "x"')
+        return self.d
+
+
+def test_depth_at_a_box_on_the_frame_edge_uses_the_samples_inside_it():
+    from mahjong.perception import robust_depth
+    frame = DepthFrame()
+    assert robust_depth(frame, 2, 240) == 0.5 and robust_depth(frame, 847, 479) == 0.5
+    assert robust_depth(frame, 424, 240) == 0.5
