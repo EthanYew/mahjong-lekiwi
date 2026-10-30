@@ -168,7 +168,7 @@ def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, mo
                          if j not in matched_after and t["confidence"] >= CHANGE_CONFIDENCE and not near(t["xy"])]}
 
 
-def _changed(diff):
+def changed(diff):
     return any(diff.values())
 
 
@@ -211,9 +211,9 @@ class MatWatch:
         if scan["label"] in ATTEMPT_SCANS:
             ignore = [scan["target_xy"]] if scan.get("target_xy") else []
             diff = scene_diff(self.previous["tiles"], scan["tiles"], ignore)
-            return ("knocked", diff) if _changed(diff) else None
+            return ("knocked", diff) if changed(diff) else None
         diff = scene_diff(self.previous["tiles"], scan["tiles"])
-        if not _changed(diff):
+        if not changed(diff):
             return None
         fixed = any(math.dist(p, k) <= config.TILE_MERGE_RADIUS_M for p in _from_points(diff) for k in self.knocked_to)
         return ("straightened" if fixed else "tile_reset", diff)
@@ -223,6 +223,20 @@ class MatWatch:
         if proposal and "knocked" in kinds:
             self.knocked_to += _to_points(proposal[1]) + [t["xy"] for t in proposal[1]["gone"]]
         self.previous = scan
+
+    def restore(self, tile):
+        """A tile the latest scan missed that the wrist camera saw where it was (the bench's `wrist_check`): the
+        next scan is compared with it there. At confidence 0, so a tile the detector keeps missing isn't "gone"
+        again at every scan, while one it sees again still matches it."""
+        if self.previous is not None:
+            restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0}
+            self.previous = {**self.previous, "tiles": self.previous["tiles"] + [restored]}
+
+
+def without(diff, gone=(), appeared=()):
+    """A scene_diff with those gone / appeared tiles left out (ones the wrist camera or a later scan explained)."""
+    return {**diff, "gone": [t for t in diff["gone"] if t not in gone],
+            "appeared": [t for t in diff["appeared"] if t not in appeared]}
 
 
 def derive(events):
@@ -273,6 +287,8 @@ def derive(events):
                 add(k, (e.get("attempt_dir") if during else None) or last_attempt,
                     "confirmed" if confirmed else "scans", time, during=during, changes=proposal[1])
             mat.advance(e, proposal, kinds)
+        elif kind == "wrist_check" and e.get("present"):
+            mat.restore({"tile_name": e["tile"], "xy": e["xy"]})
         elif kind == "session_end":
             ended = True
             reason = e.get("reason", "quit")

@@ -166,7 +166,9 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 `7 rest`, `8 note` (log something you did by hand), `9 setup` (lighting/battery/surface changed mid-session),
 `10 quit`.
 
-**A tile the trials can't find** (not detected by name, or nothing near a `--layout` spot) stops for you:
+**A tile the trials can't find** (not detected by name, or nothing near a `--layout` spot) is first looked
+at with the wrist camera: the arm hovers where it was first seen and checks for a tile face between the jaw
+tips. If it's there (the detector flickered) the pickup goes ahead from there. If not, it stops for you:
 put it back where it belongs, Enter rescans (logged as a reset), `s` skips the spot (`--tile`: ends the
 trials). An unattended run waits there.
 
@@ -175,8 +177,10 @@ trials). An unattended run waits there.
 pickup stops itself once the tile has been held and lifted for 1.5s (max 16s). Every attempt saves the
 full wrist video (`wrist.mp4`) in its folder, so a new policy can be replayed on it.
 
-After each attempt the RealSense rescans the mat. If tiles moved, the bench shows the change and
-asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also saves the frames the
+After each attempt the RealSense rescans the mat. A tile the scan says went is looked at with the wrist
+camera first (once the arm has put down what it holds); one still there is logged as a detection glitch
+without asking, with the wrist frame in the session's `wrist_checks/`. If tiles still moved, the bench
+shows the change and asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also saves the frames the
 detector looked at in the session's `scans/` folder, for improving the detector (see below).
 
 **Returns go home.** A tile's home is where it was first seen this session (per layout spot, or per
