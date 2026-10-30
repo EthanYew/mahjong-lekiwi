@@ -197,7 +197,7 @@ class Bench:
                 diff = interventions.without(diff, appeared=[back])
                 self.drop_change(scan_n, tile, "a later scan saw it back")
                 continue
-            if not self.wrist_look(tile, scan_n)["present"]:
+            if self.crowded(tile, scan["tiles"], scan_n) or not self.wrist_look(tile, scan_n)["present"]:
                 continue
             seen.append(tile)
             if scan_n == scan["scan"]:
@@ -224,6 +224,18 @@ class Bench:
                 del self.scan_checks[i]
                 self.session.event("scan_review", scan=scan_n, proposed=kind, kinds=["scan_glitch"], note=why)
             return
+
+    def crowded(self, tile, tiles, scan_n):
+        """Another tile the scan sees within wrist_check.CROWDED_M of where `tile` was: its face would fill the
+        look just as well, so don't look (a person is asked). Logged as a `wrist_check` that couldn't look."""
+        near = wrist_check.crowded(tile["xy"], [t for t in tiles if t["xy"] != tile["xy"]])
+        if near is None:
+            return False
+        why = f"{near['tile_name']} is {math.dist(near['xy'], tile['xy']) * 1000:.0f}mm from its spot"
+        print(f"  {tile['tile_name']} not seen where it was, but {why}: the wrist camera can't tell them apart")
+        self.session.event("wrist_check", tile=tile["tile_name"], xy=list(tile["xy"]), scan=scan_n,
+                           at_scan=self.scan_n, present=None, fill=None, why=why, policy=self.policy.id)
+        return True
 
     def wrist_look(self, tile, scan_n):
         """Hover over a tile the scans lost, where they last saw it (hover-corrected, this policy's hover), and see
@@ -252,9 +264,10 @@ class Bench:
                            policy=self.policy.id, **result)
         return result
 
-    def look_at_home(self, tile_name=None, spot=None):
+    def look_at_home(self, tile_name=None, spot=None, tiles=()):
         """A tile not detected at its spot (or by its name), looked at with the wrist camera where it was first
-        seen this session (a spot's layout point if never picked up): the tile there if it is, else None."""
+        seen this session (a spot's layout point if never picked up): the tile there if it is, else None. Not
+        when the scan's `tiles` have another one that close (crowded)."""
         key = spot["id"] if spot else tile_name
         home = self.homes.get(key) if key else None
         home = home or (spot["xy"] if spot else None)
@@ -262,6 +275,8 @@ class Bench:
                                for n, xy in self.looked_empty):
             return None
         tile = {"tile_name": tile_name or self.names.get(key) or (spot or {}).get("label") or key, "xy": list(home)}
+        if self.crowded(tile, tiles, self.scan_n):
+            return None
         result = self.wrist_look(tile, self.scan_n)
         self.arm.rest()
         if not result["present"]:
@@ -291,7 +306,7 @@ class Bench:
                 self.check_scans()          # before the arm moves, while what happened is in front of you
             tile, reason, missing = self.find(tiles, tile_name, spot)
             if tile is None and reason != "cancelled":
-                tile = self.look_at_home(tile_name, spot)
+                tile = self.look_at_home(tile_name, spot, tiles)
             if tile is not None or reason == "cancelled" or not (self.batch and self.reposition(missing, tile_name, spot)):
                 break
             confirmed = ["tile_reset"]

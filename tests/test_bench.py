@@ -436,6 +436,27 @@ def test_a_tile_really_gone_is_looked_at_and_then_asked_about(tmp_path, monkeypa
     assert (knock["kind"], knock["during"]) == ("knocked", "pickup")
 
 
+def test_a_tile_gone_with_a_knocked_neighbour_now_beside_its_spot_is_not_looked_at_but_asked(tmp_path, monkeypatch):
+    """2026-10-30: a miss pushed 1B away and 3D to 20mm from 1B's spot; the look saw 3D's face and called it 1B."""
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    mat.tiles.append({"tile_name": "5C", "xy": [0.151, 0.048]})
+
+    def knock():
+        mat.tiles.remove(next(t for t in mat.tiles if t["tile_name"] == "3B"))
+        mat.nudge("5C", 0.0, -0.012)                            # 18mm from 3B's spot
+    after_each_run(b, knock)
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    (look,) = [e for e in events if e["type"] == "wrist_check"]
+    assert look["tile"] == "3B" and look["present"] is None and "5C is 18mm" in look["why"]
+    assert len(asked) == 1 and "3B gone" in asked[0]
+
+
 def test_a_tile_not_detected_at_its_home_is_picked_up_where_the_wrist_camera_sees_it(tmp_path, monkeypatch):
     b = sim_bench(tmp_path, monkeypatch, trials=1)
     asked = no_questions(monkeypatch)

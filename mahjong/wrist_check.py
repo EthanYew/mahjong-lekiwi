@@ -8,10 +8,14 @@ close-hand14 bench sessions (20261029_094543, 20261029_165537 on the black top, 
 the setup reference's F2 / F6 agree. Neighbours show too (the layouts are tight), but their faces start >= ~70px
 from that point, and touching faces merge into one blob (setup_check.wrist_tile then finds nothing). So the check is
 how much of a disc at that point is tile face — pale and bright, the printed symbols closed over: 0.73-1.0 with the
-tile there on the 103 black-top frames (median 1.0), ~0 over the bare black top. Other surfaces aren't measured:
+tile there on the 103 black-top frames (median 1.0), ~0 over the bare black top. It sees *a* face, not *this* tile:
+when the scan has another tile within CROWDED_M of the spot (a knock pushed one there), it doesn't look. Other
+surfaces aren't measured:
 brown paper is pale too. It never reads the name: the table model on a close-up isn't a second read
 (docs/autonomy_plan.md, 8).
 """
+import math
+
 import cv2
 import numpy as np
 
@@ -23,6 +27,15 @@ EXPECTED_PX = (365, 255)    # the hovered tile's face centre in the wrist image 
 RADIUS_PX = 35              # well inside a face (~140 x 120px at the hover) even 25px off
 PRESENT_FILL = 0.5          # share of the disc that's face: >= 0.73 with the tile there, ~0 without
 FRAMES = 3
+# Another tile now this close to the spot (centres) can fill the disc as well: the look can't tell them apart. On
+# 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
+# look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
+CROWDED_M = 0.03
+
+
+def crowded(xy, tiles):
+    """A detected tile (from the scan the tile went missing from) within CROWDED_M of xy: it, else None."""
+    return next((t for t in tiles if math.dist(t["xy"], xy) <= CROWDED_M), None)
 
 
 def face_fill(image_bgr, centre=EXPECTED_PX, radius_px=RADIUS_PX):
