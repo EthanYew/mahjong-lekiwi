@@ -202,18 +202,26 @@ class Bench:
         self.homes = Homes()        # {spot or tile: where it was first seen this session}: every return aims there
         self.policy = self.policies[0]      # the one single commands use; trials take turns
         for policy in self.policies:
-            print(f"Policy: {policy.id}, hover {policy.hover}")
+            print(f"Policy: {policy.id}, hover {self.hover_of(policy)}")
         print(f"Hover correction: {self.correction.summary()}")
         print(f"Return correction: {self.returns.summary()}")
         if self.spots:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
-        self.session.event("bench_setup", policy=self.policy.id, hover=self.policy.hover,
-                           policies=[{"id": p.id, "hover": p.hover} for p in self.policies],
+        self.session.event("bench_setup", policy=self.policy.id, hover=self.hover_of(self.policy),
+                           policies=[{"id": p.id, "hover": self.hover_of(p)} for p in self.policies],
                            layout=args.layout, spots=self.spots,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
-                           hover_perturb_offsets_m=args.hover_perturb_mm)
+                           hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper)
 
     # --- pieces ---
+
+    def hover_of(self, policy):
+        """The policy's hover (data/policies.json), with --hover-gripper's opening if given. The policy
+        moves the gripper as deltas from it, so its narrowing on the way down shifts by the difference.
+        The wrist look keeps the policy's own opening: its face-fill threshold was measured there."""
+        if self.args.hover_gripper is None:
+            return policy.hover
+        return {**policy.hover, "gripper": self.args.hover_gripper}
 
     def scan(self, label, confirmed=None, look=True, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
@@ -543,7 +551,7 @@ class Bench:
         if any(perturb):
             hx, hy = hx + perturb[0], hy + perturb[1]
             print(f"  hover perturbed by ({perturb[0] * 1000:+.0f}, {perturb[1] * 1000:+.0f})mm on purpose")
-        h = self.policy.hover
+        h = self.hover_of(self.policy)
         result = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
         if result is None:
             print("Unreachable from the closed-loop hover.")
@@ -614,7 +622,7 @@ class Bench:
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
                            correction=self.correction.name, hover_perturb_xy=list(perturb),
-                           hover_sag_xyz_m=hover.get("sag_xyz_m"),
+                           hover_sag_xyz_m=hover.get("sag_xyz_m"), hover_gripper=self.hover_of(self.policy)["gripper"],
                            **({"gripper_squeezed_from": squeezed_from} if squeezed_from is not None else {}),
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                            **run, **review)
@@ -698,7 +706,8 @@ class Bench:
         or out of the hover's reach (the next pickup would start from there)."""
         home, name = held["home_xy"], held["tile_name"]
         tile, reset = check_landing(held, placed["xy"], tiles, self.session, self.returns_path, self.correction,
-                                    self.policy.hover, policy=self.policy.id, return_correction=self.returns.name)
+                                    self.hover_of(self.policy), policy=self.policy.id,
+                                    return_correction=self.returns.name)
         if not reset:
             return
         # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
@@ -893,6 +902,9 @@ def parse_args(argv=None):
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
     p.add_argument("--hover-perturb-mm", type=parse_offsets, default=None,
                    help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
+    p.add_argument("--hover-gripper", type=float, default=None,
+                   help="gripper opening at the hover (%%) for every policy, instead of the one its episodes started "
+                        "at (data/policies.json; v6 26.7). Its narrowing on the way down shifts by the same amount")
     return p.parse_args(argv)
 
 
