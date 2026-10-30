@@ -224,7 +224,7 @@ def test_asking_about_a_mark():
     assert iv.ask_mark("attempt 3", ask=answering("1")) == ("touched_tile", "")
     assert iv.ask_mark("attempt 3", ask=answering("")) == ("unspecified", "")
     assert iv.ask_mark("attempt 3", ask=answering("ca")) == ("caught_drop", "")
-    assert iv.ask_mark("attempt 3", ask=answering("9", "6", "tile slid off the mat")) == ("other", "tile slid off the mat")
+    assert iv.ask_mark("attempt 3", ask=answering("9", "7", "tile slid off the mat")) == ("other", "tile slid off the mat")
     assert iv.ask_abort("attempt 3", ask=answering("1")) == "frozen"
     assert iv.ask_abort("attempt 3", ask=answering("")) is None
 
@@ -239,3 +239,91 @@ def test_a_hand_grades_by_the_most_a_person_had_to_do():
     assert iv.hand_grade([i("name_asked"), i("pickup_failed")]) == "rescued"
     assert iv.hand_grade([i("tile_reset")]) == "rescued"
     assert iv.hand_grade([i("name_asked"), i("silent_error")]) == "silent error"
+
+
+# --- keys pressed as it happens, and changes the later scans settle ---
+
+def keys(attempt_dir, during, *kinds_at):
+    return {"type": "keys", "attempt_dir": attempt_dir, "during": during,
+            "presses": [{"key": k, "kind": iv.KEYS[k], "t_s": t} for k, t in kinds_at]}
+
+
+def test_a_key_during_the_pickup_says_what_happened_and_the_mark_asks_nothing_more():
+    events = session(keys("001_WW", "pickup", ("h", 3.1), ("h", 3.4), ("b", 5.0)), attempt(1, marks_s=[3.2]),
+                     keys("001_WW", "return", ("b", 1.0)))
+    found = iv.derive(events)
+    assert [(i["kind"], i["source"], i["during"]) for i in found] == [
+        ("touched_tile", "key", "pickup"), ("collided", "key", "pickup"), ("collided", "key", "return")]
+    assert found[0]["at_s"] == [3.1, 3.4]
+    s = iv.summary(found, [e for e in events if e["type"] == "attempt"])
+    assert (s["assisted_successes"], s["collisions"], s["rescues"]) == (1, 2, 1)
+
+
+def test_a_help_keyed_during_the_return_leaves_the_pickup_clean():
+    events = session(attempt(1), keys("001_WW", "return", ("h", 1.0)))
+    s = iv.summary(iv.derive(events), [e for e in events if e["type"] == "attempt"])
+    assert (s["rescues"], s["clean_successes"]) == (1, 1)
+
+
+def watched(watch, scan_n, tiles, previous):
+    """Feed one scan; returns (settled kinds, the diff left)."""
+    event = {"scan": scan_n, "tiles": tiles}
+    settled, left, _ = watch.update(event, iv.scene_diff(previous, tiles))
+    return [(p["change"]["tile_name"], k) for p, k in settled], left
+
+
+def test_a_far_change_that_goes_back_is_a_glitch_and_its_going_back_is_not_a_change():
+    watch = iv.ChangeWatch()
+    gone = [MAT[0], MAT[1]]
+    watch.watch({"scan": 2}, iv.scene_diff(MAT, gone), "moved_elsewhere")
+    settled, left = watched(watch, 3, MAT, gone)                  # 9D back where it was
+    assert settled == [("9D", "scan_glitch")] and not iv.changed(left)
+    assert watch.glitches == {"9D": 1} and watch.pending == []
+
+
+def test_a_far_change_that_stays_is_real_after_the_settle_scans():
+    watch = iv.ChangeWatch()
+    moved = [MAT[0], MAT[1], tile("9D", 0.216, 0.090)]
+    watch.watch({"scan": 2}, iv.scene_diff(MAT, moved), "moved_elsewhere")
+    for n in range(3, 3 + iv.SETTLE_SCANS - 1):
+        assert watched(watch, n, moved, moved)[0] == []
+    assert watched(watch, 9, moved, moved)[0] == [("9D", "moved_elsewhere")]
+
+
+def test_a_tile_beside_a_lost_ones_spot_is_not_it_coming_back():
+    watch = iv.ChangeWatch()
+    gone = [MAT[0], MAT[1]]
+    watch.watch({"scan": 2}, iv.scene_diff(MAT, gone), "knocked")
+    beside = gone + [tile("2B", 0.216, 0.098)]                    # 18mm from 9D's spot
+    assert watched(watch, 3, beside, gone)[0] == [] and watch.pending[0]["agreed"] == 1
+
+
+def test_a_turn_that_goes_back_is_a_glitch():
+    watch = iv.ChangeWatch()
+    before, turned = [boxed(MAT[0], 21.3, 28.1)], [boxed(MAT[0], 27.4, 31.4)]
+    watch.watch({"scan": 2}, iv.scene_diff(before, turned), "knocked")
+    assert watched(watch, 3, [boxed(MAT[0], 21.5, 28.0)], turned)[0] == [("WW", "scan_glitch")]
+
+
+def test_what_the_session_ended_on_is_settled_by_what_the_scans_saw():
+    watch = iv.ChangeWatch()
+    moved = [MAT[0], MAT[1], tile("9D", 0.216, 0.090)]
+    watch.watch({"scan": 2}, iv.scene_diff(MAT, moved), "moved_elsewhere")
+    watched(watch, 3, moved, moved)
+    watch.watch({"scan": 3}, iv.scene_diff(moved, [MAT[0], moved[2]]), "knocked")     # no scan after it
+    assert [k for _, k in watch.flush()] == ["moved_elsewhere", "unsettled"]
+
+
+def test_reviews_per_change_each_count_for_their_own_changes():
+    before, after = MAT, [MAT[0], tile("2D", 0.225, -0.025)]       # 2D moved 10mm, 9D gone
+    diff = iv.scene_diff(before, after)
+    moved, gone = iv.split(diff, lambda k, c: k == "moved")
+    events = session(scan("choose", before, scan=1), attempt(1),
+                     scan("after_pickup", after, scan=2, attempt_dir="001_WW", target_xy=[0.224, 0.021]),
+                     {"type": "scan_review", "scan": 2, "kinds": ["knocked"], "changes": moved, "by": "key"},
+                     {"type": "scan_review", "scan": 2, "kinds": [], "changes": gone, "by": "scans"},
+                     {"type": "scan_review", "scan": 2, "kinds": ["scan_glitch"], "changes": gone, "by": "scans"})
+    found = iv.derive(events)
+    assert [(i["kind"], i["source"], iv.changes_text(i["changes"])) for i in found] == [
+        ("knocked", "confirmed", "2D moved 10mm"), ("scan_glitch", "scans", "9D gone")]
+    assert iv.hand_grade([found[1]]) == "clean"         # the scans settled it: no one was asked

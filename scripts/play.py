@@ -81,7 +81,7 @@ class Player:
         self.latest = {}                # slot -> the latest scan's detection there (or absent)
         self.bench = PlayBench(bench.parse_args(bench_argv(args)), self)
         self.session = self.bench.session
-        self.bench.batch = True         # scan questions wait for the end of the step
+        self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
         if args.sim:
             self.mat = self.bench.realsense
             self.mat.tiles = [{"tile_name": n, "xy": list(s["xy"])} for n, s in zip(SIM_HAND, self.slots)]
@@ -146,14 +146,9 @@ class Player:
     def expect_appeared(self, xy):
         """The latest scan saw a tile appear at xy because a person put it there on purpose (the drawn
         tile): not a change to ask about."""
-        scan_n = self.bench.scan_n
-        for check in [c for c in self.bench.scan_checks if c[0]["scan"] == scan_n]:
-            diff = check[1][1]
-            if not (diff["moved"] or diff.get("turned") or diff["gone"]) and \
-                    all(math.dist(t["xy"], xy) <= markers.ZONE_RADIUS_M for t in diff["appeared"]):
-                self.bench.scan_checks.remove(check)
-                self.session.event("scan_review", scan=scan_n, proposed=check[1][0], kinds=[],
-                                   note="the drawn tile put on the drop zone")
+        self.bench.explain(self.bench.scan_n,
+                           lambda k, c: k == "appeared" and math.dist(c["xy"], xy) <= markers.ZONE_RADIUS_M,
+                           "the drawn tile put on the drop zone")
 
     # --- the zone ---
 
