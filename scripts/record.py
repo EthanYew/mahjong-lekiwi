@@ -183,10 +183,9 @@ def main(argv=None):
             for k in ("exit_early", "rerecord_episode", "stop_recording"):
                 events[k] = False
             retrying = retry is not None
-            if retrying:               # ← on a demo that moved nothing: straight back to the same hover
+            if retrying:               # ← on a demo that moved nothing: straight back to the same hover (straight up first)
                 tile, placement = retry
                 retry = None
-                arm.lift()
             else:
                 rest_and_release(arm, hover)
                 placement = {}
@@ -321,6 +320,7 @@ def main(argv=None):
                 print(f"  recorded at {fps:.0f} fps, not {config.FPS}: the loop is running slow")
             held = {"tile_name": tile["tile_name"], "detection_xy": [x, y], "home_xy": home, "attempt_dir": None,
                     "spot": placement.get("spot")}
+            arm.squeeze()              # jaws a person stopped closing on the tile: shut, so holding() sees it
             returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
                                                           correction, hover, args.policy or "teleop", states)
             dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
@@ -458,6 +458,7 @@ def rest_and_release(arm, hover):
     """Rest, then let go of a tile still held (--no-return, or a return out of reach) by opening to the hover
     gripper: a gripper left stalled on it at 0 overloads."""
     arm.rest()
+    arm.squeeze()
     if arm.holding()[0]:
         print("Releasing the tile from the last episode at rest.")
         arm.set_gripper(hover["gripper"])
@@ -469,6 +470,7 @@ def ask_same_tile(arm, reason):
     if arm.holding()[0]:
         print("Holding the tile: back to rest to release it.")
         return False
+    drain_stdin()          # after a lost camera nothing has flushed the ← / → pressed while recording
     return ask_one({"ask": "Same tile, same hover again (nothing moved)", "choices": "yn"},
                    reason not in SAME_TILE_NO, input)
 

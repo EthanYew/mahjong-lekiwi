@@ -259,3 +259,67 @@ def test_a_tile_is_let_go_just_above_where_its_jaws_closed_never_below(tile, clo
     release = next(i for i, c in enumerate(robot.sent) if c["gripper"] > 0)
     assert min(robot.clearances[:release]) >= (target - 0.0002) * 1000          # never under it on the way down
     assert_no_jumps(robot, {**config.REST_POSE, "gripper": 0.0})
+
+
+@pytest.mark.parametrize("holding", [True, False])
+def test_squeeze_shuts_jaws_a_person_stopped_closing_so_holding_tells(holding):
+    """2026-10-30: teleop stopped closing once the jaws stalled on the tile (commanded 5-12, reading 11-13) in
+    20 of 35 episodes; holds_tile read them as empty and the tile wasn't returned."""
+    q, _ = kinematics.hover_command(*TILES["3B row 1 centre"], 0.03, 8.8)
+    arm, robot = make_arm(start=q, holding=holding)
+    assert not arm.holding()[0]
+    assert arm.squeeze() == 8.8
+    assert arm.commanded()["gripper"] == 0.0 and arm.holding()[0] == holding
+
+
+def test_squeeze_leaves_open_or_already_shut_jaws_alone():
+    for gripper in (27.2, 0.0):
+        q, _ = kinematics.hover_command(*TILES["3B row 1 centre"], 0.03, gripper)
+        arm, robot = make_arm(start=q, holding=gripper == 0.0)
+        assert arm.squeeze() is None and robot.sent == []
+
+
+def low_tilted_pose(x, y, tilt_deg, clearance_m=0.012, gripper=8.0):
+    """Jaws tilted tilt_deg (L/R on the gamepad), the tip clearance_m above the grasp point at (x, y)."""
+    z = config.grasp_z(x, y) + clearance_m
+    for _ in range(4):
+        try:
+            q = kinematics.inverse([x, y, z], tilt_deg)
+        except ValueError:
+            pytest.skip("out of reach at that tilt")
+        z += config.grasp_z(x, y) + clearance_m - kinematics.pincer_tip(q)[2]
+    return {**q, "gripper": gripper}
+
+
+@pytest.mark.parametrize("tile", TILES)
+@pytest.mark.parametrize("tilt_deg", [0.0, 15.0, -15.0, -25.0])
+def test_rest_from_low_over_the_table_rises_straight_up_first(tile, tilt_deg):
+    """Where a discarded teleop ended: low over the tiles, the jaws maybe tilted. One joint-space move to the
+    IK's lift pose curved through the tiles, and was skipped altogether when the wrist was 30 deg+ from the
+    IK's pose, so the swing to rest started from the mat."""
+    from mahjong.arm import LIFT_CLEARANCE_M
+    start = low_tilted_pose(*TILES[tile], tilt_deg)
+    arm, robot = make_arm(start=start)
+    arm.rest()
+    assert_no_jumps(robot, start, max_step_deg=3.0)
+    tip0 = kinematics.pincer_tip(start)
+    tips = [kinematics.pincer_tip(c) for c in robot.sent]
+    clear = next(i for i, t in enumerate(tips) if t[2] - tip0[2] >= 0.040)      # well above every tile
+    assert all(t[2] >= tip0[2] - 0.0005 for t in tips[:clear + 1])
+    drift = max(np.hypot(*(t[:2] - tip0[:2])) for t in tips[:clear + 1])
+    assert drift < 0.002, f"the jaws moved {drift * 1000:.1f}mm sideways before clearing the tiles"
+    risen = next(c for c in robot.sent if kinematics.tip_clearance(c) >= LIFT_CLEARANCE_M - 0.001)
+    _, r0 = kinematics.forward(start)
+    _, r = kinematics.forward(risen)
+    assert np.degrees(np.arccos(np.clip(r[:, 0] @ r0[:, 0], -1, 1))) < 10.0      # the jaws' tilt (about) kept
+
+
+def test_a_lift_that_cant_keep_the_tilt_holds_the_wrist_and_still_clears_the_tiles():
+    from mahjong.arm import LIFT_CLEARANCE_M
+    start = low_tilted_pose(*TILES["3B row 1 centre"], -25.0)
+    assert kinematics.straight_up(start, 0.06) is None
+    arm, robot = make_arm(start=start)
+    arm.lift()
+    assert kinematics.tip_clearance(arm.commanded()) >= LIFT_CLEARANCE_M - 0.001
+    tool0 = kinematics.tool_point(start)
+    assert max(np.hypot(*(kinematics.tool_point(c)[:2] - tool0[:2])) for c in robot.sent) < 0.002

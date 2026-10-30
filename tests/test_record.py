@@ -241,6 +241,27 @@ def test_a_held_tile_is_set_back_down_on_the_mat_not_dropped_at_rest(tmp_path, m
     assert [h["same_tile_retry"] for h in hovers] == [False, False, False]
 
 
+class StallingGamepad(GrippingGamepad):
+    """A person who stops closing once the jaws stall on the tile: commanded 8.8, reading 11."""
+    def step(self, arm, dt):
+        if not arm.robot.holding:
+            arm.send({**arm.commanded(), "gripper": 8.8})
+            arm.robot.holding = True
+            self.mat.grasp(self.tile)
+        return arm.commanded()
+
+
+def test_a_tile_held_by_jaws_a_person_stopped_closing_is_still_returned(tmp_path, monkeypatch):
+    """2026-10-30: 20 of 35 saved episodes ended commanded 5-12 on the tile; holds_tile saw empty jaws, so no
+    return, and the tile fell out at the next hover's opening."""
+    mats = []
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--episodes", "1"],
+                                  [("hover", {}), ("rec", {})], gamepad=StallingGamepad, mats=mats)
+    assert dataset.saved == [3]
+    assert len([e for e in read_events(session) if e["type"] == "return"]) == 1
+    assert mats[0].held is None and any(t["tile_name"] == "8D" for t in mats[0].tiles)
+
+
 def test_the_gamepad_gets_the_wider_deadzone_and_a_resting_thumb_is_said(tmp_path, monkeypatch, capsys):
     """2026-10-28: a thumb resting on the left stick, past XLeRobot's 0.15, pulled the arm 87mm (collect_corrections);
     record hands over the gamepad at every episode, so it gets the same deadzone and warning."""
@@ -438,6 +459,19 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     discarded = [e for e in read_events(session) if e["type"] == "episode_discarded"]
     assert [e["reason"] for e in discarded] == ["wrist camera lost"]    # no question asked
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
+
+
+def test_keys_pressed_while_the_camera_was_lost_dont_answer_the_same_tile_question(tmp_path, monkeypatch):
+    """The ← / → pressed while recording sat in stdin: the first answer to "Same tile" came out garbled, so it
+    was asked twice and only the second answer counted. Nothing flushed them on the camera-lost path."""
+    import record
+    from mahjong.sim import SimCamera
+    log = []
+    monkeypatch.setattr(record, "drain_stdin", lambda: log.append("drain"))
+    script = [("hover", {}), ("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+    run_record(tmp_path, monkeypatch, [], script, cameras=[LostCamera(), SimCamera()], prompts=log)
+    same = next(i for i, q in enumerate(log) if q != "drain" and "Same tile" in q)
+    assert log[same - 1] == "drain"
 
 
 def test_a_second_right_arrow_straight_after_the_first_doesnt_save(tmp_path, monkeypatch):

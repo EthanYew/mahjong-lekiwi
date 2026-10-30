@@ -72,6 +72,8 @@ def reopen_wrist_camera(camera, ask=None, openers=None):
     except Exception:
         pass
     print("Wrist camera lost: reopening it.")
+    from .perception import drain_stdin
+    drain_stdin()          # keys pressed while it was lost would answer connect's retry prompt
     return connect(["wrist_camera"], ask=ask, openers=openers)["wrist_camera"]
 
 
