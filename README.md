@@ -172,16 +172,34 @@ tips. If it's there (the detector flickered) the pickup goes ahead from there. I
 put it back where it belongs, Enter rescans (logged as a reset), `s` skips the spot (`--tile`: ends the
 trials). An unattended run waits there.
 
-**During a pickup:** `Esc` stops the policy. `→` marks "something happened here" without stopping it
-(a hand on the tile, a caught drop, the arm bumping a neighbour); you're asked what afterwards. A
-pickup stops itself once the tile has been held and lifted for 1.5s (max 16s). Every attempt saves the
-full wrist video (`wrist.mp4`) in its folder, so a new policy can be replayed on it.
+**While the arm picks up or returns a tile, say what you see with a key** (no Enter; the terminal prints
+`[b] bumped another tile (noted)`; the keys are printed as each pickup and return starts). Keys typed at a
+prompt or the menu don't count.
 
-After each attempt the RealSense rescans the mat. A tile the scan says went is looked at with the wrist
-camera first (once the arm has put down what it holds); one still there is logged as a detection glitch
-without asking, with the wrist frame in the session's `wrist_checks/`. If tiles still moved, the bench
-shows the change and asks: Enter = "as the scan says", or mark it a detection glitch. Every scan also saves the frames the
-detector looked at in the session's `scans/` folder, for improving the detector (see below).
+| Key | Means | Counts as |
+|---|---|---|
+| `b` | the arm bumped another tile | a collision (failure; the success stays clean), and a neighbour that moved is a knock without asking |
+| `p` | the arm pushed or turned the tile it's picking up | a failure |
+| `l` | look at this (nothing touched) | an observation |
+
+`Esc` stops the policy. `→` marks "something happened here" without stopping it (a hand on the tile, a
+caught drop); a `→` with no key is asked about right after that attempt (not at the end of a batch). A pickup stops itself once the tile
+has been held and lifted for 1.5s (max 16s). Every attempt saves the full wrist video (`wrist.mp4`) in
+its folder, so a new policy can be replayed on it.
+
+After each pickup and return the RealSense rescans the mat. A tile the scan says went is looked at with the
+wrist camera first (once the arm has put down what it holds); one still there is logged as a detection
+glitch, with the wrist frame in the session's `wrist_checks/`. What else changed is settled like this:
+
+- **a neighbour** (within 85mm of the tile the arm handled) **moved or turned**: if you pressed `b` during
+  that pickup or return, it's a knock; if not, you're asked right then (Enter = it moved, or a glitch);
+- **anything else** (tiles further away, tiles gone or appearing, changes between attempts): no question.
+  The next scans decide: undone by a later scan, it was the detector (a glitch); still so 3 scans later
+  (about one attempt), it happened: a knock near the arm, "moved by something else" further away, a reset
+  between attempts. The end of the trials lists the tiles whose detections flickered (`3B x2`).
+
+Every scan also saves the frames the detector looked at in the session's `scans/` folder, for improving
+the detector (see below).
 
 **Returns go home.** A tile's home is where it was first seen this session (per layout spot, or per
 tile name; a tile found more than 40mm from its home was moved on purpose and gets a new one; moved

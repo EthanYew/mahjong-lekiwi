@@ -11,9 +11,13 @@ Classes, because only one of them measures the policy:
                wasn't sure of, a recount). Not a rescue, but a hand with one isn't clean (hand_grade)
 
 Most are derived (derive()) from what a session logs anyway: attempts, the `detections` scans around
-each attempt, session_end. A person is asked only after marking an attempt (→ during ACT), aborting it
-(Esc), answering a discard went wide, with the bench's `note` command, or when a scan shows the mat
-changed (the bench asks then, so a detection glitch isn't logged as a knock: `scan_review`).
+each attempt, session_end. What a person saw happen they say with a key as it happens (KEYS: b the arm
+bumped another tile, ...), during the pickup or the return, instead of answering for it afterwards. They
+are asked only after marking an attempt with → and no key, aborting it (Esc), answering a discard went
+wide, with the bench's `note` command, or when a scan shows a neighbour of the handled tile moved or
+turned and no bump was keyed (asked right then, so a detection glitch isn't logged as a knock:
+`scan_review`). Every other change the scans show is settled by the scans after it (ChangeWatch): one
+that goes back was the detector, one that stays happened.
 """
 import math
 from collections import Counter
@@ -27,7 +31,8 @@ KINDS = {
     # asked after a mark (→ during ACT)
     "touched_tile": ("touched the tile to help", RESCUE),
     # not a step-in: the attempt can still be a clean success, but the collision is counted
-    "collided": ("the arm bumped the tile or a neighbour, no one helped", FAILURE),
+    "collided": ("the arm bumped another tile, no one helped", FAILURE),
+    "pushed_target": ("the arm pushed or turned the tile it was picking up", FAILURE),
     "helped_arm": ("held or steadied the arm or base", RESCUE),
     "caught_drop": ("caught a drop", RESCUE),
     "look": ("nothing touched, just look at this", OBSERVATION),
@@ -51,6 +56,8 @@ KINDS = {
     "success_overridden": ("answered against the gripper's verdict", OVERRIDE),
     "knocked": ("a tile other than the target moved", FAILURE),
     "scan_glitch": ("the scans changed but nothing moved (a detection glitch)", OBSERVATION),
+    "moved_elsewhere": ("a tile away from the arm moved and stayed moved: not the arm", OBSERVATION),
+    "unsettled": ("a change the session ended before later scans could settle", OBSERVATION),
     "arm_moved_while_off": ("arm not where it settled at the last disconnect (moved while off)", OBSERVATION),
     # autonomous play (scripts/play.py)
     "name_asked": ("said what a tile is: the robot wasn't sure of its name", ASK),
@@ -60,7 +67,13 @@ KINDS = {
     "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
     "zone_unchecked": ("played before the bench checked a pickup on the drop zone (--skip-zone-test)", OBSERVATION),
 }
-MARK_KINDS = ["touched_tile", "collided", "helped_arm", "caught_drop", "look", "other"]
+MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other"]
+# Pressed during a pickup or a return (the bench's KeyMarks): what happened, said as it happens. 2026-10-30: the
+# questions at the end of a batch couldn't be answered accurately, nor told apart by attempt. Only what the arm
+# does: a person helping (touched the tile, held the arm, caught a drop) never happens on the bench, and is
+# still a → and an answer if it does.
+KEYS = {"b": "collided", "p": "pushed_target", "l": "look"}
+KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "l": "look at this"}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
@@ -77,6 +90,15 @@ CHANGE_CONFIDENCE = 0.6
 # 8D knocked ~20 deg by a return moved 1.4mm but its box grew +6.1 x +3.3 px; untouched tiles' boxes
 # changed 0.7 px at most between scans (two sessions, 40+ tile pairs).
 TURN_PX = 2.5
+# A change this close to the tile the arm handled is a neighbour's (layouts: nearest neighbours 46-82mm, hand14's
+# diagonals ~75mm). Answers to 212 scan changes (23 sessions to 2026-10-30): beyond 90mm, 43 of 47 were glitches;
+# neighbours that moved or turned at 40-60mm, 30 of 39 were real; gone / appeared at any distance mostly glitches.
+NEIGHBOUR_M = 0.085
+# A watched change is real once this many later scans still show it (ChangeWatch: ~one attempt, 3 scans each);
+# one a later scan shows undone was a glitch. Replayed on the same answers: 3 matched the person on 43 of 55
+# watched changes (40 of their 44 glitches), 2 on 40. Most of the rest were real answers given for a whole
+# scan that also held a real knock, or a tile put back before the next scan (which looks like a glitch).
+SETTLE_SCANS = 3
 
 
 def class_of(kind):
@@ -114,7 +136,8 @@ def ask_scan(scan, proposal, ask=None):
     kind, diff = proposal
     where = scan.get("attempt_dir") or "the mat"
     if kind == "knocked":
-        prompt = f"{where}: the scans say {changes_text(diff)} during the {scan['label'].removeprefix('after_')}. Right"
+        prompt = (f"{where}: the scans say {changes_text(diff)} during the {scan['label'].removeprefix('after_')}, "
+                  f"and no bump was keyed (b). Did it move")
         answers = SCAN_ANSWERS["knocked"]
     else:
         prompt = f"{where}, since the last scan: {changes_text(diff)}. What was it"
@@ -153,7 +176,8 @@ def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, mo
         elif before[i].get("box_px") and after[j].get("box_px"):
             change = max(abs(a - b) for a, b in zip(after[j]["box_px"], before[i]["box_px"]))
             if change > turn_px:
-                turned.append({"tile_name": after[j]["tile_name"], "xy": list(after[j]["xy"]), "box_change_px": change})
+                turned.append({"tile_name": after[j]["tile_name"], "xy": list(after[j]["xy"]), "box_change_px": change,
+                               "box_from": list(before[i]["box_px"]), "box_to": list(after[j]["box_px"])})
 
     def near(xy):
         return any(math.dist(xy, p) <= radius_m for p in ignore)
@@ -218,10 +242,11 @@ class MatWatch:
         fixed = any(math.dist(p, k) <= config.TILE_MERGE_RADIUS_M for p in _from_points(diff) for k in self.knocked_to)
         return ("straightened" if fixed else "tile_reset", diff)
 
-    def advance(self, scan, proposal, kinds):
-        """Move on to `scan`, with the kinds that stand for its proposal."""
-        if proposal and "knocked" in kinds:
-            self.knocked_to += _to_points(proposal[1]) + [t["xy"] for t in proposal[1]["gone"]]
+    def advance(self, scan, knocked=None):
+        """Move on to `scan`; `knocked`: the part of its changes that stands as a knock (where a person may
+        straighten a tile later)."""
+        if knocked:
+            self.knocked_to += _to_points(knocked) + [t["xy"] for t in knocked["gone"]]
         self.previous = scan
 
     def restore(self, tile):
@@ -233,6 +258,108 @@ class MatWatch:
             self.previous = {**self.previous, "tiles": self.previous["tiles"] + [restored]}
 
 
+def split(diff, keep):
+    """(the changes in a scene_diff where keep(category, change) holds, the rest), each a scene_diff."""
+    a, b = {k: [] for k in diff}, {k: [] for k in diff}
+    for k, changes in diff.items():
+        for c in changes:
+            (a if keep(k, c) else b)[k].append(c)
+    return a, b
+
+
+def where(change):
+    """The points a change touches (a move: both ends)."""
+    return [change[k] for k in ("from", "to", "xy") if k in change]
+
+
+def near_any(change, points, radius_m):
+    return any(math.dist(p, q) <= radius_m for p in where(change) for q in points)
+
+
+def merge(*diffs):
+    return {k: [c for d in diffs for c in d.get(k, [])] for k in ("moved", "turned", "gone", "appeared")}
+
+
+def _state(change, kind, tiles):
+    """Whether `tiles` (a later scan) show a change as it was before ("before"), as it was after ("after"), or
+    neither (None: something else, no evidence either way)."""
+    def nearest(xy):
+        d = [(math.dist(t["xy"], xy), t) for t in tiles if on_mat(t)]
+        return min(d, key=lambda p: p[0]) if d else (math.inf, None)
+    r = config.TILE_MERGE_RADIUS_M
+    if kind == "gone":
+        # back where it was: an unmoved tile's detection moves 1-1.5mm, while a knocked neighbour can end up
+        # within r of a lost tile's spot (5C 18mm from 3B's, test_bench)
+        return "before" if nearest(change["xy"])[0] <= 2 * KNOCK_M else "after"
+    if kind == "appeared":
+        return "after" if nearest(change["xy"])[0] <= r else "before"
+    if kind == "moved":
+        d_from, d_to = nearest(change["from"])[0], nearest(change["to"])[0]
+        if min(d_from, d_to) > r:
+            return None
+        return "before" if d_from < d_to else "after"
+    d, tile = nearest(change["xy"])      # turned: the box back to its old shape, or still the new one
+    if d > r or not tile or not tile.get("box_px") or "box_from" not in change:
+        return None
+    for state, box in (("before", change["box_from"]), ("after", change["box_to"])):
+        if max(abs(a - b) for a, b in zip(tile["box_px"], box)) <= TURN_PX:
+            return state
+    return None
+
+
+class ChangeWatch:
+    """Changes the scans showed that no one was asked about, settled by the scans after them: a change that a
+    later scan shows undone was the detector (a glitch: 5C went and came back 8 times in one session,
+    2026-10-29); one that SETTLE_SCANS later scans still show happened. The bench feeds it each scan, so far
+    tiles flickering aren't asked about, and nothing waits for the end of a batch."""
+    def __init__(self, settle_scans=SETTLE_SCANS):
+        self.settle_scans, self.pending = settle_scans, []
+        self.glitches = Counter()       # tile name -> changes that went back: how flaky each tile's detection is
+
+    def watch(self, scan, diff, kind):
+        """Watch the changes in `diff`, from detections event `scan`; `kind`: what they are if they stay."""
+        for cat, changes in diff.items():
+            for c in changes:
+                self.pending.append({"scan": scan["scan"], "attempt_dir": scan.get("attempt_dir"), "kind": kind,
+                                     "category": cat, "change": c, "agreed": 0})
+
+    def update(self, scan, diff):
+        """A new scan (and its diff against the previous one, or None). Returns (settled: [(pending, kind)],
+        what of `diff` is left once undone changes are taken out, those taken out: their going back isn't a
+        new change)."""
+        settled, still, undone = [], [], []
+        for p in self.pending:
+            state = _state(p["change"], p["category"], scan["tiles"])
+            if state == "before":
+                self.glitches[p["change"]["tile_name"]] += 1
+                if diff:
+                    diff, back = split(diff, lambda k, c, p=p: not near_any(c, where(p["change"]),
+                                                                            config.TILE_MERGE_RADIUS_M))
+                    undone.append(back)
+                settled.append((p, "scan_glitch"))
+                continue
+            p["agreed"] += state == "after"
+            if p["agreed"] >= self.settle_scans:
+                settled.append((p, p["kind"]))
+            else:
+                still.append(p)
+        self.pending = still
+        return settled, diff, merge(*undone)
+
+    def forget(self, keep):
+        """Drop pending changes where keep(pending) is False (a person explained them); returns the dropped."""
+        dropped = [p for p in self.pending if not keep(p)]
+        self.pending = [p for p in self.pending if keep(p)]
+        return dropped
+
+    def flush(self):
+        """At the end of a session: what's still pending, as (pending, kind): the kind if a later scan agreed
+        with it, else "unsettled"."""
+        out = [(p, p["kind"] if p["agreed"] else "unsettled") for p in self.pending]
+        self.pending = []
+        return out
+
+
 def without(diff, gone=(), appeared=()):
     """A scene_diff with those gone / appeared tiles left out (ones the wrist camera or a later scan explained)."""
     return {**diff, "gone": [t for t in diff["gone"] if t not in gone],
@@ -242,9 +369,11 @@ def without(diff, gone=(), appeared=()):
 def derive(events):
     """Every intervention in a session's events, logged or derived, in order:
     [{kind, class, attempt_dir, source, time, ...}]. source: logged (an intervention event or a logged
-    fact), mark (asked after → during ACT), derived (from attempt fields / session_end), scans (from
-    consecutive `detections` events), confirmed (scans a person answered for: `scan_review`). Each is
-    attributed to the attempt it belongs to, or the most recent one; session-level ones to None."""
+    fact), mark (asked after → during ACT), key (a KEYS press during a pickup or a return: a `keys` event),
+    derived (from attempt fields / session_end), scans (from consecutive `detections` events, or settled by
+    the scans after them: `scan_review` by "scans"), confirmed (scans a person answered or keyed for:
+    `scan_review`). Each is attributed to the attempt it belongs to, or the most recent one; session-level
+    ones to None."""
     out = []
 
     def add(kind, attempt_dir, source, time, **fields):
@@ -252,7 +381,12 @@ def derive(events):
                     "time": time, **{k: v for k, v in fields.items() if v not in (None, "")}})
 
     reviews = {e["attempt_dir"]: e for e in events if e["type"] == "attempt_review"}
-    scan_reviews = {e["scan"]: e["kinds"] for e in events if e["type"] == "scan_review"}
+    # a → during a pickup someone also pressed a key for says nothing the key didn't
+    keyed = {e["attempt_dir"] for e in events if e["type"] == "keys" and e.get("during") == "pickup" and e["presses"]}
+    scan_reviews = {}
+    for e in events:
+        if e["type"] == "scan_review":
+            scan_reviews.setdefault(e["scan"], []).append(e)
     last_attempt, mat, ended = None, MatWatch(), False
     for e in events:
         kind, time = e["type"], e.get("time")
@@ -262,12 +396,16 @@ def derive(events):
             last_attempt = a["attempt_dir"]
             if a.get("stop_reason") == "aborted":
                 add("aborted", last_attempt, "logged", time, reason=a.get("abort_reason"))
-            if a.get("marks_s"):
+            if a.get("marks_s") and (a.get("mark_kind") or last_attempt not in keyed):
                 add(a.get("mark_kind") or "unspecified", last_attempt, "mark", time, marks_s=a["marks_s"],
                     note=a.get("mark_note"))
             if "gripper_says_held" in a and a["gripper_says_held"] != a["success"]:
                 add("success_overridden", last_attempt, "derived", time, gripper_says_held=a["gripper_says_held"],
                     success=a["success"])
+        elif kind == "keys":
+            for k in dict.fromkeys(p["kind"] for p in e["presses"]):
+                add(k, e["attempt_dir"], "key", time, during=e["during"],
+                    at_s=[p["t_s"] for p in e["presses"] if p["kind"] == k])
         elif kind == "intervention":
             fields = {k: v for k, v in e.items() if k not in ("type", "time", "kind", "attempt_dir")}
             add(e["kind"], e.get("attempt_dir") or last_attempt, "logged", time, **fields)
@@ -280,13 +418,17 @@ def derive(events):
                 off_parked_deg=e.get("off_parked_deg"))
         elif kind == "detections":
             proposal = mat.propose(e)
-            confirmed = proposal is not None and e.get("scan") in scan_reviews
-            kinds = scan_reviews[e["scan"]] if confirmed else [proposal[0]] if proposal else []
+            answered = scan_reviews.get(e.get("scan"), []) if proposal is not None else []
             during = e["label"].removeprefix("after_") if e["label"] in ATTEMPT_SCANS else None
-            for k in kinds:
+            # each review stands for the changes it names (older sessions: one review for the whole scan)
+            found = [(k, r.get("changes") or proposal[1], r.get("by")) for r in answered for k in r["kinds"]]
+            if proposal and not answered:
+                found = [(proposal[0], proposal[1], "scans")]
+            for k, changes, by in found:
                 add(k, (e.get("attempt_dir") if during else None) or last_attempt,
-                    "confirmed" if confirmed else "scans", time, during=during, changes=proposal[1])
-            mat.advance(e, proposal, kinds)
+                    "scans" if by == "scans" else "confirmed", time, during=during, changes=changes,
+                    by=None if by == "scans" else by)
+            mat.advance(e, merge(*[c for k, c, _ in found if k == "knocked"]))
         elif kind == "wrist_check" and e.get("present"):
             mat.restore({"tile_name": e["tile"], "xy": e["xy"]})
         elif kind == "session_end":
@@ -318,6 +460,7 @@ def summary(interventions, attempts):
             "asks": counts[ASK],
             "knocks": sum(i["kind"] == "knocked" for i in interventions),
             "collisions": sum(i["kind"] == "collided" for i in interventions),
+            "target_pushes": sum(i["kind"] == "pushed_target" for i in interventions),
             "successes": len(successes), "clean_successes": len(successes) - assisted, "assisted_successes": assisted}
 
 

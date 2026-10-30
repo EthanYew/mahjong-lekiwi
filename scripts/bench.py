@@ -12,21 +12,31 @@
     9 setup          the setup changed mid-session (lamp on, battery swapped): answer the setup questions again
    10 quit
 
-Type a number or a name. During a pickup, Esc stops the policy, and → marks the moment without
-stopping it ("something happened here": a hand on the tile or the base, a caught drop, or just "look
-at this"); you're asked what afterwards, or at the end of a batch of trials. Clean attempts ask
-nothing extra. Everything goes in a session folder (sessions/<time>_bench/): the terminal log,
-events.jsonl (with a RealSense scan before and after each pickup, return and discard, so knocked
-tiles and tiles put back by hand show up without anyone saying so; when a scan shows the mat changed
-you're asked whether it really did, Enter for yes; each scan's frames and boxes go in scans/, for
-the tile detector's data: scripts/mine_frames.py), and per attempt the wrist
-frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
-summarises the latest one, interventions included (mahjong/interventions.py).
+Type a number or a name. While the arm picks up or returns a tile, say what you see as it happens with a
+key (no Enter; the keys are printed as each pickup and return starts):
+
+    b  the arm bumped another tile    p  the arm pushed the tile it's picking up    l  look at this
+
+During a pickup, Esc stops the policy, and → marks the moment without stopping it (a hand on the tile, a
+caught drop); a → with no key is asked about right after the attempt. Clean attempts ask nothing. Everything goes in a session folder
+(sessions/<time>_bench/): the terminal log, events.jsonl (with a RealSense scan before and after each
+pickup, return and discard, so knocked tiles and tiles put back by hand show up without anyone saying
+so; each scan's frames and boxes go in scans/, for the tile detector's data: scripts/mine_frames.py),
+and per attempt the wrist frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames
+before and after. `python scripts/session_report.py` summarises the latest one, interventions included
+(mahjong/interventions.py).
+
+What a scan sees change is settled without the end-of-batch questions:
+  - a neighbour of the handled tile (within 85mm) that moved or turned: a knock if you pressed b during
+    that pickup or return, else you're asked right then (Enter: it moved);
+  - anything else (tiles further away, tiles gone or appearing): watched over the next scans. Undone by
+    a later scan: a detection glitch. Still so 3 scans later: real, a knock near the arm, or moved by
+    something else further away. The tiles whose detections flickered are listed at the end of trials.
 
 A tile a scan says went, or a spot's tile not detected, is looked at with the wrist camera before anyone is asked
 (mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face between the jaw
 tips. Still there: a detection glitch, logged as one (`wrist_check` and `scan_review` events, the frame in
-wrist_checks/), and the tile is picked up from where it was. Not there: asked as before. While the arm holds a tile
+wrist_checks/), and the tile is picked up from where it was. Not there: the change is real. While the arm holds a tile
 its wrist view is blocked, so the look waits for the next scan (which may see the tile again by itself).
 
     python scripts/bench.py                         # interactive, default policy
@@ -97,6 +107,41 @@ class Mark:
         return self.events["exit_early"] and not self.events["stop_recording"]
 
 
+class KeyMarks:
+    """Letter keys (interventions.KEYS) pressed while the arm works, from a keyboard listener of its own: what a
+    person saw happen, said as it happens instead of asked afterwards. Only counted between start() and stop(),
+    so keys typed at a prompt or the menu aren't marks. Without a listener (sim, headless) press() is the way in."""
+    def __init__(self, listen):
+        self.phase, self.presses, self.t0, self.listener = None, [], 0.0, None
+        if listen:
+            from lerobot.common.control_utils import is_headless
+            if not is_headless():
+                from pynput import keyboard
+                self.listener = keyboard.Listener(on_press=lambda key: self.press(getattr(key, "char", None)))
+                self.listener.start()
+
+    def start(self, phase):
+        """Count keys from now (`phase`: pickup or return), with a reminder of which."""
+        self.phase, self.presses, self.t0 = phase, [], time.time()
+        keys = "  ".join(f"{k} {label}" for k, label in interventions.KEY_LABELS.items())
+        print(f"  keys: {keys}" + ("  |  → mark  Esc stop" if phase == "pickup" else ""))
+
+    def press(self, char):
+        kind = interventions.KEYS.get((char or "").lower())
+        if self.phase is None or kind is None:
+            return
+        self.presses.append({"key": char.lower(), "kind": kind, "t_s": round(time.time() - self.t0, 2)})
+        print(f"  [{char.lower()}] {interventions.KEY_LABELS[char.lower()]} (noted)")
+
+    def stop(self):
+        presses, self.phase, self.presses = self.presses, None, []
+        return presses
+
+    def close(self):
+        if self.listener:
+            self.listener.stop()
+
+
 class Bench:
     SESSION_KIND = "bench"          # the session folder's suffix (scripts/play.py builds on the bench as "play")
 
@@ -124,16 +169,20 @@ class Bench:
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
             self.listener, self.events = init_keyboard_listener()
         self.abort, self.mark = Abort(self.events), Mark(self.events)
+        self.keys = KeyMarks(listen=not args.sim)
+        self.last_keys = []         # the keys pressed during the latest pickup or return: what its scan is judged by
         if self.arm.at_connect:
             self.session.event("connect", **self.arm.at_connect)
         self.last_attempt = None    # attempt_dir of the latest attempt: what a note or an interruption belongs to
         self.to_review = []         # (attempt_dir, tile, run) marked or aborted during trials, asked at the end
         self.mat, self.scan_n = interventions.MatWatch(), 0
-        self.scan_checks = []       # (detections event, proposal): changes on the mat a person hasn't confirmed yet
+        self.scan_checks = []       # (detections event, proposal): neighbours' changes a person hasn't confirmed yet
+        self.changes = interventions.ChangeWatch()      # every other change, until later scans settle it
         self.unlooked = []          # (scan number, tile) a scan said went while the arm held a tile: looked at next
         self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
         self.names = {}             # {spot id or tile name: the tile last picked up there}
-        self.batch = False          # during trials: questions wait for the end
+        self.batch = False          # during trials: a tile not found is put back by a person, not skipped
+        self.defer = False          # questions wait for the caller (play: the end of the step)
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
@@ -161,18 +210,26 @@ class Bench:
     def scan(self, label, confirmed=None, look=True, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
         mat (interventions.MatWatch). A tile that went is looked at with the wrist camera first (look_again;
-        not while the arm holds a tile: `look`); a change left waits for a person to confirm it
-        (check_scans), unless they already said what it was (`confirmed`: its kinds, e.g. ["tile_reset"])."""
+        not while the arm holds a tile: `look`); changes that undo or repeat earlier watched ones settle those
+        (ChangeWatch); what's left is sorted (sort_changes), unless a person already said what it was
+        (`confirmed`: its kinds, e.g. ["tile_reset"])."""
         self.scan_n += 1
         tiles, scan = detector.log_scan(self.realsense, self.session, self.scan_n, label, **fields)
         proposal, seen = self.mat.propose(scan), []
         if not confirmed:
             proposal, seen = self.look_again(scan, proposal, look and not self.held)
+        settled, diff, undone = self.changes.update(scan, proposal[1] if proposal else None)
+        self.log_settled(settled)
+        if interventions.changed(undone):
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=[], changes=undone,
+                               by="scans", note="undoes an earlier scan's glitch")
+        proposal = (proposal[0], diff) if proposal and interventions.changed(diff) else None
+        knocked = None
         if proposal and confirmed:
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=confirmed)
         elif proposal:
-            self.scan_checks.append((scan, proposal))
-        self.mat.advance(scan, proposal, (confirmed or [proposal[0]]) if proposal else [])
+            knocked = self.sort_changes(scan, proposal)
+        self.mat.advance(scan, knocked)
         for tile in seen:
             self.mat.restore(tile)
         return tiles + [{"tile_name": t["tile_name"], "xy": tuple(t["xy"]), "confidence": 0.0, "wrist_seen": True}
@@ -197,7 +254,12 @@ class Bench:
                 diff = interventions.without(diff, appeared=[back])
                 self.drop_change(scan_n, tile, "a later scan saw it back")
                 continue
-            if self.crowded(tile, scan["tiles"], scan_n) or not self.wrist_look(tile, scan_n)["present"]:
+            if self.crowded(tile, scan["tiles"], scan_n):
+                continue
+            present = self.wrist_look(tile, scan_n)["present"]
+            if present is False and scan_n != scan["scan"]:
+                self.settle_gone(scan_n, tile)
+            if not present:
                 continue
             seen.append(tile)
             if scan_n == scan["scan"]:
@@ -212,18 +274,93 @@ class Bench:
             return None, seen
         return ((kind, diff) if proposal else None), seen
 
+    def sort_changes(self, scan, proposal):
+        """A scan's changes, three ways. After a pickup or a return, a neighbour of the handled tile (within
+        NEIGHBOUR_M) that changed: a knock if b was pressed during it (logged now, by="key"); one that moved or
+        turned with no b: asked (check_scans, right after the attempt). Everything else, and every change between
+        attempts: watched (ChangeWatch) as what it would be if it stays: a knock near the arm, moved_elsewhere
+        away from it, and between attempts the proposal (a person straightening or putting tiles back). A tile
+        the wrist camera saw gone is real already. Returns the changes standing as a knock for now."""
+        kind, diff = proposal
+        empty = {k: [] for k in diff}
+        target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
+        if target is None:
+            self.watch_changes(scan, diff, kind)
+            return None
+        near, far = interventions.split(diff, lambda k, c: interventions.near_any(c, [target], interventions.NEIGHBOUR_M))
+        looked = [xy for n, xy in self.looked_empty if n == self.scan_n]
+        absent, near = interventions.split(near, lambda k, c: k == "gone" and interventions.near_any(
+            c, looked, config.TILE_MERGE_RADIUS_M))
+        absent_far, far = interventions.split(far, lambda k, c: k == "gone" and interventions.near_any(
+            c, looked, config.TILE_MERGE_RADIUS_M))
+        during = scan["label"].removeprefix("after_")
+        if any(p["kind"] == "collided" for p in self.last_keys):
+            keyed, asked, watched = near, empty, empty
+        else:
+            keyed = empty
+            asked, watched = interventions.split(near, lambda k, c: k in ("moved", "turned"))
+        knocked = interventions.merge(keyed, absent)
+        if interventions.changed(knocked):
+            by = "key" if interventions.changed(keyed) else "wrist camera"
+            note = f"b pressed during the {during}" if by == "key" else "the wrist camera saw the tile gone"
+            self.session.event("scan_review", scan=scan["scan"], proposed=kind, kinds=["knocked"], changes=knocked,
+                               by=by, note=note)
+            print(f"  {interventions.changes_text(knocked)} during the {during}: a knock ({note})")
+        if interventions.changed(absent_far):
+            self.session.event("scan_review", scan=scan["scan"], proposed=kind, kinds=["moved_elsewhere"],
+                               changes=absent_far, by="wrist camera", note="the wrist camera saw the tile gone")
+        if interventions.changed(asked):
+            self.scan_checks.append((scan, (kind, asked)))
+        self.watch_changes(scan, interventions.merge(watched), "knocked")
+        self.watch_changes(scan, interventions.merge(far), "moved_elsewhere")
+        return interventions.merge(knocked, asked)
+
+    def watch_changes(self, scan, diff, kind):
+        """Leave changes to the scans after this one (ChangeWatch); logged with no kind yet, so a session that
+        stops before they settle doesn't count them as `kind`."""
+        if interventions.changed(diff):
+            self.changes.watch(scan, diff, kind)
+            self.session.event("scan_review", scan=scan["scan"], proposed=kind, kinds=[], changes=diff, by="scans",
+                               note="watching: the next scans settle it")
+
+    def log_settled(self, settled, by="scans", note=None):
+        """Watched changes the latest scan settled: undone (a glitch) or still there SETTLE_SCANS later (real)."""
+        for p, kind in settled:
+            change = interventions.merge({p["category"]: [p["change"]]})
+            why = note or {"scan_glitch": "undone by a later scan", "unsettled": "the session ended first"}.get(
+                kind, f"still so {p['agreed']} scans later")
+            self.session.event("scan_review", scan=p["scan"], proposed=p["kind"], kinds=[kind], changes=change,
+                               by=by, note=why)
+            if kind not in ("scan_glitch", "unsettled"):
+                print(f"  {interventions.changes_text(change)} (scan {p['scan']}), {why}: "
+                      f"{interventions.KINDS[kind][0]}")
+
+    def explain(self, scan_n, explained, note):
+        """Changes of scan `scan_n` whose cause is known (explained(category, change)): neither asked nor watched."""
+        dropped = self.changes.forget(lambda p: not (p["scan"] == scan_n and explained(p["category"], p["change"])))
+        for i, (scan, (kind, diff)) in reversed(list(enumerate(self.scan_checks))):
+            if scan["scan"] == scan_n:
+                rest, _ = interventions.split(diff, lambda k, c: not explained(k, c))
+                if interventions.changed(rest):
+                    self.scan_checks[i] = (scan, (kind, rest))
+                else:
+                    del self.scan_checks[i]
+                    dropped.append(None)
+        if dropped:
+            self.session.event("scan_review", scan=scan_n, proposed=None, kinds=[], note=note)
+
+    def settle_gone(self, scan_n, tile):
+        """An earlier scan's "gone" tile the wrist camera saw isn't there: real, without waiting on more scans."""
+        for p in self.changes.forget(lambda p: not (p["scan"] == scan_n and p["category"] == "gone"
+                                                    and p["change"] == tile)):
+            self.log_settled([(p, p["kind"])], by="wrist camera", note="the wrist camera saw the tile gone")
+
     def drop_change(self, scan_n, tile, why):
-        """An earlier scan's "gone" tile turned out to be there: out of its proposal waiting in scan_checks."""
-        for i, (scan, (kind, diff)) in enumerate(self.scan_checks):
-            if scan["scan"] != scan_n:
-                continue
-            diff = interventions.without(diff, gone=[tile])
-            if interventions.changed(diff):
-                self.scan_checks[i] = (scan, (kind, diff))
-            else:
-                del self.scan_checks[i]
-                self.session.event("scan_review", scan=scan_n, proposed=kind, kinds=["scan_glitch"], note=why)
-            return
+        """An earlier scan's "gone" tile turned out to be there: a glitch, no longer watched."""
+        for p in self.changes.forget(lambda p: not (p["scan"] == scan_n and p["category"] == "gone"
+                                                    and p["change"] == tile)):
+            self.session.event("scan_review", scan=scan_n, proposed=p["kind"], kinds=["scan_glitch"],
+                               changes=interventions.merge({"gone": [tile]}), by="scans", note=why)
 
     def crowded(self, tile, tiles, scan_n):
         """Another tile the scan sees within wrist_check.CROWDED_M of where `tile` was: its face would fill the
@@ -285,12 +422,14 @@ class Bench:
         return {"tile_name": tile["tile_name"], "xy": tuple(home), "confidence": 0.0, "wrist_seen": True}
 
     def check_scans(self):
-        """What the scans saw change, one question each (Enter: as they say; or a detection glitch)."""
+        """Neighbours the scans saw move or turn with no b pressed, one question each (Enter: as they say; or a
+        detection glitch)."""
         if self.scan_checks:
             drain_stdin()
         for scan, proposal in self.scan_checks:
             kinds = interventions.ask_scan(scan, proposal)
-            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=kinds)
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=kinds,
+                               changes=proposal[1], by="person")
         self.scan_checks = []
 
     def choose(self, tile_name=None, spot=None):
@@ -302,7 +441,7 @@ class Bench:
             if not self.arm.is_at_rest():
                 self.arm.rest()
             tiles = self.scan("choose", confirmed=confirmed)
-            if not self.batch:
+            if not self.defer:
                 self.check_scans()          # before the arm moves, while what happened is in front of you
             tile, reason, missing = self.find(tiles, tile_name, spot)
             if tile is None and reason != "cancelled":
@@ -386,13 +525,16 @@ class Bench:
             return None
         attempt = self.session.attempt_dir(tile["tile_name"])
         self.snapshot(attempt / "overview_before.jpg")
+        self.keys.start("pickup")
         hover = self.hover_over(tile, perturb)
         if hover is None:
+            self.keys.stop()
             return None
         self.abort.clear()
         run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
         squeezed_from = self.arm.squeeze()     # a policy that stopped closing short of 0 on the tile
         self.arm.rest()
+        presses = self.keys.stop()
         holding, command, measured = self.arm.holding()
         if run["stop_reason"] == "camera" and not holding:
             self.session.event("attempt_void", reason="wrist camera stopped giving frames", tile=tile["tile_name"],
@@ -406,6 +548,7 @@ class Bench:
             return None
         self.snapshot(attempt / "overview_after.jpg")
         self.names[spot["id"] if spot else tile["tile_name"]] = tile["tile_name"]
+        self.log_keys(attempt.name, "pickup", presses)
         self.scan("after_pickup", look=not holding, attempt_dir=attempt.name, target_xy=list(tile["xy"]))
         success, review = holding, {}
         if ask:
@@ -413,9 +556,10 @@ class Bench:
             answer = input(f"Picked it up? (gripper commanded {command:.0f}, measured {measured:.0f}: looks "
                            f"{'held' if holding else 'empty'}) [{'Y/n' if holding else 'y/N'}]: ").strip().lower()
             success = holding if not answer else answer.startswith("y")
-            review = self.review(attempt.name, tile["tile_name"], run)
-        elif run["aborted"] or run["marks_s"]:
-            self.to_review.append((attempt.name, tile["tile_name"], run))
+        if self.defer and (run["aborted"] or (run["marks_s"] and not presses)):
+            self.to_review.append((attempt.name, tile["tile_name"], run, bool(presses)))
+        elif not self.defer:
+            review = self.review(attempt.name, tile["tile_name"], run, keyed=bool(presses))
         self.session.event("attempt", tile=tile["tile_name"], policy=self.policy.id, detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
@@ -439,22 +583,32 @@ class Bench:
                          "grasp_clearance_m": run.get("grasp_clearance_m"),
                          "spot": spot["id"] if spot else None}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
+        if not self.defer:
+            self.check_scans()
         return success
+
+    def log_keys(self, attempt_dir, during, presses):
+        """The keys pressed during a pickup or a return (KeyMarks), as a `keys` event; what that phase's scan is
+        judged by (sort_changes)."""
+        self.last_keys = presses
+        if presses:
+            self.session.event("keys", attempt_dir=attempt_dir, during=during, presses=presses)
 
     def reopen_camera(self):
         """Release and reopen the wrist camera (hardware.reopen_wrist_camera: retry / quit if it won't open)."""
         from mahjong import hardware
         self.camera = hardware.reopen_wrist_camera(self.camera)
 
-    def review(self, attempt_dir, tile_name, run):
+    def review(self, attempt_dir, tile_name, run, keyed=False):
         """Ask about an aborted or marked attempt: {abort_reason, mark_kind, mark_note}; {} (no question)
-        for a clean one."""
+        for a clean one, or a → when a key during it already said what happened (`keyed`)."""
         answers, what = {}, f"{attempt_dir} ({tile_name})"
-        if run["aborted"] or run["marks_s"]:
+        marked = run["marks_s"] and not keyed
+        if run["aborted"] or marked:
             drain_stdin()
         if run["aborted"]:
             answers["abort_reason"] = interventions.ask_abort(what)
-        if run["marks_s"]:
+        if marked:
             when = ", ".join(f"{t:.1f}s" for t in run["marks_s"])
             answers["mark_kind"], answers["mark_note"] = interventions.ask_mark(f"{what}, marked at {when}")
         return {k: v for k, v in answers.items() if v}
@@ -467,7 +621,12 @@ class Bench:
         home = held["home_xy"]
         print(f"Returning {held['tile_name']} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
         x, y = self.returns.target(home, held["detection_xy"], held["grasp_xy"])
-        placed = self.arm.place(x, y, held["approach_offset_m"], grasp_clearance_m=held.get("grasp_clearance_m"))
+        self.keys.start("return")
+        try:
+            placed = self.arm.place(x, y, held["approach_offset_m"], grasp_clearance_m=held.get("grasp_clearance_m"))
+        finally:
+            presses = self.keys.stop()
+        self.log_keys(held["attempt_dir"], "return", presses)
         if placed is None:
             print("Still holding it — discard it instead.")
             self.session.event("return_skipped", reason="unreachable", tile=held["tile_name"], xy=[x, y],
@@ -481,6 +640,8 @@ class Bench:
         self.held = None
         tiles = self.scan("after_return", attempt_dir=held["attempt_dir"], target_xy=home)
         self.check_landing(held, placed, tiles, self.scan_n)
+        if not self.defer:
+            self.check_scans()
 
     def check_landing(self, held, placed, tiles, scan_n):
         """Where the returned tile landed (return_correction.check_landing: a sample for the return model, a
@@ -492,14 +653,9 @@ class Bench:
         if not reset:
             return
         # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
-        # was the landing itself, not a knock (anything else the scan saw change is still asked about)
-        for check in [c for c in self.scan_checks if c[0]["scan"] == scan_n]:
-            diff = check[1][1]
-            if not (diff["moved"] or diff.get("turned") or diff["gone"]) and \
-                    [t["xy"] for t in diff["appeared"]] == [list(tile["xy"])]:
-                self.scan_checks.remove(check)
-                self.session.event("scan_review", scan=scan_n, proposed=check[1][0], kinds=[],
-                                   note="the returned tile landing off its home")
+        # was the landing itself, not a knock (anything else the scan saw change is still settled as usual)
+        self.explain(scan_n, lambda k, c: k == "appeared" and list(c["xy"]) == list(tile["xy"]),
+                     "the returned tile landing off its home")
         drain_stdin()
         input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
         # what the next scan sees move was a person putting it back: say so instead of asking again
@@ -596,13 +752,22 @@ class Bench:
             self.batch = False
             self.review_queued()
             self.check_scans()
+            self.print_flaky()
+
+    def print_flaky(self):
+        """The tiles whose detections a later scan undid this session (ChangeWatch.glitches)."""
+        if self.changes.glitches:
+            print("Detection glitches settled by later scans: "
+                  + ", ".join(f"{n} x{c}" for n, c in self.changes.glitches.most_common()))
+        if self.changes.pending:
+            print(f"{len(self.changes.pending)} change(s) still waiting on the next scans")
 
     def review_queued(self):
-        """The marked or aborted trials, one question each (clean ones ask nothing)."""
+        """The marked or aborted attempts the caller held over (defer), one question each."""
         if self.to_review:
             print(f"\n{len(self.to_review)} attempt(s) to say a word about:")
-        for attempt_dir, tile_name, run in self.to_review:
-            answers = self.review(attempt_dir, tile_name, run)
+        for attempt_dir, tile_name, run, keyed in self.to_review:
+            answers = self.review(attempt_dir, tile_name, run, keyed)
             if answers:
                 self.session.event("attempt_review", attempt_dir=attempt_dir, **answers)
         self.to_review = []
@@ -640,11 +805,13 @@ class Bench:
         try:
             self.arm.rest()
         finally:
+            self.log_settled(self.changes.flush())
             self.arm.disconnect()
             self.camera.release()
             self.realsense.close()
             if self.listener:
                 self.listener.stop()
+            self.keys.close()
             self.session.close()
 
 

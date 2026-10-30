@@ -154,6 +154,7 @@ def interventions_report(events, trials, unit):
                 + (f", one per {s['attempts_per_rescue']:.1f}" if s["attempts_per_rescue"] else ""))
         print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
               f"overrides {s['overrides']}, knocked {s['knocks']}, collided {s['collisions']}, "
+              f"pushed the target {s['target_pushes']}, "
               f"observations {s['observations']}")
         if unit == "attempt":
             print(f"  successes: {s['successes']} = {s['clean_successes']} clean + {s['assisted_successes']} assisted")
