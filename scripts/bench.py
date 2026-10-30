@@ -23,6 +23,12 @@ the tile detector's data: scripts/mine_frames.py), and per attempt the wrist
 frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames before and after. `python scripts/session_report.py`
 summarises the latest one, interventions included (mahjong/interventions.py).
 
+A tile a scan says went, or a spot's tile not detected, is looked at with the wrist camera before anyone is asked
+(mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face between the jaw
+tips. Still there: a detection glitch, logged as one (`wrist_check` and `scan_review` events, the frame in
+wrist_checks/), and the tile is picked up from where it was. Not there: asked as before. While the arm holds a tile
+its wrist view is blocked, so the look waits for the next scan (which may see the tile again by itself).
+
     python scripts/bench.py                         # interactive, default policy
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
     python scripts/bench.py --sim --trials 3        # no hardware
@@ -49,6 +55,7 @@ session_report.py prints success per spot and policy side by side.
 """
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -57,7 +64,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, interventions, layout
+from mahjong import config, detector, interventions, layout, wrist_check
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -100,7 +107,7 @@ class Bench:
         self.spots = layout.load(args.layout)["spots"] if args.layout else None
         if args.sim:
             from mahjong import sim
-            devices = sim.connect()
+            devices = sim.connect(wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
             self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
@@ -123,6 +130,9 @@ class Bench:
         self.to_review = []         # (attempt_dir, tile, run) marked or aborted during trials, asked at the end
         self.mat, self.scan_n = interventions.MatWatch(), 0
         self.scan_checks = []       # (detections event, proposal): changes on the mat a person hasn't confirmed yet
+        self.unlooked = []          # (scan number, tile) a scan said went while the arm held a tile: looked at next
+        self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
+        self.names = {}             # {spot id or tile name: the tile last picked up there}
         self.batch = False          # during trials: questions wait for the end
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
@@ -148,19 +158,116 @@ class Bench:
 
     # --- pieces ---
 
-    def scan(self, label, confirmed=None, **fields):
+    def scan(self, label, confirmed=None, look=True, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
-        mat (interventions.MatWatch). A change waits for a person to confirm it (check_scans), unless
-        they already said what it was (`confirmed`: its kinds, e.g. ["tile_reset"])."""
+        mat (interventions.MatWatch). A tile that went is looked at with the wrist camera first (look_again;
+        not while the arm holds a tile: `look`); a change left waits for a person to confirm it
+        (check_scans), unless they already said what it was (`confirmed`: its kinds, e.g. ["tile_reset"])."""
         self.scan_n += 1
         tiles, scan = detector.log_scan(self.realsense, self.session, self.scan_n, label, **fields)
-        proposal = self.mat.propose(scan)
+        proposal, seen = self.mat.propose(scan), []
+        if not confirmed:
+            proposal, seen = self.look_again(scan, proposal, look and not self.held)
         if proposal and confirmed:
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=confirmed)
         elif proposal:
             self.scan_checks.append((scan, proposal))
         self.mat.advance(scan, proposal, (confirmed or [proposal[0]]) if proposal else [])
-        return tiles
+        for tile in seen:
+            self.mat.restore(tile)
+        return tiles + [{"tile_name": t["tile_name"], "xy": tuple(t["xy"]), "confidence": 0.0, "wrist_seen": True}
+                        for t in seen]
+
+    def look_again(self, scan, proposal, look):
+        """The tiles this scan says went (and ones an earlier scan did while the arm held a tile), looked at again
+        before anyone is asked: a later scan that sees one back where it was, or the wrist camera seeing it there
+        (wrist_look), makes it a detection glitch. Its change is dropped from the scan's proposal (or from the
+        earlier scan's, still waiting in scan_checks), and a proposal left with nothing is logged as a
+        "scan_glitch". Returns (the proposal left or None, the tiles the wrist camera saw: put back in this scan)."""
+        kind, diff = proposal or (None, None)
+        lost = [(scan["scan"], t) for t in (diff["gone"] if diff else [])]
+        if not look:                # the held tile blocks the wrist view
+            self.unlooked += lost
+            return proposal, []
+        todo, self.unlooked, seen = self.unlooked + lost, [], []
+        for scan_n, tile in todo:
+            back = next((t for t in (diff["appeared"] if diff else [])
+                         if math.dist(t["xy"], tile["xy"]) <= config.TILE_MERGE_RADIUS_M), None)
+            if scan_n != scan["scan"] and back is not None:
+                diff = interventions.without(diff, appeared=[back])
+                self.drop_change(scan_n, tile, "a later scan saw it back")
+                continue
+            if not self.wrist_look(tile, scan_n)["present"]:
+                continue
+            seen.append(tile)
+            if scan_n == scan["scan"]:
+                diff = interventions.without(diff, gone=[tile])
+            else:
+                self.drop_change(scan_n, tile, "the wrist camera saw it")
+        if todo and not self.arm.is_at_rest():
+            self.arm.rest()         # out of the RealSense's view again
+        if proposal and not interventions.changed(diff):
+            self.session.event("scan_review", scan=scan["scan"], proposed=kind, kinds=["scan_glitch"],
+                               note="looked again: every change was a detection glitch")
+            return None, seen
+        return ((kind, diff) if proposal else None), seen
+
+    def drop_change(self, scan_n, tile, why):
+        """An earlier scan's "gone" tile turned out to be there: out of its proposal waiting in scan_checks."""
+        for i, (scan, (kind, diff)) in enumerate(self.scan_checks):
+            if scan["scan"] != scan_n:
+                continue
+            diff = interventions.without(diff, gone=[tile])
+            if interventions.changed(diff):
+                self.scan_checks[i] = (scan, (kind, diff))
+            else:
+                del self.scan_checks[i]
+                self.session.event("scan_review", scan=scan_n, proposed=kind, kinds=["scan_glitch"], note=why)
+            return
+
+    def wrist_look(self, tile, scan_n):
+        """Hover over a tile the scans lost, where they last saw it (hover-corrected, this policy's hover), and see
+        whether a face is between the jaw tips (wrist_check.check). Logged as a `wrist_check` event, the frame in
+        wrist_checks/. Returns the check: present True / False, or None if it couldn't look."""
+        name, (x, y) = tile["tile_name"], tile["xy"]
+        print(f"  {name} not seen at ({x:.3f}, {y:+.3f}): looking with the wrist camera")
+        # the sim's tiles are where they're detected: the real arm's correction would look ~50mm off them
+        hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
+        result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover)
+        if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
+            self.reopen_camera()
+            result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover)
+        frame, image = result.pop("frame"), None
+        if frame is not None:
+            folder = self.session.dir / "wrist_checks"
+            folder.mkdir(exist_ok=True)
+            image = f"wrist_checks/scan{scan_n:03d}_{self.scan_n:03d}_{name}.jpg"
+            cv2.imwrite(str(self.session.dir / image), frame)
+        if result["present"] is False:
+            self.looked_empty.append((self.scan_n, [x, y]))
+        verdict = {True: "still there (a detection glitch)", False: "not there",
+                   None: f"couldn't look ({result.get('why')})"}[result["present"]]
+        print(f"  {name}: {verdict}" + (f", face fills {result['fill']:.0%} of the spot" if result["fill"] is not None else ""))
+        self.session.event("wrist_check", tile=name, xy=[x, y], scan=scan_n, at_scan=self.scan_n, image=image,
+                           policy=self.policy.id, **result)
+        return result
+
+    def look_at_home(self, tile_name=None, spot=None):
+        """A tile not detected at its spot (or by its name), looked at with the wrist camera where it was first
+        seen this session (a spot's layout point if never picked up): the tile there if it is, else None."""
+        key = spot["id"] if spot else tile_name
+        home = self.homes.get(key) if key else None
+        home = home or (spot["xy"] if spot else None)
+        if home is None or any(n == self.scan_n and math.dist(xy, home) <= config.TILE_MERGE_RADIUS_M
+                               for n, xy in self.looked_empty):
+            return None
+        tile = {"tile_name": tile_name or self.names.get(key) or (spot or {}).get("label") or key, "xy": list(home)}
+        result = self.wrist_look(tile, self.scan_n)
+        self.arm.rest()
+        if not result["present"]:
+            return None
+        self.mat.restore(tile)
+        return {"tile_name": tile["tile_name"], "xy": tuple(home), "confidence": 0.0, "wrist_seen": True}
 
     def check_scans(self):
         """What the scans saw change, one question each (Enter: as they say; or a detection glitch)."""
@@ -183,6 +290,8 @@ class Bench:
             if not self.batch:
                 self.check_scans()          # before the arm moves, while what happened is in front of you
             tile, reason, missing = self.find(tiles, tile_name, spot)
+            if tile is None and reason != "cancelled":
+                tile = self.look_at_home(tile_name, spot)
             if tile is not None or reason == "cancelled" or not (self.batch and self.reposition(missing, tile_name, spot)):
                 break
             confirmed = ["tile_reset"]
@@ -280,7 +389,8 @@ class Bench:
             print("The wrist camera dropped out again.")
             return None
         self.snapshot(attempt / "overview_after.jpg")
-        self.scan("after_pickup", attempt_dir=attempt.name, target_xy=list(tile["xy"]))
+        self.names[spot["id"] if spot else tile["tile_name"]] = tile["tile_name"]
+        self.scan("after_pickup", look=not holding, attempt_dir=attempt.name, target_xy=list(tile["xy"]))
         success, review = holding, {}
         if ask:
             drain_stdin()
@@ -351,8 +461,8 @@ class Bench:
                            return_correction=self.returns.name, attempt_dir=held["attempt_dir"], **placed)
         # the returned tile, where the camera saw it (the arm's target is in its own frame, ~40mm from that);
         # a change near its home is the return itself, not a knock
-        tiles = self.scan("after_return", attempt_dir=held["attempt_dir"], target_xy=home)
         self.held = None
+        tiles = self.scan("after_return", attempt_dir=held["attempt_dir"], target_xy=home)
         self.check_landing(held, placed, tiles, self.scan_n)
 
     def check_landing(self, held, placed, tiles, scan_n):
@@ -391,8 +501,8 @@ class Bench:
             drain_stdin()
             if input("In the container? [Y/n]: ").strip().lower().startswith("n"):
                 self.session.intervention("discard_missed", attempt_dir=held["attempt_dir"])
-        self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
         self.held = None
+        self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
 
     def teach_discard(self):
         from mahjong import hardware

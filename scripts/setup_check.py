@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware, layout
+from mahjong import config, hardware, layout, wrist_check
 from mahjong import setup_check as sc
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection, setup_fingerprint
@@ -154,11 +154,9 @@ def confirm_on_screen(ask):
 def wrist_look(arm, camera, xy, delta):
     """Hover over the tile at xy, moved by the hover correction `delta` (m), and grab 3 wrist frames: (frames,
     hover result or None if out of reach, the camera — reopened if it was lost)."""
-    arm.lift()
-    hover = arm.hover(xy[0] + delta[0], xy[1] + delta[1], **config.DEFAULT_HOVER, log=lambda *_: None)
+    frames, hover = wrist_check.look(arm, camera, xy[0] + delta[0], xy[1] + delta[1], config.DEFAULT_HOVER)
     if hover is None:
         return [], None, camera
-    frames = grab_frames(camera, 3)
     if not frames:
         camera = hardware.reopen_wrist_camera(camera)
         frames = grab_frames(camera, 3)

@@ -375,3 +375,81 @@ def test_a_mistyped_policy_fails_before_anything_connects(tmp_path, monkeypatch)
     with pytest.raises(SystemExit, match="unknown policy pickup_mat_typo"):
         bench.Bench(bench.parse_args(["--policy", "pickup_mat_typo"]))
     assert connected == [] and not list(tmp_path.iterdir())
+
+
+def no_questions(monkeypatch):
+    import builtins
+    asked = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: asked.append(prompt) or "")
+    return asked
+
+
+def test_a_neighbour_the_scan_missed_while_holding_and_the_next_saw_again_asks_no_one(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    after_each_run(b, lambda: b.realsense.flicker("3B"))         # gone from the after-pickup scan only
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    assert asked == []
+    assert not any(e["type"] == "wrist_check" for e in events)    # the after-return scan saw it: no need to look
+    assert {i["kind"] for i in interventions.derive(events)} == {"scan_glitch"}
+
+
+def test_a_tile_the_scans_keep_missing_is_seen_by_the_wrist_camera_and_no_one_is_asked(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=2)
+    after_each_run(b, lambda: b.realsense.flicker("3B", 2))     # after the pickup and after the return
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(2, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    looks = [e for e in events if e["type"] == "wrist_check"]
+    assert asked == [] and len(looks) == 2 and all(c["present"] and c["tile"] == "3B" for c in looks)
+    assert all((b.session.dir / c["image"]).exists() for c in looks)
+    labels = {e["scan"]: e["label"] for e in events if e["type"] == "detections"}
+    assert [labels[c["at_scan"]] for c in looks] == ["after_return"] * 2     # once the held tile was put down
+    assert [a["success"] for a in events if a["type"] == "attempt"] == [True, True]
+    assert {i["kind"] for i in interventions.derive(events)} == {"scan_glitch"}   # and the replay agrees
+
+
+def test_a_tile_really_gone_is_looked_at_and_then_asked_about(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    after_each_run(b, lambda: mat.tiles.remove(next(t for t in mat.tiles if t["tile_name"] == "3B")))
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    (look,) = [e for e in events if e["type"] == "wrist_check"]
+    assert look["tile"] == "3B" and look["present"] is False and look["fill"] < 0.1
+    assert len(asked) == 1 and "3B gone during the pickup" in asked[0]
+    (knock,) = interventions.derive(events)
+    assert (knock["kind"], knock["during"]) == ("knocked", "pickup")
+
+
+def test_a_tile_not_detected_at_its_home_is_picked_up_where_the_wrist_camera_sees_it(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+        b.realsense.flicker("8D")
+        tiles = b.scan("choose", confirmed=["tile_reset"])      # the detector missed it; no look from the scan
+        tile, reason, _ = b.find(tiles, "8D")
+        assert tile is None and reason == "not_detected"
+        found = b.look_at_home("8D")
+        assert found["wrist_seen"] and list(found["xy"]) == b.homes.get("8D") and b.arm.is_at_rest()
+        b.realsense.tiles.remove(next(t for t in b.realsense.tiles if t["tile_name"] == "8D"))
+        b.scan_n += 1                                           # a new scan: its own looks
+        assert b.look_at_home("8D") is None                     # not there: a person is asked, as before
+    finally:
+        b.close()
+    assert asked == []
