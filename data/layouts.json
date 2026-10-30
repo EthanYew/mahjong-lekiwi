@@ -562,5 +562,124 @@
         "label": "4D"
       }
     ]
+  },
+  "spaced14": {
+    "created": "2026-10-30T15:31:38",
+    "note": "14 tiles 55mm apart in both directions (rows 0.150/0.205, 8 near + 6 far), every spot >=15mm inside the reach, near row clear of the RealSense dropouts below x 0.146; to stop the open jaws knocking neighbours (docs/retrospectives/2026-10-30_close_layout_bumps.md)",
+    "ghost": null,
+    "spots": [
+      {
+        "id": "S1",
+        "xy": [
+          0.15,
+          0.1775
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S2",
+        "xy": [
+          0.205,
+          0.1225
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S3",
+        "xy": [
+          0.15,
+          0.1225
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S4",
+        "xy": [
+          0.205,
+          0.0675
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S5",
+        "xy": [
+          0.15,
+          0.0675
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S6",
+        "xy": [
+          0.205,
+          0.0125
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S7",
+        "xy": [
+          0.15,
+          0.0125
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S8",
+        "xy": [
+          0.205,
+          -0.0425
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S9",
+        "xy": [
+          0.15,
+          -0.0425
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S10",
+        "xy": [
+          0.205,
+          -0.0975
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S11",
+        "xy": [
+          0.15,
+          -0.0975
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S12",
+        "xy": [
+          0.205,
+          -0.1525
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S13",
+        "xy": [
+          0.15,
+          -0.1525
+        ],
+        "yaw_deg": 0.0
+      },
+      {
+        "id": "S14",
+        "xy": [
+          0.15,
+          -0.2075
+        ],
+        "yaw_deg": 0.0
+      }
+    ]
   }
 }
