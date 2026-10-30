@@ -260,6 +260,17 @@ def test_a_key_during_the_pickup_says_what_happened_and_the_mark_asks_nothing_mo
     assert (s["clean_successes"], s["collisions"], s["target_pushes"], s["rescues"]) == (1, 2, 1, 0)
 
 
+def test_presses_and_marks_voided_afterwards_say_nothing():
+    # 2026-10-30: the bench read keystrokes typed in another terminal; a keys_void appended later discounts them
+    events = session(keys("001_WW", "pickup", ("b", 14.0)), attempt(1),
+                     keys("002_WW", "pickup", ("u", 1.2), ("d", 1.5), ("l", 1.9)), attempt(2, marks_s=[6.8, 6.9]),
+                     keys("002_WW", "return", ("p", 0.3)),
+                     {"type": "keys_void", "keys": [{"attempt_dir": "002_WW", "during": "pickup"},
+                                                    {"attempt_dir": "002_WW", "during": "return"}],
+                      "marks": ["002_WW"], "reason": "typed in another terminal"})
+    assert [(i["kind"], i["attempt_dir"]) for i in iv.derive(events)] == [("collided", "001_WW")]
+
+
 def watched(watch, scan_n, tiles, previous):
     """Feed one scan; returns (settled kinds, the diff left)."""
     event = {"scan": scan_n, "tiles": tiles}

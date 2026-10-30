@@ -406,6 +406,11 @@ def derive(events):
                     "time": time, **{k: v for k, v in fields.items() if v not in (None, "")}})
 
     reviews = {e["attempt_dir"]: e for e in events if e["type"] == "attempt_review"}
+    # presses and marks found afterwards not to be the person's (keys_void, appended later: the bench read
+    # keystrokes typed in another terminal, 2026-10-30) say nothing
+    void = {(v["attempt_dir"], v["during"]) for e in events if e["type"] == "keys_void" for v in e.get("keys", [])}
+    void_marks = {a for e in events if e["type"] == "keys_void" for a in e.get("marks", [])}
+    events = [e for e in events if not (e["type"] == "keys" and (e["attempt_dir"], e.get("during")) in void)]
     # a → during a pickup someone also pressed a key for says nothing the key didn't
     keyed = {e["attempt_dir"] for e in events if e["type"] == "keys" and e.get("during") == "pickup" and e["presses"]}
     scan_reviews = {}
@@ -421,7 +426,7 @@ def derive(events):
             last_attempt = a["attempt_dir"]
             if a.get("stop_reason") == "aborted":
                 add("aborted", last_attempt, "logged", time, reason=a.get("abort_reason"))
-            if a.get("marks_s") and (a.get("mark_kind") or last_attempt not in keyed):
+            if a.get("marks_s") and last_attempt not in void_marks and (a.get("mark_kind") or last_attempt not in keyed):
                 add(a.get("mark_kind") or "unspecified", last_attempt, "mark", time, marks_s=a["marks_s"],
                     note=a.get("mark_note"))
             if "gripper_says_held" in a and a["gripper_says_held"] != a["success"]:
