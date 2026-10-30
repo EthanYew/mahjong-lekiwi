@@ -562,3 +562,116 @@ def test_a_tile_not_detected_at_its_home_is_picked_up_where_the_wrist_camera_see
     finally:
         b.close()
     assert asked == []
+
+
+
+def bump_then_put_back(b, r_during_return):
+    """b during the pickup as it knocks 5C 8mm; during the return a person puts 5C back (r, or not)."""
+    b.realsense.tiles.append(dict(NEIGHBOUR))
+    after_each_run(b, lambda: (b.realsense.nudge("5C", 0.008, 0.0), b.keys.press("b")))
+    place = b.arm.place
+
+    def putting_back(*args, **kwargs):
+        b.realsense.nudge("5C", -0.008, 0.0)
+        if r_during_return:
+            b.keys.press("r")
+        return place(*args, **kwargs)
+    b.arm.place = putting_back
+
+
+def test_a_knocked_tile_put_back_during_the_return_with_r_is_straightened_not_knocked_again(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    bump_then_put_back(b, r_during_return=True)
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert asked == []
+    found = interventions.derive(read_events(b.session.dir))
+    assert sorted((i["kind"], i["during"]) for i in found) == [
+        ("collided", "pickup"), ("knocked", "pickup"), ("straightened", "return")]
+
+
+def test_a_knocked_tile_put_back_without_r_can_be_answered_as_by_hand(tmp_path, monkeypatch):
+    import builtins
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    bump_then_put_back(b, r_during_return=False)
+    asked = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: asked.append(prompt) or "2")     # 2: I did, by hand
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert len(asked) == 1 and "5C moved 8mm during the return. What moved it" in asked[0]
+    found = interventions.derive(read_events(b.session.dir))
+    assert sorted((i["kind"], i["during"]) for i in found) == [
+        ("collided", "pickup"), ("knocked", "pickup"), ("straightened", "return")]
+
+
+def test_a_tile_moved_by_hand_during_a_pickup_with_r_is_a_reset_not_watched(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    after_each_run(b, lambda: (b.realsense.nudge("3B", 0.010, 0.0), b.keys.press("r")))
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert asked == [] and b.changes.pending == []
+    events = read_events(b.session.dir)
+    (reset,) = interventions.derive(events)
+    assert (reset["kind"], reset["source"], reset["by"]) == ("tile_reset", "confirmed", "key")
+    (pressed,) = [e for e in events if e["type"] == "keys"]
+    assert [k["kind"] for k in pressed["presses"]] == ["by_hand"]        # no intervention by itself
+
+
+def test_a_watched_knock_put_back_and_noted_is_a_knock_not_a_glitch(tmp_path, monkeypatch):
+    import builtins
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    mat = b.realsense
+    mat.tiles.append(dict(NEIGHBOUR))
+    after_each_run(b, lambda: mat.hidden.update({"5C": 99}))       # knocked off where the scans see it
+    answers = iter(["1", ""])        # note: straightened, no words
+
+    def person(prompt):
+        return next(answers) if "What did you do" in prompt or "few words" in prompt else ""
+    monkeypatch.setattr(builtins, "input", person)
+    monkeypatch.setattr(b, "wrist_look", lambda tile, scan_n: {"present": None, "why": "test"})
+    try:
+        b.trials(1, "8D")
+        mat.hidden.clear()                                          # put back on its spot
+        b.note()
+        b.scan("choose")
+    finally:
+        b.close()
+    found = interventions.derive(read_events(b.session.dir))
+    assert sorted(i["kind"] for i in found) == ["knocked", "straightened"]
+
+
+
+def test_a_grip_keyed_low_in_the_pickup_and_high_in_the_return_are_counted_and_the_success_stands(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    after_each_run(b, lambda: b.keys.press("d"))
+    place = b.arm.place
+
+    def carried(*args, **kwargs):
+        b.keys.press("u")
+        return place(*args, **kwargs)
+    b.arm.place = carried
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert asked == []
+    events = read_events(b.session.dir)
+    found = interventions.derive(events)
+    assert sorted((i["kind"], i["class"], i["during"]) for i in found) == [
+        ("grip_high", "observation", "return"), ("grip_low", "observation", "pickup")]
+    s = interventions.summary(found, [e for e in events if e["type"] == "attempt"])
+    assert (s["low_grips"], s["high_grips"], s["clean_successes"], s["rescues"]) == (1, 1, 1, 0)

@@ -36,6 +36,9 @@ KINDS = {
     "helped_arm": ("held or steadied the arm or base", RESCUE),
     "caught_drop": ("caught a drop", RESCUE),
     "look": ("nothing touched, just look at this", OBSERVATION),
+    # a held tile gripped near its bottom or its top: precarious, it may slip out (keys d / u); the attempt stands
+    "grip_low": ("gripped low on the tile", OBSERVATION),
+    "grip_high": ("gripped high on the tile", OBSERVATION),
     "other": ("other", RESCUE),
     "unspecified": ("marked, not explained", RESCUE),       # you pressed it for a reason
     # the bench's note command
@@ -72,8 +75,12 @@ MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught
 # questions at the end of a batch couldn't be answered accurately, nor told apart by attempt. Only what the arm
 # does: a person helping (touched the tile, held the arm, caught a drop) never happens on the bench, and is
 # still a → and an answer if it does.
-KEYS = {"b": "collided", "p": "pushed_target", "l": "look"}
-KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "l": "look at this"}
+# r says what the scan after it will show (a person moved tiles: putting a knocked one back for the next run),
+# so it's no intervention by itself (BY_HAND): the scan's changes become straightened / tile_reset.
+BY_HAND = "by_hand"
+KEYS = {"b": "collided", "p": "pushed_target", "r": BY_HAND, "d": "grip_low", "u": "grip_high", "l": "look"}
+KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "r": "I moved a tile by hand",
+              "d": "gripped low", "u": "gripped high", "l": "look at this"}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
@@ -125,19 +132,20 @@ def ask_abort(what, ask=None):
     return ask_kind(f"{what}: why stop it", list(ABORT_REASONS), labels=ABORT_REASONS, ask=ask)
 
 
-SCAN_ANSWERS = {"knocked": {"knocked": "yes, a tile moved", "scan_glitch": "no, nothing moved (a detection glitch)"},
+SCAN_ANSWERS = {"knocked": {"knocked": "the arm (a knock)", BY_HAND: "I did, by hand",
+                            "scan_glitch": "no, nothing moved (a detection glitch)"},
                 "between": {"straightened": KINDS["straightened"][0], "tile_reset": KINDS["tile_reset"][0],
                             "both": "both", "scan_glitch": "nothing moved (a detection glitch)"}}
 
 
 def ask_scan(scan, proposal, ask=None):
     """The kinds that stand for a scan's proposed change (MatWatch.propose), from a person who was
-    there: Enter accepts the proposal."""
+    there: Enter accepts the proposal. [BY_HAND]: a person moved it (the caller splits it, MatWatch.by_hand)."""
     kind, diff = proposal
     where = scan.get("attempt_dir") or "the mat"
     if kind == "knocked":
-        prompt = (f"{where}: the scans say {changes_text(diff)} during the {scan['label'].removeprefix('after_')}, "
-                  f"and no bump was keyed (b). Did it move")
+        prompt = (f"{where}: the scans say {changes_text(diff)} during the {scan['label'].removeprefix('after_')}. "
+                  f"What moved it")
         answers = SCAN_ANSWERS["knocked"]
     else:
         prompt = f"{where}, since the last scan: {changes_text(diff)}. What was it"
@@ -242,6 +250,18 @@ class MatWatch:
         fixed = any(math.dist(p, k) <= config.TILE_MERGE_RADIUS_M for p in _from_points(diff) for k in self.knocked_to)
         return ("straightened" if fixed else "tile_reset", diff)
 
+    def was_knocked(self, category, change):
+        """A change (scene_diff `category`) that starts where a knock left a tile: a person straightening it,
+        most likely."""
+        if category == "appeared":
+            return False
+        start = change["from"] if category == "moved" else change["xy"]
+        return any(math.dist(start, k) <= config.TILE_MERGE_RADIUS_M for k in self.knocked_to)
+
+    def by_hand(self, diff):
+        """A person's changes, split: (straightened: from where a knock left a tile, tile_reset: the rest)."""
+        return split(diff, self.was_knocked)
+
     def advance(self, scan, knocked=None):
         """Move on to `scan`; `knocked`: the part of its changes that stands as a knock (where a person may
         straighten a tile later)."""
@@ -323,20 +343,25 @@ class ChangeWatch:
                 self.pending.append({"scan": scan["scan"], "attempt_dir": scan.get("attempt_dir"), "kind": kind,
                                      "category": cat, "change": c, "agreed": 0})
 
-    def update(self, scan, diff):
+    def update(self, scan, diff, by_hand=False):
         """A new scan (and its diff against the previous one, or None). Returns (settled: [(pending, kind)],
-        what of `diff` is left once undone changes are taken out, those taken out: their going back isn't a
-        new change)."""
-        settled, still, undone = [], [], []
+        what of `diff` is left once undone changes are taken out, those taken out as glitches going back, those
+        taken out as a person putting a knocked tile back): their going back isn't a new change. `by_hand`: a
+        person said they moved tiles since the last scan, so a knock undone was them putting it back, not the
+        detector (it stays a knock)."""
+        settled, still, undone, put_back = [], [], [], []
         for p in self.pending:
             state = _state(p["change"], p["category"], scan["tiles"])
             if state == "before":
-                self.glitches[p["change"]["tile_name"]] += 1
+                hand = by_hand and p["kind"] == "knocked"
+                p["put_back"] = hand
+                if not hand:
+                    self.glitches[p["change"]["tile_name"]] += 1
                 if diff:
                     diff, back = split(diff, lambda k, c, p=p: not near_any(c, where(p["change"]),
                                                                             config.TILE_MERGE_RADIUS_M))
-                    undone.append(back)
-                settled.append((p, "scan_glitch"))
+                    (put_back if hand else undone).append(back)
+                settled.append((p, p["kind"] if hand else "scan_glitch"))
                 continue
             p["agreed"] += state == "after"
             if p["agreed"] >= self.settle_scans:
@@ -344,7 +369,7 @@ class ChangeWatch:
             else:
                 still.append(p)
         self.pending = still
-        return settled, diff, merge(*undone)
+        return settled, diff, merge(*undone), merge(*put_back)
 
     def forget(self, keep):
         """Drop pending changes where keep(pending) is False (a person explained them); returns the dropped."""
@@ -403,7 +428,7 @@ def derive(events):
                 add("success_overridden", last_attempt, "derived", time, gripper_says_held=a["gripper_says_held"],
                     success=a["success"])
         elif kind == "keys":
-            for k in dict.fromkeys(p["kind"] for p in e["presses"]):
+            for k in dict.fromkeys(p["kind"] for p in e["presses"] if p["kind"] != BY_HAND):
                 add(k, e["attempt_dir"], "key", time, during=e["during"],
                     at_s=[p["t_s"] for p in e["presses"] if p["kind"] == k])
         elif kind == "intervention":
@@ -461,6 +486,8 @@ def summary(interventions, attempts):
             "knocks": sum(i["kind"] == "knocked" for i in interventions),
             "collisions": sum(i["kind"] == "collided" for i in interventions),
             "target_pushes": sum(i["kind"] == "pushed_target" for i in interventions),
+            "low_grips": sum(i["kind"] == "grip_low" for i in interventions),
+            "high_grips": sum(i["kind"] == "grip_high" for i in interventions),
             "successes": len(successes), "clean_successes": len(successes) - assisted, "assisted_successes": assisted}
 
 

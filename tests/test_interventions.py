@@ -186,7 +186,8 @@ def test_asking_about_a_scan():
     asked = []
     assert iv.ask_scan(after_return, knock, ask=lambda p: asked.append(p) or "") == ["knocked"]
     assert "003_8D: the scans say 9D moved 12mm during the return" in asked[0]
-    assert iv.ask_scan(after_return, knock, ask=answering("2")) == ["scan_glitch"]
+    assert iv.ask_scan(after_return, knock, ask=answering("2")) == [iv.BY_HAND]
+    assert iv.ask_scan(after_return, knock, ask=answering("3")) == ["scan_glitch"]
     put_back = ("tile_reset", {"moved": [], "appeared": [{"tile_name": "4D"}], "gone": []})
     assert iv.ask_scan({"label": "choose"}, put_back, ask=answering("")) == ["tile_reset"]
     assert iv.ask_scan({"label": "choose"}, put_back, ask=answering("3")) == ["straightened", "tile_reset"]
@@ -262,7 +263,7 @@ def test_a_key_during_the_pickup_says_what_happened_and_the_mark_asks_nothing_mo
 def watched(watch, scan_n, tiles, previous):
     """Feed one scan; returns (settled kinds, the diff left)."""
     event = {"scan": scan_n, "tiles": tiles}
-    settled, left, _ = watch.update(event, iv.scene_diff(previous, tiles))
+    settled, left, *_ = watch.update(event, iv.scene_diff(previous, tiles))
     return [(p["change"]["tile_name"], k) for p, k in settled], left
 
 
@@ -321,3 +322,21 @@ def test_reviews_per_change_each_count_for_their_own_changes():
     assert [(i["kind"], i["source"], iv.changes_text(i["changes"])) for i in found] == [
         ("knocked", "confirmed", "2D moved 10mm"), ("scan_glitch", "scans", "9D gone")]
     assert iv.hand_grade([found[1]]) == "clean"         # the scans settled it: no one was asked
+
+
+def test_a_knock_put_back_by_hand_stays_a_knock_not_a_glitch():
+    watch = iv.ChangeWatch()
+    gone = [MAT[0], MAT[1]]
+    watch.watch({"scan": 2}, iv.scene_diff(MAT, gone), "knocked")
+    settled, left, undone, put_back = watch.update({"scan": 3, "tiles": MAT}, iv.scene_diff(gone, MAT), by_hand=True)
+    assert [(p["change"]["tile_name"], k) for p, k in settled] == [("9D", "knocked")]
+    assert iv.changes_text(put_back) == "9D appeared" and not iv.changed(undone) and not iv.changed(left)
+    assert watch.glitches == {}
+
+
+def test_a_persons_changes_are_straightening_where_a_knock_left_a_tile():
+    mat = iv.MatWatch()
+    mat.advance({"tiles": MAT}, iv.merge({"moved": [{"tile_name": "9D", "from": [0.216, 0.070], "to": [0.216, 0.080]}]}))
+    diff = iv.scene_diff(MAT, [MAT[0], tile("2D", 0.225, -0.025), tile("9D", 0.216, 0.070)])
+    straightened, reset = mat.by_hand(diff)
+    assert iv.changes_text(straightened) == "9D moved 10mm" and iv.changes_text(reset) == "2D moved 10mm"

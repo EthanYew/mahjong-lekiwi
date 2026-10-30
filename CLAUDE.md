@@ -29,12 +29,16 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored, so a
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed while the arm
-  picks up or returns say what happened as it happens (`b` bumped another tile, `p` pushed its own, `l`
-  look; `interventions.KEYS`, printed as each pickup and return starts), → marks a moment such as a hand
+  picks up or returns say what happened as it happens (`b` bumped another tile, `p` pushed its own, `r`
+  I moved a tile by hand, `d` / `u` gripped low / high (precarious, counted, the attempt stands), `l` look; `interventions.KEYS`, printed as each pickup and return starts), → marks a moment such as a hand
   on the tile (asked right after, unless a key said it). The RealSense scans around each attempt catch knocked or replaced
   tiles: a neighbour that moved or turned is a knock if `b` was pressed, else asked then; every other change
   (far tiles, gone / appeared) is settled by the next scans (`interventions.ChangeWatch`: undone = YOLO
-  flicker, still there 3 scans on = real), not asked. No questions wait for the end of a batch. "Touched the tile to help" is a rescue
+  flicker, still there 3 scans on = real), not asked. No questions wait for the end of a batch. Whatever a
+  person did by hand (`r`, the "I did, by hand" answer, a `note`, a reset the bench asked for) is theirs:
+  straightened if it starts where a knock left a tile, else a reset; a watched knock undone then is a knock put
+  back, not a glitch (`Bench.hands_on`, `ChangeWatch.update(by_hand=)`). Bumping the camera or the table, which
+  moves every tile at once, still reads as many moves. "Touched the tile to help" is a rescue
   (the success becomes assisted); "the arm bumped a tile, no one helped" is a failure that leaves a
   success clean. The scorecard number is rescues per 10 attempts.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's

@@ -180,6 +180,9 @@ prompt or the menu don't count.
 |---|---|---|
 | `b` | the arm bumped another tile | a collision (failure; the success stays clean), and a neighbour that moved is a knock without asking |
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
+| `d` | gripped low on the tile (near its bottom) | precarious, it may slip: counted ("gripped low") but the attempt stands; works during the return too, while you watch it carried |
+| `u` | gripped high on the tile (near its top) | the same, "gripped high" |
+| `r` | I moved a tile by hand (e.g. put a knocked one back for the next run) | what that pickup's or return's scan sees change was you: straightening a tile a knock left (a rescue), else putting tiles back (a reset); never a knock or a glitch |
 | `l` | look at this (nothing touched) | an observation |
 
 `Esc` stops the policy. `→` marks "something happened here" without stopping it (a hand on the tile, a
@@ -191,12 +194,21 @@ After each pickup and return the RealSense rescans the mat. A tile the scan says
 wrist camera first (once the arm has put down what it holds); one still there is logged as a detection
 glitch, with the wrist frame in the session's `wrist_checks/`. What else changed is settled like this:
 
+- **you pressed `r`** during that pickup or return: the changes were yours (with `b` as well, the
+  neighbours are asked about, since either could have moved them);
 - **a neighbour** (within 85mm of the tile the arm handled) **moved or turned**: if you pressed `b` during
-  that pickup or return, it's a knock; if not, you're asked right then (Enter = it moved, or a glitch);
+  that pickup or return, it's a knock; if not, you're asked right then what moved it: the arm (Enter), you
+  by hand, or nothing (a glitch);
 - **anything else** (tiles further away, tiles gone or appearing, changes between attempts): no question.
-  The next scans decide: undone by a later scan, it was the detector (a glitch); still so 3 scans later
-  (about one attempt), it happened: a knock near the arm, "moved by something else" further away, a reset
-  between attempts. The end of the trials lists the tiles whose detections flickered (`3B x2`).
+  The next scans decide: undone by a later scan, it was the detector (a glitch), unless you said you moved
+  tiles (`r`, or a `note`): then it was a knocked tile you put back; still so 3 scans later (about one
+  attempt), it happened: a knock near the arm, "moved by something else" further away (you straightening
+  it, if it started where a knock left a tile), a reset between attempts. The end of the trials lists the
+  tiles whose detections flickered (`3B x2`).
+
+Moved tiles between commands? `note` → straightened / put back: the next scan's changes are yours, not
+counted again. The same goes for a discard you said missed, and in `play.py` for a tile you moved after the
+robot gave up or put on an empty slot.
 
 Every scan also saves the frames the detector looked at in the session's `scans/` folder, for improving
 the detector (see below).
