@@ -84,12 +84,13 @@ from mahjong import config, detector, interventions, layout, wrist_check
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
+from mahjong.terminal_keys import TerminalKeys, new_events
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_conditions, ask_notes
 
 
 class Abort:
-    """Esc, from lerobot's keyboard listener, as an Event-like flag for policy.run."""
+    """Esc, from the bench's terminal (mahjong/terminal_keys.py), as an Event-like flag for policy.run."""
     def __init__(self, events):
         self.events = events
 
@@ -101,7 +102,7 @@ class Abort:
 
 
 class Mark:
-    """→ during ACT, from the same listener, as policy.run's `mark`. → sets only exit_early (← also
+    """→ during ACT, from the same terminal, as policy.run's `mark`. → sets only exit_early (← also
     sets it, so marks too); Esc sets it as well, but that's an abort."""
     def __init__(self, events):
         self.events = events
@@ -114,21 +115,18 @@ class Mark:
 
 
 class KeyMarks:
-    """Letter keys (interventions.KEYS) pressed while the arm works, from a keyboard listener of its own: what a
-    person saw happen, said as it happens instead of asked afterwards. Only counted between start() and stop(),
-    so keys typed at a prompt or the menu aren't marks. Without a listener (sim, headless) press() is the way in."""
-    def __init__(self, listen):
-        self.phase, self.presses, self.t0, self.listener = None, [], 0.0, None
-        if listen:
-            from lerobot.common.control_utils import is_headless
-            if not is_headless():
-                from pynput import keyboard
-                self.listener = keyboard.Listener(on_press=lambda key: self.press(getattr(key, "char", None)))
-                self.listener.start()
+    """Letter keys (interventions.KEYS) pressed while the arm works: what a person saw happen, said as it happens
+    instead of asked afterwards. Read from the bench's own terminal (`terminal`, a TerminalKeys), only between
+    start() and stop(), so keys typed at a prompt, the menu or another terminal tab aren't marks. Without a
+    terminal (sim, tests, piped input) press() is the way in."""
+    def __init__(self, terminal=None):
+        self.phase, self.presses, self.t0, self.terminal = None, [], 0.0, terminal
 
     def start(self, phase):
         """Count keys from now (`phase`: pickup or return), with a reminder of which."""
         self.phase, self.presses, self.t0 = phase, [], time.time()
+        if self.terminal:
+            self.terminal.start()
         keys = "  ".join(f"{k} {label}" for k, label in interventions.KEY_LABELS.items())
         print(f"  keys: {keys}" + ("  |  → mark  Esc stop" if phase == "pickup" else ""))
 
@@ -140,12 +138,14 @@ class KeyMarks:
         print(f"  [{char.lower()}] {interventions.KEY_LABELS[char.lower()]} (noted)")
 
     def stop(self):
+        if self.terminal:
+            self.terminal.stop()
         presses, self.phase, self.presses = self.presses, None, []
         return presses
 
     def close(self):
-        if self.listener:
-            self.listener.stop()
+        if self.terminal:
+            self.terminal.stop()
 
 
 class Bench:
@@ -161,11 +161,8 @@ class Bench:
             devices = sim.connect(wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
-            self.events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
-            self.listener = None
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True)
         else:
-            from lerobot.common.control_utils import init_keyboard_listener
             from mahjong import hardware
             from mahjong.policy import Policy
             self.policies = [Policy(i) for i in ids]       # before connecting, so a mistyped id fails fast
@@ -173,9 +170,11 @@ class Bench:
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
-            self.listener, self.events = init_keyboard_listener()
+        # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
+        self.events = new_events()
+        self.terminal = TerminalKeys(self.events, on_char=lambda char: self.keys.press(char))
         self.abort, self.mark = Abort(self.events), Mark(self.events)
-        self.keys = KeyMarks(listen=not args.sim)
+        self.keys = KeyMarks(self.terminal)
         self.last_keys = []         # the keys pressed during the latest pickup or return: what its scan is judged by
         self.hands_on = None        # why a person moved tiles since the last scan (note, a missed discard): the next
                                     # scan's changes are theirs, already logged
@@ -746,11 +745,15 @@ class Bench:
         gamepad.start(self.arm)
         warn_off_centre(gamepad, self.session, None)
         self.abort.clear()
-        print("Drive over the discard container's opening, then → to save (Esc cancels).")
-        while not (self.events["exit_early"] or self.events["stop_recording"]):
-            t0 = time.time()
-            gamepad.step(self.arm, 1.0 / config.FPS)
-            time.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
+        print("Drive over the discard container's opening, then → to save (Esc cancels), in this terminal.")
+        self.terminal.start()
+        try:
+            while not (self.events["exit_early"] or self.events["stop_recording"]):
+                t0 = time.time()
+                gamepad.step(self.arm, 1.0 / config.FPS)
+                time.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
+        finally:
+            self.terminal.stop()
         gamepad.close()
         if not self.events["stop_recording"]:
             pose = {j: self.arm.commanded()[j] for j in config.ARM_JOINTS}
@@ -870,8 +873,6 @@ class Bench:
             self.arm.disconnect()
             self.camera.release()
             self.realsense.close()
-            if self.listener:
-                self.listener.stop()
             self.keys.close()
             self.session.close()
 

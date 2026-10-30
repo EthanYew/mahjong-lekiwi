@@ -29,7 +29,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored, so a
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed while the arm
-  picks up or returns say what happened as it happens (`b` bumped another tile, `p` pushed its own, `r`
+  picks up or returns (read from the bench's own terminal, `mahjong/terminal_keys.py`: a global listener logged
+  ~70 keystrokes typed in another tab on 2026-10-30; a `keys_void` appended to a session discounts noise found
+  afterwards) say what happened as it happens (`b` bumped another tile, `p` pushed its own, `r`
   I moved a tile by hand, `d` / `u` gripped low / high (precarious, counted, the attempt stands), `l` look; `interventions.KEYS`, printed as each pickup and return starts), → marks a moment such as a hand
   on the tile (asked right after, unless a key said it). The RealSense scans around each attempt catch knocked or replaced
   tiles: a neighbour that moved or turned is a knock if `b` was pressed, else asked then; every other change

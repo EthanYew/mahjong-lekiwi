@@ -474,8 +474,6 @@ def test_a_mistyped_policy_fails_before_anything_connects(tmp_path, monkeypatch)
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(policy, "Policy", unknown)
     monkeypatch.setattr(hardware, "connect", lambda needed, **kw: connected.append(needed))
-    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
-                        types.SimpleNamespace(init_keyboard_listener=lambda: (None, {})))
     with pytest.raises(SystemExit, match="unknown policy pickup_mat_typo"):
         bench.Bench(bench.parse_args(["--policy", "pickup_mat_typo"]))
     assert connected == [] and not list(tmp_path.iterdir())

@@ -188,6 +188,8 @@ prompt or the menu don't count.
 | `r` | I moved a tile by hand (e.g. put a knocked one back for the next run) | what that pickup's or return's scan sees change was you: straightening a tile a knock left (a rescue), else putting tiles back (a reset); never a knock or a glitch |
 | `l` | look at this (nothing touched) | an observation |
 
+Keys (these letters, `→`, `←`, `Esc`) are read from the bench's own terminal tab while the arm works,
+so type them there; what you type in another tab or window isn't heard (it used to be: 2026-10-30).
 `Esc` stops the policy. `→` marks "something happened here" without stopping it (a hand on the tile, a
 caught drop); a `→` with no key is asked about right after that attempt (not at the end of a batch). A pickup stops itself once the tile
 has been held and lifted for 1.5s (max 16s). Every attempt saves the full wrist video (`wrist.mp4`) in
