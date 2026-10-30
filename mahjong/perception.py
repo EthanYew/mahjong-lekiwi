@@ -110,8 +110,12 @@ def run_detector(model, color):
 
 
 def robust_depth(depth_frame, u, v, window=5):
+    """The median depth around pixel (u, v), over the samples inside the frame: a box centred within `window`
+    of the edge (a tile half in view) made get_distance raise and ended a bench session (2026-10-30)."""
+    w, h = depth_frame.get_width(), depth_frame.get_height()
     depths = [depth_frame.get_distance(u + du, v + dv)
-              for du in range(-window, window + 1, 2) for dv in range(-window, window + 1, 2)]
+              for du in range(-window, window + 1, 2) for dv in range(-window, window + 1, 2)
+              if 0 <= u + du < w and 0 <= v + dv < h]
     depths = [d for d in depths if d > 0.0]
     return float(np.median(depths)) if depths else 0.0
 
