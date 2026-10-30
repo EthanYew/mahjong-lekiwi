@@ -7,8 +7,9 @@ import json
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
-from . import config
+from . import checkout, config
 
 
 class _Tee:
@@ -113,8 +114,11 @@ class Session:
         self._log = open(self.dir / "session.log", "a")
         self._stdout, self._stderr = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
-        self.event("session_start", kind=kind, commit=git_commit(), conditions=conditions, notes=notes, **setup)
+        self.event("session_start", kind=kind, commit=git_commit(), checkout=checkout.state(), conditions=conditions,
+                   notes=notes, **setup)
         print(f"Session: {self.dir}" + (f"\nSetup: {conditions_text(conditions)}" if conditions else ""))
+        for warning in checkout.warnings():
+            print(f"WARNING: {warning}")
 
     def event(self, type, **fields):
         record = {"time": datetime.now().isoformat(timespec="seconds"), "type": type, **fields}
@@ -153,6 +157,11 @@ def _jsonable(value):
     return str(value)
 
 
-def read_events(session_dir):
-    path = session_dir / "events.jsonl"
+def read_jsonl(path):
+    """The records of a .jsonl file (events, traces, sample logs, episode logs), or [] if there's none."""
+    path = Path(path)
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+
+
+def read_events(session_dir):
+    return read_jsonl(session_dir / "events.jsonl")

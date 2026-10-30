@@ -28,9 +28,11 @@ PINCER_TOOL_OFFSET = np.array([-0.016412, 0.008233, 0.026474])
 
 def _rot(axis, deg):
     c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
-    return {"x": np.array([[1, 0, 0], [0, c, -s], [0, s, c]]),
-            "y": np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]),
-            "z": np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])}[axis]
+    if axis == "x":
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
 def _quat(w, x, y, z):
@@ -40,7 +42,12 @@ def _quat(w, x, y, z):
 
 
 def _pose(rotation, displacement):
-    return np.block([[rotation, np.reshape(displacement, (3, 1))], [0, 0, 0, 1]])
+    # Filled in place, not np.block: the IK refines through ~200 FK calls per solve, and np.block was
+    # 8us of each joint's 9 (a simulated hand spent 12s of 14s here).
+    T = np.eye(4)
+    T[:3, :3] = rotation
+    T[:3, 3] = displacement
+    return T
 
 
 # Each joint: fixed mounting rotation and translation from the URDF, then Rz(angle).
@@ -54,9 +61,11 @@ _JOINT_FRAMES = {
 _TOOL = _pose(_quat(7.07106781e-01, -0.0, 7.07106781e-01, -2.37787926e-17), (0.00332633, 0.00484881, -0.11503887))
 
 
+_MOUNTS = {joint: _quat(*quat) for joint, (quat, _) in _JOINT_FRAMES.items()}
+
+
 def joint_frame(joint, deg):
-    quat, displacement = _JOINT_FRAMES[joint]
-    return _pose(_quat(*quat) @ _rot("z", deg), displacement)
+    return _pose(_MOUNTS[joint] @ _rot("z", deg), _JOINT_FRAMES[joint][1])
 
 
 def forward(q):
@@ -73,13 +82,35 @@ def tool_point(q):
     return forward(q)[0]
 
 
+def grasp_frame(actions):
+    """The first step commanding the gripper shut (below GRIP_CLOSED_BELOW), or None. actions: steps x
+    config.JOINTS."""
+    if not len(actions):
+        return None
+    shut = np.asarray(actions)[:, config.GRIPPER] < config.GRIP_CLOSED_BELOW
+    return int(np.argmax(shut)) if shut.any() else None
+
+
 def grasp_point(actions):
     """(step, tool-point xy) of the first command with the gripper shut — where the jaws closed on the
     tile — or (None, None). actions: steps x config.JOINTS, absolute."""
-    grasp = next((k for k in range(len(actions)) if actions[k][5] < config.GRIP_CLOSED_BELOW), None)
+    grasp = grasp_frame(actions)
     if grasp is None:
         return None, None
     return grasp, [float(v) for v in tool_point(dict(zip(config.JOINTS, actions[grasp])))[:2]]
+
+
+def tip_clearance(q):
+    """The pincer tip's height above the grasp point under it (config.grasp_z), m."""
+    tip = pincer_tip(q)
+    return float(tip[2] - config.grasp_z(tip[0], tip[1]))
+
+
+def grasp_clearance(states, actions):
+    """tip_clearance where the servos were (states, measured) at the first step commanding the gripper shut:
+    how high the tip was as the jaws closed on the tile, or None. Rows of config.JOINTS, absolute."""
+    k = grasp_frame(actions)
+    return None if k is None or k >= len(states) else tip_clearance(dict(zip(config.JOINTS, states[k])))
 
 
 def pincer_tip(q):
@@ -206,6 +237,40 @@ def find_reachable_pose(target, max_tilt_deg=15, min_margin_deg=10, tolerance=0.
         if q is not None and joint_margin(q) >= min_margin_deg:
             return q, tilt
     return None, None
+
+
+STRAIGHT_AXIS_WEIGHT_M = 0.05     # straight_up: an axis error of 1 deg weighs like ~0.9mm of position
+
+
+def straight_up(q, dz, keep_axis=True, iterations=20):
+    """Joint config moving the tool point dz straight up from where q puts it, the jaws pointing as they do
+    in q (wrist roll and gripper kept as they are), or None outside the joint limits or if it doesn't
+    converge. hover_command picks its own tilt, which after a teleop can be 20-30 deg from the wrist's.
+    Jaws tilted forward at full reach run wrist_flex into its limit within ~30mm: keep_axis=False holds
+    wrist_flex instead, and the jaws tilt a little with the arm."""
+    position, rotation = forward(q)
+    target, axis = position + np.array([0.0, 0.0, dz]), rotation[:, 0]
+    joints = config.ARM_JOINTS[:4] if keep_axis else config.ARM_JOINTS[:3]
+
+    def residual(theta):
+        p, r = forward({**q, **dict(zip(joints, theta))})
+        return np.concatenate([target - p, STRAIGHT_AXIS_WEIGHT_M * (axis - r[:, 0])]) if keep_axis else target - p
+
+    theta, eps = np.array([q[j] for j in joints], dtype=float), 1e-4
+    for _ in range(iterations):
+        error = residual(theta)
+        if np.linalg.norm(error) < 1e-6:
+            break
+        jacobian = np.zeros((len(error), len(joints)))
+        for i in range(len(joints)):
+            step = theta.copy()
+            step[i] += eps
+            jacobian[:, i] = (error - residual(step)) / eps
+        theta = theta + np.linalg.solve(jacobian.T @ jacobian + 1e-6 * np.eye(len(joints)), jacobian.T @ error)
+    moved = {**q, **dict(zip(joints, (float(t) for t in theta)))}
+    if np.linalg.norm(residual(theta)[:3]) > 0.0005 or joint_margin(moved) < 0:
+        return None
+    return moved
 
 
 def hover_command(x, y, offset_m, gripper):

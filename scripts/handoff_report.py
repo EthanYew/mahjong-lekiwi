@@ -10,7 +10,6 @@ flat commanded one is the servos; a commanded line moving in an unshaded stretch
     python scripts/handoff_report.py --no-plot
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -20,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, kinematics
 from mahjong.handoff_trace import describe, summarize, touched
+from mahjong.session import read_events, read_jsonl
 
 
 def latest_traced_session():
@@ -29,15 +29,9 @@ def latest_traced_session():
     return sessions[-1]
 
 
-def read_trace(path):
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
-
-
 def ik_mismatches(session):
     """{trace path in the session: XLeRobot IK mismatch at the seed}, from the handoff_trace events."""
-    events = session / "events.jsonl"
-    rows = [json.loads(line) for line in events.read_text().splitlines() if line.strip()] if events.exists() else []
-    return {e["trace"]: e.get("ik_mismatch_deg") for e in rows if e.get("type") == "handoff_trace"}
+    return {e["trace"]: e.get("ik_mismatch_deg") for e in read_events(session) if e.get("type") == "handoff_trace"}
 
 
 def plot(rows, title, path):
@@ -90,7 +84,7 @@ def report(session, make_plots=True, log=print):
     fmt = lambda v: f"({v[0]:+5.1f},{v[1]:+5.1f},{v[2]:+5.1f})"
     summaries = []
     for path in traces:
-        rows = read_trace(path)
+        rows = read_jsonl(path)
         s = summarize(rows, mismatch.get(str(path.relative_to(session))))
         summaries.append((path, s))
         ik = "-" if s["ik_mismatch_deg"] is None else f"{s['ik_mismatch_deg']:.0f}"

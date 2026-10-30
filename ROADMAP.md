@@ -1,27 +1,28 @@
 # Roadmap
 
-Bigger steps after the 2026-10-23 bench improvements (early stop, preflight, setup questions).
-Roughly in order: the evaluation pieces first, because they decide whether everything after them
-helped.
+## Status
 
-**Sequence from here (decided 2026-10-23):**
-1. Trimmed-v2 baseline `pickup_mat_cl_v2n` (7): v2's episodes with the gripper narrowing trimmed,
-   the 15 eval episodes left out, hover gripper 27.2 % (where the trimmed episodes start). Scored
-   offline against v2 (done, see 7); benched paired: not yet. It isolates the hover change, so v3 vs
-   v2n measures the jitter alone. v2 stays registered.
-2. Hover jitter in `record.py` (7): done. It shipped crashing on every saved episode (the episode-log
-   row was never written); fixed in the 2026-10-23 post-merge review, with an end-to-end sim test.
-   Before step 3, save one episode on the arm into a scratch dataset and check its log row.
-3. Record the golden eval set `Yewy/mahjong_mat_eval_v1` (2), including the new `jitter` slice. Do this
-   before any jittered training data exists, so it can never leak into training. Teach its layouts
-   first (none exist yet) and commit `data/layouts.json`.
-4. Check the eval on v2: it should do clearly worse on `jitter` (grasp point off by ~the offset). If
-   not, the slice can't detect memorisation.
-5. Record the jittered training set from v2n's hover (`--hover-gripper 27.2`, or v3 vs v2n measures
-   the gripper opening too), train v3, score it offline, bench it with the perturbation test
-   (expect slope ~0) and paired against v2n.
-6. DAgger on v3 (9): the takeover is built (`record.py --policy`); record corrections on v3c.
-7. Only then the hover A/B (1, Next 3).
+The one place for what's done and what's next: one row per item, each with its evidence. Update the row in
+the branch that changes it. Live numbers (the default policy and why, bench totals per policy, layouts, the
+drop zone) come from `python scripts/status.py`, which reads `data/`; `tests/test_docs.py` checks this table
+names the current default. Sections below hold the reasoning.
+
+| Item | State (2026-10-29) | Evidence | Next |
+|---|---|---|---|
+| Default policy | **`pickup_mat_cl_v6`**: v5's data + 33 green-mat demos, `--augment --replace-mat 0.7` (9) | `data/policies.json` default_note; `20261029_234437_bench` (green mat, close-hand14: 28/28, 0 bumped, 0 rescues; v5 there 2/3, 2 bumped, `20261030_010109_bench`); offline `data/offline_eval/pickup_mat_cl_v6.json` | **Bench v6 on the black table top** (paired with v5; never run there); an unseen surface (brown table); perturbation test (1) |
+| Steering vs memorised move (1) | **Not solved.** Jittered data cut it but not to ~0: v3 x +1.26 / y +0.91 mm per mm, v3b +1.57 / +0.38, v3c +0.56 / +0.37 (another v3b run +1.19 / +0.27) | `20261027_160415`, `20261027_192340`, `20261028_084359`, `20261028_092447` (bench `--hover-perturb-mm`, 4D) | The test on v4, and at an x ≥ 0.21 tile. Hover A/B (1, Next 3) waits for a slope near 0 |
+| Golden eval set (2) | Recorded and registered: `Yewy/mahjong_mat_eval_v1`; layouts `eval_familiar`, `eval_new`, `eval_tilt` | `7ed5e58`, `905f35a`; `data/eval_split.json` | Score v4 on it (`offline_eval.py --policy pickup_mat_cl_v4 --against pickup_mat_cl_v3c`); check v2 does worse on `jitter` (sequence step 4, not found in `data/offline_eval/`) |
+| v2n / v3 / v3b / v3c (7) | Trained, scored offline, benched. v2n vs v3 paired 10/10 vs 9/10 | `20261027_161356_bench`; `data/offline_eval/`; `python scripts/status.py` | Retire from the bench once v4 holds up |
+| DAgger (9) | Round 1 on v3c → v4 (shipped). Round 2 on v4 (`Yewy/mahjong_mat_dagger_v4`, episodes 20, 25 dropped) → `pickup_mat_cl_v5` (default 2026-10-29), then v5's data + green-mat demos with augmentation → **`pickup_mat_cl_v6`**, the default since 2026-10-30 | `0957a61`, `b6e2095`; `20261029_111756_record`, `20261029_115104_record`; `data/offline_eval/pickup_mat_cl_v5@*` | Round 3 on v5 (`Yewy/mahjong_mat_dagger_v5`): WW with a neighbour beside it, or move WW inside comfortable reach; v5's pause at the 4D hover |
+| Returns (8) | Aim at home (3mm median at 6C); let go at the grasp's own height (#33) | `docs/retrospectives/2026-10-28_return_homes.md`; `bf75394` | #33's release height unconfirmed on the arm: check `session_report` "return release" on the next bench |
+| Autonomous play (8) | Built, `--sim` only. `hand13` taught; `hand14` = hand13 + the drawn tile's spot S13 (WW), benched 73/75 (S13 6/6; S12 the only misses, 1/3) | `20261029_094543_bench`; `data/layouts.json` | Teach the drop zone on hand14's S13 (play checks it was benched, `markers.zone_test`); discard pose; the scripted hand (8, Next 2) |
+| Scorecard (4) | Draft outside the repo (`~/.claude/plans/reviewing-item-4-in-soft-blanket.md`) | | Write `docs/scorecard.md`, then build it into `session_report.py` |
+| Tile detector (10) | v6x3 live: 97.1% right on the exam without flowers (was 68.6%). Exam: 2 capture sessions | `2fee0eb`; `data/detector_exam.json` | More exam sessions (one per lighting, ~1000 tiles for the wrong-name bound); record.py's scans don't save frames yet |
+| Harness (6) | Fast tests 96 → 11 s; `merge_pr.py` (merged-tree tests, closing step), `status.py`, `test_docs.py`, checkout warnings | this table's branch (`worktree-harness-docs-merge`) | `merge_pr.py --close` for the 35 merged branches left over |
+
+**The sequence decided 2026-10-23** (v2n baseline → hover jitter → golden set → check the eval on v2 → v3 →
+DAgger → hover A/B) ran to DAgger in six days. Two steps didn't come out as planned: the eval was never
+checked on v2's `jitter` slice (step 4), and v3's perturbation slope isn't ~0 (step 5). Both are rows above.
 
 ## 1. Every bench run improves the hover
 
@@ -66,13 +67,14 @@ Next:
 3. Only then a **paired A/B** of a better hover vs the live one (`--correction a,b`, the same
    alternation as `--policy a,b` in 5), judged by the hover→grasp shift in mm as well as success,
    and **switching** by editing `data/hover_model.json` in one commit that cites the A/B session.
-4. Bench attempts across the mat (5: `bench.py --layout` walks a layout's spots): most bench data so
-   far is one position (4D).
+4. ~~Bench attempts across the mat~~: done, `--layout` walks (eval_new, hand14: 75 attempts over 13 spots
+   on 2026-10-29). The perturbation tests are still all at 4D.
 
 ## 2. An offline evaluation set
 
 **Built 2026-10-23** (`mahjong/offline_eval.py`, `scripts/offline_eval.py`, `mahjong/layout.py`,
-`scripts/layout.py`). What's left needs the arm: record `Yewy/mahjong_mat_eval_v1` (below). Write-up:
+`scripts/layout.py`); **`Yewy/mahjong_mat_eval_v1` recorded and registered 2026-10-27** (`7ed5e58`; layouts
+`905f35a`). Still open: v2 on the `jitter` slice (the 2026-10-23 sequence's step 4, in Status), and v4's scores. Write-up:
 `docs/retrospectives/2026-10-23_offline_eval.md`.
 
 - **Split.** `data/eval_split.json` holds out 15 of v2's 104 episodes, one per spot with ≥ 3 episodes
@@ -223,8 +225,17 @@ Return accuracy, moved to 8, is done (2026-10-28): returns go to the tile's home
   How to avoid a repeat is in CLAUDE.md "Worktrees and merging" (`data/hover_corrections.jsonl` now
   merges by union).
 - End-to-end sim tests for the user-run scripts that have none (they're what catch a merge that's
-  clean but broken): `collect_corrections.py`, `layout.py` teach/view/capture, `make_policy.py` (a
-  `--skip-build/--skip-train` path), `offline_eval.py --make-split/--add-eval-set`; `mahjong/quality.py`.
+  clean but broken): `layout.py` teach/view/capture, `make_policy.py` (a `--skip-build/--skip-train`
+  path), `offline_eval.py` main and `--make-split/--add-eval-set`, `quality_report.py`, `mine_frames.py`.
+  (collect_corrections and `mahjong/quality.py` have theirs.)
+- ~~Review the scripts against each other after the 2026-10-23..28 worktrees~~ Done 2026-10-29 (the
+  consolidate-* branches): record.py returns to homes and logs return samples, the gamepad deadzone and off-centre
+  warning at every handoff, play reviews marked pickups, one copy of each shared helper.
+- ~~Docs that go stale, merges that skip the tests, branches never closed~~ Done 2026-10-29: `tests/test_docs.py`
+  (docs vs `data/` and the scripts' options), `scripts/status.py` (state from `data/`; the default changes with
+  its evidence), `scripts/merge_pr.py` (tests the merged tree, then pulls main and closes the branch), session
+  warnings when the checkout is behind origin/main, and the fast tests 96 → 11 s (FK without `np.block`,
+  pytest-xdist in the hook).
 - Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
   the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
   interventions and the CLAUDE.md says to run it first.
@@ -235,7 +246,10 @@ Return accuracy, moved to 8, is done (2026-10-28): returns go to the tile's home
   per policy, so this is a data change. Because the narrowing is a time prefix, trimming the v2
   episodes (`trim_narrowing`) and retraining also works without new recordings. A/B it against v2
   at the current hover before changing the hover too.
-  **In progress 2026-10-23:** `pickup_mat_cl_v2n` (`make_policy.py --source
+  **Done since (2026-10-27/28):** v3 (88 jittered demos, `Yewy/mahjong_mat_pickup_jitter_v3`), v3b and v3c
+  (95 demos) trained from v2n's narrowed hover, scored offline and benched; v3c was the default until v4 (9).
+  The rest of this item is the v2n history.
+  **2026-10-23:** `pickup_mat_cl_v2n` (`make_policy.py --source
   Yewy/mahjong_mat_pickup_lekiwi_cl_hover --version v2n --trim-narrowing`): 89 episodes, the 15 eval
   episodes left out, so unlike v2 its offline scores are honest. It is the baseline for v3. If it does
   worse than v2, record v3 at 90 % instead.
@@ -281,13 +295,16 @@ copies left tracked with ukeire.
 **Built (2026-10-28), checked in `--sim` only:** `scripts/play.py` (README, "Autonomous play") on the
 bench's pieces; `mahjong/game.py` (our own shanten, checked against the `mahjong` library, which this
 package's name shadows; the discard choice; the hand checks); `mahjong/identity.py` (name votes per slot
-over every scan, reset when a tile moves; uses the scan-voting branch's `votes` once merged);
+over every scan, reset when a tile moves; reads the scans' per-frame `votes`);
 `mahjong/markers.py` (the drop zone); the `ask` intervention class and `interventions.hand_grade`;
 `session_report.py` prints a hand, `--all` every hand; `detector_eval.py` prints the wrong-name bound.
 
 Next, on the arm:
-1. Teach `hand13` and the drop zone; `bench.py --layout hand13 --trials 2` (pickups and returns at every
-   slot, 57mm apart), and paired pickups on the marker vs a mat spot (the marker's pivot trigger).
+1. ~~Teach `hand13`~~ (done) and the drop zone. `hand14` is the bench's version of the hand: hand13's slots
+   plus S13 (WW, (0.223, −0.158), at the edge of the reach), where the drawn tile goes. Benched 2026-10-29
+   (`20261029_094543_bench`, 73/75; S13 6/6). Lay the marker on S13: `play.py` won't start until a bench
+   session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`). Then
+   paired pickups on the marker vs a mat spot (the marker's pivot trigger).
 2. A scripted hand: a fixed wall set out by hand, so it can be played again identically.
 3. Set `identity.py`'s bars from the exam (they're guesses), after more exam sessions (one per
    lighting, ~1000 tiles: section 8 of the plan).
@@ -313,12 +330,17 @@ the frames from then on are recorded with the operator's actions as labels. Cons
 - DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
 
 **Built (2026-10-28):** `record.py --policy ID` (README, DAgger). The policy drives until the first
-gamepad touch (`GamepadTeleop.touched`, no commit delay), then the gamepad starts from `Arm.commanded()`.
+press of A (`GamepadTeleop.takeover_pressed`; any touch took over at t=0 from stick drift), then the gamepad starts from `Arm.commanded()`.
 Every frame is recorded, with `policy` / `takeover_frame` in the episode-log row and a `takeover`
 rescue in the session. `dataset.build` keeps the frames from the takeover on, anchored at the hover
 (frame 0), and leaves out episodes with no takeover. `make_policy.py --add REPO` trains on such a
-dataset next to the main one. Not yet tried on the arm. First target: the far spots, where both v3b
-and v3c descend ~13mm deeper than the demos (FK heights drift with reach, CLAUDE.md).
+dataset next to the main one.
+
+**Round 1 done (2026-10-28/29):** corrections on v3c (`Yewy/mahjong_mat_dagger_v3c`) → `pickup_mat_cl_v4`
+(34195 frames, 47000 steps), default since 2026-10-29 after the hand14 paired run (Status). **Round 2:**
+`Yewy/mahjong_mat_dagger_v4`, corrections on v4 → `pickup_mat_cl_v5` (both DAgger sets, registered 2026-10-29,
+`b6e2095`), default since 2026-10-29 after the paired bench against v4 (Status). Still worth targeting: the far spots, where v3b and v3c descended ~13mm deeper
+than the demos (FK heights drift with reach, CLAUDE.md), and S12 (7D), the only hand14 misses.
 
 ## 10. The tile detector
 
@@ -339,8 +361,12 @@ at 1280 px like training (no scale mismatch to fix).
   glitch answers) and plain current-scene frames, pre-labelled for Roboflow. `scripts/train_detector.py`
   fine-tunes from the live weights with their July recipe, and refuses exam frames.
 
+**Shipped 2026-10-28: v6x3** (`2fee0eb`): 97.1% right overall on the exam without flowers (the live
+detector was 68.6%), README "The tile detector". The exam has 2 capture sessions so far
+(`data/detector_exam.json`).
+
 **Next, on the hardware:**
-1. Capture the exam: one `--exam` session per lighting (daylight, lamp, ceiling), 40-60 scans in all,
+1. Capture the rest of the exam: one `--exam` session per lighting (daylight, lamp, ceiling), 40-60 scans in all,
    arrangements of their own (rows, tiles pushed together, turned tiles, the tilt layout's angles).
    Label it, score the live detector: the baseline. Commit `data/detector_exam.json` and the scores.
 2. Training frames: a few `capture_frames.py` sessions plus the bench's scans, `mine_frames.py --all`,

@@ -101,10 +101,11 @@ def test_labels_from_log_records():
     record = {"slice": "dim", "spot": "F2", "tile_name": "3B", "detection_xy": [0.151, 0.014],
               "conditions": {"daylight": "none", "lamp": False, "ceiling_lights": False}}
     assert offline_eval.labels(record, "eval") == {"slice": "dim", "spot": "F2", "tile": "3B",
-                                                   "lighting": "daylight none, lamp off, ceiling off"}
+                                                   "lighting": "daylight none, lamp off, ceiling off",
+                                                   "surface": "black table top"}
     old = {"tile_name": "3B", "detection_xy": [0.151, 0.014]}          # recorded before slices and conditions
     assert offline_eval.labels(old, "heldout") == {"slice": "heldout", "spot": "15,+1", "tile": "3B",
-                                                   "lighting": "unrecorded"}
+                                                   "lighting": "unrecorded", "surface": "black table top"}
     assert offline_eval.labels({**old, "slice": "train"}, "heldout")["slice"] == "heldout"
 
 
@@ -144,3 +145,11 @@ def test_summary_table_prints_every_slice():
     blank = offline_eval.summarise([{**row("dim", 1.0, freeze=True), "onset": None}])
     lines = offline_eval.table(blank, "t").splitlines()
     assert len(lines[1]) == len(lines[2])                                   # a missing value keeps the columns
+
+
+def test_episodes_are_labelled_by_the_surface_they_were_recorded_on():
+    from mahjong import config
+    green = offline_eval.labels({"conditions": {"surface": "green cutting mat"}}, "heldout")
+    assert green["surface"] == "green cutting mat"
+    assert offline_eval.labels({"conditions": {"daylight": "bright"}}, "heldout")["surface"] == config.SURFACE_BEFORE_ASKED
+    assert offline_eval.labels({}, "heldout")["surface"] == config.SURFACE_BEFORE_ASKED

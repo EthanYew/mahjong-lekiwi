@@ -154,6 +154,7 @@ def interventions_report(events, trials, unit):
                 + (f", one per {s['attempts_per_rescue']:.1f}" if s["attempts_per_rescue"] else ""))
         print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
               f"overrides {s['overrides']}, knocked {s['knocks']}, collided {s['collisions']}, "
+              f"pushed the target {s['target_pushes']}, gripped low {s['low_grips']}, high {s['high_grips']}, "
               f"observations {s['observations']}")
         if unit == "attempt":
             print(f"  successes: {s['successes']} = {s['clean_successes']} clean + {s['assisted_successes']} assisted")
@@ -292,17 +293,41 @@ def play_report(events, found):
 
 def returns_report(events):
     """How far returned tiles landed from their home (sessions from before homes: from where the tile was
-    before that pickup), and how many a person put back."""
-    found = [r for r in landings(events) if r["landed_xy"]]
+    before that pickup), and how many a person put back. Bench and record sessions log each landing
+    (`return_landed`); older bench sessions are read from their scans."""
+    rise_report(events)
+    found = [e for e in events if e["type"] == "return_landed" and e.get("landed_xy")] or \
+        [r for r in landings(events) if r["landed_xy"]]
     if not found:
         return
     errors = sorted(r["error_m"] * 1000 for r in found)
     over = sum(e > config.RETURN_DRIFT_WARN_M * 1000 for e in errors)
-    put_back = sum(e["type"] == "detections" and e.get("label") == "after_reset" for e in events)
+    put_back = sum(e["type"] == "detections" and e.get("label") == "after_reset" or        # bench
+                   e["type"] == "intervention" and e.get("kind") == "tile_reset" and "home_xy" in e   # record
+                   for e in events)
     homes = any(e["type"] == "return" and e.get("home_xy") for e in events)
     print(f"returns landed {np.median(errors):.0f}mm from {'home' if homes else 'where the tile was'} (median of "
           f"{len(errors)}; worst {errors[-1]:.0f}mm; {over} over {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm)"
           + (f"; {put_back} put back by a person" if put_back else ""))
+
+
+def rise_report(events):
+    """How the open jaws left a returned tile, measured (Arm.place's `rise`): how far the tip rose of the
+    RELEASE_RISE_M commanded, how far it moved sideways doing so, and how high it was when the swing to rest
+    began."""
+    from mahjong.arm import RELEASE_RISE_M
+    rises = [e["rise"] for e in events if e["type"] == "return" and e.get("rise")]
+    if not rises:
+        return
+    up, side, swing = (np.array([r[k] for r in rises]) * 1000 for k in ("up_m", "sideways_m", "swing_from_m"))
+    print(f"return rise: the tip rose {np.median(up):.0f}mm of {RELEASE_RISE_M * 1000:.0f} commanded (median of "
+          f"{len(rises)}; least {up.min():.0f}), {np.median(side):.1f}mm sideways (worst {side.max():.1f}); "
+          f"swing to rest from {np.median(swing):.0f}mm (lowest {swing.min():.0f})")
+    drops = np.array([e["released_at_m"] - e["grasp_clearance_m"] for e in events if e["type"] == "return"
+                      and e.get("grasp_clearance_m") is not None and "released_at_m" in e]) * 1000
+    if len(drops):
+        print(f"return release: {np.median(drops):+.1f}mm from where the jaws closed on the tile (median of {len(drops)}; "
+              f"highest {drops.max():+.1f}): above it, the tile drops that far and can tilt as it lands")
 
 
 if __name__ == "__main__":

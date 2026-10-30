@@ -21,6 +21,7 @@ sessions/<time>_setup/ with the images and a `setup_check` event; exits 1 if any
 """
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware, layout
+from mahjong import config, hardware, layout, wrist_check
 from mahjong import setup_check as sc
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection, setup_fingerprint
@@ -109,7 +110,7 @@ def place_sim_tile(realsense, spot):
 
 def tile_at(realsense, spot, sim, again=False):
     """Place the tile at `spot` (the window: move it until its outline is green) and measure where it is.
-    Returns ((x, y) or None, "ok" / "missing" (the RealSense finds no tile there) / "skip" / "quit")."""
+    Returns ({"xy", "yaw_deg"} or None, "ok" / "missing" (the RealSense finds no tile there) / "skip" / "quit")."""
     K, T = realsense.intrinsics, realsense.T_cam_to_base
     if sim:
         place_sim_tile(realsense, spot)
@@ -124,7 +125,8 @@ def tile_at(realsense, spot, sim, again=False):
     row = layout.capture(realsense.snapshot, [spot], K, T, frames=3 if sim else layout.CAPTURE_FRAMES)[0]
     if "dx_mm" not in row:
         return None, "missing"
-    return (spot["xy"][0] + row["dx_mm"] / 1000, spot["xy"][1] + row["dy_mm"] / 1000), "ok"
+    return {"xy": [spot["xy"][0] + row["dx_mm"] / 1000, spot["xy"][1] + row["dy_mm"] / 1000],
+            "yaw_deg": row["yaw_deg"]}, "ok"
 
 
 def ask_again(ask, spot, problem):
@@ -134,32 +136,55 @@ def ask_again(ask, spot, problem):
     return {"s": "skip", "q": "quit"}.get(answer[:1], "retry")
 
 
-def wrist_look(arm, camera, correction, xy):
-    """Hover over the tile at xy as the bench does and grab a wrist frame: (frame or None, hover result, the
-    camera — reopened if it was lost)."""
-    hx, hy = correction.apply(*xy, log=lambda *_: None) if correction else xy
-    arm.lift()
-    hover = arm.hover(hx, hy, config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, config.HOVER_GRIPPER, log=lambda *_: None)
+def confirm_on_screen(ask):
+    """--save-reference: show the wrist frame with the tile it found crossed and ask whether that's the tile, so a
+    reference can't be saved on glare or a neighbour (the 2026-10-28 F3). Returns confirm(spot, frame, found)."""
+    def confirm(spot, frame, found):
+        image = frame.copy()
+        cv2.drawMarker(image, tuple(int(v) for v in found["centre_px"]), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
+        cv2.putText(image, f"{spot['id']}: is the cross on the tile?", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (0, 0, 255), 2)
+        cv2.imshow(WINDOW, image)
+        cv2.waitKey(1)
+        answer = ask(f"  Is the cross on the tile at {spot['id']}? [Enter = yes / r = reposition and look again]: ")
+        return "retry" if answer.strip().lower().startswith("r") else "ok"
+    return confirm
+
+
+def wrist_look(arm, camera, xy, delta):
+    """Hover over the tile at xy, moved by the hover correction `delta` (m), and grab 3 wrist frames: (frames,
+    hover result or None if out of reach, the camera — reopened if it was lost)."""
+    frames, hover = wrist_check.look(arm, camera, xy[0] + delta[0], xy[1] + delta[1], config.DEFAULT_HOVER)
     if hover is None:
-        return None, None, camera
-    frames = grab_frames(camera, 3)
+        return [], None, camera
     if not frames:
         camera = hardware.reopen_wrist_camera(camera)
         frames = grab_frames(camera, 3)
-    return (frames[-1] if frames else None), hover, camera
+    return frames, hover, camera
 
 
-def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input):
-    """Every spot: place, hover, look. A tile not found (by the RealSense, or in the wrist view at the hover)
-    is repositioned and looked at again, until it's found or the person skips the spot / stops. Returns
+def hover_delta(spot_reference, correction, xy):
+    """The hover correction (m) for a tile at xy: the one stored with the reference when checking — so a refit
+    correction (it moved the hover 4-8mm at the check spots between 2026-10-28 and 29) doesn't move the tile in
+    the wrist view — or the live one when saving."""
+    if spot_reference is not None:
+        return [v / 1000 for v in spot_reference["hover_delta_mm"]]
+    return list(correction.delta_at(*xy)) if correction else [0.0, 0.0]
+
+
+def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input, confirm=None):
+    """Every spot: place, hover (with the reference's hover correction), look. A tile not found (by the RealSense,
+    or in the wrist view at the hover) is repositioned and looked at again, until it's found or the person skips
+    the spot / stops; confirm(spot, frame, found) -> "ok" / "retry" can reject a find too (saving). Returns
     ({id: per-spot result}, {id: wrist frame}, camera)."""
     by_id = {s["id"]: s for s in (reference or {}).get("spots", [])}
     results, frames = {}, {}
     for spot in spots:
         attempt, stop = 0, False
+        ref = by_id.get(spot["id"])
         while True:                     # until the tile is found, or the person skips / quits
             arm.rest()
-            xy, action = tile_at(realsense, spot, sim, again=attempt > 0)
+            placed, action = tile_at(realsense, spot, sim, again=attempt > 0)
             attempt += 1
             if action == "quit":
                 stop = True
@@ -168,10 +193,15 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
                 results[spot["id"]] = {"status": "skipped", "why": "no tile placed"}
                 break
             problem, frame, hover, found = "the RealSense finds no tile there", None, None, None
-            if xy is not None:
-                frame, hover, camera = wrist_look(arm, camera, correction, xy)
-                found = sc.wrist_tile(frame) if frame is not None else None
+            if placed is not None:
+                delta = hover_delta(ref, correction, placed["xy"])
+                shots, hover, camera = wrist_look(arm, camera, placed["xy"], delta)
+                frame = shots[-1] if shots else None
+                found = sc.median_tile([sc.wrist_tile(f, ref["tile"]["centre_px"] if ref else None) for f in shots])
                 problem = None if frame is None or found is not None else "no tile in the wrist view at the hover"
+            if problem is None and found is not None and confirm is not None and confirm(spot, frame, found) == "retry":
+                arm.lift()
+                continue
             if problem is None:
                 break
             print(f"  {spot['id']}: {problem}")
@@ -181,7 +211,7 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
             arm.lift()
             choice = ask_again(ask, spot, problem)
             if choice != "retry":
-                results[spot["id"]] = {"status": "fail" if xy is not None else "skipped", "why": problem,
+                results[spot["id"]] = {"status": "fail" if placed is not None else "skipped", "why": problem,
                                        "attempts": attempt}
                 stop = choice == "quit"
                 break
@@ -192,17 +222,26 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
                 results[spot["id"]] = {"status": "fail", "why": "out of reach" if hover is None else "no wrist frames"}
             else:
                 frames[spot["id"]] = frame
-                ref = by_id.get(spot["id"])
-                result = sc.wrist_result(found, ref["tile"] if ref else None) if reference else {**found, "status": "pass"}
-                results[spot["id"]] = {**result, "measured_xy": list(xy), "hover_xy": hover["hover_xy"],
+                if reference:
+                    turn = layout.wrap_yaw(placed["yaw_deg"] - ref["measured_yaw_deg"])
+                    result = sc.wrist_result(found, ref["tile"], placed_turn_deg=turn)
+                else:
+                    result = {**found, "status": "pass"}
+                live = list(correction.delta_at(*placed["xy"])) if correction else [0.0, 0.0]
+                results[spot["id"]] = {**result, "measured_xy": placed["xy"], "measured_yaw_deg": placed["yaw_deg"],
+                                       "hover_delta_mm": [v * 1000 for v in delta], "hover_xy": hover["hover_xy"],
+                                       "live_correction_change_mm": math.hypot(*(1000 * (a - b) for a, b in zip(live, delta))),
                                        "brightness": sc.brightness(frame), "attempts": attempt}
                 cv2.imwrite(str(session.dir / f"wrist_{spot['id']}.jpg"), frame)
-                if reference and ref and ref.get("wrist_image") is not None:
+                if reference and ref.get("wrist_image") is not None:
                     cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_vs_reference.jpg"),
                                 sc.side_by_side(ref["wrist_image"], frame, found, ref["tile"], spot["id"]))
         r = results[spot["id"]]
         print(f"  {spot['id']}: {r['status']} — " + (sc.wrist_text(r) if reference and "du_px" in r else r.get("why") or
                                                      f"tile at {r['centre_px'][0]:.0f}, {r['centre_px'][1]:.0f}px"))
+        if reference and r.get("live_correction_change_mm", 0) >= 1.0:
+            print(f"      (the live hover correction now differs here by {r['live_correction_change_mm']:.1f}mm from the "
+                  "reference's; not graded)")
         session.event("setup_tile", spot=spot["id"], **{k: v for k, v in r.items()})
         arm.lift()
         if stop:
@@ -231,12 +270,12 @@ def main(argv=None, ask=None, devices=None):
         raise SystemExit(f"No reference in {folder}. On a setup you trust, run setup_check.py "
                          f"{'--sim ' if args.sim else ''}--save-reference first.")
     spots = check_spots(args, reference)
+    if reference and not args.skip_tiles and any("hover_delta_mm" not in s for s in reference.get("spots", [])):
+        raise SystemExit(f"The reference in {folder} ({reference.get('time')}) predates the stored hover correction "
+                         "the tile test now uses: run setup_check.py --save-reference again (or --skip-tiles).")
     if devices is None and args.sim:
-        from mahjong.arm import Arm
-        from mahjong.sim import SimPerception, SimRobot, SimWristCamera
-        realsense = SimPerception(tiles=[])
-        arm = Arm(SimRobot(), sleep=lambda s: None)
-        devices = {"arm": arm, "wrist_camera": SimWristCamera(arm, realsense), "realsense": realsense}
+        from mahjong import sim
+        devices = sim.connect(tiles=[], wrist_view=True)
     if devices is None:
         devices = hardware.connect(["arm", "wrist_camera", "realsense"])
     arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
@@ -258,7 +297,8 @@ def main(argv=None, ask=None, devices=None):
         correction = HoverCorrection.load()
         if reference and reference.get("hover_correction") != (correction.name if correction else None):
             print(f"Note: the hover correction changed since the reference ({reference.get('hover_correction')} → "
-                  f"{correction.name if correction else None}); the tile test measures the new one.")
+                  f"{correction.name if correction else None}); the tile test hovers with the reference's, so that "
+                  "doesn't count against the setup.")
         results, frames, tiles, completed = {}, {}, {}, False
         try:
             arm.rest()
@@ -276,12 +316,11 @@ def main(argv=None, ask=None, devices=None):
                 results["table"] = {**table, "text": sc.table_text(table)}
             if not args.skip_tiles:
                 print(f"Tile test on {', '.join(s['id'] for s in spots)}:")
-                tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim, ask)
+                confirm = confirm_on_screen(ask) if show and reference is None else None
+                tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim,
+                                                  ask, confirm)
                 if reference is not None:
-                    shown = [f"{i} {r.get('shift_mm', float('nan')):.1f}mm" if "shift_mm" in r else f"{i} {r['status']}"
-                             for i, r in tiles.items()]
-                    results["tiles"] = {"status": sc.worst(r["status"] for r in tiles.values()), "spots": tiles,
-                                        "text": ", ".join(shown) or "no spots done"}
+                    results["tiles"] = sc.tiles_result(tiles)
             wrist_light = [r["brightness"] for r in tiles.values() if "brightness" in r]
             measured["wrist_brightness"] = float(np.median(wrist_light)) if wrist_light else None
             if reference is not None:
@@ -337,7 +376,8 @@ def save(folder, measured, color, frames, tiles, spots, correction, args, ask):
         print("Not saved.")
         return "skipped"
     record = {**measured, "hover_correction": correction.name if correction else None, "layout": args.layout,
-              "spots": [{**s, "tile": {k: tiles[s["id"]][k] for k in ("centre_px", "area_px", "angle_deg", "size_px")}}
+              "spots": [{**s, "tile": {k: tiles[s["id"]][k] for k in ("centre_px", "area_px", "angle_deg", "size_px")},
+                         **{k: tiles[s["id"]][k] for k in ("measured_xy", "measured_yaw_deg", "hover_delta_mm")}}
                         for s in spots if s["id"] not in missing]}
     sc.save_reference(record, color, {i: f for i, f in frames.items() if i not in missing}, folder)
     print(f"Saved to {folder}" + ("" if args.sim else " — commit it (git add data/setup_reference)."))

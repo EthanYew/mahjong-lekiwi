@@ -16,9 +16,24 @@
       80,
       98,
       101
+    ],
+    "Yewy/mahjong_surfaces_mat_v1": [
+      5,
+      10,
+      19,
+      33,
+      38,
+      44,
+      47,
+      55,
+      59,
+      73,
+      84,
+      89
     ]
   },
   "eval_sets": [
-    "Yewy/mahjong_mat_eval_v1"
+    "Yewy/mahjong_mat_eval_v1",
+    "Yewy/mahjong_mat_eval_surfaces_v1"
   ]
 }

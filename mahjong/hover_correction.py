@@ -34,6 +34,7 @@ from datetime import datetime
 import numpy as np
 
 from . import config
+from .session import read_jsonl
 
 MIN_POINTS_AFFINE = 6
 AFFINE_MIN_GAIN = 0.10
@@ -93,10 +94,16 @@ def random_offset(rng, radius_m, zero_fraction=0.0):
 
 
 def grasp_record(source, detection_xy, grasp_xy, **provenance):
-    """A sample from where the gripper closed (demo or bench): the grasp tool point minus the detection."""
-    return {"source": source, "detection_xy": [float(v) for v in detection_xy],
-            "grasp_xy": [float(v) for v in grasp_xy],
-            "delta_xy": [float(grasp_xy[0] - detection_xy[0]), float(grasp_xy[1] - detection_xy[1])], **provenance}
+    """A sample from where the gripper closed (demo or bench): the grasp tool point minus the detection. A
+    bench attempt from a hover moved on purpose (bench.py --hover-perturb-mm) is kept but excluded: it tests
+    whether the policy follows the tile, and v2's grasp followed the moved hover ~1mm per mm. (A jittered
+    demo stays in: the operator had to steer to the tile.)"""
+    record = {"source": source, "detection_xy": [float(v) for v in detection_xy],
+              "grasp_xy": [float(v) for v in grasp_xy],
+              "delta_xy": [float(grasp_xy[0] - detection_xy[0]), float(grasp_xy[1] - detection_xy[1])], **provenance}
+    if source == "bench" and any(provenance.get("hover_perturb_xy") or ()):
+        record["excluded"] = "hover perturbed on purpose (policy sensitivity test)"
+    return record
 
 
 def append_record(record, path=None):
@@ -108,9 +115,26 @@ def append_record(record, path=None):
     return record
 
 
+def import_records(records, key, path=None, since=None):
+    """Append the records not already in the file (by `key(record)`) and not older than `since`, the current
+    setup's first gamepad correction (None, no corrections for this setup: none are imported, since any could
+    predate a recalibration). Returns (added, already, too_old)."""
+    have = {key(r) for r in read_all(path)}
+    added = already = too_old = 0
+    for record in records:
+        if key(record) in have:
+            already += 1
+        elif since is None or record["timestamp"] < since:
+            too_old += 1
+        else:
+            append_record(record, path)
+            have.add(key(record))
+            added += 1
+    return added, already, too_old
+
+
 def read_all(path=None):
-    path = path or config.HOVER_CORRECTIONS
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    return read_jsonl(path or config.HOVER_CORRECTIONS)
 
 
 def load_records(path=None, sources=None):

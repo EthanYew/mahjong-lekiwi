@@ -24,9 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from mahjong import config
+from mahjong import config, hover_correction
 from mahjong.dataset import EPISODE_LOGS, episode_log
-from mahjong.hover_correction import append_record, grasp_record, load_records, read_all, source_of
+from mahjong.hover_correction import grasp_record, load_records, source_of
 from mahjong.kinematics import grasp_point
 from mahjong.session import read_events
 
@@ -94,19 +94,8 @@ def setup_since(path=None):
 
 
 def import_records(records, path=None, since=None):
-    """Append the records not already in the file and not older than `since`. Returns (added, already, too_old)."""
-    have = {key(r) for r in read_all(path)}
-    added = already = too_old = 0
-    for record in records:
-        if key(record) in have:
-            already += 1
-        elif since is None or record["timestamp"] < since:
-            too_old += 1
-        else:
-            append_record(record, path)
-            have.add(key(record))
-            added += 1
-    return added, already, too_old
+    """hover_correction.import_records, by demo episode or bench attempt (key)."""
+    return hover_correction.import_records(records, key, path, since)
 
 
 def main():

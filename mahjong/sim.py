@@ -92,12 +92,13 @@ GRASP_REACH_M = 0.06            # SimPolicy closes on the nearest tile this clos
 class SimPerception:
     """A mat that changes: SimPolicy takes the tile it grasps off it, a release near the table puts it
     back where the jaws opened (one higher up, e.g. over the discard container, doesn't), and tests can
-    nudge() tiles as a knock or a person would."""
+    nudge() tiles as a knock or a person would, or flicker() one: left out of the next scans while still there."""
     intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
 
     def __init__(self, tiles=SIM_TILES):
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
+        self.hidden = {}            # {tile name: scans it's still left out of} (flicker)
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
         self.T_render = self.T_cam_to_base      # where the camera really is: a test moves it to fake a knocked tripod
         self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
@@ -107,15 +108,16 @@ class SimPerception:
     def detect_tiles(self, n_frames=None):
         """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
         from .layout import table_to_pixel, tile_corners
-        boxes = []
-        for t in self.tiles:
+        boxes, seen = [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])]
+        self.hidden = {name: n - 1 for name, n in self.hidden.items() if n > 1}
+        for t in seen:
             corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
             (u0, v0), (u1, v1) = corners.min(axis=0), corners.max(axis=0)
             boxes.append({"tile_name": t["tile_name"], "confidence": 0.9,
                           "xyxy": [round(float(c), 1) for c in (u0, v0, u1, v1)]})
         self.last_frames = [{"color": self.snapshot(), "boxes": boxes}]
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
-                 "reads": 5, "pixel": (0, 0)} for t in self.tiles]
+                 "reads": 5, "pixel": (0, 0)} for t in seen]
 
     def nearest(self, x, y, within_m=GRASP_REACH_M):
         def distance(t):
@@ -131,13 +133,17 @@ class SimPerception:
             self.tiles.append({**self.held, "xy": list(xy)})
         self.held = None
 
+    def flicker(self, name, scans=1):
+        """The detector misses `name` for the next `scans` scans; the tile stays (the wrist camera sees it)."""
+        self.hidden[name] = scans
+
     def nudge(self, name, dx, dy):
         tile = next(t for t in self.tiles if t["tile_name"] == name)
         tile["xy"] = [tile["xy"][0] + dx, tile["xy"][1] + dy]
 
     def snapshot(self):
         from .layout import render
-        image = render([(*t["xy"], 0.0) for t in self.tiles], self.intrinsics, self.T_render)
+        image = render([(*t["xy"], t.get("yaw_deg", 0.0)) for t in self.tiles], self.intrinsics, self.T_render)
         return draw_robot(image, self.intrinsics, self.T_render)
 
     def depth_snapshot(self):
@@ -181,7 +187,8 @@ def draw_robot(image, intrinsics, T_cam_to_base):
 
 class SimWristCamera:
     """A wrist camera over a SimPerception mat: the tile nearest the jaws as a white face on a dark mat, placed
-    by where it really is relative to the tool point and sized by the jaws' height (4px/mm at the 40mm hover)."""
+    by where it really is relative to the tool point (a hovered tile where the real camera shows it,
+    wrist_check.EXPECTED_PX) and sized by the jaws' height (4px/mm at the 40mm hover)."""
     simulated = True
     SHAPE, PX_PER_MM_AT_HOVER = (480, 640), 4.0
 
@@ -190,13 +197,15 @@ class SimWristCamera:
 
     def read(self):
         import cv2
+        from .wrist_check import EXPECTED_PX
         image = np.full((*self.SHAPE, 3), (25, 25, 25), np.uint8)
         x, y, _ = kinematics.tool_point(self.arm.measured())
         tile = self.mat.nearest(x, y, within_m=0.05)
         if tile is not None:
             scale = self.PX_PER_MM_AT_HOVER * config.HOVER_CLEARANCE_M * 1000 / max(self.arm.robot.measured_clearance_mm(), 5.0)
-            centre = (self.SHAPE[1] / 2 - (tile["xy"][1] - y) * 1000 * scale,     # left in the image = +y
-                      self.SHAPE[0] / 2 - (tile["xy"][0] - x) * 1000 * scale)     # up = +x (away)
+            u, v = EXPECTED_PX
+            centre = (u - (tile["xy"][1] - y) * 1000 * scale,     # left in the image = +y
+                      v - (tile["xy"][0] - x) * 1000 * scale)     # up = +x (away)
             size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
             box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
             cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
@@ -222,6 +231,16 @@ class SimCamera:
         pass
 
 
+def connect(tiles=SIM_TILES, wrist_view=False):
+    """The simulated counterpart of hardware.connect(["arm", "wrist_camera", "realsense"]): a mat of `tiles`
+    that a release near the table puts the held tile back on, an arm that doesn't wait, and a wrist camera
+    that renders the mat under it (wrist_view) or gives blank frames."""
+    from .arm import Arm
+    mat = SimPerception(tiles)
+    arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
+    return {"arm": arm, "wrist_camera": SimWristCamera(arm, mat) if wrist_view else SimCamera(), "realsense": mat}
+
+
 class SimPolicy:
     """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
     policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it
@@ -243,6 +262,7 @@ class SimPolicy:
         if mark is not None and mark.is_set():
             mark.clear()
             marks.append(2.0)
+        closed_at = arm.tip_clearance()[0]
         arm.move_to({"gripper": 0.0}, 0.5)
         arm.robot.holding = True
         if tile is not None:
@@ -251,4 +271,4 @@ class SimPolicy:
         arm.move_to(up, 2.0)
         return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
-                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "marks_s": marks}
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks}

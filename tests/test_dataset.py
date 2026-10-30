@@ -101,3 +101,58 @@ def test_keep_mask_drops_everything_before_a_dagger_takeover():
     states, actions, deltas = episode()
     keep = keep_mask(states, actions, deltas, trim_idle=False, start=120)
     assert not keep[:120].any() and keep[120:].all()
+
+
+def test_idle_right_after_a_dagger_takeover_is_trimmed():
+    # The policy drifts until the takeover at 80, then the person holds still until the descent. The idle
+    # window mustn't reach back into the policy's dropped frames and keep the still ones (146 frames in v4).
+    states, actions, deltas = episode()
+    deltas[60:80, 0] = np.linspace(-5, 0, 20)
+    keep = keep_mask(states, actions, deltas, trim_sag=False, start=80)
+    assert not keep[:95].any()
+    assert keep[110:130].all()
+
+
+def wrist_frame():
+    """A synthetic wrist frame (RGB): black table top with the lamp's brown glare, a white face with a red print,
+    a green tile back and a cyan jaw."""
+    frame = np.full((224, 224, 3), (25, 22, 20), np.uint8)
+    frame[:, 120:] = (150, 95, 50)                       # glare on the mat
+    frame[60:140, 60:110] = (240, 240, 235)              # a face...
+    frame[90:100, 80:90] = (200, 30, 40)                 # ...with its print
+    frame[140:150, 60:110] = (60, 150, 80)               # the tile's green back
+    frame[170:224, 10:40] = (40, 200, 210)               # a jaw
+    return frame
+
+
+def test_a_surface_swap_replaces_the_mat_and_its_glare_but_not_tiles_or_jaws():
+    frame = wrist_frame()
+    kind, texture = dataset.random_surface(np.random.default_rng(1), kind="grid")
+    out = dataset.replace_surface(frame, texture)
+    assert kind == "grid" and out.shape == frame.shape
+    for rows, cols in ((slice(60, 140), slice(60, 110)), (slice(140, 150), slice(60, 110)), (slice(170, 224), slice(10, 40))):
+        assert (out[rows, cols] == frame[rows, cols]).all()             # face (print too), back, jaw
+    assert (out[10:50, 5:50] != frame[10:50, 5:50]).any(axis=2).mean() > 0.9     # the black table top
+    assert (out[10:50, 150:220] != frame[10:50, 150:220]).any(axis=2).mean() > 0.9   # the glare on it
+
+
+def test_episode_surfaces_are_repeatable_and_about_the_asked_fraction():
+    kinds = [dataset.episode_surface("Yewy/x", ep, fraction=0.7)[0] for ep in range(200)]
+    assert kinds == [dataset.episode_surface("Yewy/x", ep, fraction=0.7)[0] for ep in range(200)]
+    assert 0.6 < sum(k is not None for k in kinds) / 200 < 0.8
+    assert set(k for k in kinds if k) == set(dataset.SURFACES)
+    assert dataset.episode_surface("Yewy/x", 3, fraction=0.0) == (None, None)
+
+
+def test_augment_turns_on_colour_jitter_without_moving_the_image():
+    import importlib.util
+    import json
+    spec = importlib.util.spec_from_file_location("make_policy", config.REPO / "scripts" / "make_policy.py")
+    make_policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_policy)
+    n = {"dataset": "Yewy/d", "policy_repo": "Yewy/p", "output_dir": "out", "job": "j"}
+    assert not any("image_transforms" in a for a in make_policy.train_command(n, 1000, False))
+    command = make_policy.train_command(n, 1000, False, augment=True)
+    assert "--dataset.image_transforms.enable=true" in command
+    tfs = json.loads(next(a for a in command if a.startswith("--dataset.image_transforms.tfs=")).split("=", 1)[1])
+    assert "affine" not in tfs and {"brightness", "contrast", "hue"} <= set(tfs)

@@ -81,12 +81,14 @@ class Player:
         self.latest = {}                # slot -> the latest scan's detection there (or absent)
         self.bench = PlayBench(bench.parse_args(bench_argv(args)), self)
         self.session = self.bench.session
-        self.bench.batch = True         # scan questions wait for the end of the step
+        self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
         if args.sim:
             self.mat = self.bench.realsense
             self.mat.tiles = [{"tile_name": n, "xy": list(s["xy"])} for n, s in zip(SIM_HAND, self.slots)]
             self.draws = list(SIM_DRAWS)
         self.zone = {"xy": zone_xy} if zone_xy else self.load_zone(args.teach_zone)
+        if not args.sim:
+            self.check_zone_benched()
         self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "drawn": None, "history": [],
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
@@ -136,20 +138,17 @@ class Player:
         return name
 
     def end_step(self):
-        """What the scans saw change during the step (a knock, a tile put back): asked now."""
+        """What happened during the step, asked now: pickups marked with → or stopped with Esc (the bench's
+        pickup queues them when it doesn't ask), and what the scans saw change (a knock, a tile put back)."""
+        self.bench.review_queued()
         self.bench.check_scans()
 
     def expect_appeared(self, xy):
         """The latest scan saw a tile appear at xy because a person put it there on purpose (the drawn
         tile): not a change to ask about."""
-        scan_n = self.bench.scan_n
-        for check in [c for c in self.bench.scan_checks if c[0]["scan"] == scan_n]:
-            diff = check[1][1]
-            if not (diff["moved"] or diff.get("turned") or diff["gone"]) and \
-                    all(math.dist(t["xy"], xy) <= markers.ZONE_RADIUS_M for t in diff["appeared"]):
-                self.bench.scan_checks.remove(check)
-                self.session.event("scan_review", scan=scan_n, proposed=check[1][0], kinds=[],
-                                   note="the drawn tile put on the drop zone")
+        self.bench.explain(self.bench.scan_n,
+                           lambda k, c: k == "appeared" and math.dist(c["xy"], xy) <= markers.ZONE_RADIUS_M,
+                           "the drawn tile put on the drop zone")
 
     # --- the zone ---
 
@@ -164,6 +163,23 @@ class Player:
             zone = markers.save_zone(xy, session=self.session.dir.name)
             print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}")
         return zone
+
+    def check_zone_benched(self):
+        """The zone is only reached mid-hand: refuse to start unless the bench has checked a tile there
+        (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
+        test = markers.zone_test(self.zone["xy"], self.slots, layout.load(markers.ZONE_TEST_LAYOUT)["spots"],
+                                 play_layout=self.args.layout)
+        self.session.event("zone_test", **test)
+        if test["ok"]:
+            print(f"Drop zone checked on the bench: {markers.ZONE_TEST_LAYOUT} {test['spot']}, "
+                  f"{test['picked']} picked up, {test['returned']} returned")
+            return
+        print("\nThe drop zone isn't checked on the bench yet:\n  " + "\n  ".join(test["problems"])
+              + "\nTo check it:\n  " + "\n  ".join(test["fix"]))
+        if not self.args.skip_zone_test:
+            self.bench.close()
+            raise SystemExit("not starting the hand (--skip-zone-test plays anyway)")
+        self.session.intervention("zone_unchecked", problems=test["problems"])
 
     def check_zone(self):
         """With the zone empty, the marker should be where it was taught: if it moved, so did the camera or
@@ -191,6 +207,7 @@ class Player:
                 drain_stdin()
                 self.ask(f"No tile seen at {slot} ({s['xy'][0]:.3f}, {s['xy'][1]:+.3f}): put one there, then Enter: ")
                 self.session.intervention("zone_asked", slot=slot, note="no tile at a hand slot")
+                self.bench.hands_on = f"a tile put at {slot} when asked"
                 self.scan("register")
                 self.scan("register")
             name = self.votes.sure(slot)
@@ -301,6 +318,7 @@ class Player:
                  + ("Put it in the discard container yourself, then Enter: " if self.state["phase"] == "discard"
                     else f"Put it on {self.state.get('vacated', 'its slot')} yourself, then Enter: "))
         self.session.intervention("pickup_failed", slot=slot, tile=name, attempt_dir=self.bench.last_attempt)
+        self.bench.hands_on = f"{name} moved by hand: the robot couldn't pick it up"
         return None
 
     def place_drawn(self, slot, name):
@@ -491,6 +509,9 @@ def parse_args(argv=None):
     p.add_argument("--teach-zone", action="store_true", help="find the drop-zone marker again (it must be uncovered)")
     p.add_argument("--resume", nargs="?", const="latest", default=None,
                    help="carry on a play session's hand from its checkpoint (default: the latest)")
+    p.add_argument("--skip-zone-test", action="store_true",
+                   help=f"play even if the bench hasn't picked up and returned a tile on the drop zone (its spot "
+                        f"in {markers.ZONE_TEST_LAYOUT}); logged")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)
     if not args.sim and not args.layout:

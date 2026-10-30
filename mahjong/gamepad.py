@@ -110,7 +110,29 @@ def moving(last):
     return any(last.get("sticks", {}).values()) or bool(last.get("buttons"))
 
 
+def draw_input(frame, last):
+    """input_text along the bottom of a wrist frame, red while the input moves the arm."""
+    import cv2
+    colour = (0, 0, 255) if moving(last) else (0, 200, 0)
+    cv2.putText(frame, input_text(last), (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+
+
+def warn_off_centre(gamepad, session, tile_name):
+    """Say so if a stick rests off centre as the gamepad takes over: a thumb on it, or drift, moves the arm."""
+    off = gamepad.off_centre() if hasattr(gamepad, "off_centre") else {}
+    for side, (x, y) in off.items():
+        print(f"  {side} stick reads ({x:+.2f}, {y:+.2f}) untouched? — let go of it, or raise --deadzone if it drifts")
+    if off:
+        session.event("stick_off_centre", tile=tile_name, sticks=off)
+
+
+# 2026-10-28: a resting thumb read 0.22-0.44 of full travel (median 0.37) and XLeRobot's 0.15 let it pull the
+# arm 87mm; at 0.35 that is 11mm. Deliberate gentle pushes read 0.35-0.40 too, so no deadzone separates them:
+# the window's input line (draw_input) and the off-centre warning are what show it. Every script that hands
+# over the gamepad uses it (collect_corrections, record, bench's teach-discard); --deadzone where offered.
+DEADZONE = 0.35
 EXCLUSIVE_AXES = [("rx", "ry")]       # wrist roll / height
+TAKEOVER_KEY = 305                    # evdev BTN_EAST: the rightmost face button (A), probed on the ZhiXu pad
 
 # 2026-10-28: at the far row the wrist is within a few mm of XLeRobot's reach limit (l1 + l2 less its
 # margin, in the arm's plane) at the tile, WW past it. Pushing out there does nothing, and lowering at
@@ -146,7 +168,7 @@ class GamepadTeleop:
 
     deadzone = None             # None: XLeRobot's (0.15)
 
-    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=None):
+    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=DEADZONE):
         """deadzone: of the sticks' travel (0-1), round, as XLeRobot shapes it; None keeps XLeRobot's."""
         self.utils, self.ee = _load_xlerobot()
         self.pad = self.utils.Gamepad(self.utils.find_gamepad(device))
@@ -168,18 +190,21 @@ class GamepadTeleop:
         self.sticks.reset()
         self.pad.just_pressed(self.pad.pressed())     # a button held while waiting isn't a new press
 
-    def touched(self):
-        """Any stick off centre (past XLeRobot's deadzone), d-pad push or button held, face buttons included:
-        someone has the pad. No commit delay, so a DAgger takeover starts on the first push. 2026-10-28:
-        checking only the buttons teleop uses (L/R, ZL/ZR, -/+, HOME) missed A/B/X/Y, and the policy
-        carried on into the tiles while the operator pressed them."""
-        pad = self.pad
-        if any(pad.stick(name) for name in self.utils.STICK_CODES if name not in self.sticks.disabled):
-            return True
-        if pad.pressed() - self.locked_buttons or any(pad.dpad()):
-            return True
-        locked = {code for name in self.locked_buttons for code in self.utils.BUTTON_CODES.get(name, [])}
-        return bool(set(pad.device.active_keys()) - locked)
+    def arm_takeover(self):
+        """Before a DAgger episode: a takeover button already held now (e.g. since the hover) won't count."""
+        self._takeover_held = self.takeover_down()
+
+    def takeover_down(self):
+        return TAKEOVER_KEY in self.pad.device.active_keys()
+
+    def takeover_pressed(self):
+        """A fresh press of the takeover button (the pad's rightmost face button, A on this layout). Only
+        that: on 2026-10-28 "any stick or key" took over at t=0 again and again, the sticks drifting past
+        the deadzone or a key reading held, and A/B/X/Y aren't teleop controls, so A can't move the arm."""
+        down = self.takeover_down()
+        pressed = down and not getattr(self, "_takeover_held", False)
+        self._takeover_held = down
+        return pressed
 
     def step(self, arm, dt):
         """Read the pad, send the next command, return it."""

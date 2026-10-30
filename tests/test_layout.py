@@ -114,6 +114,8 @@ def test_nearest_tile_within_the_merge_radius():
     assert layout.nearest_tile(tiles, (0.153, 0.06))["tile_name"] == "2B"
     assert layout.nearest_tile(tiles, (0.22, -0.10)) is None
     assert layout.nearest_tile([], (0.15, 0.0)) is None
+    assert layout.nearest_tile(tiles, (0.153, 0.06), 0.05, name="3B")["tile_name"] == "3B"      # that name first
+    assert layout.nearest_tile(tiles, (0.153, 0.06), name="9D")["tile_name"] == "2B"      # none: a misread
 
 
 def test_green_holds_through_jitter_at_the_tolerance_edge():
@@ -161,3 +163,32 @@ def test_schedule_repeats_each_spot_in_a_row():
     assert layout.schedule(spots, 1, start="B") == ["B", "C"]
     with pytest.raises(SystemExit):
         layout.schedule(spots, 1, start="Z")
+
+
+def fake_reach_left(x, y):
+    """Stand-in for gamepad.reach_left_m (needs the XLeRobot checkout): reach runs out at 0.28m."""
+    return 0.28 - float(np.hypot(x, y))
+
+
+def test_reach_bands_comfortable_near_edge_far_and_none_past_the_hover(monkeypatch):
+    from mahjong import gamepad
+    monkeypatch.setattr(gamepad, "reach_left_m", fake_reach_left)
+    assert layout.reach_band(0.18, 0.0) == "comfortable"
+    assert layout.reach_band(0.275, 0.0) == "edge"            # 5mm left: inside REACH_WARNING_M
+    assert layout.reach_band(0.45, 0.0) is None               # no hover there at all
+
+    class Shift:                                              # the arm goes 40mm further out than the camera says
+        def apply(self, x, y, log=print):
+            return x + 0.04, y
+    assert layout.reach_band(0.235, 0.0, Shift()) == "edge"
+
+
+def test_reach_mask_tints_the_bands_where_the_camera_sees_them(monkeypatch):
+    from mahjong import gamepad
+    monkeypatch.setattr(gamepad, "reach_left_m", fake_reach_left)
+    masks = layout.reach_mask((480, 848), INTRINSICS, T, grid_m=0.02)
+    near = np.round(layout.table_to_pixel([(0.18, 0.0, config.table_z(0.18, 0.0))], INTRINSICS, T)[0]).astype(int)
+    assert masks["comfortable"][near[1], near[0]] and not masks["edge"][near[1], near[0]]
+    assert masks["edge"].any()
+    out = layout.draw_reach(np.zeros((480, 848, 3), np.uint8), masks)
+    assert out[near[1], near[0]].any()

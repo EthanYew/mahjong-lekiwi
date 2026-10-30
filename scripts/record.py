@@ -4,8 +4,10 @@ Each episode: the arm rests, the RealSense detects tiles, you pick one, the arm 
 (measured hover correction, settled from above to the clearance), and holds. → hands you the gamepad
 and starts recording from exactly that pose; → again saves, ← discards, Esc ends. After a discard that
 moved nothing, Enter at "Same tile, same hover again?" lifts and hovers over the same tile again, skipping
-the trip to rest and the tile choice. A tile still in the jaws when an episode ends is set back down where
-the jaws closed on it (as bench.py's return), then the arm rests; --no-return drops it at rest instead.
+the trip to rest and the tile choice. A tile still in the jaws when an episode ends is set back down at its
+home, where it was first seen this session (as bench.py's return, aimed with the return model), and a
+RealSense scan logs where it landed, a sample for data/return_corrections.jsonl; then the arm rests.
+--no-return drops it at rest instead.
 
 The hover settings (offset, clearance, gripper opening) are written per episode to
 <dataset>/episode_log.jsonl; make_policy.py stores them with the trained policy so it's deployed from
@@ -26,8 +28,8 @@ episode keeps its offset through ← re-hovers and discards — rejecting the ha
 dataset back toward the clean hover. Each episode log row has hover_jitter_xy and the unjittered target.
 
 DAgger (ROADMAP 9): with --policy ID the policy drives from its own hover once → starts the episode, and
-the first touch of the gamepad (any stick or button) hands it to you, from the pose the policy last
-commanded (gripper held). Every frame is recorded; the episode log row has the policy and takeover_frame,
+pressing A (the rightmost face button) hands it to you, from the pose the policy last commanded
+(gripper held); sticks and other buttons do nothing until then. Every frame is recorded; the episode log row has the policy and takeover_frame,
 and training (make_policy.py --add) keeps only your frames, as deltas from the hover like every other
 episode. Record these into a dataset of their own.
 
@@ -55,9 +57,10 @@ import numpy as np
 from mahjong import config, hardware, kinematics, layout
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
-from mahjong.gamepad import warn_if_at_reach
+from mahjong.gamepad import DEADZONE, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
+from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_one
 
 JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
@@ -87,6 +90,9 @@ def parse_args(argv=None):
                         "before descending; v2n's trimmed episodes start at 27.2 (record at that to compare with v2n)")
     p.add_argument("--stick-commit-s", type=float, default=0.1,
                    help="a gamepad stick moves the arm only once held this long, so flicks don't (default %(default)s)")
+    p.add_argument("--deadzone", type=float, default=DEADZONE,
+                   help="stick deadzone, fraction of full travel (default %(default)s, as collect_corrections: a resting "
+                        "thumb past XLeRobot's 0.15 pulled the arm 87mm; lower it if gentle pushes don't register)")
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
@@ -108,7 +114,7 @@ def parse_args(argv=None):
     p.add_argument("--no-view", action="store_true", help="no wrist camera window")
     p.add_argument("--policy", default=None,
                    help="DAgger: this registered policy drives from its own hover (replacing --hover-offset-mm, "
-                        "--clearance-mm, --hover-gripper) until you touch the gamepad; only your frames are trained on")
+                        "--clearance-mm, --hover-gripper) until you press A on the gamepad; only your frames are trained on")
     p.add_argument("--no-return", action="store_true",
                    help="don't set a held tile back down after an episode: it's released at rest, as before")
     return p.parse_args(argv)
@@ -145,24 +151,29 @@ def main(argv=None):
         from mahjong.policy import Policy, next_command
         policy = Policy(args.policy)
         hover = dict(policy.hover)
-        print(f"DAgger: {policy.id} drives from its hover {hover}; touch the gamepad to take over")
+        print(f"DAgger: {policy.id} drives from its hover {hover}; press A on the gamepad to take over")
     spots, todo, ghost = [], [], None
     if args.layout:            # before connecting anything, so a typo fails fast
         spots = layout.load(args.layout)["spots"]
         todo = layout.schedule(spots, args.repeats, args.start_spot)
         ghost = layout.load_ghost(args.layout)
     devices = hardware.connect(["arm", "wrist_camera", "realsense", "gamepad"],
-                               gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s})
+                               gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s,
+                                               "deadzone": args.deadzone})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
+    dataset = open_dataset(args.dataset)      # before the session folder: it refuses a dataset of another layout
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
+                      deadzone=args.deadzone,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
                       hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
                       jitter_seed=args.jitter_seed, policy=args.policy)
     session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
-    dataset = open_dataset(args.dataset)
+    returns, homes = None if args.no_return else ReturnCorrection.load(), Homes()
+    if returns:
+        print(f"Return correction: {returns.summary()}")
     listener, events = init_keyboard_listener()
     saved, dt = 0, 1.0 / config.FPS
     rng, offset = random.Random(args.jitter_seed), None     # offset: the next saved episode's, kept until it's saved
@@ -172,15 +183,11 @@ def main(argv=None):
             for k in ("exit_early", "rerecord_episode", "stop_recording"):
                 events[k] = False
             retrying = retry is not None
-            if retrying:               # ← on a demo that moved nothing: straight back to the same hover
+            if retrying:               # ← on a demo that moved nothing: straight back to the same hover (straight up first)
                 tile, placement = retry
                 retry = None
-                arm.lift()
             else:
-                arm.rest()
-                if arm.holding()[0]:
-                    print("Releasing the tile from the last episode at rest.")
-                    arm.set_gripper(hover["gripper"])
+                rest_and_release(arm, hover)
                 placement = {}
                 if args.layout:
                     if not todo:
@@ -219,6 +226,7 @@ def main(argv=None):
                     session.event("attempt_skipped", reason="cancelled" if tiles else "no_tiles")
                     continue
             x, y = tile["xy"]
+            home = homes(tile, {"id": placement["spot"]} if placement else None)
             hx, hy = correction.apply(x, y) if correction else (x, y)
             if offset is None:
                 offset = next_offset(args, rng, saved)
@@ -251,21 +259,28 @@ def main(argv=None):
 
             if policy is None:
                 gamepad.start(arm)
+                warn_off_centre(gamepad, session, tile["tile_name"])
             else:
                 policy.reset()
                 camera.flush()
                 limits, last_safe = arm.joint_limits(), arm.commanded()
+                gamepad.arm_takeover()
             anchor = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
             print("RECORDING — → save, ← discard, Esc save nothing and quit"
-                  + (f"; {policy.id} drives, touch the gamepad to take over" if policy else ""))
-            frames, roll, actions, takeover = 0, RollTrace(), [], None
+                  + (f"; {policy.id} drives, A on the gamepad takes over" if policy else ""))
+            frames, roll, actions, states, takeover = 0, RollTrace(), [], [], None
             started = time.time()
             failed_reads, camera_lost = 0, False
-            while not events["exit_early"]:
+            while True:
+                if events["exit_early"]:
+                    if time.time() - started >= KEY_REPEAT_S or events["rerecord_episode"] or events["stop_recording"]:
+                        break
+                    events["exit_early"] = False      # the → that started it, counted twice: not a save
                 t0 = time.time()
-                if policy is not None and takeover is None and gamepad.touched():
+                if policy is not None and takeover is None and gamepad.takeover_pressed():
                     takeover = frames
                     gamepad.start(arm)          # from the policy's last command: no drop, the gripper held
+                    warn_off_centre(gamepad, session, tile["tile_name"])
                     print(f"  t={frames / config.FPS:4.1f}s you have it")
                     session.intervention("takeover", tile=tile["tile_name"], frame=frames)
                 if policy is not None and takeover is None:
@@ -289,18 +304,25 @@ def main(argv=None):
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
                 roll.add(command["wrist_roll"], float(state[ROLL]))
                 actions.append(action)
+                states.append(state)
                 dataset.add_frame({"observation.state": state - anchor, "action": action - anchor,
                                    "observation.state_raw": state, "action_raw": action,
                                    "observation.images.wrist": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "task": args.task})
                 frames += 1
-                driver = "" if policy is None else (" POLICY drives: any button takes over" if takeover is None else " YOU")
-                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame)
+                driver = "" if policy is None else (" POLICY drives: A takes over" if takeover is None else " YOU")
+                yours = policy is None or takeover is not None
+                show(camera, args.no_view, f"REC {frames / config.FPS:4.1f}s{driver}", frame,
+                     getattr(gamepad, "last", None) if yours else None)
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             roll.report()
             fps = round(frames / max(time.time() - started, 1e-6), 1)
             if frames and fps < 0.9 * config.FPS:     # the policy and the gamepad both assume 30 steps a second
                 print(f"  recorded at {fps:.0f} fps, not {config.FPS}: the loop is running slow")
-            returned = not args.no_return and return_tile(arm, actions, result, session, tile["tile_name"])
+            held = {"tile_name": tile["tile_name"], "detection_xy": [x, y], "home_xy": home, "attempt_dir": None,
+                    "spot": placement.get("spot")}
+            arm.squeeze()              # jaws a person stopped closing on the tile: shut, so holding() sees it
+            returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
+                                                          correction, hover, args.policy or "teleop", states)
             dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
@@ -324,7 +346,7 @@ def main(argv=None):
                       "tile_name": tile["tile_name"], "detection_xy": [x, y],
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
-                      "hover_correction": correction.kind if correction else "off", "stick_commit_s": args.stick_commit_s,
+                      "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
                       "frames": frames, "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
@@ -343,10 +365,7 @@ def main(argv=None):
         if dataset.has_pending_frames():
             dataset.clear_episode_buffer()
         dataset.finalize()
-        arm.rest()
-        if arm.holding()[0]:           # the last episode's tile: a gripper left stalled on it at 0 overloads
-            print("Releasing the tile from the last episode at rest.")
-            arm.set_gripper(hover["gripper"])
+        rest_and_release(arm, hover)
         arm.disconnect()
         camera.release()
         realsense.close()
@@ -358,6 +377,7 @@ def main(argv=None):
 
 
 ROLL = config.JOINTS.index("wrist_roll")
+KEY_REPEAT_S = 0.3     # a → this soon after the → that started recording is the same press counted twice
 
 
 class RollTrace:
@@ -389,31 +409,59 @@ class RollTrace:
                 "roll_command_travel_deg": round(self.travel, 1), "roll_lag_max_deg": round(self.lag, 1)}
 
 
-RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the grasp to the hover
+RETURN_TOWARD_HOVER = (0.0, 0.25, 0.5, 0.75, 1.0)     # fractions of the way from the return target to the hover
 
 
-def return_tile(arm, actions, hovered, session, tile_name):
-    """Set a tile still in the jaws back down where they closed on it (the first command shut; the hover if
-    none was), then rest, instead of dropping it at rest. Teleop reaches further than the IK plans (9B at
-    the left edge, 29cm out, 2026-10-27), so an unreachable grasp point walks back toward the hover, which
-    the IK reached. True if it was set down."""
+def return_tile(arm, actions, hovered, held, returns, realsense, session, correction, hover, policy_id, states=()):
+    """Set a tile still in the jaws back down so it lands at its home (held["home_xy"]: where it was first
+    seen this session), aimed with the return model from where the jaws closed (the first command shut; the
+    hover if none was), then check where it landed. Returning to the grasp point instead walked tiles 25-31mm
+    in one recording (2026-10-28). Teleop reaches further than the IK plans (9B at the left edge, 29cm out,
+    2026-10-27), so an unreachable target walks back toward the hover, which the IK reached. True if it was
+    set down. It's let go just above where the jaws closed on it (states: the measured joints per frame)."""
     if not arm.holding()[0]:
         return False
     _, grasp_xy = kinematics.grasp_point(actions)
-    gx, gy = grasp_xy or hovered["hover_xy"]
+    closed_at = kinematics.grasp_clearance(states, actions)
+    held = {**held, "grasp_xy": grasp_xy or hovered["hover_xy"]}
+    home, name = held["home_xy"], held["tile_name"]
+    print(f"Returning {name} home, to ({home[0]:.3f}, {home[1]:+.3f}) as the RealSense sees it")
+    tx, ty = returns.target(home, held["detection_xy"], held["grasp_xy"])
     hx, hy = hovered["hover_xy"]
-    print(f"Returning {tile_name} to ({gx:.3f}, {gy:+.3f})")
     for k in RETURN_TOWARD_HOVER:
-        x, y = gx + (hx - gx) * k, gy + (hy - gy) * k
-        placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None)
+        x, y = tx + (hx - tx) * k, ty + (hy - ty) * k
+        placed = arm.place(x, y, hovered["offset_m"], log=print if k == 0 else lambda *a: None,
+                           grasp_clearance_m=closed_at)
         if placed is not None:
-            if k:
-                print(f"  set down {np.hypot(x - gx, y - gy) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
-            session.event("return", tile=tile_name, asked_xy=[gx, gy], toward_hover=k, **placed)
-            return True
-    print("  Out of reach even at the hover: it's released at rest instead.")
-    session.event("return_skipped", reason="unreachable", tile=tile_name, xy=[gx, gy])
-    return False
+            break
+    else:
+        print("  Out of reach even at the hover: it's released at rest instead.")
+        session.event("return_skipped", reason="unreachable", tile=name, xy=[tx, ty])
+        return False
+    if k:
+        print(f"  set down {np.hypot(x - tx, y - ty) * 1000:.0f}mm toward the hover, at ({x:.3f}, {y:+.3f})")
+    session.event("return", tile=name, asked_xy=[tx, ty], home_xy=home, toward_hover=k, grasp_clearance_m=closed_at,
+                  return_correction=returns.name, **placed)
+    tiles = realsense.detect_tiles()
+    session.event("detections", label="after_return", target_xy=home,
+                  tiles=[{f: t[f] for f in ("tile_name", "xy", "confidence") if f in t} for t in tiles])
+    _, reset = check_landing(held, placed["xy"], tiles, session, config.RETURN_CORRECTIONS, correction, hover,
+                             policy=policy_id, source="record", return_correction=returns.name)
+    if reset:
+        drain_stdin()
+        input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
+        session.intervention("tile_reset", tile=name, home_xy=home)
+    return True
+
+
+def rest_and_release(arm, hover):
+    """Rest, then let go of a tile still held (--no-return, or a return out of reach) by opening to the hover
+    gripper: a gripper left stalled on it at 0 overloads."""
+    arm.rest()
+    arm.squeeze()
+    if arm.holding()[0]:
+        print("Releasing the tile from the last episode at rest.")
+        arm.set_gripper(hover["gripper"])
 
 
 def ask_same_tile(arm, reason):
@@ -422,6 +470,7 @@ def ask_same_tile(arm, reason):
     if arm.holding()[0]:
         print("Holding the tile: back to rest to release it.")
         return False
+    drain_stdin()          # after a lost camera nothing has flushed the ← / → pressed while recording
     return ask_one({"ask": "Same tile, same hover again (nothing moved)", "choices": "yn"},
                    reason not in SAME_TILE_NO, input)
 
@@ -433,7 +482,8 @@ def next_offset(args, rng, saved):
     return random_offset(rng, args.hover_jitter_mm / 1000, args.jitter_zero_fraction)
 
 
-def show(camera, disabled, text, frame=None):
+def show(camera, disabled, text, frame=None, last=None):
+    """The wrist frame with `text`, and under it what the gamepad reads (`last`) while you drive."""
     if disabled:
         return
     if frame is None:
@@ -442,6 +492,8 @@ def show(camera, disabled, text, frame=None):
             return
     frame = frame.copy()
     cv2.putText(frame, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    if last:
+        draw_input(frame, last)
     cv2.imshow("wrist", frame)
     cv2.waitKey(1)
 

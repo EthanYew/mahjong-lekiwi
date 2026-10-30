@@ -15,6 +15,7 @@ FOLLOWER_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B61034124-if00"  
 FOLLOWER_ID = "ethan_lekiwi_arm"
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 ARM_JOINTS = JOINTS[:5]
+GRIPPER = JOINTS.index("gripper")      # its column in rows of joint values
 
 # Where the unpowered arm settles (sessions/parked_pose.json, 2026-10-27 09:55 and 10:25, ±0.5°), so
 # switching the motors off or on doesn't move it. The old folded rest (lift -106.3, elbow 105.6) sagged
@@ -71,6 +72,9 @@ TIP_FLOOR_BELOW_TABLE_M = 0.005        # ACT steps putting the pincer tip lower 
 # command (104/104 recorded episodes, all 9 bench attempts on 2026-10-23).
 GRIP_CLOSED_BELOW = 5.0
 HOLDING_MARGIN = 5.0
+# Jaws commanded above GRIP_CLOSED_BELOW but reading under this may be stalled on a tile (a person stops
+# closing there): Arm.squeeze shuts them before asking holds_tile.
+GRIP_SQUEEZE_BELOW = 16.0
 
 # --- defaults for recording and correction collection (a policy's own hover lives in policies.json) ---
 HOVER_OFFSET_M = 0.045                 # pincer tip commanded this far above the grasp point
@@ -102,6 +106,7 @@ XLEROBOT_MODEL = Path.home() / "Projects" / "XLeRobot" / "software" / "plugins" 
 # --- session setup questions: asked at the start of every hardware session and stored as `conditions`
 # on session_start, so sessions compare (scripts/session_report.py --all). Choices are a list, or "yn".
 # sticky: Enter keeps the previous session's answer; otherwise Enter means the first choice.
+SURFACE_BEFORE_ASKED = "black table top"    # what every session before the surface question was recorded on
 SETUP_QUESTIONS = [
     {"key": "daylight", "ask": "Daylight in the room", "choices": ["bright", "dim", "none"], "sticky": True},
     {"key": "lamp", "ask": "Lamp behind the robot on", "choices": "yn", "sticky": True},
@@ -110,4 +115,9 @@ SETUP_QUESTIONS = [
      "choices": ["nothing", "realsense", "mat", "lekiwi", "several"], "sticky": False},
     {"key": "tiles", "ask": "Tiles on the mat", "choices": ["one", "few spread", "rows"], "sticky": True},
     {"key": "battery", "ask": "LeKiwi battery", "choices": ["full", "mid", "low"], "sticky": True},
+    # the surface is part of the policy's input like the light: every recording through v5 was on the black
+    # table top, and v5 failed on a green cutting mat (2026-10-29). Earlier sessions: SURFACE_BEFORE_ASKED.
+    {"key": "surface", "ask": "Surface under the tiles",
+     "choices": ["black table top", "green cutting mat", "grey mat", "paper", "brown table", "brown paper",
+                 "other"], "sticky": True},
 ]

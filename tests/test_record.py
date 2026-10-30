@@ -61,7 +61,10 @@ class FakeGamepad:
     def step(self, arm, dt):
         return arm.commanded()
 
-    def touched(self):
+    def arm_takeover(self):
+        pass
+
+    def takeover_pressed(self):
         return False
 
     def close(self):
@@ -87,13 +90,15 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
         arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
         arm.at_connect = {"arm_at_rest": True, "off_rest_deg": 0.0}
         camera = cameras.pop(0) if cameras else SimCamera()         # cameras: handed out in turn (reopens too)
-        return {"arm": arm, "wrist_camera": camera, "realsense": mat, "gamepad": gamepad()}
+        pad = gamepad()
+        pad.kwargs = gamepad_kwargs
+        return {"arm": arm, "wrist_camera": camera, "realsense": mat, "gamepad": pad}
 
     events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
     listener = types.SimpleNamespace(stop=lambda: None)
     steps, frames = iter(script), []
 
-    def show(camera, disabled, text, frame=None):
+    def show(camera, disabled, text, frame=None, last=None):
         phase = "hover" if text.startswith("hovering") else "rec"
         if phase == "rec":
             frames.append(text)
@@ -107,9 +112,11 @@ for input() (else Enter, and 8D for "Which tile"); prompts, if a list, collects 
     dataset = FakeDataset(tmp_path / "dataset")
     dataset.root.mkdir()
     monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(config, "RETURN_CORRECTIONS", tmp_path / "return_corrections.jsonl")
     monkeypatch.setattr(hardware, "connect", connect)
     monkeypatch.setattr(record, "open_dataset", lambda repo_id: dataset)
     monkeypatch.setattr(record, "show", show)
+    monkeypatch.setattr(record, "KEY_REPEAT_S", 0.0)       # the scripted → comes 3 frames in, well inside it
     monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
                         types.SimpleNamespace(init_keyboard_listener=lambda: (listener, events)))
     def reply(prompt=""):
@@ -197,7 +204,9 @@ def test_a_knocked_tile_discard_defaults_to_choosing_again(tmp_path, monkeypatch
 
 
 class GrippingGamepad(FakeGamepad):
-    """Closes the jaws on the tile under the hover: the sim mat hands it over, the gripper stalls on it."""
+    """Closes the jaws on the tile under the hover: the sim mat hands it over, the gripper stalls on it. Run
+    with --no-correction: the sim has no camera-to-arm offset for the hover correction to undo, so a corrected
+    hover closes ~50mm off the tile and the return lands it there."""
     def start(self, arm):
         self.mat = arm.robot.on_release.__self__
         x, y = kinematics.tool_point(arm.commanded())[:2]
@@ -211,11 +220,11 @@ class GrippingGamepad(FakeGamepad):
         return arm.commanded()
 
 
-def test_a_held_tile_is_set_back_down_where_it_was_picked_not_dropped_at_rest(tmp_path, monkeypatch):
+def test_a_held_tile_is_set_back_down_on_the_mat_not_dropped_at_rest(tmp_path, monkeypatch):
     mats = []
     script = [("hover", {}), ("rec", {}), ("hover", {}), ("rec", {"rerecord_episode": True}),
               ("hover", {}), ("rec", {})]
-    dataset, session = run_record(tmp_path, monkeypatch, [], script, gamepad=GrippingGamepad, mats=mats)
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction"], script, gamepad=GrippingGamepad, mats=mats)
     assert dataset.saved == [3, 3]
     events = read_events(session)
     returns = [e for e in events if e["type"] == "return"]
@@ -224,9 +233,51 @@ def test_a_held_tile_is_set_back_down_where_it_was_picked_not_dropped_at_rest(tm
     assert mat.held is None and any(t["tile_name"] == "8D" for t in mat.tiles)   # on the mat, not dropped
     tile = next(t for t in mat.tiles if t["tile_name"] == "8D")
     assert math.dist(tile["xy"], returns[-1]["asked_xy"]) < 0.002
+    landed = [e for e in events if e["type"] == "return_landed"]
+    assert len(landed) == 3 and all(e["landed_xy"] for e in landed)
+    assert len((tmp_path / "return_corrections.jsonl").read_text().splitlines()) == 3   # samples for the model
     # a returned tile has moved, so a discard doesn't offer the same hover again
     hovers = [e for e in events if e["type"] == "hover"]
     assert [h["same_tile_retry"] for h in hovers] == [False, False, False]
+
+
+class StallingGamepad(GrippingGamepad):
+    """A person who stops closing once the jaws stall on the tile: commanded 8.8, reading 11."""
+    def step(self, arm, dt):
+        if not arm.robot.holding:
+            arm.send({**arm.commanded(), "gripper": 8.8})
+            arm.robot.holding = True
+            self.mat.grasp(self.tile)
+        return arm.commanded()
+
+
+def test_a_tile_held_by_jaws_a_person_stopped_closing_is_still_returned(tmp_path, monkeypatch):
+    """2026-10-30: 20 of 35 saved episodes ended commanded 5-12 on the tile; holds_tile saw empty jaws, so no
+    return, and the tile fell out at the next hover's opening."""
+    mats = []
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--episodes", "1"],
+                                  [("hover", {}), ("rec", {})], gamepad=StallingGamepad, mats=mats)
+    assert dataset.saved == [3]
+    assert len([e for e in read_events(session) if e["type"] == "return"]) == 1
+    assert mats[0].held is None and any(t["tile_name"] == "8D" for t in mats[0].tiles)
+
+
+def test_the_gamepad_gets_the_wider_deadzone_and_a_resting_thumb_is_said(tmp_path, monkeypatch, capsys):
+    """2026-10-28: a thumb resting on the left stick, past XLeRobot's 0.15, pulled the arm 87mm (collect_corrections);
+    record hands over the gamepad at every episode, so it gets the same deadzone and warning."""
+    pads = []
+
+    class ThumbOnStick(FakeGamepad):
+        def __init__(self):
+            pads.append(self)
+
+        def off_centre(self):
+            return {"left": (0.0, -0.3)}
+    _, session = run_record(tmp_path, monkeypatch, ["--episodes", "1"], [("hover", {}), ("rec", {})], gamepad=ThumbOnStick)
+    assert pads[0].kwargs["deadzone"] == 0.35
+    assert "left stick reads (+0.00, -0.30)" in capsys.readouterr().out
+    (event,) = [e for e in read_events(session) if e["type"] == "stick_off_centre"]
+    assert event["tile"] == "8D" and event["sticks"] == {"left": [0.0, -0.3]}
 
 
 def test_no_return_leaves_the_tile_to_be_released_at_rest(tmp_path, monkeypatch):
@@ -237,16 +288,47 @@ def test_no_return_leaves_the_tile_to_be_released_at_rest(tmp_path, monkeypatch)
     assert not any(t["tile_name"] == "8D" for t in mats[0].tiles)       # released high at rest: off the mat
 
 
+def test_returns_aim_at_the_home_so_an_off_centre_grasp_doesnt_walk_the_tile(tmp_path, monkeypatch):
+    """2026-10-28: returning each tile where the jaws closed walked it 25-31mm in one recording. Every grasp
+    here is 6mm off the tile (the hover offset); returns aimed at home land 6mm off it, not 6mm more each time."""
+    mats = []
+    script = [("hover", {}), ("rec", {})] * 3
+    dataset, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--hover-offsets-mm", "6x",
+                                                          "--episodes", "3"], script, gamepad=GrippingGamepad, mats=mats)
+    assert dataset.saved == [3, 3, 3]
+    events = read_events(session)
+    landed = [e for e in events if e["type"] == "return_landed"]
+    assert len(landed) == 3 and len({tuple(e["home_xy"]) for e in landed}) == 1
+    assert all(e["error_m"] < 0.008 for e in landed)
+    (home,) = {tuple(e["home_xy"]) for e in landed}
+    tile = next(t for t in mats[0].tiles if t["tile_name"] == "8D")
+    assert math.dist(tile["xy"], home) < 0.008                 # grasp-point returns: ~18mm by now
+
+
+def test_session_report_shows_where_a_recording_s_returns_landed(tmp_path, monkeypatch, capsys):
+    import session_report
+    _, session = run_record(tmp_path, monkeypatch, ["--no-correction", "--hover-offsets-mm", "6x"],
+                            [("hover", {}), ("rec", {})] * 2, gamepad=GrippingGamepad)
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["session_report.py", str(session)])
+    session_report.main()
+    out = capsys.readouterr().out
+    assert "returns landed 6mm from home (median of 2" in out
+    assert "return rise: the tip rose" in out and "swing to rest from" in out        # Arm.place's measured rise
+    assert "return release: " in out and "from where the jaws closed" in out
+
+
 def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
     """2026-10-27: teleop closed on 9B 29cm out at the left edge; even 15mm closer was out of the IK's reach."""
     import record
+    from mahjong.return_correction import ReturnCorrection
     calls = []
 
     class Arm:
         def holding(self):
             return True, 0.0, 11.0
 
-        def place(self, x, y, offset, log=print):
+        def place(self, x, y, offset, log=print, grasp_clearance_m=None):
             calls.append((x, y))
             return {"xy": [x, y], "shift_m": 0.0} if len(calls) == 3 else None
 
@@ -254,10 +336,16 @@ def test_a_return_beyond_the_ik_walks_back_toward_the_hover(monkeypatch):
     session = types.SimpleNamespace(event=lambda kind, **kw: events.append((kind, kw)))
     shut = [0.0] * 6
     monkeypatch.setattr(kinematics, "grasp_point", lambda actions: (0, [0.229, 0.223]))
-    assert record.return_tile(Arm(), [shut], {"hover_xy": [0.209, 0.203], "offset_m": 0.05}, session, "9B")
-    assert calls[0] == (0.229, 0.223) and calls[2] == pytest.approx((0.219, 0.213))
-    assert events == [("return", {"tile": "9B", "asked_xy": [0.229, 0.223], "toward_hover": 0.5,
-                                  "xy": pytest.approx([0.219, 0.213]), "shift_m": 0.0})]
+    monkeypatch.setattr(record, "check_landing", lambda *a, **kw: (None, False))
+    held = {"tile_name": "9B", "detection_xy": [0.209, 0.203], "home_xy": [0.209, 0.203], "attempt_dir": None,
+            "spot": None}
+    realsense = types.SimpleNamespace(detect_tiles=lambda: [])
+    assert record.return_tile(Arm(), [shut], {"hover_xy": [0.209, 0.203], "offset_m": 0.05}, held,
+                              ReturnCorrection([]), realsense, session, None, DescendingPolicy.hover, "teleop")
+    assert calls[0] == pytest.approx((0.229, 0.223)) and calls[2] == pytest.approx((0.219, 0.213))
+    kind, ret = events[0]
+    assert kind == "return" and ret["asked_xy"] == pytest.approx([0.229, 0.223]) and ret["toward_hover"] == 0.5
+    assert ret["xy"] == pytest.approx([0.219, 0.213]) and ret["home_xy"] == [0.209, 0.203]
 
 
 class DescendingPolicy:
@@ -276,13 +364,13 @@ class DescendingPolicy:
 
 
 class TouchedAt(FakeGamepad):
-    """Someone takes the gamepad on its `at`-th check (never, if None); counts its starts."""
+    """Someone presses A on the `at`-th check (never, if None); counts its starts."""
     at = 2
 
     def __init__(self):
         self.checks, self.starts = 0, []
 
-    def touched(self):
+    def takeover_pressed(self):
         self.checks += 1
         return self.at is not None and self.checks >= self.at
 
@@ -297,7 +385,7 @@ def run_dagger(tmp_path, monkeypatch, gamepad, argv=()):
                       [("hover", {}), ("rec", {})], gamepad=gamepad)
 
 
-def test_dagger_the_policy_drives_until_the_gamepad_is_touched_then_you_have_it(tmp_path, monkeypatch):
+def test_dagger_the_policy_drives_until_a_is_pressed_then_you_have_it(tmp_path, monkeypatch):
     pads = []
 
     def pad():
@@ -371,3 +459,57 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     discarded = [e for e in read_events(session) if e["type"] == "episode_discarded"]
     assert [e["reason"] for e in discarded] == ["wrist camera lost"]    # no question asked
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
+
+
+def test_keys_pressed_while_the_camera_was_lost_dont_answer_the_same_tile_question(tmp_path, monkeypatch):
+    """The ← / → pressed while recording sat in stdin: the first answer to "Same tile" came out garbled, so it
+    was asked twice and only the second answer counted. Nothing flushed them on the camera-lost path."""
+    import record
+    from mahjong.sim import SimCamera
+    log = []
+    monkeypatch.setattr(record, "drain_stdin", lambda: log.append("drain"))
+    script = [("hover", {}), ("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+    run_record(tmp_path, monkeypatch, [], script, cameras=[LostCamera(), SimCamera()], prompts=log)
+    same = next(i for i, q in enumerate(log) if q != "drain" and "Same tile" in q)
+    assert log[same - 1] == "drain"
+
+
+def test_a_second_right_arrow_straight_after_the_first_doesnt_save(tmp_path, monkeypatch):
+    """The → that starts recording, counted twice, used to end the episode at once."""
+    import builtins, record
+    from mahjong.arm import Arm
+    from mahjong.sim import SimCamera, SimPerception, SimRobot
+
+    events = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
+    frames, clock = [], [0.0]
+
+    def show(camera, disabled, text, frame=None, last=None):
+        if text.startswith("hovering"):
+            events["exit_early"] = True            # → to start
+        else:
+            frames.append(text)
+            if len(frames) == 1:
+                events["exit_early"] = True        # the same press, counted again 0.0s in
+            elif len(frames) == 5:
+                clock[0] += 1.0
+                events["exit_early"] = True        # a real → to save
+
+    def connect(needed, gamepad_kwargs=None):
+        mat = SimPerception()
+        arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
+        arm.at_connect = {"arm_at_rest": True, "off_rest_deg": 0.0}
+        return {"arm": arm, "wrist_camera": SimCamera(), "realsense": mat, "gamepad": FakeGamepad()}
+
+    dataset = FakeDataset(tmp_path / "dataset")
+    dataset.root.mkdir()
+    real_time = record.time.time
+    monkeypatch.setattr(record.time, "time", lambda: real_time() + clock[0])
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(hardware, "connect", connect)
+    monkeypatch.setattr(record, "open_dataset", lambda repo_id: dataset)
+    monkeypatch.setattr(record, "show", show)
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils",
+                        types.SimpleNamespace(init_keyboard_listener=lambda: (types.SimpleNamespace(stop=lambda: None), events)))
+    monkeypatch.setattr(builtins, "input", lambda prompt="": "8D" if "Which tile" in prompt else "")
+    record.main(["--dataset", "test/record", "--episodes", "1"])
+    assert dataset.saved == [5]

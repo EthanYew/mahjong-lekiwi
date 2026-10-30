@@ -99,34 +99,24 @@ def test_the_other_axis_takes_the_stick_only_after_it_returns_to_centre():
     assert (sticks.stick("rx"), sticks.stick("ry")) == (0.0, -0.9)
 
 
-def test_touched_on_any_stick_or_button_at_once_but_not_a_locked_one():
+def test_only_a_fresh_press_of_a_takes_over():
+    """Sticks, other buttons, and an A held since before the episode started don't (2026-10-28: drift and
+    a key reading held took over at t=0)."""
+    from mahjong.gamepad import TAKEOVER_KEY
     pad = ScriptedPad()
     teleop = teleop_with(pad)
-    assert not teleop.touched()
-    pad.values["ly"] = 0.3                       # no commit delay: a DAgger takeover starts on the first push
-    assert teleop.touched()
-    pad.values.clear()
-    pad.pressed = lambda: {"zl"}
-    assert teleop.touched()
-    teleop.locked_buttons = {"zl"}
-    assert not teleop.touched()
-    teleop.sticks.disabled = {"ly"}
-    pad.values["ly"] = 0.3
-    assert not teleop.touched()
-
-
-def test_touched_on_a_face_button_or_the_dpad_too():
-    """A/B/X/Y and the d-pad aren't teleop controls, but pressing one is still someone taking over."""
-    from evdev import ecodes
-    pad = ScriptedPad()
-    teleop = teleop_with(pad)
-    pad.keys = [ecodes.BTN_SOUTH]
-    assert teleop.touched()
-    pad.keys, pad.hat = [], (0, -1)
-    assert teleop.touched()
-    pad.hat, pad.keys = (0, 0), [ecodes.BTN_TL2]
-    teleop.locked_buttons = {"zl"}
-    assert not teleop.touched()
+    pad.values["ly"], pad.keys, pad.hat = 0.6, [304, 310], (0, 1)    # a stick, B and L, the d-pad
+    teleop.arm_takeover()
+    assert not teleop.takeover_pressed()
+    pad.keys = [TAKEOVER_KEY]
+    assert teleop.takeover_pressed()
+    assert not teleop.takeover_pressed()             # still held: one press, one takeover
+    teleop.arm_takeover()                            # held when the next episode starts
+    assert not teleop.takeover_pressed()
+    pad.keys = []
+    assert not teleop.takeover_pressed()
+    pad.keys = [TAKEOVER_KEY]
+    assert teleop.takeover_pressed()
 
 
 def test_the_far_row_is_at_the_edge_of_the_gamepad_s_reach():
