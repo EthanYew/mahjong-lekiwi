@@ -115,5 +115,6 @@ SETUP_QUESTIONS = [
     # the surface is part of the policy's input like the light: every recording through v5 was on the black
     # table top, and v5 failed on a green cutting mat (2026-10-29). Earlier sessions: SURFACE_BEFORE_ASKED.
     {"key": "surface", "ask": "Surface under the tiles",
-     "choices": ["black table top", "green cutting mat", "grey mat", "paper", "brown table", "other"], "sticky": True},
+     "choices": ["black table top", "green cutting mat", "grey mat", "paper", "brown table", "brown paper",
+                 "other"], "sticky": True},
 ]
