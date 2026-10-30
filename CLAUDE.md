@@ -62,6 +62,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
+| `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `scripts/status.py`, `scripts/merge_pr.py`, `mahjong/checkout.py` | where things stand (from `data/`); approve + merge a PR and close its branch; the checkout vs origin/main, merged branches and worktrees |
@@ -162,7 +163,13 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
   for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the
   bench voids and reruns the attempt, record.py discards the episode. Reopen with
-  `hardware.reopen_wrist_camera` in any new script. Evidence: `docs/invariant_notes.md`.
+  `hardware.reopen_wrist_camera` in any new script. Evidence: `docs/invariant_notes.md`. It can also fall off
+  USB altogether (`/dev/wristcam` gone, 2026-10-30 `20261030_115706_bench`, 3 dropouts in 5 min first): only a
+  replug brings it back, and the bench waits at "Fix that, then Enter".
+- **The wrist look sees a tile face, not which tile.** Between the jaw tips at a policy's hover, the hovered tile's
+  face fills a fixed disc of the wrist image (`wrist_check.EXPECTED_PX`; fill >= 0.73 on 103 black-top frames, 0
+  without). A tile knocked to within 30mm of a lost one's spot fills it too (3D for 1B, 2026-10-30), so the bench
+  doesn't look there (`wrist_check.CROWDED_M`). Not measured on other surfaces: brown paper is pale too.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far edge
   (WW, see the far-row invariant). `hand14` is `hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).
