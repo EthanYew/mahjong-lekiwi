@@ -71,7 +71,8 @@ not a worktree, or the sessions go when the worktree does.
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v6`, v3c's hover-jittered demos,
 DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos, trained with `--augment --replace-mat 0.7`;
-also `pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
+also `pickup_mat_cl_v7` (the same + 52 brown/white paper demos, 30 of them closing short as recorded),
+`pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
 (without v4's corrections),
 `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
 hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
