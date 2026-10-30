@@ -207,6 +207,7 @@ class Player:
                 drain_stdin()
                 self.ask(f"No tile seen at {slot} ({s['xy'][0]:.3f}, {s['xy'][1]:+.3f}): put one there, then Enter: ")
                 self.session.intervention("zone_asked", slot=slot, note="no tile at a hand slot")
+                self.bench.hands_on = f"a tile put at {slot} when asked"
                 self.scan("register")
                 self.scan("register")
             name = self.votes.sure(slot)
@@ -317,6 +318,7 @@ class Player:
                  + ("Put it in the discard container yourself, then Enter: " if self.state["phase"] == "discard"
                     else f"Put it on {self.state.get('vacated', 'its slot')} yourself, then Enter: "))
         self.session.intervention("pickup_failed", slot=slot, tile=name, attempt_dir=self.bench.last_attempt)
+        self.bench.hands_on = f"{name} moved by hand: the robot couldn't pick it up"
         return None
 
     def place_drawn(self, slot, name):

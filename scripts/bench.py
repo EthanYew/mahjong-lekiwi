@@ -15,7 +15,8 @@
 Type a number or a name. While the arm picks up or returns a tile, say what you see as it happens with a
 key (no Enter; the keys are printed as each pickup and return starts):
 
-    b  the arm bumped another tile    p  the arm pushed the tile it's picking up    l  look at this
+    b  the arm bumped another tile    p  the arm pushed the tile it's picking up
+    r  I moved a tile by hand (put a knocked one back for the next run)    l  look at this
 
 During a pickup, Esc stops the policy, and → marks the moment without stopping it (a hand on the tile, a
 caught drop); a → with no key is asked about right after the attempt. Clean attempts ask nothing. Everything goes in a session folder
@@ -27,11 +28,15 @@ before and after. `python scripts/session_report.py` summarises the latest one, 
 (mahjong/interventions.py).
 
 What a scan sees change is settled without the end-of-batch questions:
+  - you pressed r during that pickup or return: what changed was you (straightening a tile a knock left,
+    else putting tiles back), with b too, the neighbours are asked about;
   - a neighbour of the handled tile (within 85mm) that moved or turned: a knock if you pressed b during
-    that pickup or return, else you're asked right then (Enter: it moved);
+    that pickup or return, else you're asked right then: the arm (Enter), you by hand, or a glitch;
   - anything else (tiles further away, tiles gone or appearing): watched over the next scans. Undone by
-    a later scan: a detection glitch. Still so 3 scans later: real, a knock near the arm, or moved by
-    something else further away. The tiles whose detections flickered are listed at the end of trials.
+    a later scan: a detection glitch (unless you said you moved tiles: a knocked tile you put back). Still
+    so 3 scans later: real, a knock near the arm, or moved by something else further away (by a person, if
+    it started where a knock had left it).
+A `note` of straightened tiles or tiles put back, between commands, says the same for the next scan. The tiles whose detections flickered are listed at the end of trials.
 
 A tile a scan says went, or a spot's tile not detected, is looked at with the wrist camera before anyone is asked
 (mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face between the jaw
@@ -171,6 +176,8 @@ class Bench:
         self.abort, self.mark = Abort(self.events), Mark(self.events)
         self.keys = KeyMarks(listen=not args.sim)
         self.last_keys = []         # the keys pressed during the latest pickup or return: what its scan is judged by
+        self.hands_on = None        # why a person moved tiles since the last scan (note, a missed discard): the next
+                                    # scan's changes are theirs, already logged
         if self.arm.at_connect:
             self.session.event("connect", **self.arm.at_connect)
         self.last_attempt = None    # attempt_dir of the latest attempt: what a note or an interruption belongs to
@@ -212,21 +219,33 @@ class Bench:
         mat (interventions.MatWatch). A tile that went is looked at with the wrist camera first (look_again;
         not while the arm holds a tile: `look`); changes that undo or repeat earlier watched ones settle those
         (ChangeWatch); what's left is sorted (sort_changes), unless a person already said what it was
-        (`confirmed`: its kinds, e.g. ["tile_reset"])."""
+        (`confirmed`: its kinds, e.g. ["tile_reset"]). A person who moved tiles since the last scan (r pressed
+        during the pickup or return it follows, `hands_on`, or `confirmed`) makes a watched knock that went back
+        theirs: put back, not a glitch."""
         self.scan_n += 1
         tiles, scan = detector.log_scan(self.realsense, self.session, self.scan_n, label, **fields)
+        hand, self.hands_on = self.hands_on, None
+        keyed = label in interventions.ATTEMPT_SCANS and self.pressed(interventions.BY_HAND)
         proposal, seen = self.mat.propose(scan), []
-        if not confirmed:
+        if confirmed is None and hand is None and not keyed:
             proposal, seen = self.look_again(scan, proposal, look and not self.held)
-        settled, diff, undone = self.changes.update(scan, proposal[1] if proposal else None)
+        settled, diff, undone, put_back = self.changes.update(
+            scan, proposal[1] if proposal else None, by_hand=confirmed is not None or hand is not None or keyed)
         self.log_settled(settled)
         if interventions.changed(undone):
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=[], changes=undone,
                                by="scans", note="undoes an earlier scan's glitch")
+        if interventions.changed(put_back):     # the person's own word for it (a note, a reset) is logged already
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0],
+                               kinds=["straightened"] if keyed else [], changes=put_back,
+                               by="key" if keyed else "person", note="a knocked tile put back by hand")
         proposal = (proposal[0], diff) if proposal and interventions.changed(diff) else None
         knocked = None
-        if proposal and confirmed:
+        if proposal and confirmed is not None:
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=confirmed)
+        elif proposal and hand is not None:
+            self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=[],
+                               changes=proposal[1], by="person", note=hand)
         elif proposal:
             knocked = self.sort_changes(scan, proposal)
         self.mat.advance(scan, knocked)
@@ -285,7 +304,14 @@ class Bench:
         empty = {k: [] for k in diff}
         target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
         if target is None:
-            self.watch_changes(scan, diff, kind)
+            straightened, rest = self.mat.by_hand(diff)
+            self.watch_changes(scan, straightened, "straightened")
+            self.watch_changes(scan, rest, "tile_reset")
+            return None
+        during = scan["label"].removeprefix("after_")
+        bumped, hand = self.pressed("collided"), self.pressed(interventions.BY_HAND)
+        if hand and not bumped:         # r: what changed was the person
+            self.log_by_hand(scan, kind, diff, "key", f"r pressed during the {during}")
             return None
         near, far = interventions.split(diff, lambda k, c: interventions.near_any(c, [target], interventions.NEIGHBOUR_M))
         looked = [xy for n, xy in self.looked_empty if n == self.scan_n]
@@ -293,8 +319,11 @@ class Bench:
             c, looked, config.TILE_MERGE_RADIUS_M))
         absent_far, far = interventions.split(far, lambda k, c: k == "gone" and interventions.near_any(
             c, looked, config.TILE_MERGE_RADIUS_M))
-        during = scan["label"].removeprefix("after_")
-        if any(p["kind"] == "collided" for p in self.last_keys):
+        if hand:                        # b and r: the neighbours could be either, the rest was the person
+            asked, keyed, watched, absent = interventions.merge(near, absent), empty, empty, empty
+            self.log_by_hand(scan, kind, interventions.merge(far, absent_far), "key", f"r pressed during the {during}")
+            far, absent_far = empty, empty
+        elif bumped:
             keyed, asked, watched = near, empty, empty
         else:
             keyed = empty
@@ -312,8 +341,23 @@ class Bench:
         if interventions.changed(asked):
             self.scan_checks.append((scan, (kind, asked)))
         self.watch_changes(scan, interventions.merge(watched), "knocked")
-        self.watch_changes(scan, interventions.merge(far), "moved_elsewhere")
+        # a tile a knock left, moving again away from the arm: a person straightening it, r or not
+        straightened, far = self.mat.by_hand(far)
+        self.watch_changes(scan, straightened, "straightened")
+        self.watch_changes(scan, far, "moved_elsewhere")
         return interventions.merge(knocked, asked)
+
+    def pressed(self, kind):
+        """Whether a key for `kind` was pressed during the latest pickup or return."""
+        return any(p["kind"] == kind for p in self.last_keys)
+
+    def log_by_hand(self, scan, kind, diff, by, note):
+        """Changes a person made: straightened where they start from a tile a knock left, else tile_reset."""
+        for k, part in zip(("straightened", "tile_reset"), self.mat.by_hand(diff)):
+            if interventions.changed(part):
+                self.session.event("scan_review", scan=scan["scan"], proposed=kind, kinds=[k], changes=part, by=by,
+                                   note=note)
+                print(f"  {interventions.changes_text(part)}: {interventions.KINDS[k][0]} ({note})")
 
     def watch_changes(self, scan, diff, kind):
         """Leave changes to the scans after this one (ChangeWatch); logged with no kind yet, so a session that
@@ -327,7 +371,8 @@ class Bench:
         """Watched changes the latest scan settled: undone (a glitch) or still there SETTLE_SCANS later (real)."""
         for p, kind in settled:
             change = interventions.merge({p["category"]: [p["change"]]})
-            why = note or {"scan_glitch": "undone by a later scan", "unsettled": "the session ended first"}.get(
+            why = note or ("put back by hand" if p.get("put_back") else None) or {
+                "scan_glitch": "undone by a later scan", "unsettled": "the session ended first"}.get(
                 kind, f"still so {p['agreed']} scans later")
             self.session.event("scan_review", scan=p["scan"], proposed=p["kind"], kinds=[kind], changes=change,
                                by=by, note=why)
@@ -428,6 +473,9 @@ class Bench:
             drain_stdin()
         for scan, proposal in self.scan_checks:
             kinds = interventions.ask_scan(scan, proposal)
+            if kinds == [interventions.BY_HAND]:
+                self.log_by_hand(scan, proposal[0], proposal[1], "person", "answered: moved by hand")
+                continue
             self.session.event("scan_review", scan=scan["scan"], proposed=proposal[0], kinds=kinds,
                                changes=proposal[1], by="person")
         self.scan_checks = []
@@ -674,6 +722,7 @@ class Bench:
             drain_stdin()
             if input("In the container? [Y/n]: ").strip().lower().startswith("n"):
                 self.session.intervention("discard_missed", attempt_dir=held["attempt_dir"])
+                self.hands_on = "the discard missed the container"
         self.held = None
         self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
 
@@ -781,6 +830,8 @@ class Bench:
             return print("Nothing logged.")
         text = input("  in a few words (Enter to skip): ").strip()
         self.session.intervention(kind, attempt_dir=self.last_attempt, note=text)
+        if kind in ("straightened", "tile_reset", "discard_missed"):
+            self.hands_on = f"noted: {interventions.KINDS[kind][0]}"     # what the next scan sees move
         print(f"Logged: {interventions.KINDS[kind][0]} ({interventions.class_of(kind)})")
 
     def setup(self):
