@@ -103,6 +103,16 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   purpose less than `HOME_RADIUS_M` (40mm) is put back at its old home. The fit pools every policy.
   Evidence: `docs/invariant_notes.md`.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
+- **Every move off the table rises straight up first** (`Arm.lift`, called by `rest`, `hover` and `place`, so
+  bench, record and every other script share it): 5mm steps keeping the jaws' tilt and roll
+  (`kinematics.straight_up`), up to 80mm. The old lift was one joint-space move to the IK's pose, which curved
+  through the tiles, and it was skipped when the wrist had been tilted more than 30° from that pose: a discarded
+  teleop then swung to rest from the mat.
+- **A person stops closing once the jaws stall on a tile** (commanded 5-12, reading 11-13: 20 of 35 episodes of
+  `mahjong_surfaces_mat_v1`, 2026-10-30). `holds_tile` can't tell that from empty jaws, so the tile wasn't
+  returned. `Arm.squeeze` shuts jaws that read under 16 before asking (record after every episode, bench after
+  the policy). Teleop episodes like that also have no `grasp_frame` (no command under 5), so their return aims
+  from the hover and lets go at the default 10mm.
 - **The policy reaches further than the IK will plan.** It closed on 4D 11-12mm beyond the hover,
   ~0.29m from the shoulder, outside the IK's envelope (15° tilt, 10° joint margins), so the return
   was refused. `Arm.place` moves a return up to 15mm toward the shoulder, checking every height down

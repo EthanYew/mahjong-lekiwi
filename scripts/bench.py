@@ -391,6 +391,7 @@ class Bench:
             return None
         self.abort.clear()
         run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
+        squeezed_from = self.arm.squeeze()     # a policy that stopped closing short of 0 on the tile
         self.arm.rest()
         holding, command, measured = self.arm.holding()
         if run["stop_reason"] == "camera" and not holding:
@@ -421,6 +422,7 @@ class Bench:
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
                            correction=self.correction.name, hover_perturb_xy=list(perturb),
                            hover_sag_xyz_m=hover.get("sag_xyz_m"),
+                           **({"gripper_squeezed_from": squeezed_from} if squeezed_from is not None else {}),
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                            **run, **review)
         self.last_attempt = attempt.name
