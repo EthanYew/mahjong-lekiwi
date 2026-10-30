@@ -72,6 +72,9 @@ TIP_FLOOR_BELOW_TABLE_M = 0.005        # ACT steps putting the pincer tip lower 
 # command (104/104 recorded episodes, all 9 bench attempts on 2026-10-23).
 GRIP_CLOSED_BELOW = 5.0
 HOLDING_MARGIN = 5.0
+# Jaws commanded above GRIP_CLOSED_BELOW but reading under this may be stalled on a tile (a person stops
+# closing there): Arm.squeeze shuts them before asking holds_tile.
+GRIP_SQUEEZE_BELOW = 16.0
 
 # --- defaults for recording and correction collection (a policy's own hover lives in policies.json) ---
 HOVER_OFFSET_M = 0.045                 # pincer tip commanded this far above the grasp point

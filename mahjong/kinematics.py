@@ -239,6 +239,40 @@ def find_reachable_pose(target, max_tilt_deg=15, min_margin_deg=10, tolerance=0.
     return None, None
 
 
+STRAIGHT_AXIS_WEIGHT_M = 0.05     # straight_up: an axis error of 1 deg weighs like ~0.9mm of position
+
+
+def straight_up(q, dz, keep_axis=True, iterations=20):
+    """Joint config moving the tool point dz straight up from where q puts it, the jaws pointing as they do
+    in q (wrist roll and gripper kept as they are), or None outside the joint limits or if it doesn't
+    converge. hover_command picks its own tilt, which after a teleop can be 20-30 deg from the wrist's.
+    Jaws tilted forward at full reach run wrist_flex into its limit within ~30mm: keep_axis=False holds
+    wrist_flex instead, and the jaws tilt a little with the arm."""
+    position, rotation = forward(q)
+    target, axis = position + np.array([0.0, 0.0, dz]), rotation[:, 0]
+    joints = config.ARM_JOINTS[:4] if keep_axis else config.ARM_JOINTS[:3]
+
+    def residual(theta):
+        p, r = forward({**q, **dict(zip(joints, theta))})
+        return np.concatenate([target - p, STRAIGHT_AXIS_WEIGHT_M * (axis - r[:, 0])]) if keep_axis else target - p
+
+    theta, eps = np.array([q[j] for j in joints], dtype=float), 1e-4
+    for _ in range(iterations):
+        error = residual(theta)
+        if np.linalg.norm(error) < 1e-6:
+            break
+        jacobian = np.zeros((len(error), len(joints)))
+        for i in range(len(joints)):
+            step = theta.copy()
+            step[i] += eps
+            jacobian[:, i] = (error - residual(step)) / eps
+        theta = theta + np.linalg.solve(jacobian.T @ jacobian + 1e-6 * np.eye(len(joints)), jacobian.T @ error)
+    moved = {**q, **dict(zip(joints, (float(t) for t in theta)))}
+    if np.linalg.norm(residual(theta)[:3]) > 0.0005 or joint_margin(moved) < 0:
+        return None
+    return moved
+
+
 def hover_command(x, y, offset_m, gripper):
     """Joint command hovering the tool point over closed-loop target (x, y) with the pincer tip
     offset_m above the grasp point there, gripper at `gripper`. The tool point and the pincer tip sit

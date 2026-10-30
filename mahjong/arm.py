@@ -31,8 +31,8 @@ MAX_ADJUSTS = 3
 APPROACH_M = 0.010            # an upward adjustment overshoots this much, then comes down
 
 LIFT_CLEARANCE_M = 0.080      # before swinging back to rest from low over the table
-LIFT_MIN_RADIUS_M = 0.13      # ...but only out over the table, not at the folded rest pose
-LIFT_MAX_JOINT_CHANGE_DEG = 30.0
+LIFT_MIN_RADIUS_M = 0.14      # ...but only out over the table (tiles from ~0.15m), not at the folded rest (0.132m)
+LIFT_MAX_JOINT_CHANGE_DEG = 30.0      # per RISE_STEP_M step
 AT_REST_TOLERANCE_DEG = 3.0
 # "Moved while off" compares the arm at connect with where it settled at the last disconnect. REST_POSE is
 # that settled pose now (it used to sag ~8° from rest onto the stops, 2026-10-26), but a recording beats a constant.
@@ -69,6 +69,7 @@ RISE_MAX_DEG_S = 60.0     # ...but no joint faster than this (near full reach 5m
 # the tile top); the commanded approach (~95mm) sits 3-26mm higher than measured (574 hovers, 2026-10-27/28).
 SWING_CLEARANCE_M = 0.060
 RELEASE_TIME_S = 0.6
+SQUEEZE_SETTLE_S = 0.3
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
 
@@ -248,22 +249,47 @@ class Arm:
             self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
     def lift(self):
-        """If low out over the table, rise straight up to LIFT_CLEARANCE_M (wrist roll and gripper as they
-        are), so the next move doesn't sweep across the tiles."""
+        """If low out over the table, rise straight up to LIFT_CLEARANCE_M, RISE_STEP_M at a time, the jaws
+        pointing as they are (kinematics.straight_up; wrist roll and gripper kept), so the next move doesn't
+        sweep across the tiles. Every move off the table starts here (rest, hover, place), whatever came
+        before: a pickup, a teleop, a discarded episode. One joint-space move to the IK's lift pose instead
+        curved through the tiles, and was skipped when the wrist had been tilted (L/R) more than
+        LIFT_MAX_JOINT_CHANGE_DEG from the IK's pose. Where keeping the tilt would run the wrist into its
+        limit (jaws tilted forward at full reach), wrist_flex holds and the jaws tilt a little with the arm."""
         command = self.commanded()
-        x, y, _ = kinematics.tool_point(command)
-        clearance, _ = self.tip_clearance()
         tip = kinematics.pincer_tip(command)
-        commanded_clearance = float(tip[2] - config.grasp_z(tip[0], tip[1]))
+        commanded_clearance = kinematics.tip_clearance(command)
         # measured low but already commanded higher (a sagging arm after a return's approach): re-commanding
         # LIFT_CLEARANCE_M would lower it before the swing to rest
-        if clearance < LIFT_CLEARANCE_M and commanded_clearance < LIFT_CLEARANCE_M and \
-                np.hypot(x - kinematics.SHOULDER_PAN_X, y) >= LIFT_MIN_RADIUS_M:
-            lifted, _ = kinematics.hover_command(x, y, LIFT_CLEARANCE_M, command["gripper"])
-            if lifted is not None:
-                lifted["wrist_roll"] = command["wrist_roll"]          # a lift, not a re-grip
-                if max(abs(lifted[j] - command[j]) for j in config.ARM_JOINTS) <= LIFT_MAX_JOINT_CHANGE_DEG:
-                    self.move_to({j: lifted[j] for j in config.ARM_JOINTS}, ADJUST_TIME_S)
+        if self.is_at_rest() or self.tip_clearance()[0] >= LIFT_CLEARANCE_M or \
+                commanded_clearance >= LIFT_CLEARANCE_M or np.hypot(tip[0] - kinematics.SHOULDER_PAN_X, tip[1]) < LIFT_MIN_RADIUS_M:
+            return
+        for _ in range(int(LIFT_CLEARANCE_M / RISE_STEP_M) + 2):
+            if commanded_clearance >= LIFT_CLEARANCE_M - 0.0005:
+                return
+            current = self.commanded()
+            dz = min(RISE_STEP_M, LIFT_CLEARANCE_M - commanded_clearance)
+            step = kinematics.straight_up(current, dz) or kinematics.straight_up(current, dz, keep_axis=False)
+            if step is None:
+                return
+            turn = max(abs(step[j] - current[j]) for j in config.ARM_JOINTS)
+            if turn > LIFT_MAX_JOINT_CHANGE_DEG:
+                return
+            self.move_to({j: step[j] for j in config.ARM_JOINTS}, max(RISE_STEP_S, turn / RISE_MAX_DEG_S))
+            commanded_clearance = kinematics.tip_clearance(self.commanded())
+
+    def squeeze(self):
+        """Close jaws that stopped nearly shut the rest of the way, as the policies do. Returns the command
+        they were at, or None if nothing was done. A person stops closing once the jaws stall on a tile
+        (commanded 5-12, reading 11-13: 20 of 35 episodes on 2026-10-30), which holds_tile can't tell from
+        empty jaws, so the tile wasn't returned. On a tile they stall at ~11 and grip tighter; on nothing
+        they shut, a few mm."""
+        command, measured = self.commanded()["gripper"], self.measured()["gripper"]
+        if command < config.GRIP_CLOSED_BELOW or measured >= config.GRIP_SQUEEZE_BELOW:
+            return None
+        self.set_gripper(0.0)
+        self.sleep(SQUEEZE_SETTLE_S)
+        return command
 
     def rise(self, x, y, from_offset, to_offset):
         """Straight up over tool point (x, y), RISE_STEP_M at a time (wrist roll and gripper as they are), so
@@ -300,6 +326,7 @@ class Arm:
                 break
         if first is None:
             return None
+        self.lift()
         self.raise_from_rest()
         self.move_to(first, MOVE_TIME_S)
         self.sleep(SETTLE_S)
@@ -390,6 +417,7 @@ class Arm:
             above, _ = kinematics.hover_command(x, y, above_offset, held)
             if above is not None:       # at the latest with extra 0: place_point checked that height
                 break
+        self.lift()                     # from where a recording ended, low over the table
         self.raise_from_rest()
         self.move_to(above, MOVE_TIME_S)
         self.sleep(SETTLE_S)
