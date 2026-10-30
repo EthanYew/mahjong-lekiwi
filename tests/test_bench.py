@@ -650,3 +650,28 @@ def test_a_watched_knock_put_back_and_noted_is_a_knock_not_a_glitch(tmp_path, mo
         b.close()
     found = interventions.derive(read_events(b.session.dir))
     assert sorted(i["kind"] for i in found) == ["knocked", "straightened"]
+
+
+
+def test_a_grip_keyed_low_in_the_pickup_and_high_in_the_return_are_counted_and_the_success_stands(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    after_each_run(b, lambda: b.keys.press("d"))
+    place = b.arm.place
+
+    def carried(*args, **kwargs):
+        b.keys.press("u")
+        return place(*args, **kwargs)
+    b.arm.place = carried
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert asked == []
+    events = read_events(b.session.dir)
+    found = interventions.derive(events)
+    assert sorted((i["kind"], i["class"], i["during"]) for i in found) == [
+        ("grip_high", "observation", "return"), ("grip_low", "observation", "pickup")]
+    s = interventions.summary(found, [e for e in events if e["type"] == "attempt"])
+    assert (s["low_grips"], s["high_grips"], s["clean_successes"], s["rescues"]) == (1, 1, 1, 0)

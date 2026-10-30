@@ -17,6 +17,7 @@ key (no Enter; the keys are printed as each pickup and return starts):
 
     b  the arm bumped another tile    p  the arm pushed the tile it's picking up
     r  I moved a tile by hand (put a knocked one back for the next run)    l  look at this
+    d  gripped low on the tile    u  gripped high on the tile    (precarious: it may slip; pickup or return)
 
 During a pickup, Esc stops the policy, and → marks the moment without stopping it (a hand on the tile, a
 caught drop); a → with no key is asked about right after the attempt. Clean attempts ask nothing. Everything goes in a session folder

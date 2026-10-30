@@ -180,6 +180,8 @@ prompt or the menu don't count.
 |---|---|---|
 | `b` | the arm bumped another tile | a collision (failure; the success stays clean), and a neighbour that moved is a knock without asking |
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
+| `d` | gripped low on the tile (near its bottom) | precarious, it may slip: counted ("gripped low") but the attempt stands; works during the return too, while you watch it carried |
+| `u` | gripped high on the tile (near its top) | the same, "gripped high" |
 | `r` | I moved a tile by hand (e.g. put a knocked one back for the next run) | what that pickup's or return's scan sees change was you: straightening a tile a knock left (a rescue), else putting tiles back (a reset); never a knock or a glitch |
 | `l` | look at this (nothing touched) | an observation |
 
