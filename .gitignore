@@ -10,5 +10,7 @@ data/layouts/
 # tile detector exports and labelled copies: Roboflow keeps the labels (data/detector_exam.json is committed)
 data/detector/
 # Claude Code worktrees (git worktrees of their own) and the base weights Ultralytics downloads when fine-tuning
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/settings.json
 /yolo*.pt

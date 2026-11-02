@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*scripts/status.py)",
+      "Bash(*scripts/session_report.py*)",
+      "Bash(*scripts/handoff_report.py*)",
+      "Bash(*scripts/quality_report.py*)",
+      "Bash(*python -m pytest*)"
+    ],
+    "ask": [
+      "Bash(*scripts/bench.py*)",
+      "Bash(*scripts/record.py*)",
+      "Bash(*scripts/play.py*)",
+      "Bash(*scripts/collect_corrections.py*)",
+      "Bash(*scripts/setup_check.py*)",
+      "Bash(*scripts/wrist_capture.py*)",
+      "Bash(*scripts/status.py --set-default*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(rm -rf *sessions*)",
+      "Bash(rm -rf *data*)"
+    ]
+  }
+}

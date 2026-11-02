@@ -1,5 +1,5 @@
 """Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials,
-where returned tiles landed from their home, interventions (what a person had to do; rescues per 10 attempts, clean vs assisted successes),
+where returned tiles landed from their home, the scorecard (clean attempts, a paired verdict: docs/scorecard.md), interventions (what a person had to do; rescues per 10 attempts, unassisted vs assisted successes),
 a play session's hand (scripts/play.py: result, grade, questions, turn times); and a contact sheet (one
 row per attempt: overview before/after, wrist frames).
 
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, interventions
+from mahjong import config, interventions, scorecard
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
@@ -157,14 +157,14 @@ def interventions_report(events, trials, unit):
               f"pushed the target {s['target_pushes']}, gripped low {s['low_grips']}, high {s['high_grips']}, "
               f"observations {s['observations']}")
         if unit == "attempt":
-            print(f"  successes: {s['successes']} = {s['clean_successes']} clean + {s['assisted_successes']} assisted")
+            print(f"  successes: {s['successes']} = {s['clean_successes']} unassisted + {s['assisted_successes']} assisted")
     if not any(e["type"] == "detections" for e in events):
         print("  (no scans logged: knocked tiles and tiles put back by hand can't be seen in this session)")
     return found
 
 
 def all_sessions():
-    print(f"{'session':<24} {'picked':>6} {'rescue/10':>9} {'ACT s':>6}  setup")
+    print(f"{'session':<24} {'clean':>6} {'picked':>6} {'rescue/10':>9} {'ACT s':>6}  setup")
     for folder in sorted(p for p in config.SESSIONS.glob("*_bench") if (p / "events.jsonl").exists()):
         events = read_events(folder)
         attempts = [e for e in events if e["type"] == "attempt"]
@@ -172,8 +172,10 @@ def all_sessions():
             continue
         start = next((e for e in events if e["type"] == "session_start"), {})
         policies = ",".join(sorted({a["policy"] for a in attempts}))
-        rescues = interventions.summary(interventions.derive(events), attempts)["rescues_per_10"]
-        print(f"{folder.name:<24} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
+        found = interventions.derive(events)
+        rescues = interventions.summary(found, attempts)["rescues_per_10"]
+        clean = sum(scorecard.clean_flags(events, found).values())
+        print(f"{folder.name:<24} {clean:>2}/{len(attempts):<3} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
               f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}")
     hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play"))
              if (folder / "events.jsonl").exists()]
@@ -240,6 +242,7 @@ def main():
               + (f"; {len(dagger) - len(taken)} the policy's alone (not trained on)" if len(taken) < len(dagger) else ""))
     found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
     if attempts:
+        print("\n" + "\n".join(scorecard.report(events, found)))
         tags = defaultdict(set)
         for i in found:
             if i["class"] in (interventions.RESCUE, interventions.FAILURE):

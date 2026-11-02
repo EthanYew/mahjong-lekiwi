@@ -3,7 +3,7 @@
   "default_note": {
     "policy": "pickup_mat_cl_v6",
     "since": "2026-10-30",
-    "evidence": "sessions/20261029_234437_bench: close-hand14 on the green cutting mat, 2 rounds: v6 28/28, 0 bumped tiles, 0 rescues, held at 7.2s median; v5 on the same mat (20261030_010109_bench, ended early) 2/3 with 2 bumped tiles. Offline (data/offline_eval/pickup_mat_cl_v6.json vs v5.json): green episodes first-action error 15-30% lower; black top level. Not paired in one session, and not benched on the black table top yet",
+    "evidence": "sessions/20261029_234437_bench: close-hand14 on the green cutting mat, 2 rounds: v6 28/28, 0 bumped tiles, 0 rescues, held at 7.2s median; v5 on the same mat (20261030_010109_bench, ended early) 2/3 with 2 bumped tiles. Offline (data/offline_eval/pickup_mat_cl_v6.json vs v5.json): green episodes first-action error 15-30% lower; black top level. Not paired in one session, and not benched on the black table top at the decision. Since then, v5 vs v6 on the black top (20261030_142320_bench, close-hand14): picked 22/28 vs 27/28, clean 9/28 vs 14/28 (docs/scorecard.md)",
     "why": "v5's data + 33 green-mat demos, trained with --augment --replace-mat 0.7: the only policy that works on a second surface"
   },
   "policies": {

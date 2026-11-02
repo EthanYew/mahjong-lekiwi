@@ -16,7 +16,8 @@ def bench_session(sessions, name, policy, results):
     folder = sessions / f"{name}_bench"
     folder.mkdir(parents=True)
     (folder / "events.jsonl").write_text("".join(
-        json.dumps({"type": "attempt", "policy": policy, "success": ok}) + "\n" for ok in results))
+        json.dumps({"type": "attempt", "attempt_dir": f"{i:03}", "policy": policy, "success": ok}) + "\n"
+        for i, ok in enumerate(results)))
 
 
 def test_the_report_counts_each_policys_bench_attempts_and_marks_the_default(tmp_path, capsys):
@@ -28,6 +29,7 @@ def test_the_report_counts_each_policys_bench_attempts_and_marks_the_default(tmp
     default = json.loads(config.POLICIES.read_text())["default"]
     assert any(line.startswith(default) and line.endswith("<- default") for line in text.splitlines())
     assert "hand14" in text and "Eval sets" in text
+    assert any(line.startswith("pickup_mat_cl_v4") and "3/4" in line for line in text.splitlines())
 
 
 def test_set_default_writes_the_evidence_with_it(tmp_path, monkeypatch):
