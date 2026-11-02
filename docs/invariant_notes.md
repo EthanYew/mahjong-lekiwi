@@ -46,3 +46,76 @@ script: `policy.run` stops (`stop_reason` "camera") and the bench records `attem
 record.py discards the episode ("wrist camera lost"); wrist_capture.py and setup_check take the view again;
 collect_corrections reopens it and restarts the gamepad from the held pose. Each reopens it with
 `hardware.reopen_wrist_camera` (retry / quit if it won't open): use that in any new script.
+
+## Moved from CLAUDE.md on 2026-11-02, verbatim
+
+The bullets below were shortened in CLAUDE.md, which loads into every session.
+
+- Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed while the arm
+  picks up or returns (read from the bench's own terminal, `mahjong/terminal_keys.py`: a global listener logged
+  ~70 keystrokes typed in another tab on 2026-10-30; a `keys_void` appended to a session discounts noise found
+  afterwards) say what happened as it happens (`b` bumped another tile, `p` pushed its own, `r`
+  I moved a tile by hand, `d` / `u` gripped low / high (precarious, counted, the attempt stands), `l` look; `interventions.KEYS`, printed as each pickup and return starts), → marks a moment such as a hand
+  on the tile (asked right after, unless a key said it). The RealSense scans around each attempt catch knocked or replaced
+  tiles: a neighbour that moved or turned is a knock if `b` was pressed, else asked then; every other change
+  (far tiles, gone / appeared) is settled by the next scans (`interventions.ChangeWatch`: undone = YOLO
+  flicker, still there 3 scans on = real), not asked. No questions wait for the end of a batch. Whatever a
+  person did by hand (`r`, the "I did, by hand" answer, a `note`, a reset the bench asked for) is theirs:
+  straightened if it starts where a knock left a tile, else a reset; a watched knock undone then is a knock put
+  back, not a glitch (`Bench.hands_on`, `ChangeWatch.update(by_hand=)`). Bumping the camera or the table, which
+  moves every tile at once, still reads as many moves. "Touched the tile to help" is a rescue
+  (the success becomes assisted); "the arm bumped a tile, no one helped" is a failure that leaves a
+  success clean. The scorecard number is rescues per 10 attempts.
+
+- **A return lets go where that tile's jaws closed, not at a fixed height.** Grasps close with the measured tip
+  6-8mm above the grasp point near the base and 12-14mm at full reach (flex), v4 5mm lower than v3c, and once
+  at -0.2 to 2mm (7D/4D, 2026-10-29). The fixed 10mm release let go of v4's tiles a median 3.3mm above where
+  they were held (6-9mm that day): they dropped, tilted, and landed further from home (3.4mm under a 3mm drop,
+  6.2mm at 6mm+; 137 returns). `Arm.place` now descends (only down, `_set_down`) to 1mm above the grasp's
+  own height (`kinematics.grasp_clearance`, from the pickup's measured joints). Unconfirmed on the arm.
+
+- **So is the surface under the tiles.** Every recording through v5 is on the black table top. On a green cutting mat
+  with a white grid (2026-10-29, `20261029_180643_bench`) v5 closed its jaws 45mm up in the air once and bumped
+  a neighbour the next time. `make_policy.py --augment --replace-mat 0.7` trains on colour jitter and on frames
+  whose mat is swapped for other surfaces (`dataset.surface_keep` keeps faces, green backs and the jaws; faces in
+  the dim recordings are found by growing from their lit part). The swap is fixed in the image, while a real mat
+  moves with the camera, so record a few real episodes on each new surface as well, and score on ones never
+  trained on. Each session records the surface (`config.SETUP_QUESTIONS`, earlier ones are the black top) and
+  `offline_eval.py --by surface` scores per surface. Run `setup_check.py` on a new surface first: on the
+  green mat (~2mm thick) the table plane read 4.1mm higher and tilted 4.4mm per 10cm in x
+  (`20261029_191321_setup`), more than its thickness, so check it lies flat.
+
+- **v2 repeats a memorised x/y move instead of steering to the tile** (measured at 4D on 2026-10-23:
+  the grasp followed a deliberately offset hover at ~1 mm per mm). The demos' hover→grasp move is
+  systematic per position (affine/23 misses ~12mm RMS in a pattern), and v2 learned it per position. So
+  for v2: don't change the live hover (`data/hover_model.json`), and don't fit bench samples (grasp =
+  hover + fixed move). Success rate hides this, since the jaws tolerate ±6mm; check a policy with
+  `bench.py --hover-perturb-mm`. Compare bench and demo shifts per position, never against a mat-wide median.
+
+- **Computed heights drift with reach: far spots are ~10-15mm lower than the FK says.** Same settled hover
+  (tip 40mm above the grasp point by FK): a ruler showed 10-15mm above the tile top at far spots, 20mm+
+  near (2026-10-28). The demos agree: their lowest FK tip rises from +10mm (r 0.15-0.18m) to +25mm
+  (r 0.24-0.30m) while the jaws grip the tile at the same depth. The settle and the tip floor both use
+  FK, so neither sees it; likely link/gear flex under load or a tilted table plane. At (0.19, +0.19) both
+  v3b and v3c then went 13mm deeper than the demos there and bumped a neighbour once.
+
+- **The far row is at the arm's full reach, not past what the servos can hold.** Held 10s at the 1D hover
+  (base r 0.287m) the shoulder and elbow loaded 8% and 13% (overload trips at 80% for 2s), the tip
+  steady (2026-10-28). But the wrist is 3mm from the gamepad's reach limit at 1D's grasp point, and
+  past it at WW (0.291m). Pushing out there does nothing, and lowering slides the gripper back toward
+  the base along the reach circle, which looks like a sag. `gamepad.warn_if_at_reach` says so after
+  the hover (record, collect_corrections). Reach such tiles by tilting the jaws forward (L/R), or keep
+  tiles inside base r ~0.27m. `layout.py`'s `r` shows that boundary on the mat (`layout.reach_band`): on
+  hand14 1D and WW are at the edge, and both v4 and v5 missed WW with a neighbour beside it (2026-10-29).
+
+- **The wrist look sees a tile face, not which tile.** Between the jaw tips at a policy's hover, the hovered tile's
+  face fills a fixed disc of the wrist image (`wrist_check.EXPECTED_PX`; fill >= 0.73 on 103 black-top frames, 0
+  without). A tile knocked to within 30mm of a lost one's spot fills it too (3D for 1B, 2026-10-30), so the bench
+  doesn't look there (`wrist_check.CROWDED_M`). Not measured on other surfaces: brown paper is pale too.
+
+- **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
+  for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the
+  bench voids and reruns the attempt, record.py discards the episode. Reopen with
+  `hardware.reopen_wrist_camera` in any new script. Evidence: `docs/invariant_notes.md`. It can also fall off
+  USB altogether (`/dev/wristcam` gone, 2026-10-30 `20261030_115706_bench`, 3 dropouts in 5 min first): only a
+  replug brings it back, and the bench waits at "Fix that, then Enter".
