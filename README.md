@@ -234,8 +234,9 @@ python scripts/session_report.py sessions/20261024_101500_bench  # a specific on
 python scripts/session_report.py --all                           # every bench session side by side, with its setup
 ```
 
-Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, interventions (rescues
-per 10 attempts, clean vs. assisted successes) and saves a contact sheet (one image row per attempt).
+Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, the scorecard (clean attempts,
+and a ship / revert / extend verdict when the session paired two policies: `docs/scorecard.md`), interventions
+(rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 

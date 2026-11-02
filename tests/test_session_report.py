@@ -41,5 +41,5 @@ def test_the_interventions_section_counts_rescues_and_lists_the_rest(capsys):
     out = capsys.readouterr().out
     assert len(found) == 3
     assert "rescues: 1 in 2 attempts (5.0 per 10 attempts, one per 2.0)" in out
-    assert "resets 1" in out and "observations 1" in out and "1 clean + 1 assisted" in out
+    assert "resets 1" in out and "observations 1" in out and "1 unassisted + 1 assisted" in out
     assert "marked at 6.2s" in out and "no scans logged" in out
