@@ -8,6 +8,7 @@ That reproduces both effects measured on hardware (2026-10-22): ~5-13mm of droop
 ends lower than the hover it started from. The gripper stalls at GRIP_ON_TILE while holding a tile
 and commanded tighter.
 """
+import math
 import types
 
 import numpy as np
@@ -94,6 +95,7 @@ class SimPerception:
     back where the jaws opened (one higher up, e.g. over the discard container, doesn't), and tests can
     nudge() tiles as a knock or a person would, or flicker() one: left out of the next scans while still there."""
     intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
+    tile_boxes = None       # no detector on a rendered frame: layout.find_tile reads the colour alone
 
     def __init__(self, tiles=SIM_TILES):
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
@@ -209,6 +211,12 @@ class SimWristCamera:
             size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
             box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
             cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
+            turn = math.radians(-tile.get("yaw_deg", 0.0))
+            for dx, dy in ((-0.2, -0.3), (0.1, -0.1), (0.25, 0.2), (-0.1, 0.3)):     # printed symbols, off-centre
+                sx, sy = dx * size[0], dy * size[1]
+                dot = (int(centre[0] + sx * math.cos(turn) - sy * math.sin(turn)),
+                       int(centre[1] + sx * math.sin(turn) + sy * math.cos(turn)))
+                cv2.circle(image, dot, 5, (40, 40, 40), -1)
         return True, image
 
     def flush(self, frames=10):

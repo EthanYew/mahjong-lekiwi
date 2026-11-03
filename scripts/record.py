@@ -196,7 +196,7 @@ def main(argv=None):
                     spot = next(s for s in spots if s["id"] == todo[0])
                     print(f"Spot {spot['id']} ({len(todo)} episodes to go): {layout.PLACE_HELP}")
                     placed = layout.place(realsense.snapshot, spots, spot["id"], realsense.intrinsics,
-                                          realsense.T_cam_to_base, ghost=ghost)
+                                          realsense.T_cam_to_base, ghost=ghost, boxes=realsense.tile_boxes)
                     cv2.destroyWindow("layout")
                     for k in ("exit_early", "rerecord_episode", "stop_recording"):   # keys pressed while placing
                         events[k] = False

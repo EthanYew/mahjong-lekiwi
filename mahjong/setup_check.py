@@ -10,10 +10,11 @@ pack-up nothing says whether they do; a few mm off and every hover lands off-tar
   1px there is ~1.5mm on the mat (0.87m away, fx ~590).
 - table: the mat's depth through T_cam_to_base vs config.table_z — catches a different table, a tilt or a
   thicker mat (and a moved camera).
-- tile test: one tile placed to green on a few spots, the arm hovers over it as the bench does (measured
+- tile test: the same tile placed to green on a few spots, the arm hovers over it as the bench does (measured
   position + hover correction) and the wrist camera looks. The tile landing where it did in the reference
   wrist frame means camera, table, arm calibration, hover correction and wrist camera mount all still
-  agree — and it's the very image the policy starts from.
+  agree — and it's the very image the policy starts from. It's found by matching the reference's own picture of
+  it, not by colour: on a pale mat the face has no edge a threshold can find (see MATCH_MIN_SCORE).
 - parked pose: where the unpowered arm settles onto its stops vs the reference; a recalibrated or replaced
   servo shows up there (encoders alone can't tell).
 - brightness: of the mat (RealSense) and the wrist view, vs the reference (lighting is part of the
@@ -52,6 +53,18 @@ WRIST_BORDER_PX = 2                 # a blob this close to the image edge is cut
 WRIST_SEARCH_PX = 120               # how far from where it's expected the tile may be and still count as found
 WRIST_MIN_V = 110                   # the face's brightness threshold comes from the frame (Otsu), never below this
 WRIST_OPEN_PX = (31, 31)            # bridges thinner than this between white blobs are cut (a face is ~120px wide)
+
+# The tile test finds the tile by template matching: the reference's picture of it, slid over the frame within
+# WRIST_SEARCH_PX. Face and white stripe overlap in brightness and colour on the standard mat, so there's nothing for a
+# threshold to cut (20261103_120259_setup). A template that's mostly face: a face is ~140 x 120px at the hover.
+WRIST_PATCH_HALF_PX = 60
+# On the striped mat, 20261103_121112_bench (v6 and v7 hovering at the same spot minutes apart): same tile 0.82-0.96 on 14
+# pairs, no tile at that spot 0.68 (one frame). So this asks "is a tile there", and leaves room for a change of light. It
+# can't tell which tile: another one reached 0.84 (median 0.58, 182 pairs), which is why the prompt names the tile.
+MATCH_MIN_SCORE = 0.78
+MATCH_ANGLES_DEG = tuple(range(-12, 13, 3))                 # green lets a tile sit ±6° differently; by eye, a little more
+MATCH_SCALES = tuple(0.75 + 0.025 * k for k in range(21))   # ±25%: past wrist_size_pct's fail line, so that's graded
+ANGLE_UNKNOWN_DEG = 0.0
 
 # (warn, fail) thresholds. Jaws tolerate about ±6mm, so 5-6mm is where a pickup starts to miss.
 LIMITS = {
@@ -298,6 +311,63 @@ def wrist_tile(image_bgr, near_px=None):
     return best[1] if best else None
 
 
+def patch_centre(centre, shape):
+    """`centre` moved just enough that the template around it fits inside an image of `shape`."""
+    h, w = shape[:2]
+    return [float(np.clip(centre[0], WRIST_PATCH_HALF_PX, w - WRIST_PATCH_HALF_PX)),
+            float(np.clip(centre[1], WRIST_PATCH_HALF_PX, h - WRIST_PATCH_HALF_PX))]
+
+
+def wrist_template(image_bgr, centre):
+    """The tile's picture for match_tile: a grey square around `centre` (which fits, see patch_centre)."""
+    u, v = int(round(centre[0])), int(round(centre[1]))
+    half = WRIST_PATCH_HALF_PX
+    return cv2.cvtColor(image_bgr[v - half:v + half, u - half:u + half], cv2.COLOR_BGR2GRAY)
+
+
+def marked_tile(centre, found, shape):
+    """The reference's reading for a tile a person marked at `centre`: wrist_tile's find for size and angle if it agrees
+    with the mark, else a face of the usual size (its colour can't be measured on a pale mat)."""
+    centre = patch_centre(centre, shape)
+    if found is not None and math.dist(found["centre_px"], centre) <= WRIST_PATCH_HALF_PX / 2:
+        return {**found, "centre_px": centre}
+    long_side = math.sqrt(WRIST_AREA_PX * config.TILE_FACE_M[0] / config.TILE_FACE_M[1])
+    return {"centre_px": centre, "area_px": float(WRIST_AREA_PX), "angle_deg": ANGLE_UNKNOWN_DEG,
+            "size_px": [long_side, WRIST_AREA_PX / long_side]}
+
+
+def match_tile(image_bgr, template, reference):
+    """The reference's tile in a wrist frame, by its picture: {"centre_px", "area_px", "angle_deg", "size_px", "score"}
+    as wrist_tile reads them (size and angle relative to the reference's), or None if nothing within WRIST_SEARCH_PX of
+    where it was matches MATCH_MIN_SCORE."""
+    grey = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    h, w = grey.shape
+    best = None
+    for scale in MATCH_SCALES:
+        scaled = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        th, tw = scaled.shape
+        u, v = reference["centre_px"]
+        x0, y0 = max(int(u - WRIST_SEARCH_PX - tw / 2), 0), max(int(v - WRIST_SEARCH_PX - th / 2), 0)
+        x1, y1 = min(int(u + WRIST_SEARCH_PX + tw / 2) + 1, w), min(int(v + WRIST_SEARCH_PX + th / 2) + 1, h)
+        if x1 - x0 < tw or y1 - y0 < th:
+            continue
+        region = grey[y0:y1, x0:x1]
+        for angle in MATCH_ANGLES_DEG:
+            turned = cv2.warpAffine(scaled, cv2.getRotationMatrix2D((tw / 2, th / 2), angle, 1.0), (tw, th),
+                                    borderMode=cv2.BORDER_REPLICATE)
+            scores = np.nan_to_num(cv2.matchTemplate(region, turned, cv2.TM_CCOEFF_NORMED), nan=-1.0, posinf=-1.0, neginf=-1.0)
+            _, score, _, (lx, ly) = cv2.minMaxLoc(scores)
+            if best is None or score > best[0]:
+                best = (score, x0 + lx + tw / 2, y0 + ly + th / 2, scale, angle)
+    if best is None or best[0] < MATCH_MIN_SCORE:
+        return None
+    score, cu, cv_, scale, angle = best
+    # getRotationMatrix2D turns anticlockwise in the image, minAreaRect's angle clockwise
+    return {"centre_px": [float(cu), float(cv_)], "area_px": float(reference["area_px"] * scale ** 2),
+            "angle_deg": wrap_yaw(reference["angle_deg"] - angle),
+            "size_px": [float(v * scale) for v in reference["size_px"]], "score": float(score)}
+
+
 def median_tile(finds):
     """One reading from several frames' wrist_tile() finds (None where a frame found nothing): the median of
     each, or None if fewer than half the frames found the tile."""
@@ -308,7 +378,8 @@ def median_tile(finds):
     return {"centre_px": [float(v) for v in np.median([f["centre_px"] for f in seen], axis=0)],
             "area_px": float(np.median([f["area_px"] for f in seen])),
             "angle_deg": wrap_yaw(first + float(np.median([wrap_yaw(f["angle_deg"] - first) for f in seen]))),
-            "size_px": [float(v) for v in np.median([f["size_px"] for f in seen], axis=0)], "frames": len(seen)}
+            "size_px": [float(v) for v in np.median([f["size_px"] for f in seen], axis=0)], "frames": len(seen),
+            **({"score": float(np.median([f["score"] for f in seen]))} if "score" in seen[0] else {})}
 
 
 def wrist_result(live, reference, placed_turn_deg=None):
@@ -335,9 +406,10 @@ def wrist_text(result):
         return result["why"]
     placed = (f"; placed {result['placed_turn_deg']:+.1f}° differently" if result.get("placed_turn_deg") is not None
               else "")
+    match = f"; match {result['score']:.2f}" if "score" in result else ""
     return (f"tile {result['du_px']:+.0f}px, {result['dv_px']:+.0f}px from where it was (~{result['shift_mm']:.1f}mm), "
             f"size {result['size_pct']:+.0f}% (height); turned {result['angle_change_deg']:+.1f}° in the wrist view"
-            f"{placed} (not graded)")
+            f"{placed} (not graded){match}")
 
 
 def tiles_result(spots):
@@ -397,6 +469,8 @@ def load_reference(folder=None):
     reference["realsense_image"] = cv2.imread(str(folder / reference["realsense"]))
     for spot in reference.get("spots", []):
         spot["wrist_image"] = cv2.imread(str(folder / spot["wrist"])) if spot.get("wrist") else None
+        spot["template_image"] = (cv2.imread(str(folder / spot["template"]), cv2.IMREAD_GRAYSCALE)
+                                  if spot.get("template") else None)
     return reference
 
 
@@ -405,15 +479,19 @@ def save_reference(measured, realsense_bgr, wrist_frames, folder=None):
     spot id ({id: image}). Replaces what's there."""
     folder = folder or REFERENCE_DIR
     folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob("wrist_*.jpg"):
+    for old in [*folder.glob("wrist_*.jpg"), *folder.glob("template_*.png")]:
         old.unlink()
     cv2.imwrite(str(folder / "realsense.png"), realsense_bgr)
     record = {**measured, "time": datetime.now().isoformat(timespec="seconds"), "realsense": "realsense.png",
               "calibration": setup_fingerprint()}     # the hand-eye transform and arm it belongs to
     for spot in record.get("spots", []):
         if spot["id"] in wrist_frames:
+            frame = wrist_frames[spot["id"]]
             spot["wrist"] = f"wrist_{spot['id']}.jpg"
-            cv2.imwrite(str(folder / spot["wrist"]), wrist_frames[spot["id"]], [cv2.IMWRITE_JPEG_QUALITY, 95])
+            cv2.imwrite(str(folder / spot["wrist"]), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            spot["tile"] = {**spot["tile"], "centre_px": patch_centre(spot["tile"]["centre_px"], frame.shape)}
+            spot["template"] = f"template_{spot['id']}.png"
+            cv2.imwrite(str(folder / spot["template"]), wrist_template(frame, spot["tile"]["centre_px"]))
     (folder / "reference.json").write_text(json.dumps(record, indent=2, default=_jsonable) + "\n")
     return record
 
@@ -431,7 +509,8 @@ ADVICE = {
     "table": "The mat's height or tilt changed (another table, something under a wheel or the tripod, a "
              "different mat). If the camera check passed, fix the table; if not, fix the camera first.",
     "tiles": "The hover lands the tile somewhere else in the wrist view. If camera and table pass, look at the "
-             "wrist camera's mount, the arm's calibration (parked pose) and whether the hover correction changed.",
+             "wrist camera's mount, the arm's calibration (parked pose) and whether the hover correction changed. "
+             "\"No tile\" with the tile in view: is it the same tile as the reference's, and is the light the same?",
     "parked": "The unpowered arm settles differently: a servo recalibrated or replaced, a loose horn, or "
               "something touching the arm. Joint angles may no longer mean what they did in training.",
     "brightness": "The light changed: compare the setup answers with the training sessions "
