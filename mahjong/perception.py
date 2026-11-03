@@ -5,6 +5,7 @@ One RealSense pipeline is opened per session and kept (MahjongBot hardware-reset
 every detection, ~5s each, because its recorder handed the device back and forth with lerobot's
 camera; nothing here does that).
 """
+import math
 import sys
 import time
 from collections import defaultdict
@@ -42,6 +43,7 @@ class RealSense:
         self._model = None
         self._boxes_of = (None, [])  # the last frame tile_boxes ran on, and its boxes
         self.last_frames = []       # the latest scan's frames and boxes (detector.save_scan)
+        self.faint = []             # the latest scan's tiles too unsure to name (faint_tiles)
         for _ in range(warmup_frames):
             self.pipeline.wait_for_frames()
 
@@ -81,26 +83,28 @@ class RealSense:
             self._model = YOLO(str(config.TILE_DETECTOR))
 
     def tile_boxes(self, image_bgr):
-        """The confident detector boxes in a frame, [(x1, y1, x2, y2)], for layout.find_tile. Names aren't used: only
-        that a tile is there. One detector run per frame, however many spots ask (~7ms on the GPU)."""
+        """The detector's boxes in a frame down to the presence cutoff, [(x1, y1, x2, y2)], for layout.find_tile. Names
+        aren't used: only that a tile is there. One detector run per frame, however many spots ask (~7ms on the GPU)."""
         if self._boxes_of[0] is not image_bgr:
             self._load_detector()
-            boxes = [b["xyxy"] for b in run_detector(self._model, image_bgr) if b["confidence"] >= config.DETECTION_CONFIDENCE]
+            boxes = [b["xyxy"] for b in run_detector(self._model, image_bgr, conf=config.DETECTION_PRESENCE_CONFIDENCE)]
             self._boxes_of = (image_bgr, boxes)
         return self._boxes_of[1]
 
     def detect_tiles(self, n_frames=config.DETECTION_FRAMES):
         """Tiles seen over n_frames, merged into one entry per physical tile by a vote (merge_tiles), which
         counts every box down to config.DETECTION_SAVE_CONFIDENCE. Each frame, its filtered depth and
-        every box YOLO found in it stay in self.last_frames, for the detector's data (detector.save_scan)."""
+        every box down to there stay in self.last_frames, for the detector's data (detector.save_scan). Fainter boxes
+        only say a tile is there: self.faint (faint_tiles)."""
         self._load_detector()
-        raw, self.last_frames = [], []
+        raw, every, self.last_frames = [], [], []
         for k in range(n_frames):
             color, depth = self._frames()
             intrinsics = depth.profile.as_video_stream_profile().intrinsics
-            boxes = run_detector(self._model, color)
+            boxes = run_detector(self._model, color, conf=config.DETECTION_PRESENCE_CONFIDENCE)
             self.last_frames.append({"color": color.copy(), "depth": np.asanyarray(depth.get_data()).copy(),
-                                     "depth_scale_m": self.depth_scale_m, "boxes": boxes})
+                                     "depth_scale_m": self.depth_scale_m,
+                                     "boxes": [b for b in boxes if b["confidence"] >= config.DETECTION_SAVE_CONFIDENCE]})
             for box in boxes:
                 x1, y1, x2, y2 = box["xyxy"]
                 u, v = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -109,17 +113,22 @@ class RealSense:
                     continue
                 p_cam = np.array([(u - intrinsics.ppx) * d / intrinsics.fx, (v - intrinsics.ppy) * d / intrinsics.fy, d, 1.0])
                 x, y = (self.T_cam_to_base @ p_cam)[:2]
-                raw.append({"tile_name": box["tile_name"], "confidence": box["confidence"], "frame": k,
-                            "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))})
-        return merge_tiles(raw, n_frames)
+                read = {"tile_name": box["tile_name"], "confidence": box["confidence"], "frame": k,
+                        "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))}
+                every.append(read)
+                if box["confidence"] >= config.DETECTION_SAVE_CONFIDENCE:
+                    raw.append(read)
+        tiles = merge_tiles(raw, n_frames)
+        self.faint = faint_tiles(every, tiles, n_frames)
+        return tiles
 
 
-def run_detector(model, color):
-    """Every box the YOLO `model` finds in a BGR frame, down to config.DETECTION_SAVE_CONFIDENCE:
-    [{"tile_name", "confidence", "xyxy"}]. The live scan and the detector's exam both go through here."""
+def run_detector(model, color, conf=config.DETECTION_SAVE_CONFIDENCE):
+    """Every box the YOLO `model` finds in a BGR frame, down to `conf`: [{"tile_name", "confidence", "xyxy"}]. The live
+    scan and the detector's exam both go through here."""
     return [{"tile_name": model.names[int(box.cls[0])], "confidence": round(float(box.conf[0]), 4),
              "xyxy": [round(float(c), 1) for c in box.xyxy[0]]}
-            for box in model(color, conf=config.DETECTION_SAVE_CONFIDENCE, iou=0.5, verbose=False)[0].boxes]
+            for box in model(color, conf=conf, iou=0.5, verbose=False)[0].boxes]
 
 
 def robust_depth(depth_frame, u, v, window=5):
@@ -163,6 +172,24 @@ def merge_tiles(detections, n_frames=1, radius_m=config.TILE_MERGE_RADIUS_M, min
                        "reads": len(cluster), "frames_seen": len(seen),
                        "votes": {n: round(v, 4) for n, v in sorted(votes.items(), key=lambda nv: -nv[1])}})
     return sorted(merged, key=lambda t: -t["xy"][1])      # left to right
+
+
+def faint_tiles(reads, tiles, n_frames=1, radius_m=config.TILE_MERGE_RADIUS_M, min_frames=MIN_FRAMES_SEEN):
+    """Places with a tile the scan couldn't name: `reads` (any confidence) clustered as merge_tiles does, in min_frames
+    of the frames, and not near one of `tiles` (a tile's second guesses aren't another tile). Kept apart from `tiles`
+    because a name this unsure mustn't be acted on, and low reads would pull a good tile's vote under the cut.
+    [{"tile_name": the best guess, "xy", "confidence": the best read}]."""
+    remaining, faint = [r for r in reads if not any(math.dist(r["xy"], t["xy"]) <= radius_m for t in tiles)], []
+    while remaining:
+        seed = remaining.pop(0)
+        cluster = [seed] + [r for r in remaining if math.dist(r["xy"], seed["xy"]) <= radius_m]
+        remaining = [r for r in remaining if r not in cluster]
+        if len({r.get("frame", i) for i, r in enumerate(cluster)}) < min(min_frames, n_frames):
+            continue
+        best = max(cluster, key=lambda r: r["confidence"])
+        faint.append({"tile_name": best["tile_name"], "confidence": best["confidence"],
+                      "xy": (float(np.mean([r["xy"][0] for r in cluster])), float(np.mean([r["xy"][1] for r in cluster])))})
+    return faint
 
 
 def drain_stdin():

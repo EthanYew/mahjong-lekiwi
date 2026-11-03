@@ -41,9 +41,9 @@ A `note` of straightened tiles or tiles put back, between commands, says the sam
 
 A tile a scan says went, or a spot's tile not detected, is looked at with the wrist camera before anyone is asked
 (mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face between the jaw
-tips. On a pale surface it can only compare the view with an earlier look at that place, and asks you the first time.
-After 3 looks find a tile still at a place, the next 10 losses there aren't looked at unless the arm was near it or a
-key was pressed (`glitch_ignored` events), then one look earns 10 more. Still there: a detection glitch, logged as one
+tips. A box the detector is too unsure of to name (down to config.DETECTION_PRESENCE_CONFIDENCE) needs no look: the tile's
+there (`tile_faint` events). On a pale surface it can only compare the view with an earlier look at that place, and asks you the first time.
+Still there: a detection glitch, logged as one
 (`wrist_check` and `scan_review` events, the frame in
 wrist_checks/), and the tile is picked up from where it was. Not there: the change is real. While the arm holds a tile
 its wrist view is blocked, so the look waits for the next scan (which may see the tile again by itself).
@@ -190,7 +190,7 @@ class Bench:
         self.changes = interventions.ChangeWatch()      # every other change, until later scans settle it
         self.unlooked = []          # (scan number, tile) a scan said went while the arm held a tile: looked at next
         self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
-        self.trust = interventions.GlitchTrust()    # places where the tile the scans keep losing keeps being there
+        self.views = wrist_check.PlaceViews()       # what the wrist camera saw where lost tiles turned out to be
         self.names = {}             # {spot id or tile name: the tile last picked up there}
         self.batch = False          # during trials: a tile not found is put back by a person, not skipped
         self.defer = False          # questions wait for the caller (play: the end of the step)
@@ -276,11 +276,18 @@ class Bench:
         lost = [(scan["scan"], t) for t in (diff["gone"] if diff else [])]
         target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
         if target is not None:      # the arm handled this one: it's not where it was
-            self.trust.forget(target)
-        if not look:                # the held tile blocks the wrist view
-            self.unlooked += lost
-            return proposal, []
+            self.views.forget(target)
         todo, self.unlooked, seen = self.unlooked + lost, [], []
+        for scan_n, tile in list(todo):         # a faint box needs no arm, so a held tile doesn't get in the way
+            if self.faint_at(tile, scan_n, interventions.FAINT_SAME_M):
+                todo.remove((scan_n, tile))
+                seen.append(tile)
+                if scan_n == scan["scan"]:
+                    diff = interventions.without(diff, gone=[tile])
+                else:
+                    self.drop_change(scan_n, tile, "a faint box still there")
+        if not look:                # the held tile blocks the wrist view
+            self.unlooked, todo = todo, []
         for scan_n, tile in todo:
             back = next((t for t in (diff["appeared"] if diff else [])
                          if math.dist(t["xy"], tile["xy"]) <= config.TILE_MERGE_RADIUS_M), None)
@@ -290,7 +297,7 @@ class Bench:
                 continue
             if self.crowded(tile, scan["tiles"], scan_n):
                 continue
-            present = self.ignore_loss(tile, scan_n, target) or self.wrist_look(tile, scan_n)["present"]
+            present = self.wrist_look(tile, scan_n)["present"]
             if present is False and scan_n != scan["scan"]:
                 self.settle_gone(scan_n, tile)
             if not present:
@@ -434,21 +441,18 @@ class Bench:
                            at_scan=self.scan_n, present=None, fill=None, why=why, policy=self.policy.id)
         return True
 
-    def ignore_loss(self, tile, scan_n, target):
-        """True if a tile the scans lost is at a place trusted enough not to look (interventions.GlitchTrust). Never when
-        the arm was near it or a key said something happened: that's when a knock is likely. Logged as `glitch_ignored`,
-        so a session shows how many losses nobody checked."""
-        if target is not None and (math.dist(target, tile["xy"]) <= interventions.NEIGHBOUR_M
-                                   or self.pressed("collided") or self.pressed(interventions.BY_HAND)):
-            return False
-        place = self.trust.ignore(tile["xy"])
-        if place is None:
-            return False
-        print(f"  {tile['tile_name']} not seen at ({tile['xy'][0]:.3f}, {tile['xy'][1]:+.3f}): there the last "
-              f"{place['confirms']} times it was checked, not looking ({place['ignore_left']} more before the next look)")
-        self.session.event("glitch_ignored", tile=tile["tile_name"], xy=list(tile["xy"]), scan=scan_n, at_scan=self.scan_n,
-                           confirms=place["confirms"], ignore_left=place["ignore_left"])
-        return True
+    def faint_at(self, tile, scan_n, radius_m):
+        """The latest scan's faint box (perception.faint_tiles) within radius_m of a tile it lost: the tile's there, the
+        detector just couldn't name it. Logged as `tile_faint`. The box, or None."""
+        near = [f for f in self.realsense.faint if math.dist(f["xy"], tile["xy"]) <= radius_m]
+        if not near:
+            return None
+        box = min(near, key=lambda f: math.dist(f["xy"], tile["xy"]))
+        print(f"  {tile['tile_name']} not named at ({tile['xy'][0]:.3f}, {tile['xy'][1]:+.3f}), but a box is still there "
+              f"({box['confidence']:.2f})")
+        self.session.event("tile_faint", tile=tile["tile_name"], xy=list(tile["xy"]), scan=scan_n, at_scan=self.scan_n,
+                           confidence=box["confidence"], box_xy=list(box["xy"]), guess=box["tile_name"])
+        return box
 
     def ask_still_there(self, name, x, y):
         """A pale surface and nothing to compare with: a person's look, once per place. True / False."""
@@ -465,7 +469,7 @@ class Bench:
         print(f"  {name} not seen at ({x:.3f}, {y:+.3f}): looking with the wrist camera")
         # the sim's tiles are where they're detected: the real arm's correction would look ~50mm off them
         hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
-        template = self.trust.template((x, y))
+        template = self.views.template((x, y))
         result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template)
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
@@ -478,10 +482,10 @@ class Bench:
         if result["present"]:
             # a place's picture is taken once a person has seen it, or on a surface the look can judge; a same-view look
             # keeps it, so it can't drift off the tile a little at a time
-            keep = None if result.get("by") == "same view" or frame is None else wrist_check.view_template(frame)
-            self.trust.confirmed((x, y), keep)
+            if result.get("by") != "same view" and frame is not None:
+                self.views.keep((x, y), wrist_check.view_template(frame))
         elif result["present"] is False:
-            self.trust.forget((x, y))
+            self.views.forget((x, y))
         if frame is not None:
             folder = self.session.dir / "wrist_checks"
             folder.mkdir(exist_ok=True)
@@ -506,7 +510,11 @@ class Bench:
         if home is None or any(n == self.scan_n and math.dist(xy, home) <= config.TILE_MERGE_RADIUS_M
                                for n, xy in self.looked_empty):
             return None
-        tile = {"tile_name": tile_name or self.names.get(key) or (spot or {}).get("label") or key, "xy": list(home)}
+        tile = {"tile_name": tile_name or self.names.get(key) or key, "xy": list(home)}
+        box = self.faint_at(tile, self.scan_n, config.TILE_MERGE_RADIUS_M)
+        if box:                     # picked up from where the box is, as a named tile would be
+            self.mat.restore(tile)
+            return {"tile_name": tile["tile_name"], "xy": tuple(box["xy"]), "confidence": 0.0, "faint": True}
         if self.crowded(tile, tiles, self.scan_n):
             return None
         result = self.wrist_look(tile, self.scan_n)
@@ -576,7 +584,7 @@ class Bench:
         """Ask a person to put the missing tile where it belongs; True if they did (rescan), False to skip."""
         home = spot["xy"] if spot else self.homes.get(tile_name)
         where = f" at ({home[0]:.3f}, {home[1]:+.3f})" if home else ""
-        name = tile_name or (spot or {}).get("label") or "the tile"
+        name = tile_name or "the tile"
         drain_stdin()
         answer = input(f"  {missing}. Put {name}{where} squarely, then Enter to rescan, "
                        f"or s to skip: ").strip().lower()

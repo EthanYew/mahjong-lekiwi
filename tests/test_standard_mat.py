@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from mahjong import interventions, layout, sim, wrist_check
+from mahjong import layout, sim, wrist_check
 from mahjong import setup_check as sc
 from mahjong.layout import find_face, find_tile
 
@@ -156,22 +156,16 @@ def test_on_a_pale_surface_the_look_only_says_the_view_has_not_changed():
     assert wrist_check.check(Arm(), Camera(knocked), 0.2, 0.0, HOVER, template)["present"] is None
 
 
-def test_glitch_trust_counts_by_place_and_forgets_a_tile_that_may_have_moved():
-    trust = interventions.GlitchTrust()
+def test_place_views_go_by_place_and_forget_a_tile_that_may_have_moved():
+    views = wrist_check.PlaceViews()
     here, beside, far = (0.2, 0.0), (0.205, 0.0), (0.2, 0.1)
-    assert trust.ignore(here) is None
-    trust.confirmed(here, "picture")
-    trust.confirmed(beside)                # the same place: a detection moves a few mm
-    assert trust.ignore(here) is None and trust.template(beside) == "picture"
-    trust.confirmed(here)
-    assert trust.ignore(far) is None
-    for left in range(trust.IGNORE_NEXT - 1, -1, -1):
-        assert trust.ignore(here)["ignore_left"] == left
-    assert trust.ignore(here) is None      # the window's over: one look
-    trust.confirmed(here)                  # and that earns another, not three more
-    assert trust.ignore(here)["ignore_left"] == trust.IGNORE_NEXT - 1
-    trust.forget(here)
-    assert trust.ignore(here) is None and trust.template(here) is None
+    assert views.template(here) is None
+    views.keep(here, "picture")
+    assert views.template(beside) == "picture" and views.template(far) is None   # a detection moves a few mm
+    views.keep(beside, "newer")
+    assert views.template(here) == "newer" and len(views.places) == 1
+    views.forget(beside)
+    assert views.template(here) is None
 
 
 def test_the_wrist_look_still_answers_on_a_dark_surface():
@@ -187,10 +181,10 @@ def test_the_detector_runs_once_a_frame_however_many_spots_ask(monkeypatch):
     realsense = object.__new__(perception.RealSense)
     realsense._model, realsense._boxes_of, calls = object(), (None, []), []
 
-    def run(model, frame):
+    def run(model, frame, conf):
+        assert conf == config.DETECTION_PRESENCE_CONFIDENCE
         calls.append(frame)
-        return [{"tile_name": "8D", "confidence": 0.9, "xyxy": [1, 2, 3, 4]},
-                {"tile_name": "WD", "confidence": config.DETECTION_CONFIDENCE - 0.1, "xyxy": [5, 6, 7, 8]}]
+        return [{"tile_name": "8D", "confidence": 0.9, "xyxy": [1, 2, 3, 4]}]
     monkeypatch.setattr(perception, "run_detector", run)
     frame, other = np.zeros((4, 4, 3), np.uint8), np.zeros((4, 4, 3), np.uint8)
     assert realsense.tile_boxes(frame) == [[1, 2, 3, 4]] and realsense.tile_boxes(frame) == [[1, 2, 3, 4]]
@@ -206,3 +200,25 @@ def test_marking_a_tile_draws_the_template_where_it_was_clicked():
     frame = image("wrist_bare_at_disc")
     shown = setup_check.mark_view(frame, {"id": "F6"}, (505, 205))
     assert shown.shape == frame.shape and (shown != frame).any() and (frame == image("wrist_bare_at_disc")).all()
+
+
+def test_a_tile_too_unsure_to_name_is_faint_and_its_second_guesses_are_not():
+    from mahjong.perception import faint_tiles, merge_tiles
+
+    def read(name, conf, frame, x):
+        return {"tile_name": name, "confidence": conf, "frame": frame, "xy": (x, 0.0)}
+    reads = [read("4D", 0.9, k, 0.2) for k in range(5)] + [read("7D", 0.12, k, 0.2) for k in range(5)]    # a second guess
+    reads += [read("3C", 0.18, 0, 0.1), read("7C", 0.15, 1, 0.1), read("3C", 0.2, 2, 0.1)]                # a hard tile
+    reads += [read("9D", 0.11, 3, 0.3)]                                                                   # one frame: a flicker
+    tiles = merge_tiles([r for r in reads if r["confidence"] >= 0.25], 5)
+    assert [t["tile_name"] for t in tiles] == ["4D"]
+    (faint,) = faint_tiles(reads, tiles, 5)
+    assert faint["tile_name"] == "3C" and faint["confidence"] == 0.2 and faint["xy"] == pytest.approx((0.1, 0.0))
+
+
+def test_setup_check_keeps_the_tile_a_person_used_not_the_layouts_label():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import setup_check
+    answers = iter(["8D", ""])
+    assert setup_check.tile_names([{"id": "F2"}, {"id": "F3"}], lambda prompt: next(answers)) == {"F2": "8D"}

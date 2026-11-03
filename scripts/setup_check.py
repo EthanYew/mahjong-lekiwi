@@ -16,8 +16,9 @@ over it as the bench does and the wrist camera looks; the arm rests before the n
 again, and Enter looks again; s skips the spot, q stops the tile test. At the end the arm
 is switched off and settles onto its stops, and that pose is compared too.
 
-The wrist view finds the tile by the reference's picture of it, so each spot needs the same tile every time (the one
-it names). Saving a reference: click the middle of the tile in the window if the cross is off it.
+The wrist view finds the tile by the reference's picture of it, so each spot needs the same tile every time. Saving a
+reference: use any tiles, click the middle of the tile in the window if the cross is off it, and say which tile each spot
+got; a check then asks for that one.
 
 The reference lives in data/setup_reference/ (commit it: it's what "set up correctly" means). Each run writes
 sessions/<time>_setup/ with the images and a `setup_check` event; exits 1 if any check failed.
@@ -64,7 +65,7 @@ def parse_args(argv=None):
 def check_spots(args, reference):
     """The spots to place a tile on: the layout's (saving a reference) or the reference's (checking)."""
     if reference is not None:
-        return [{k: s[k] for k in ("id", "xy", "yaw_deg", "label") if k in s} for s in reference.get("spots", [])]
+        return [{k: s[k] for k in ("id", "xy", "yaw_deg", "tile_name") if k in s} for s in reference.get("spots", [])]
     spots = layout.load(args.layout)["spots"]
     wanted = [s.strip() for s in args.spots.split(",") if s.strip()]
     missing = [w for w in wanted if w not in {s["id"] for s in spots}]
@@ -108,7 +109,7 @@ def place_sim_tile(realsense, spot):
     K, T = realsense.intrinsics, realsense.T_cam_to_base
     pixel = layout.table_to_pixel([(*spot["xy"], layout.face_z(*spot["xy"]))], K, T)
     true_xy = layout.pixel_to_table(pixel, K, realsense.T_render)[0][:2]
-    realsense.tiles = [{"tile_name": spot.get("label") or "6B", "xy": [float(v) for v in true_xy]}]
+    realsense.tiles = [{"tile_name": "6B", "xy": [float(v) for v in true_xy]}]
 
 
 def tile_at(realsense, spot, sim, again=False):
@@ -118,7 +119,7 @@ def tile_at(realsense, spot, sim, again=False):
     if sim:
         place_sim_tile(realsense, spot)
     else:
-        tile = spot.get("label") or "the reference's tile"
+        tile = spot.get("tile_name") or "a tile"     # the reference's, not the layout's: the labels aren't what's on the mat
         print(f"  {'Move' if again else 'Put'} {tile} on {spot['id']} until its outline is green, "
               "then Enter in the window (s skips the spot, q stops the tile test).")
         placed = layout.place(realsense.snapshot, [spot], spot["id"], K, T, window=WINDOW, boxes=realsense.tile_boxes)
@@ -396,6 +397,12 @@ def main(argv=None, ask=None, devices=None):
     return overall
 
 
+def tile_names(spots, ask):
+    """{spot id: the tile a person says they used}, for a check to ask for the same one (its picture is what's matched)."""
+    names = {s["id"]: ask(f"  Which tile did you use on {s['id']}? A check needs the same one (e.g. 8D): ").strip() for s in spots}
+    return {i: n for i, n in names.items() if n}
+
+
 def save(folder, measured, color, frames, tiles, spots, correction, args, ask):
     """Show what was measured and, if confirmed, write it as the reference."""
     missing = [s["id"] for s in spots if s["id"] not in frames or not tiles[s["id"]].get("centre_px")]
@@ -409,8 +416,11 @@ def save(folder, measured, color, frames, tiles, spots, correction, args, ask):
     if ask(prompt).strip().lower() not in ("y", "yes"):
         print("Not saved.")
         return "skipped"
+    names = {} if args.sim else tile_names([s for s in spots if s["id"] not in missing], ask)
     record = {**measured, "hover_correction": correction.name if correction else None, "layout": args.layout,
-              "spots": [{**s, "tile": {k: tiles[s["id"]][k] for k in ("centre_px", "area_px", "angle_deg", "size_px")},
+              "spots": [{**{k: v for k, v in s.items() if k != "label"},
+                         **({"tile_name": names[s["id"]]} if s["id"] in names else {}),
+                         "tile": {k: tiles[s["id"]][k] for k in ("centre_px", "area_px", "angle_deg", "size_px")},
                          **{k: tiles[s["id"]][k] for k in ("measured_xy", "measured_yaw_deg", "hover_delta_mm")}}
                         for s in spots if s["id"] not in missing]}
     sc.save_reference(record, color, {i: f for i, f in frames.items() if i not in missing}, folder)

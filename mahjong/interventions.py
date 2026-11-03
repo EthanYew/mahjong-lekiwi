@@ -101,6 +101,7 @@ TURN_PX = 2.5
 # diagonals ~75mm). Answers to 212 scan changes (23 sessions to 2026-10-30): beyond 90mm, 43 of 47 were glitches;
 # neighbours that moved or turned at 40-60mm, 30 of 39 were real; gone / appeared at any distance mostly glitches.
 NEIGHBOUR_M = 0.085
+FAINT_SAME_M = 2 * KNOCK_M      # a faint box this close to a lost tile is that tile, unmoved (as _state's "before")
 # A watched change is real once this many later scans still show it (ChangeWatch: ~one attempt, 3 scans each);
 # one a later scan shows undone was a glitch. Replayed on the same answers: 3 matched the person on 43 of 55
 # watched changes (40 of their 44 glitches), 2 on 40. Most of the rest were real answers given for a whole
@@ -385,56 +386,6 @@ class ChangeWatch:
         return out
 
 
-class GlitchTrust:
-    """Places where the wrist camera (or a person) keeps finding the tile the scans lost: after CONFIRMS_TO_TRUST
-    confirmations the next IGNORE_NEXT losses there aren't looked at, then one look, which earns IGNORE_NEXT more if the
-    tile's there. A few tiles cause nearly all of them (three of 14 in 20261103_121112_bench: 2B, 1B and 3C).
-
-    By place, never by name: the name is what flickers (2B read as 4B and 3B). A place holds what the wrist camera saw
-    there, for wrist_check to compare the next look with. Anything that says the tile may have moved forgets the place:
-    the arm handling it, a look or a person finding it gone."""
-    CONFIRMS_TO_TRUST, IGNORE_NEXT = 3, 10
-
-    def __init__(self):
-        self.places = []
-
-    def _place(self, xy):
-        near = [p for p in self.places if math.dist(p["xy"], xy) <= config.TILE_MERGE_RADIUS_M]
-        return min(near, key=lambda p: math.dist(p["xy"], xy)) if near else None
-
-    def template(self, xy):
-        """What the wrist camera last saw at this place, or None."""
-        place = self._place(xy)
-        return place["template"] if place else None
-
-    def confirmed(self, xy, template=None):
-        """The tile is there. Returns the place's {"confirms", "ignore_left"}."""
-        place = self._place(xy)
-        if place is None:
-            place = {"xy": list(xy), "confirms": 0, "ignore_left": 0, "template": None}
-            self.places.append(place)
-        place["confirms"] += 1
-        if template is not None:
-            place["template"] = template
-        if place["confirms"] >= self.CONFIRMS_TO_TRUST:
-            place["ignore_left"] = self.IGNORE_NEXT
-        return place
-
-    def ignore(self, xy):
-        """A loss at `xy`: the place's {"confirms", "ignore_left"} if it's to be ignored (using one up), else None."""
-        place = self._place(xy)
-        if place is None or place["ignore_left"] <= 0:
-            return None
-        place["ignore_left"] -= 1
-        return place
-
-    def forget(self, xy):
-        """The tile here may have moved (handled, or found gone): start again."""
-        place = self._place(xy)
-        if place is not None:
-            self.places.remove(place)
-
-
 def without(diff, gone=(), appeared=()):
     """A scene_diff with those gone / appeared tiles left out (ones the wrist camera or a later scan explained)."""
     return {**diff, "gone": [t for t in diff["gone"] if t not in gone],
@@ -509,7 +460,7 @@ def derive(events):
                     "scans" if by == "scans" else "confirmed", time, during=during, changes=changes,
                     by=None if by == "scans" else by)
             mat.advance(e, merge(*[c for k, c, _ in found if k == "knocked"]))
-        elif (kind == "wrist_check" and e.get("present")) or kind == "glitch_ignored":
+        elif (kind == "wrist_check" and e.get("present")) or kind == "tile_faint":
             mat.restore({"tile_name": e["tile"], "xy": e["xy"]})
         elif kind == "session_end":
             ended = True
