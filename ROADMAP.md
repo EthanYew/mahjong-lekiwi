@@ -21,7 +21,7 @@ names the current default. Sections below hold the reasoning.
 | Scorecard (4) | Adopted 2026-11-03: an iteration check, a play-ready check, and the strict paired rule for claims. Tested on synthetic events and `--sim`, not yet on a real standard-setup session | `docs/scorecard.md`; `mahjong/scorecard.py` | First real use: the unseen-surface test. Add the hover and control-code cards when one is needed |
 | Standard setup | **Locked 2026-11-03:** the owner's coloured or patterned mat, `even-hand14`. The tile finders work on it offline; `setup_check.py` not yet run on the arm with them, and no reference saved | `data/standard_setup.json`; `docs/retrospectives/2026-11-02_week3_skills_assessment.md` ("Changed 2026-11-03"); `20261103_121112_bench` | Fix the mat's position, `setup_check.py --save-reference`, check the detector on it |
 | v8, the standard mat (2026-11-03) | **Trained and registered (hover 20.6%), not benched, not the default.** 37 standard-mat demos + 71 other surfaces + 93 black top, `--trim-narrowing --augment --replace-mat 0.7`; DAgger sets left out because their deltas tighten the jaws from a 21% hover | `docs/retrospectives/2026-11-03_standard_mat_data_review.md`; `20261103_152342_record`, `20261103_162338_record`; v6 vs v7 `20261103_121112_bench` | Bench it, named failure: jaws push the tile or close on top of it. The owner chooses the opponent: v6 at `--hover-gripper 21` (the scorecard's check, a low bar), or v7, which led v6 on this mat, each at its own hover (not counted: the openings differ) |
-| Tile detector (10) | v6x3 live: 97.1% right on the exam without flowers (was 68.6%). Exam: 2 capture sessions | `2fee0eb`; `data/detector_exam.json` | More exam sessions (one per lighting, ~1000 tiles for the wrong-name bound); record.py's scans don't save frames yet |
+| Tile detector (10) | v6x3 live (`0c4b15eb`): 80.9% right on the standard mat (93.2% found, 86.8% named right, 587 tiles), 86.2% on the whole exam without flowers (961 tiles; wrong names up to 10.8% at 95%). Exam: 4 capture sessions, 103 frames (Roboflow v7). Its 97.1% was 15 October frames on another surface | `20261104_092917_capture`, `20261104_101205_capture`; `data/detector_eval/tile_detector@0c4b15eb_without_1F-2F-3F-4F.json` | Train on the standard mat: mine and label frames, aiming at the number mix-ups (3D/5D, 2/3/4B, 6/7 of a suit), ship only on a better exam. Flowers aren't in the new sessions; record.py's scans don't save frames yet |
 | Tile name data | Standard built: placements, every play decision logged, discards in the audit, `name_report.py`. First backfill: 5 wrong names accepted in 199 placements, 4 of them on the standard mat (8C x2, 2B, 2C). Bench data replayed, no real hand yet | `docs/name_data.md`; `docs/retrospectives/evidence/2026-11-04_name_data/` | Stopgap in play: asks on 6 read names and under 0.80 confidence until a second read passes. Run the check before trials on the next mat bench; set the bands' thresholds; the first real hand tests the play half |
 | Name check (second read) | First screen, offline: a wrist classifier trained off the mat read 83-91% of 154 mat photos and flagged 56 of YOLO's 57 wrong reads over 3 seeds, with 21-27% asks; untrained VLMs 22-32%. Not an exam, not on the arm | `docs/name_check_plan.md`; `docs/retrospectives/evidence/2026-11-04_name_check_test/`; `20261103_235212_wrist` | More placements of thin names (7C, 4B), crop from measured offsets, retest; then a real exam |
 | Harness (6) | Fast tests 96 → 11 s; `merge_pr.py` (merged-tree tests, closing step), `status.py`, `test_docs.py`, checkout warnings | this table's branch (`worktree-harness-docs-merge`) | `merge_pr.py --close` for the 35 merged branches left over |
@@ -370,15 +370,20 @@ at 1280 px like training (no scale mismatch to fix).
   fine-tunes from the live weights with their July recipe, and refuses exam frames.
 
 **Shipped 2026-10-28: v6x3** (`2fee0eb`): 97.1% right overall on the exam without flowers (the live
-detector was 68.6%), README "The tile detector". The exam has 2 capture sessions so far
-(`data/detector_exam.json`).
+detector was 68.6%), README "The tile detector".
+
+**Baseline on the standard mat (2026-11-04):** two more exam sessions, 48 frames, took the exam to 103 frames (Roboflow
+v7). Without flowers the live detector got 80.9% of the mat's 587 tiles right: 93.2% found, and 72 of the 547 found named
+wrong. The commonest mix-ups, whole exam: 3D->5D x14, 3B->4B x8, 7B->6B x8, 7C->6C x6, 2B->4B x6. Upright rows and turned
+tiles scored the same (80.7%, 81.1%), and October's same-lighting session got 93.4% on another surface, so the mat looks
+like the cause; arrangements differ too, so that isn't proven. Labels were read from enlarged crops and checked as one
+complete set per frame; no person has spot-checked them.
 
 **Next, on the hardware:**
-1. Capture the rest of the exam: one `--exam` session per lighting (daylight, lamp, ceiling), 40-60 scans in all,
-   arrangements of their own (rows, tiles pushed together, turned tiles, the tilt layout's angles).
-   Label it, score the live detector: the baseline. Commit `data/detector_exam.json` and the scores.
-2. Training frames: a few `capture_frames.py` sessions plus the bench's scans, `mine_frames.py --all`,
+1. Training frames: a few `capture_frames.py` sessions on the standard mat plus the bench's scans, `mine_frames.py --all`,
    label them in the July project, train, score against the live one, ship only on a better exam.
+2. More exam sessions for the lightings and arrangements still missing (dim, tiles pushed together, flowers on this
+   mat), for the wrong-name bound (showing under 0.3% takes ~1000 tiles with almost none wrong). A new session changes the exam: score both detectors on it again.
 3. Not yet: `record.py`'s scans don't save their frames (the bench and capture do). Add it in its own
    change (record.py is shared with other work), then recording sessions feed mining too.
 

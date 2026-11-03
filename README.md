@@ -721,6 +721,9 @@ Baseline (2026-10-27, live detector, exam v4: 15 frames, dim + lamp + ceiling li
 flowers 102 tiles, 85.3% found, 80.5% named right, **68.6% right overall**, no extra boxes. Mostly
 neighbouring numbers within a suit (6/7C, 2/3C, 5/8C, 3D/5D, 2/3/4B).
 
+Current exam (Roboflow v7, downloaded to `data/detector/exam_v7`): 103 frames over 4 capture sessions, 48 of them on the
+standard mat, where the live detector gets 80.9% right overall (`--by session` shows it).
+
 **3. Mining and retraining.** `mine_frames.py` picks the frames worth labelling: a tile whose name
 changed across a scan's 5 frames (flicker), a tile seen in some frames and not others (dropout), a
 tile below 0.7 confidence (low), or a scan you called a detection glitch at the bench. `--all` adds a
