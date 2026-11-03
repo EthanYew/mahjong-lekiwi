@@ -112,6 +112,7 @@ def test_the_gamepad_gets_the_wider_deadzone_and_its_readings_go_to_the_window(t
     import collect_corrections
     _, _, gamepad, _ = run(tmp_path, monkeypatch)
     assert gamepad.kwargs["deadzone"] == collect_corrections.DEADZONE == 0.35
+    assert gamepad.kwargs["left_stick_max_mm_s"] == collect_corrections.LEFT_STICK_MAX_MM_S
     assert gamepad.shown_inputs and all(last and "raw" in last for last in gamepad.shown_inputs)
     _, _, gamepad, _ = run(tmp_path / "again", monkeypatch, argv=["--deadzone", "0.5"])
     assert gamepad.kwargs["deadzone"] == 0.5

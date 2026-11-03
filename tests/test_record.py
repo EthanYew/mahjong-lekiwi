@@ -275,6 +275,7 @@ def test_the_gamepad_gets_the_wider_deadzone_and_a_resting_thumb_is_said(tmp_pat
             return {"left": (0.0, -0.3)}
     _, session = run_record(tmp_path, monkeypatch, ["--episodes", "1"], [("hover", {}), ("rec", {})], gamepad=ThumbOnStick)
     assert pads[0].kwargs["deadzone"] == 0.35
+    assert pads[0].kwargs["left_stick_max_mm_s"] == 30.0
     assert "left stick reads (+0.00, -0.30)" in capsys.readouterr().out
     (event,) = [e for e in read_events(session) if e["type"] == "stick_off_centre"]
     assert event["tile"] == "8D" and event["sticks"] == {"left": [0.0, -0.3]}

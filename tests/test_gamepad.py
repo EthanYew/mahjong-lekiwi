@@ -1,4 +1,6 @@
 """Gamepad takeover and stick gating, with a scripted pad driving XLeRobot's real EETeleop."""
+import math
+
 import pytest
 
 from mahjong import config, kinematics
@@ -146,6 +148,64 @@ def test_a_wider_deadzone_ignores_a_resting_thumb_that_xlerobots_lets_drive():
     assert DeadzonePad(pad, utils.shape_stick, 0.35).stick("ly") == 0.0
     pad.values["ly"] = -1.0
     assert DeadzonePad(pad, utils.shape_stick, 0.35).stick("ly") == pytest.approx(-1.0)   # full push: full speed
+
+
+def peak_jaw_speed_mm_s(values, level=None, deadzone=None, xy=(0.24, 0.0), steps=15):
+    """Hold the sticks past the commit time; the fastest the commanded jaws then move."""
+    from mahjong.gamepad import DeadzonePad
+    utils, _ = _load_xlerobot()
+    pad = RawPad()
+    pad.values.update(values)
+    teleop = teleop_with(DeadzonePad(pad, utils.shape_stick, deadzone) if deadzone else pad)
+    if level is not None:
+        teleop.speed_index = level
+    command, _ = kinematics.hover_command(*xy, 0.05, gripper=90.0)
+    arm = Arm(SimRobot(start=command), sleep=lambda s: None)
+    teleop.start(arm)
+    point, peak = kinematics.tool_point(command), 0.0
+    for _ in range(steps):
+        previous, point = point, kinematics.tool_point(teleop.step(arm, DT))
+        peak = max(peak, math.dist(point, previous) / DT * 1000)
+    return peak
+
+
+@pytest.mark.parametrize("level", [0, 1, 2])
+def test_no_stick_moves_the_jaws_past_its_cap_at_any_speed_setting(level):
+    """Pan at 0.5x full stick is ~130mm/s at the jaws; it peaked at 102 lining up (2026-10-28)."""
+    from mahjong.gamepad import HEIGHT_MAX_MM_S, LEFT_STICK_MAX_MM_S
+    assert peak_jaw_speed_mm_s({"lx": 1.0}, level) <= LEFT_STICK_MAX_MM_S * 1.02
+    assert peak_jaw_speed_mm_s({"ly": -1.0}, level) <= LEFT_STICK_MAX_MM_S * 1.02
+    assert peak_jaw_speed_mm_s({"lx": 1.0, "ly": -1.0}, level) <= LEFT_STICK_MAX_MM_S * 1.02    # a diagonal doesn't add up
+    assert peak_jaw_speed_mm_s({"ry": -1.0}, level) <= HEIGHT_MAX_MM_S * 1.02
+
+
+def test_the_cap_leaves_the_descent_demos_use():
+    """Demos descend at full stick at 0.5x, 50mm/s (half of all moving frames); capping that would cost time."""
+    assert peak_jaw_speed_mm_s({"ry": -1.0}) == pytest.approx(50, abs=1)
+    assert peak_jaw_speed_mm_s({"lx": 1.0}) == pytest.approx(30, abs=1)
+
+
+def test_a_push_just_past_the_deadzone_moves_the_jaws_slowly_and_a_bigger_one_faster():
+    """The point of scaling the whole travel: a clip at 30mm/s would keep pan's steep climb off the deadzone."""
+    def speed(lx):
+        return peak_jaw_speed_mm_s({"lx": lx}, deadzone=0.35)
+    assert speed(0.40) < 3                       # 0.05 past the deadzone: under 3mm/s (~9 without the cap)
+    assert speed(0.40) < speed(0.70) < speed(1.0)   # the push still sets the speed
+
+
+def test_a_left_cap_of_zero_means_no_left_cap_and_the_input_line_shows_the_scaled_stick():
+    from mahjong.gamepad import cap_sticks
+    _, ee = _load_xlerobot()
+    assert cap_sticks({"lx": 1.0, "ly": 0.0}, 0.5, 0.25, ee, left_mm_s=0)["lx"] == 1.0
+    assert cap_sticks({"rx": 1.0}, 1.0, 0.25, ee)["rx"] == 1.0           # roll isn't a jaw speed
+    pad = RawPad()
+    teleop = teleop_with(pad)
+    arm, _ = hovering_arm()
+    teleop.start(arm)
+    pad.values["lx"] = 1.0
+    for _ in range(10):
+        teleop.step(arm, DT)
+    assert 0 < teleop.last["sticks"]["lx"] < 1 and teleop.last["raw"]["lx"] == 1.0
 
 
 def test_a_stick_resting_off_centre_is_said_at_the_handoff_and_every_step_keeps_the_raw_reading():
