@@ -1,6 +1,6 @@
 # A second tile-name read from the wrist camera: LLM, VLM or classifier
 
-Written 2026-11-03, against `main` at `98170b0`. A proposal: nothing here is built. It grew out of Move 3 in
+Written 2026-11-03, against `main` at `f853b3e`. A proposal: nothing here is built. It grew out of Move 3 in
 `docs/retrospectives/2026-11-02_week3_skills_assessment.md`. What's done and next stays in ROADMAP.md's status table.
 
 ## The question
@@ -17,8 +17,11 @@ proposed fine-tuning Qwen2.5-VL-3B on 800+ labelled tile images and running it o
   what a classifier is built for, and it already has a place in ROADMAP 10 and `docs/autonomy_plan.md` 8.5. This is an
   expectation, not a measurement. The frames below make a VLM more plausible than first assumed, because many tiles carry
   readable marks, so both get tested.
-- **Pair the reader with the wrist look; don't simply replace it.** The look's colour test still works on dark surfaces.
-  On the pale standard mat, the reader's "tile / no tile" answer could take over the first-look question to a person.
+- **The reader's job is the name, not presence.** Whether a tile is there now has its own answer: the detector's faint
+  boxes (`perception.faint_tiles`, tested offline), then the wrist look if those don't settle it. A reader should use the
+  frame the look captures, and add to the look rather than replace it. Its "no tile" answer is there so it doesn't invent
+  a name for an empty spot. It might later help with the look's first-time question to a person on the pale mat, if the
+  exam supports that.
 - **Read every name, not only low-confidence ones.** Wrong names aren't reliably low-confidence, and the votes can accept
   one (below).
 - **Not decided:** Move 3 says tile names should "only make the robot ask more often, never to guess". This plan keeps
@@ -58,7 +61,8 @@ face. That led to `wrist_check.CROWDED_M`. 5 of the 8 "still there" looks were f
 viewing the frame.
 
 **Standard mat, 11 looks** (`20261103_121112_bench`): all saw a tile, but this doesn't validate the test, because bare white
-stripe also reads 0.72 against the 0.5 cutoff. See `docs/invariant_notes.md` for how the look handles that now.
+stripe also reads 0.72 against the 0.5 cutoff. Faint boxes now answer all 11 offline, without moving the arm. See
+`docs/invariant_notes.md` for those and for how the look handles a pale surface.
 
 ### YOLO's votes on the standard mat
 Reads from `20261103_121112_bench` (74 scans) replayed through `identity.Votes`, grouped by place:
@@ -70,7 +74,8 @@ Reads from `20261103_121112_bench` (74 scans) replayed through `identity.Votes`,
 
 Caveats: this is a replay of a bench session, not a hand; it pools a whole session's scans; and logged scans hold each
 tile's best read, not per-frame votes. Even so, a wrong name clearing the bar is what `identity.py`'s first-guess bars need
-checking against before an attended hand.
+checking against before an attended hand. `docs/invariant_notes.md` reaches the same conclusion from single frames: 2B reads
+as 4B in 45 of 46, so no vote fixes it and names need retraining.
 
 ### Can the frames be read at all?
 The saved wrist frames (`sessions/*/wrist_checks/`) are sharp. Printed corner marks and characters are clear, on the black
@@ -92,8 +97,8 @@ testing in other places.
    - Save scans too: the same sessions give YOLO its first exam on this mat.
    - Train on these plus the 744 older photos (`mahjong/wrist_photos.py`, `data/wrist_review.jsonl`). Those are all from
      2026-10-28 on the black top, with 4-9 names per session, so they can't be the exam.
-2. **Retrain YOLO first if the mat exam calls for it.** It may be the cheapest fix, and it changes which errors a second
-   read has to catch.
+2. **Retrain YOLO on the mat first, and score it on the mat exam.** Its names already need this (`docs/invariant_notes.md`).
+   It may be the cheapest fix, and it changes which errors a second read has to catch.
 3. **Compare the readers on one exam.**
 
    | Reader | Setup | Why |
@@ -109,7 +114,7 @@ testing in other places.
 4. **Score them the same way** (a new `scripts/name_check_eval.py`, reusing `detector_eval.wrong_rate_bound`).
    - The gate: names accepted and wrong, when paired with YOLO's vote. It must be 0, towards the ~1000 reads in
      `docs/autonomy_plan.md`. Report distinct tiles and sessions too, as photos of one tile aren't independent.
-   - Also: share of asks removed, whether "no tile" works on the pale mat, a usable confidence, seconds per read, memory.
+   - Also: share of asks removed, whether it says "no tile" on an empty spot, a usable confidence, seconds per read, memory.
 5. **Time the finalists on a Pi 5, with the whole stack.** A hand has about 27 name reads, so 30 seconds a read (an
    illustration, not a measurement) would add about 13 minutes. ACT runs at 30 Hz on the GPU today and YOLO at 1280 px. If
    ACT can't keep up on a Pi, that decides the setup before any reader does.
