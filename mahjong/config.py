@@ -41,6 +41,7 @@ DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the on
 # read at a median of 0.18 in 20261103_121112_bench, and looked gone in 45 of 46 scans. All 14 tiles in all 46 scans at this
 # cutoff; none at 31 spots just emptied by a pickup; on the mat at no tile, 0 in 74 scans and 2 in 42 on the black top.
 DETECTION_PRESENCE_CONFIDENCE = 0.1
+UNNAMED = "unnamed"                    # a tile's name when no scan or person has given it one: never a spot id or a layout label
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile
 # A returned tile aims for its home (where it was first seen this session; mahjong/return_correction.py). A pick

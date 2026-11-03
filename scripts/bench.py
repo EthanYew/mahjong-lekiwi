@@ -172,7 +172,8 @@ class Bench:
             devices = sim.connect(wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
-            self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True)
+            self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
+                                   detector=detector.weights_id())
         else:
             from mahjong import hardware
             from mahjong.policy import Policy
@@ -180,7 +181,8 @@ class Bench:
             # hardware first: nothing (not even the session folder) is created until it's all there
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
-            self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
+            self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False,
+                                   detector=detector.weights_id())
         # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
         self.events = new_events()
         self.terminal = TerminalKeys(self.events, on_char=lambda char: self.keys.press(char))
@@ -531,7 +533,7 @@ class Bench:
         if home is None or any(n == self.scan_n and math.dist(xy, home) <= config.TILE_MERGE_RADIUS_M
                                for n, xy in self.looked_empty):
             return None
-        tile = {"tile_name": tile_name or self.names.get(key) or key, "xy": list(home)}
+        tile = {"tile_name": tile_name or self.names.get(key) or config.UNNAMED, "xy": list(home)}
         box = self.faint_at(tile, self.scan_n, config.TILE_MERGE_RADIUS_M)
         if box:                     # picked up from where the box is, as a named tile would be
             self.mat.restore(tile)
@@ -708,7 +710,9 @@ class Bench:
             self.to_review.append((attempt.name, tile["tile_name"], run, bool(presses)))
         elif not self.defer:
             review = self.review(attempt.name, tile["tile_name"], run, keyed=bool(presses))
-        self.session.event("attempt", tile=tile["tile_name"], policy=self.policy.id, detection_xy=tile["xy"],
+        name_source = "faint" if tile.get("faint") else "wrist_seen" if tile.get("wrist_seen") else "read"
+        self.session.event("attempt", tile=tile["tile_name"], name_source=name_source, policy=self.policy.id,
+                           detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,

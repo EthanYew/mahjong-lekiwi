@@ -97,3 +97,12 @@ def test_main_reviews_with_the_mouse_and_keys(tmp_path, monkeypatch):
     review = wrist_photos.load_review()
     assert sorted(r["verdict"] for r in review.values()) == ["ok", "ok", "ok", "wrong"]
     assert [r["name"] for r in review.values() if r["verdict"] == "wrong"] == ["2C"]
+
+
+def test_a_photo_no_scan_named_waits_for_a_persons_name():
+    from mahjong import config, wrist_photos
+    photo = {"key": "s_bench/001_1_unnamed/wrist_0000.jpg", "name": config.UNNAMED}
+    assert wrist_photos.labelled([photo], {}) == []
+    assert wrist_photos.labelled([photo], {photo["key"]: {"verdict": "ok"}}) == []
+    named = wrist_photos.labelled([photo], {photo["key"]: {"verdict": "wrong", "name": "2B"}})
+    assert named[0]["name"] == "2B"

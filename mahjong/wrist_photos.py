@@ -70,8 +70,8 @@ def record(keys, verdict, name=None, path=None):
 def name_of(photo, review):
     """The photo's name after review: the corrected one, its own, or None (wrong, no right name)."""
     verdict = review.get(photo["key"])
-    if verdict is None or verdict["verdict"] == "ok":
-        return photo["name"]
+    if verdict is None or verdict["verdict"] == "ok":   # a photo no scan named waits for a person's name
+        return None if photo["name"] == config.UNNAMED else photo["name"]
     return verdict.get("name")
 
 

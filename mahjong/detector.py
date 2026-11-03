@@ -15,7 +15,9 @@ exam frames are kept out of training. Scores are per frame, while the live scan 
 the frames, which alone cost the July weights ~8% of their confident boxes (2026-10-28).
 """
 import csv
+import hashlib
 import json
+import math
 import shutil
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -34,6 +36,27 @@ LOW_CONFIDENCE = 0.7        # a tile whose best read is below this is worth labe
 CLUSTER_PX = 12             # boxes this close (centres), across a scan's frames, are one tile (~24x18px)
 MATCH_IOU = 0.5             # a detection and a labelled tile overlapping this much are the same tile
 SEP = "__"                  # <session>__<scan>__f<i>
+
+
+def weights_id(path=None):
+    """<file stem>@<first 8 of its sha256>: which detector ran, as data/detector_eval/ names its scores. None if there's no
+    such file."""
+    path = Path(path or config.TILE_DETECTOR)
+    return f"{path.stem}@{hashlib.sha256(path.read_bytes()).hexdigest()[:8]}" if path.exists() else None
+
+
+def wrong_rate_bound(wrong, n, confidence=0.95):
+    """The exact (Clopper-Pearson) upper bound on a rate seen `wrong` times in `n`: with 0 in n, ~3/n."""
+    if wrong >= n:
+        return 1.0
+
+    def at_most(p):         # P(X <= wrong) for X ~ Binomial(n, p)
+        return sum(math.comb(n, k) * p ** k * (1 - p) ** (n - k) for k in range(wrong + 1))
+    lo, hi = wrong / n, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if at_most(mid) > 1 - confidence else (lo, mid)
+    return hi
 
 
 # --- scans ---
@@ -69,7 +92,7 @@ def log_scan(realsense, session, scan_n, label, **fields):
     tiles = realsense.detect_tiles()
     frames = save_session_scan(realsense, session, scan_n, label)
     event = session.event("detections", label=label, scan=scan_n, **fields, **frames,
-                          tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px", "pixel") if k in t}
+                          tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px", "pixel", "votes", "frames_seen") if k in t}
                                  for t in tiles], faint=realsense.faint)
     return tiles, event
 

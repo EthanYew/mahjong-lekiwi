@@ -135,7 +135,7 @@ On a pale or patterned mat the RealSense can't read a tile's turn, so green mean
 `record.py` too): line the outline up by eye. Placing finds tiles with the tile detector, whatever the mat.
 
 When the detector can't name a tile but still boxes it (down to 0.1 confidence), the tile counts as there and no one
-looks: `tile_faint` events. A tile a spot's scan can't name is picked up from that box, under the spot's id.
+looks: `tile_faint` events. A tile a spot's scan can't name is picked up from that box, logged as `unnamed` with `name_source` saying how it was found (never under a spot id or layout label).
 
 Otherwise, on a pale mat the bench's wrist look can't tell a tile from the mat. So when the scans lose a tile it asks you
 the first time at that place, then compares the view with what it saw there.

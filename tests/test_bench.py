@@ -850,7 +850,7 @@ def test_a_faint_box_further_off_is_not_the_lost_tile(tmp_path, monkeypatch):
     assert any(e["type"] == "wrist_check" for e in events)
 
 
-def test_a_spot_the_scan_cant_name_is_picked_up_from_its_box_under_the_spots_id(tmp_path, monkeypatch):
+def test_a_spot_the_scan_cant_name_is_picked_up_from_its_box_unnamed(tmp_path, monkeypatch):
     b = sim_bench(tmp_path, monkeypatch, trials=1)
     spot = {"id": "S13", "xy": [0.192, -0.165], "label": "WW"}
     b.realsense.faint = [{"tile_name": "7C", "confidence": 0.18, "xy": (0.195, -0.160)}]
@@ -858,10 +858,10 @@ def test_a_spot_the_scan_cant_name_is_picked_up_from_its_box_under_the_spots_id(
     monkeypatch.setattr(b, "wrist_look", lambda tile, scan_n: looks.append(tile) or {"present": None, "why": "test"})
     try:
         tile = b.look_at_home(spot=spot, tiles=[])
-        assert tile["tile_name"] == "S13" and tile["xy"] == (0.195, -0.160) and tile["faint"] and looks == []
+        assert tile["tile_name"] == config.UNNAMED and tile["xy"] == (0.195, -0.160) and tile["faint"] and looks == []
         b.realsense.faint = []
         assert b.look_at_home(spot=spot, tiles=[]) is None
-        assert looks[0]["tile_name"] == "S13"                          # never the layout's label
+        assert looks[0]["tile_name"] == config.UNNAMED                 # never the spot's id or the layout's label
     finally:
         b.close()
 
