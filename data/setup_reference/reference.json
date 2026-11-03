@@ -6,23 +6,23 @@
     480
   ],
   "table": {
-    "offset_mm": -5.172684745870667,
-    "slope_x_mm": 0.25862689865343463,
-    "slope_y_mm": 0.6697759467932336,
-    "samples": 140,
-    "outliers": 49
+    "offset_mm": -0.03393390288739035,
+    "slope_x_mm": -2.4322056255048787,
+    "slope_y_mm": 1.024260139342794,
+    "samples": 171,
+    "outliers": 18
   },
-  "mat_brightness": 65.0,
-  "wrist_brightness": 65.0,
+  "mat_brightness": 174.0,
+  "wrist_brightness": 147.0,
   "parked": {
-    "shoulder_pan": -90.28571428571429,
-    "shoulder_lift": -101.45054945054945,
-    "elbow_flex": 97.0989010989011,
-    "wrist_flex": 68.57142857142857,
-    "wrist_roll": -99.56043956043956,
+    "shoulder_pan": -90.1978021978022,
+    "shoulder_lift": -101.18681318681318,
+    "elbow_flex": 97.18681318681318,
+    "wrist_flex": 68.13186813186813,
+    "wrist_roll": -99.2967032967033,
     "gripper": 89.65517241379311
   },
-  "hover_correction": "gamepad/affine/23",
+  "hover_correction": "gamepad/affine/27",
   "layout": "eval_familiar",
   "spots": [
     {
@@ -32,20 +32,30 @@
         0.186
       ],
       "yaw_deg": 8.5,
-      "label": "RD",
+      "tile_name": "4D",
       "tile": {
         "centre_px": [
-          322.57025146484375,
-          206.04629516601562
+          346.0,
+          228.0
         ],
-        "area_px": 14279.5,
-        "angle_deg": 78.38147640228271,
+        "area_px": 15000.0,
+        "angle_deg": 0.0,
         "size_px": [
-          141.27833557128906,
-          123.78446960449219
+          142.09964001470127,
+          105.55973258234953
         ]
       },
-      "wrist": "wrist_F2.jpg"
+      "measured_xy": [
+        0.1315669885657105,
+        0.1850470707100927
+      ],
+      "measured_yaw_deg": null,
+      "hover_delta_mm": [
+        34.93272487646265,
+        -3.1304205953027187
+      ],
+      "wrist": "wrist_F2.jpg",
+      "template": "template_F2.png"
     },
     {
       "id": "F3",
@@ -54,20 +64,30 @@
         0.022
       ],
       "yaw_deg": 2.0,
-      "label": "WW",
+      "tile_name": "1C",
       "tile": {
         "centre_px": [
-          61.637184143066406,
-          131.23104858398438
+          386.0,
+          283.0
         ],
-        "area_px": 17815.5,
-        "angle_deg": 77.73522567749023,
+        "area_px": 21750.0,
+        "angle_deg": -4.0856170654296875,
         "size_px": [
-          165.39772033691406,
-          147.97850036621094
+          176.0475616455078,
+          160.59085083007812
         ]
       },
-      "wrist": "wrist_F3.jpg"
+      "measured_xy": [
+        0.22392988756600365,
+        0.022029830537215057
+      ],
+      "measured_yaw_deg": null,
+      "hover_delta_mm": [
+        42.57860126763469,
+        18.739414072843434
+      ],
+      "wrist": "wrist_F3.jpg",
+      "template": "template_F3.png"
     },
     {
       "id": "F6",
@@ -76,23 +96,33 @@
         -0.1726
       ],
       "yaw_deg": -2.9,
-      "label": "9D",
+      "tile_name": "8D",
       "tile": {
         "centre_px": [
-          354.0416259765625,
-          204.25099182128906
+          377.0,
+          224.0
         ],
-        "area_px": 14617.5,
-        "angle_deg": -88.63607025146484,
+        "area_px": 15000.0,
+        "angle_deg": 0.0,
         "size_px": [
-          137.55624389648438,
-          118.25218963623047
+          142.09964001470127,
+          105.55973258234953
         ]
       },
-      "wrist": "wrist_F6.jpg"
+      "measured_xy": [
+        0.15671435219330906,
+        -0.17245354396941484
+      ],
+      "measured_yaw_deg": null,
+      "hover_delta_mm": [
+        39.458298551013385,
+        30.708999909783707
+      ],
+      "wrist": "wrist_F6.jpg",
+      "template": "template_F6.png"
     }
   ],
-  "time": "2026-10-28T18:09:32",
+  "time": "2026-11-03T22:20:25",
   "realsense": "realsense.png",
   "calibration": {
     "follower_id": "ethan_lekiwi_arm",
