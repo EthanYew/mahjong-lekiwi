@@ -1007,3 +1007,5 @@
 {"photo": "20261030_175235_bench/007_175708_WW/wrist_0000.jpg", "verdict": "ok", "name": null, "time": "2026-11-03T23:29:18"}
 {"photo": "20261103_121112_bench/003_121234_WW/wrist_0000.jpg", "verdict": "ok", "name": null, "time": "2026-11-03T23:29:18"}
 {"photo": "20261103_121112_bench/004_121316_WW/wrist_0000.jpg", "verdict": "ok", "name": null, "time": "2026-11-03T23:29:18"}
+{"photo": "20261030_155453_bench/010_160354_6C/wrist_0000.jpg", "verdict": "wrong", "name": "5C", "time": "2026-11-03T23:50:09"}
+{"photo": "20261030_155453_bench/012_160539_6C/wrist_0000.jpg", "verdict": "wrong", "name": "5C", "time": "2026-11-03T23:50:09"}
