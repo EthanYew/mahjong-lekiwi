@@ -3,12 +3,46 @@ imported from that checkout so control-mapping changes made there carry over.
 
 Controls (Switch labels): left stick reach / pan, right stick height / wrist roll, L/R pitch,
 ZL/ZR gripper close/open, -/+ speed, HOME (hold) back to where teleop started. The right stick moves
-height or roll, never both: pulling it down leaked into rx past XLeRobot's 25° snap (2026-10-27).
+height or roll, never both: pulling it down leaked into rx past XLeRobot's 25° snap (2026-10-27). The sticks are capped
+in mm/s at the jaws (cap_sticks), so + past 0.5x changes little; L/R pitch and HOME are buttons and aren't capped.
 """
 import importlib.util
+import math
 import sys
+import types
 
-from . import config
+from . import config, kinematics
+
+
+# Fastest the sticks may move the jaws (mm/s). Past the deadzone a push reaches the arm 0.1s late and all at once:
+# pan at the default 0.5x is 30 deg/s, ~130mm/s at the jaws at full reach, and it peaked at 102mm/s while lining up
+# (2026-10-28 traces) against a median of 11-19mm/s when panning in demos. Demos' horizontal moves are at most 22-30
+# in 9 frames of 10, and a 30 ceiling would have added at most ~3% to any of three recent recordings' episodes. Height
+# is 50 because demos descend at full stick at 0.5x (half of all moving frames): it holds that, and stops + doubling it.
+LEFT_STICK_MAX_MM_S = 30.0
+HEIGHT_MAX_MM_S = 50.0
+
+
+def cap_sticks(values, level, radius_m, ee, left_mm_s=LEFT_STICK_MAX_MM_S, height_mm_s=HEIGHT_MAX_MM_S):
+    """The sticks scaled so full travel moves the jaws at the cap, and a push moves them that fraction of it. Scaling
+    the whole travel, not clipping its top: a clip keeps the steep climb just past the deadzone, the part that jerks.
+    Pan and reach share the left stick's cap, so a diagonal doesn't add up past it. level: XLeRobot's speed multiplier;
+    radius_m: jaws from the pan axis, since a degree of pan moves them further at full reach. left_mm_s 0: no left cap.
+    Wrist roll isn't scaled: it turns the jaws on the spot."""
+    reach = ee.EE_SPEED * level * 1000
+    full = {"lx": math.radians(ee.JOINT_SPEED * level) * radius_m * 1000, "ly": reach, "ry": reach}
+    caps = {"ry": height_mm_s, **({"lx": left_mm_s, "ly": left_mm_s} if left_mm_s else {})}
+    out = dict(values)
+    for name, cap in caps.items():
+        if name in out and full[name] > cap:
+            out[name] *= cap / full[name]
+    if left_mm_s:
+        speed = math.hypot(out.get("lx", 0.0) * full["lx"], out.get("ly", 0.0) * full["ly"])
+        if speed > left_mm_s:
+            for name in ("lx", "ly"):
+                if name in out:
+                    out[name] *= left_mm_s / speed
+    return out
 
 
 def _load_xlerobot():
@@ -143,8 +177,6 @@ REACH_WARNING_M = 0.008
 def reach_left_m(x, y):
     """How far the wrist can still reach out (m, in XLeRobot's arm plane) with the jaws pointing straight
     down at the grasp point over (x, y); negative past the gamepad's reach, None if the IK refuses."""
-    import math
-    from . import kinematics
     q, _ = kinematics.hover_command(x, y, 0.0, 0.0)
     if q is None:
         return None
@@ -167,9 +199,13 @@ class GamepadTeleop:
     the measured (sagged) pose re-commands the arm lower and it drops at takeover."""
 
     deadzone = None             # None: XLeRobot's (0.15)
+    left_stick_max_mm_s = LEFT_STICK_MAX_MM_S
 
-    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=DEADZONE):
-        """deadzone: of the sticks' travel (0-1), round, as XLeRobot shapes it; None keeps XLeRobot's."""
+    def __init__(self, device=None, commit_s=0.1, locked_sticks=(), locked_buttons=(), deadzone=DEADZONE,
+                 left_stick_max_mm_s=LEFT_STICK_MAX_MM_S):
+        """deadzone: of the sticks' travel (0-1), round, as XLeRobot shapes it; None keeps XLeRobot's.
+        left_stick_max_mm_s: the left stick's top speed at the jaws, 0 for none (cap_sticks)."""
+        self.left_stick_max_mm_s = left_stick_max_mm_s
         self.utils, self.ee = _load_xlerobot()
         self.pad = self.utils.Gamepad(self.utils.find_gamepad(device))
         self.deadzone = deadzone
@@ -214,16 +250,20 @@ class GamepadTeleop:
         if "plus" in new or "minus" in new:
             self.speed_index = min(max(self.speed_index + ("plus" in new) - ("minus" in new), 0),
                                    len(self.ee.SPEED_LEVELS) - 1)
-            print(f"  speed {self.ee.SPEED_LEVELS[self.speed_index]:.2f}x")
+            print(f"  speed {self.ee.SPEED_LEVELS[self.speed_index]:.2f}x (at the jaws, at most: left stick "
+                  f"{self.left_stick_max_mm_s or 'uncapped'} mm/s, height {HEIGHT_MAX_MM_S:.0f} mm/s)")
         measured = arm.measured()
-        targets = self.teleop.update(measured, self.sticks, buttons, self.ee.SPEED_LEVELS[self.speed_index], dt)
+        level = self.ee.SPEED_LEVELS[self.speed_index]
+        tool = kinematics.tool_point(self.teleop.targets)
+        sticks = cap_sticks({name: self.sticks.stick(name) for name in self.sticks.stick_names}, level,
+                            math.hypot(tool[0] - kinematics.SHOULDER_PAN_X, tool[1]), self.ee,
+                            left_mm_s=self.left_stick_max_mm_s)
+        targets = self.teleop.update(measured, types.SimpleNamespace(stick=sticks.__getitem__), buttons, level, dt)
         command = {j: float(v) for j, v in targets.items()}
         arm.send(command)
-        # what this step read, for handoff_trace: the sticks as they reached the arm (after the commit delay),
-        # and raw, before the deadzone (how far off centre a resting thumb or a drifting stick sits)
-        self.last = {"measured": measured, "buttons": sorted(buttons),
-                     "sticks": {name: self.sticks.stick(name) for name in self.sticks.stick_names},
-                     "raw": self.raw_sticks()}
+        # what this step read, for handoff_trace: the sticks as they reached the arm (after the commit delay and
+        # the speed cap), and raw, before the deadzone (how far off centre a resting thumb or a drifting stick sits)
+        self.last = {"measured": measured, "buttons": sorted(buttons), "sticks": sticks, "raw": self.raw_sticks()}
         return command
 
     def raw_sticks(self):

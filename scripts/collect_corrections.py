@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, hardware, kinematics
 from mahjong.arm import ADJUST_TIME_S
 from mahjong.camera import LOST_S
-from mahjong.gamepad import DEADZONE, draw_input, warn_if_at_reach, warn_off_centre
+from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.handoff_trace import HandoffTrace, describe
 from mahjong.hover_correction import HoverCorrection, append_record
 from mahjong.perception import drain_stdin
@@ -45,11 +45,15 @@ def main(argv=None):
     p.add_argument("--no-view", action="store_true", help="no wrist camera window (and no wrist camera needed)")
     p.add_argument("--deadzone", type=float, default=DEADZONE,
                    help=f"stick deadzone, fraction of full travel (default {DEADZONE}; XLeRobot's own is 0.15)")
+    p.add_argument("--left-stick-max-mm-s", type=float, default=LEFT_STICK_MAX_MM_S,
+                   help="the jaws' speed at full push of the left stick (pan, reach); a lighter push scales down from it "
+                        "(default %(default)s, 0 for no cap)")
     args = p.parse_args(argv)
     from lerobot.common.control_utils import init_keyboard_listener
     devices = hardware.connect(["arm", "realsense", "gamepad"] + ([] if args.no_view else ["wrist_camera"]),
                                gamepad_kwargs={"device": args.device, "commit_s": 0.0, "locked_sticks": {"rx"},
-                                               "locked_buttons": {"l", "r"}, "deadzone": args.deadzone})
+                                               "locked_buttons": {"l", "r"}, "deadzone": args.deadzone,
+                                               "left_stick_max_mm_s": args.left_stick_max_mm_s})
     arm, realsense, gamepad = devices["arm"], devices["realsense"], devices["gamepad"]
     camera = devices.get("wrist_camera")
     session = Session("corrections")

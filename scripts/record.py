@@ -57,7 +57,7 @@ import numpy as np
 from mahjong import config, hardware, kinematics, layout
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
-from mahjong.gamepad import DEADZONE, draw_input, warn_if_at_reach, warn_off_centre
+from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
@@ -93,6 +93,9 @@ def parse_args(argv=None):
     p.add_argument("--deadzone", type=float, default=DEADZONE,
                    help="stick deadzone, fraction of full travel (default %(default)s, as collect_corrections: a resting "
                         "thumb past XLeRobot's 0.15 pulled the arm 87mm; lower it if gentle pushes don't register)")
+    p.add_argument("--left-stick-max-mm-s", type=float, default=LEFT_STICK_MAX_MM_S,
+                   help="the jaws' speed at full push of the left stick (pan, reach); a lighter push scales down from it "
+                        "(default %(default)s, 0 for no cap)")
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
@@ -159,12 +162,13 @@ def main(argv=None):
         ghost = layout.load_ghost(args.layout)
     devices = hardware.connect(["arm", "wrist_camera", "realsense", "gamepad"],
                                gamepad_kwargs={"device": args.device, "commit_s": args.stick_commit_s,
-                                               "deadzone": args.deadzone})
+                                               "deadzone": args.deadzone,
+                                               "left_stick_max_mm_s": args.left_stick_max_mm_s})
     arm, camera, realsense, gamepad = (devices[k] for k in ("arm", "wrist_camera", "realsense", "gamepad"))
     print(f"Gamepad: {gamepad.name}")
     dataset = open_dataset(args.dataset)      # before the session folder: it refuses a dataset of another layout
     session = Session("record", dataset=args.dataset, task=args.task, hover=hover, stick_commit_s=args.stick_commit_s,
-                      deadzone=args.deadzone,
+                      deadzone=args.deadzone, left_stick_max_mm_s=args.left_stick_max_mm_s,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
                       hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
                       jitter_seed=args.jitter_seed, policy=args.policy)
@@ -347,7 +351,7 @@ def main(argv=None):
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
-                      "frames": frames, "session": session.dir.name, "slice": args.slice,
+                      "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
