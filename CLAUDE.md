@@ -162,8 +162,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `docs/invariant_notes.md`.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
-  surface in view it says it can't tell and a person is asked (`wrist_check.MIN_DARK_SHARE`). Evidence:
-  `docs/invariant_notes.md`.
+  surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a
+  person is asked the first time. After 3 confirmations a place's next 10 losses aren't looked at, unless the arm was near
+  it or a key was pressed (`interventions.GlitchTrust`, `glitch_ignored` events). Evidence: `docs/invariant_notes.md`.
 - **A tile's white face can't be found by colour on a pale mat**: 1 good read in 950 on the striped mat, and slices of
   stripe passed as tiles. Where it matters, use what a tile looks like: the detector's box on the RealSense
   (`layout.find_tile`, which can't read yaw there, so green is position only) and the reference's picture of the tile in

@@ -12,7 +12,8 @@ tile there on the 103 black-top frames (median 1.0), ~0 over the bare black top.
 when the scan has another tile within CROWDED_M of the spot (a knock pushed one there), it doesn't look.
 
 A pale surface fills the disc without any tile: bare white stripe on the standard mat reads 0.72 (20261103_120259_setup).
-So it needs a dark surface in view, or it says it can't tell and a person is asked. It never reads the name: the table
+So with no dark surface in view it can only say the view hasn't changed since an earlier look at this place
+(SAME_VIEW_SCORE), or that it can't tell. It never reads the name: the table
 model on a close-up isn't a second read (docs/autonomy_plan.md, 8), and a template chosen by the lost tile's name wouldn't
 do either, since that name can be the misread that lost it (all 11 looks in 20261103_121112_bench).
 """
@@ -23,7 +24,7 @@ import numpy as np
 
 from .camera import grab_frames
 from .layout import FACE_MAX_S
-from .setup_check import WRIST_MIN_V
+from .setup_check import WRIST_MIN_V, match_tile, wrist_template
 
 EXPECTED_PX = (365, 255)    # the hovered tile's face centre in the wrist image (640x480)
 RADIUS_PX = 35              # well inside a face (~140 x 120px at the hover) even 25px off
@@ -32,6 +33,10 @@ FRAMES = 3
 # Share of the view (above the jaws) that's dark: at least 0.36 on the black top and 0.29 on the green mat, with tiles and
 # jaws in view; at most 0.12 on the striped mat and 0.09 on paper. A dim room darkens a pale mat too; not measured.
 SURFACE_ROWS, DARK_V, MIN_DARK_SHARE = 300, 90, 0.2
+# The view at a place vs an earlier look there, on the striped mat (20261103_121112_bench): 0.96-1.00 on 8 looks, at most
+# 0.81 for another place and 0.70 for bare stripe. Only an unmoved tile counts: ~7mm at the hover (4px/mm) is a knock.
+SAME_VIEW_SCORE, SAME_VIEW_PX = 0.9, 30
+_LOOK_TILE = {"centre_px": [float(v) for v in EXPECTED_PX], "area_px": 15000.0, "angle_deg": 0.0, "size_px": [142.0, 105.0]}
 # Another tile now this close to the spot (centres) can fill the disc as well: the look can't tell them apart. On
 # 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
 # look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
@@ -58,6 +63,17 @@ def dark_share(image_bgr):
     return float((cv2.cvtColor(image_bgr[:SURFACE_ROWS], cv2.COLOR_BGR2HSV)[:, :, 2] < DARK_V).mean())
 
 
+def view_template(image_bgr):
+    """A look's frame, as what check() compares a later look at the same place with."""
+    return wrist_template(image_bgr, EXPECTED_PX)
+
+
+def same_view(image_bgr, template):
+    """Whether a frame shows what `template` (view_template of an earlier look here) showed, where it showed it."""
+    found = match_tile(image_bgr, template, _LOOK_TILE, min_score=SAME_VIEW_SCORE)
+    return found is not None and math.dist(found["centre_px"], EXPECTED_PX) <= SAME_VIEW_PX
+
+
 def look(arm, camera, x, y, hover, n=FRAMES):
     """Lift if low, hover over closed-loop target (x, y) with `hover` ({offset_m, clearance_m, gripper}) and grab n
     wrist frames: (frames — fewer if the camera is lost —, the hover's result or None if out of reach)."""
@@ -68,16 +84,19 @@ def look(arm, camera, x, y, hover, n=FRAMES):
     return grab_frames(camera, n), result
 
 
-def check(arm, camera, x, y, hover):
+def check(arm, camera, x, y, hover, template=None):
     """Look at the tile expected at hover target (x, y): {"present": True / False, or None if it couldn't look (out
-    of reach, camera lost) or can't tell (a pale surface), "fill": the median face share, "hover_xy"}, and "frame" (the
-    last one) to save."""
+    of reach, camera lost) or can't tell (a pale surface: "pale" True), "fill": the median face share, "hover_xy"}, and
+    "frame" (the last one) to save. `template`: what an earlier look saw here, which is all a pale surface can go on."""
     frames, result = look(arm, camera, x, y, hover)
     if not frames:
         return {"present": None, "fill": None, "why": "out of reach" if result is None else "no wrist frames",
                 "frame": None}
     fill = float(np.median([face_fill(f) for f in frames]))
     if float(np.median([dark_share(f) for f in frames])) < MIN_DARK_SHARE:
-        return {"present": None, "fill": fill, "why": "the surface is too pale to tell a tile from it",
+        if template is not None and sum(same_view(f, template) for f in frames) * 2 > len(frames):
+            return {"present": True, "fill": fill, "pale": True, "by": "same view", "hover_xy": result["hover_xy"],
+                    "frame": frames[-1]}
+        return {"present": None, "fill": fill, "pale": True, "why": "the surface is too pale to tell a tile from it",
                 "hover_xy": result["hover_xy"], "frame": frames[-1]}
     return {"present": fill >= PRESENT_FILL, "fill": fill, "hover_xy": result["hover_xy"], "frame": frames[-1]}

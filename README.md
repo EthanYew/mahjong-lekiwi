@@ -131,7 +131,10 @@ it, so each spot needs the tile it names, every time. A reference saved before t
 On a pale or patterned mat the RealSense can't read a tile's turn, so green means position only (in `layout.py` and
 `record.py` too): line the outline up by eye. Placing finds tiles with the tile detector, whatever the mat.
 
-On a pale mat the bench's wrist look can't tell a tile from the mat, so it asks you instead of answering.
+On a pale mat the bench's wrist look can't tell a tile from the mat. So when the scans lose a tile it asks you the first
+time at that place, then compares the view with what it saw there. After 3 checks find a tile still at a place, the next
+10 losses there aren't looked at, unless the arm was near it or you pressed a key; then one look earns 10 more. Those show
+as `glitch_ignored` events.
 
 Each run writes `sessions/<time>_setup/`
 (the RealSense frame, `camera_vs_reference.jpg`, each spot's `wrist_<spot>_vs_reference.jpg`, and a

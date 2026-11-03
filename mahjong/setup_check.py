@@ -336,10 +336,10 @@ def marked_tile(centre, found, shape):
             "size_px": [long_side, WRIST_AREA_PX / long_side]}
 
 
-def match_tile(image_bgr, template, reference):
+def match_tile(image_bgr, template, reference, min_score=None):
     """The reference's tile in a wrist frame, by its picture: {"centre_px", "area_px", "angle_deg", "size_px", "score"}
     as wrist_tile reads them (size and angle relative to the reference's), or None if nothing within WRIST_SEARCH_PX of
-    where it was matches MATCH_MIN_SCORE."""
+    where it was matches min_score (default MATCH_MIN_SCORE)."""
     grey = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     h, w = grey.shape
     best = None
@@ -359,7 +359,7 @@ def match_tile(image_bgr, template, reference):
             _, score, _, (lx, ly) = cv2.minMaxLoc(scores)
             if best is None or score > best[0]:
                 best = (score, x0 + lx + tw / 2, y0 + ly + th / 2, scale, angle)
-    if best is None or best[0] < MATCH_MIN_SCORE:
+    if best is None or best[0] < (MATCH_MIN_SCORE if min_score is None else min_score):
         return None
     score, cu, cv_, scale, angle = best
     # getRotationMatrix2D turns anticlockwise in the image, minAreaRect's angle clockwise
