@@ -14,7 +14,9 @@ import numpy as np
 sys.path.insert(0, sys.argv[1])
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.constants import HF_LEROBOT_HOME
-from mahjong import config, dataset
+from mahjong import config, dataset, quality
+
+quality.DROPPED_FILE = quality.Path(sys.argv[2])
 
 NAMES = [f"{j}.pos" for j in config.JOINTS]
 FEATURES = {k: {"dtype": "float32", "shape": (6,), "names": NAMES}
@@ -45,6 +47,10 @@ summary = dataset.build("t/demos", "t/built", trim_idle=False, size=(24, 32), ex
 record("t/green", [20], [{"episode_index": 0, "conditions": {"surface": "green cutting mat"}}])
 swapped = dataset.build("t/demos", "t/swapped", trim_idle=False, size=(24, 32), extra=[("t/green", None, ())],
                         replace_mat=1.0, log=lambda *a: None)
+record("t/stops", [20, 20, 20], [{"episode_index": e, "frames": 20, "slice": "new"} for e in range(3)])
+quality.drop_episodes("t/stops", [1], "test")
+cleaned = quality.clean_copy("t/stops", "t/clean", log=lambda *a: None)
+clean_log = dataset.episode_log("t/clean")
 built = LeRobotDataset("t/built")
 h = built.hf_dataset
 ep = np.array(h["episode_index"])
@@ -52,12 +58,14 @@ state, raw = np.stack(h["observation.state"]), np.stack(h["observation.state_raw
 print(json.dumps({"summary": summary, "lengths": [int((ep == e).sum()) for e in range(built.num_episodes)],
                   "first_state": [state[ep == e][0].tolist() for e in range(built.num_episodes)],
                   "first_raw": [raw[ep == e][0].tolist() for e in range(built.num_episodes)],
-                  "swapped_surfaces": swapped["surfaces"]}))
+                  "swapped_surfaces": swapped["surfaces"], "cleaned": cleaned,
+                  "clean_log": {str(k): [v["source_episode"], v["slice"]] for k, v in clean_log.items()},
+                  "clean_size": list(LeRobotDataset("t/clean").meta.features["observation.images.wrist"]["shape"])}))
 '''
 
 
 def test_a_dagger_episode_keeps_its_frames_from_the_takeover_as_deltas_from_the_hover(tmp_path):
-    out = subprocess.run([sys.executable, "-c", SCRIPT, str(ROOT)], capture_output=True, text=True, cwd=tmp_path,
+    out = subprocess.run([sys.executable, "-c", SCRIPT, str(ROOT), str(tmp_path / "dropped.json")], capture_output=True, text=True, cwd=tmp_path,
                          env={**os.environ, "HF_LEROBOT_HOME": str(tmp_path / "lerobot")}, timeout=300)
     assert out.returncode == 0, out.stderr[-3000:]
     result = json.loads(out.stdout.strip().splitlines()[-1])
@@ -71,3 +79,6 @@ def test_a_dagger_episode_keeps_its_frames_from_the_takeover_as_deltas_from_the_
     assert summary["surfaces"] == [None, None]                          # replace_mat off
     black, green = result["swapped_surfaces"]                           # replace_mat=1.0: every black-top episode,
     assert black is not None and green is None                          # never one recorded on another surface
+    assert result["cleaned"]["source_episodes"] == [0, 2]               # --clean leaves out the dropped one
+    assert result["clean_log"] == {"0": [0, "new"], "1": [2, "new"]}    # its log says where each came from
+    assert result["clean_size"][:2] == [48, 64]                         # at the recording's own size

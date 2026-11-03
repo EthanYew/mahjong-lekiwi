@@ -4,7 +4,8 @@ import json
 import numpy as np
 
 from mahjong import config, dataset, kinematics
-from mahjong.dataset import idle_mask, is_pre_takeover_fix, keep_mask, narrowing_end, takeover_sag_end
+from mahjong.dataset import (PAUSE_MIN_FRAMES, idle_mask, is_pre_takeover_fix, keep_mask, narrowing_end, pause_mask,
+                             takeover_sag_end)
 
 
 def episode(n=200, narrow=True, sag=False):
@@ -56,6 +57,35 @@ def test_keep_mask_starts_after_narrowing_when_asked():
     keep = keep_mask(states, actions, deltas, trim_narrowing=True)
     assert np.flatnonzero(keep)[0] >= 55
     assert keep[110:130].all()
+
+
+def test_a_stop_is_cut_to_its_last_frame_and_the_commands_stay_continuous():
+    move = np.linspace(1, 10, 10)
+    actions = np.zeros((71, 6))
+    actions[:, 1] = np.r_[0, move, np.full(30, 10.0), move + 10, np.full(20, 20.0)]
+    cut = pause_mask(actions)
+    assert not cut[0]                                        # the anchor stays
+    assert not cut[10] and cut[11:40].all() and not cut[40]  # the stop: all but its last frame
+    assert not cut[41:51].any()                              # the move after it
+    assert np.abs(np.diff(actions[~cut, 1])).max() <= 1.0    # no jump where the stop was
+
+
+def test_a_very_short_stop_or_a_gripper_or_roll_move_is_not_a_pause():
+    actions = np.zeros((40, 6))
+    actions[:, 1] = np.r_[np.arange(10.0), np.full(PAUSE_MIN_FRAMES - 1, 9.0), np.arange(10.0, 41.0 - PAUSE_MIN_FRAMES)]
+    assert not pause_mask(actions).any()                     # the stick's own stepping
+    still = np.zeros((40, 6))
+    still[:, 5] = np.linspace(21, 0, 40)                     # the tip stays put while the jaws close
+    assert not pause_mask(still).any()
+    still = np.zeros((40, 6))
+    still[:, 4] = np.linspace(0, 5, 40)                      # ...or the wrist rolls
+    assert not pause_mask(still).any()
+
+
+def test_keep_mask_cuts_pauses_only_when_asked():
+    states, actions, deltas = episode()
+    assert keep_mask(states, actions, deltas, trim_idle=False).all()
+    assert keep_mask(states, actions, deltas, trim_idle=False, trim_pauses=True).sum() < len(actions)
 
 
 def write_log(root, name, rows):

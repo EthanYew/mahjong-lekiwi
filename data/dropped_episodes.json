@@ -47,5 +47,8 @@
     "23": "turned back after a 27mm run in x near the tile before closing",
     "24": "went 27mm the wrong way in x before descending",
     "35": "descended 34mm and went back up at 11.2s, 3 reversals, path 2.7x the straight line"
+  },
+  "mahjong_surfaces_standard_mat_eval_v1": {
+    "8": "hover settled at the 65mm limit on a same-tile retry: command 23mm above the measured tip (1.5-8mm on the other nine), so its first ~16mm of commanded descent barely move; 20261103_170624_record"
   }
 }
