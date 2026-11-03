@@ -58,6 +58,17 @@ def test_keep_mask_starts_after_narrowing_when_asked():
     assert keep[110:130].all()
 
 
+def test_no_idle_frames_left_at_the_start_once_the_narrowing_is_trimmed():
+    """make_policy.verify rechecks idle on the built episode, where the dropped narrowing no longer counts as motion
+    (73 frames in 18 episodes stopped v8's first build)."""
+    states, actions, _ = episode()
+    actions[20:60, 5] = np.linspace(90, 40, 40)           # reaches its opening in one step and stops dead
+    deltas = actions - actions[0]
+    keep = keep_mask(states, actions, deltas, trim_narrowing=True)
+    built = deltas[keep] - deltas[keep][0]
+    assert not idle_mask(built).any()
+
+
 def write_log(root, name, rows):
     root.mkdir(parents=True, exist_ok=True)
     (root / name).write_text("".join(json.dumps(r) + "\n" for r in rows))
