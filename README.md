@@ -226,7 +226,8 @@ so type them there; what you type in another tab or window isn't heard (it used 
 `Esc` stops the policy. `→` marks "something happened here" without stopping it (a hand on the tile, a
 caught drop); a `→` with no key is asked about right after that attempt (not at the end of a batch). A pickup stops itself once the tile
 has been held and lifted for 1.5s (max 16s). Every attempt saves the full wrist video (`wrist.mp4`) in
-its folder, so a new policy can be replayed on it.
+its folder, so a new policy can be replayed on it. The `hover` command saves a wrist photo in a folder of its
+own (`wrist_0000.jpg`, named like a pickup's first frame), and `wrist_review.py` and `wrist_capture.py` count it with them.
 
 After each pickup and return the RealSense rescans the mat. A tile the scan says went is looked at with the
 wrist camera first (once the arm has put down what it holds); one still there is logged as a detection
@@ -742,7 +743,7 @@ view) for you to confirm, then hovers over each one `--views` times (default 8):
 40 mm, the rest moved by up to `--jitter-mm` (8), at heights cycled from `--clearances-mm` (40,55,70)
 and the wrist rolled by up to `--roll-deg` (15). It never touches a tile. When the set is done the arm
 rests, the terminal rings (plus a desktop notification), and it prints every name's wrist views at the
-hover from all sources (its own sessions, bench attempts' first frames, recorded episodes) and which
+hover from all sources (its own sessions, bench attempts' first frames and hover photos, recorded episodes) and which
 are still below `--target` (10); put down a new set and press Enter. A wrist camera that stops giving
 frames is reopened and the view taken again (as the bench and record.py do).
 
