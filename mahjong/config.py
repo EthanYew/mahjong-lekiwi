@@ -37,6 +37,10 @@ T_CAM_TO_BASE = REPO / "assets" / "T_cam_to_base.npy"   # hand-eye, rear tripod,
 TILE_DETECTOR = REPO / "assets" / "tile_detector.pt"     # YOLO, table view
 DETECTION_CONFIDENCE = 0.5
 DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the ones below the cut are where it hesitated
+# Whether a tile is there, not which: a box this sure, in 2 of a scan's frames. The detector sees tiles it can't name: 3C
+# read at a median of 0.18 in 20261103_121112_bench, and looked gone in 45 of 46 scans. All 14 tiles in all 46 scans at this
+# cutoff; none at 31 spots just emptied by a pickup; on the mat at no tile, 0 in 74 scans and 2 in 42 on the black top.
+DETECTION_PRESENCE_CONFIDENCE = 0.1
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile
 # A returned tile aims for its home (where it was first seen this session; mahjong/return_correction.py). A pick

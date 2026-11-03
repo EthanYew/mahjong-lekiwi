@@ -187,10 +187,10 @@ def test_the_detector_runs_once_a_frame_however_many_spots_ask(monkeypatch):
     realsense = object.__new__(perception.RealSense)
     realsense._model, realsense._boxes_of, calls = object(), (None, []), []
 
-    def run(model, frame):
+    def run(model, frame, conf):
+        assert conf == config.DETECTION_PRESENCE_CONFIDENCE
         calls.append(frame)
-        return [{"tile_name": "8D", "confidence": 0.9, "xyxy": [1, 2, 3, 4]},
-                {"tile_name": "WD", "confidence": config.DETECTION_CONFIDENCE - 0.1, "xyxy": [5, 6, 7, 8]}]
+        return [{"tile_name": "8D", "confidence": 0.9, "xyxy": [1, 2, 3, 4]}]
     monkeypatch.setattr(perception, "run_detector", run)
     frame, other = np.zeros((4, 4, 3), np.uint8), np.zeros((4, 4, 3), np.uint8)
     assert realsense.tile_boxes(frame) == [[1, 2, 3, 4]] and realsense.tile_boxes(frame) == [[1, 2, 3, 4]]
@@ -206,3 +206,25 @@ def test_marking_a_tile_draws_the_template_where_it_was_clicked():
     frame = image("wrist_bare_at_disc")
     shown = setup_check.mark_view(frame, {"id": "F6"}, (505, 205))
     assert shown.shape == frame.shape and (shown != frame).any() and (frame == image("wrist_bare_at_disc")).all()
+
+
+def test_a_tile_too_unsure_to_name_is_faint_and_its_second_guesses_are_not():
+    from mahjong.perception import faint_tiles, merge_tiles
+
+    def read(name, conf, frame, x):
+        return {"tile_name": name, "confidence": conf, "frame": frame, "xy": (x, 0.0)}
+    reads = [read("4D", 0.9, k, 0.2) for k in range(5)] + [read("7D", 0.12, k, 0.2) for k in range(5)]    # a second guess
+    reads += [read("3C", 0.18, 0, 0.1), read("7C", 0.15, 1, 0.1), read("3C", 0.2, 2, 0.1)]                # a hard tile
+    reads += [read("9D", 0.11, 3, 0.3)]                                                                   # one frame: a flicker
+    tiles = merge_tiles([r for r in reads if r["confidence"] >= 0.25], 5)
+    assert [t["tile_name"] for t in tiles] == ["4D"]
+    (faint,) = faint_tiles(reads, tiles, 5)
+    assert faint["tile_name"] == "3C" and faint["confidence"] == 0.2 and faint["xy"] == pytest.approx((0.1, 0.0))
+
+
+def test_setup_check_keeps_the_tile_a_person_used_not_the_layouts_label():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import setup_check
+    answers = iter(["8D", ""])
+    assert setup_check.tile_names([{"id": "F2"}, {"id": "F3"}], lambda prompt: next(answers)) == {"F2": "8D"}

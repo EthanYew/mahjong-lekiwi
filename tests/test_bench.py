@@ -786,3 +786,64 @@ def test_a_pale_surface_asks_once_a_place_and_then_goes_by_the_view(tmp_path, mo
         assert b.wrist_look(tile, 3)["present"] is False and b.trust.template(tile["xy"]) is None
     finally:
         b.close()
+
+
+def test_a_tile_lost_with_a_faint_box_still_there_needs_no_look(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    xy = next(t for t in b.realsense.tiles if t["tile_name"] == "3B")["xy"]
+    b.realsense.faint = [{"tile_name": "7C", "confidence": 0.18, "xy": (xy[0] + 0.002, xy[1])}]
+    after_each_run(b, lambda: b.realsense.flicker("3B", 2))
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    (faint,) = [e for e in events if e["type"] == "tile_faint"]
+    assert faint["tile"] == "3B" and faint["guess"] == "7C" and asked == []      # during the pickup, with the tile held
+    assert not any(e["type"] == "wrist_check" for e in events)
+    assert {i["kind"] for i in interventions.derive(events)} == {"scan_glitch"}
+
+
+def test_a_faint_box_further_off_is_not_the_lost_tile(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    xy = next(t for t in b.realsense.tiles if t["tile_name"] == "3B")["xy"]
+    b.realsense.faint = [{"tile_name": "3B", "confidence": 0.2, "xy": (xy[0] + 0.02, xy[1])}]    # 20mm: it may have moved
+    after_each_run(b, lambda: b.realsense.flicker("3B", 2))
+    no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    assert not any(e["type"] == "tile_faint" for e in events)
+    assert any(e["type"] == "wrist_check" for e in events)
+
+
+def test_a_spot_the_scan_cant_name_is_picked_up_from_its_box_under_the_spots_id(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    spot = {"id": "S13", "xy": [0.192, -0.165], "label": "WW"}
+    b.realsense.faint = [{"tile_name": "7C", "confidence": 0.18, "xy": (0.195, -0.160)}]
+    looks = []
+    monkeypatch.setattr(b, "wrist_look", lambda tile, scan_n: looks.append(tile) or {"present": None, "why": "test"})
+    try:
+        tile = b.look_at_home(spot=spot, tiles=[])
+        assert tile["tile_name"] == "S13" and tile["xy"] == (0.195, -0.160) and tile["faint"] and looks == []
+        b.realsense.faint = []
+        assert b.look_at_home(spot=spot, tiles=[]) is None
+        assert looks[0]["tile_name"] == "S13"                          # never the layout's label
+    finally:
+        b.close()
+
+
+def test_a_missing_tile_is_never_asked_for_by_the_layouts_label(tmp_path, monkeypatch):
+    import builtins
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    prompts = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: prompts.append(prompt) or "s")
+    try:
+        assert b.reposition("No tile", spot={"id": "S13", "xy": [0.192, -0.165], "label": "WW"}) is False
+    finally:
+        b.close()
+    assert "WW" not in prompts[0] and "the tile" in prompts[0]

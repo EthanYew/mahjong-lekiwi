@@ -123,6 +123,12 @@ The bullets below were shortened in CLAUDE.md, which loads into every session.
   `interventions.NEIGHBOUR_M` or a key was pressed, because that's when a knock is likely. An ignored loss that was real
   isn't counted against the attempt: `glitch_ignored` events show how many went unchecked.
 
+- **Whether a tile is there and which tile it is are separate questions** (`20261103_121112_bench`). 11 lost-tile events
+  came from 3 of 14 tiles the detector does box, just under its cut. Over a scan's 5 frames, in at least 2, at 0.1: all 14
+  tiles in all 46 scans. At 31 spots just emptied by a pickup (17 on the mat, 14 on the black top, `20261030_175235_bench`):
+  none. On the mat at no tile: 0 in 74 scans; 2 in 42 on the black top. Offline, with the plane rather than depth for
+  position. Names need retraining: 2B reads as 4B in 45 of 46 frames, so no vote fixes it.
+
 - **A tile's white face can't be found by colour on a pale mat.** On the striped mat, face and white stripe overlap in
   brightness (face median ~225, stripe up to ~240) and match in colour (Lab `a` ~133). Of 950 colour reads at real
   tiles (`20261103_121112_bench`), 713 found nothing, 231 were stripe slices, 5 were tile-shaped but ~9mm off, 1 was

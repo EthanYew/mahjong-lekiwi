@@ -104,6 +104,7 @@ class SimPerception:
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
         self.T_render = self.T_cam_to_base      # where the camera really is: a test moves it to fake a knocked tripod
         self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
+        self.faint = []             # like RealSense's: tiles too unsure to name (a test sets them)
         from .detector import TILE_NAMES
         self.names = TILE_NAMES
 

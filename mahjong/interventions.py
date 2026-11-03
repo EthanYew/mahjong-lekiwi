@@ -101,6 +101,7 @@ TURN_PX = 2.5
 # diagonals ~75mm). Answers to 212 scan changes (23 sessions to 2026-10-30): beyond 90mm, 43 of 47 were glitches;
 # neighbours that moved or turned at 40-60mm, 30 of 39 were real; gone / appeared at any distance mostly glitches.
 NEIGHBOUR_M = 0.085
+FAINT_SAME_M = 2 * KNOCK_M      # a faint box this close to a lost tile is that tile, unmoved (as _state's "before")
 # A watched change is real once this many later scans still show it (ChangeWatch: ~one attempt, 3 scans each);
 # one a later scan shows undone was a glitch. Replayed on the same answers: 3 matched the person on 43 of 55
 # watched changes (40 of their 44 glitches), 2 on 40. Most of the rest were real answers given for a whole
@@ -509,7 +510,7 @@ def derive(events):
                     "scans" if by == "scans" else "confirmed", time, during=during, changes=changes,
                     by=None if by == "scans" else by)
             mat.advance(e, merge(*[c for k, c, _ in found if k == "knocked"]))
-        elif (kind == "wrist_check" and e.get("present")) or kind == "glitch_ignored":
+        elif (kind == "wrist_check" and e.get("present")) or kind in ("glitch_ignored", "tile_faint"):
             mat.restore({"tile_name": e["tile"], "xy": e["xy"]})
         elif kind == "session_end":
             ended = True

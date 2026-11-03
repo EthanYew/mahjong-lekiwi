@@ -168,6 +168,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a
   person is asked the first time. After 3 confirmations a place's next 10 losses aren't looked at, unless the arm was near
   it or a key was pressed (`interventions.GlitchTrust`, `glitch_ignored` events). Evidence: `docs/invariant_notes.md`.
+- **Whether a tile is there and which tile it is are separate questions.** The detector boxes tiles it can't name (3C at a
+  median 0.18, so it looked gone in 45 of 46 scans), so a box down to `config.DETECTION_PRESENCE_CONFIDENCE` proves a tile
+  is there (`perception.faint_tiles`, `tile_faint` events), and only a name over `DETECTION_CONFIDENCE` is acted on as one.
+  A layout's labels are what taught it, not what's on the mat: never use them as a tile's name. Evidence:
+  `docs/invariant_notes.md`.
 - **A tile's white face can't be found by colour on a pale mat**: 1 good read in 950 on the striped mat, and slices of
   stripe passed as tiles. Where it matters, use what a tile looks like: the detector's box on the RealSense
   (`layout.find_tile`, which can't read yaw there, so green is position only) and the reference's picture of the tile in
