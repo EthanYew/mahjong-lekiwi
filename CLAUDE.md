@@ -41,10 +41,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane, a tile
   in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken
   with `--save-reference` on a setup that worked. Nudge the camera back to green rather than recalibrating.
-- Autonomous play: `python scripts/play.py --layout hand13` (`--sim` without hardware). One session is one
+- Autonomous play: `python scripts/play.py --layout even-hand13` (`--sim` without hardware). One session is one
   hand; it asks instead of guessing a tile name, and the hand grades clean / attended / rescued / silent
   error (`interventions.hand_grade`). Silent wrong tiles are a gate, not a target: one stops play. Bench the
-  hand with `bench.py --layout hand14` (hand13 + the drop zone's spot): play won't start until the zone is.
+  hand with `bench.py --layout even-hand14` (even-hand13 + the drop zone's spot): play won't start until the zone is.
 - Score a policy offline (GPU, minutes): `python scripts/offline_eval.py --policy pickup_mat_cl --against
   pickup_mat_cl_v1 [--by spot|lighting]`; tables per slice and the gates.
 
@@ -64,7 +64,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
-| `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped) and the paired ship rule |
+| `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |
 | `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
@@ -163,8 +163,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. Not measured beyond the black top (`wrist_check.EXPECTED_PX`).
   Evidence: `docs/invariant_notes.md`.
-- **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far edge
-  (WW, see the far-row invariant). `hand14` is `hand13` + that spot (S13); `play.py` refuses to start until a
+- **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
+  the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).
 - The hover correction, the return correction and the table plane are tied to `assets/T_cam_to_base.npy`;
   recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
@@ -187,6 +187,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `data/detector_exam.json`, labelled in a Roboflow project of their own (`mine_frames.py` and
   `train_detector.py` keep them out). New weights replace `assets/tile_detector.pt` only if they beat it
   on the exam (`detector_eval.py --against`).
+- **Counted bench results run on the standard setup** (`data/standard_setup.json`: one mat, one layout), with a passing
+  `setup_check.py` and one hover opening within a comparison. Other surfaces are generalisation checks and never block.
+  Which check answers which question: `docs/scorecard.md`. Don't change the setup to explain away a result.
 - Learned something about the hardware? Add it to the invariants above, with the reason.
 - Retrospectives / session write-ups: **What changed / What was learned / What's next**, in
   `docs/retrospectives/<date>_<topic>.md` with a timeline and the session folders they draw on.
