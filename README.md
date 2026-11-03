@@ -33,6 +33,7 @@ not a worktree, or the sessions go when the worktree does.
 |---|---|
 | Check nothing's broken (no hardware, ~11 s) | `python -m pytest -m "not slow" -n 8` |
 | See where things stand (default policy and why, bench totals, layouts, the drop zone, this checkout) | `python scripts/status.py` |
+| See which tiles get misread, and how much it matters | `python scripts/name_report.py` |
 | Approve and merge a branch's PR, then clean up after it | `python scripts/merge_pr.py` (lists them), then `python scripts/merge_pr.py <number>` |
 | Make another policy the default | `python scripts/status.py --set-default <id> --evidence "sessions/<bench session>: <scores>" --why "..."` |
 | Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
@@ -135,7 +136,7 @@ On a pale or patterned mat the RealSense can't read a tile's turn, so green mean
 `record.py` too): line the outline up by eye. Placing finds tiles with the tile detector, whatever the mat.
 
 When the detector can't name a tile but still boxes it (down to 0.1 confidence), the tile counts as there and no one
-looks: `tile_faint` events. A tile a spot's scan can't name is picked up from that box, under the spot's id.
+looks: `tile_faint` events. A tile a spot's scan can't name is picked up from that box, logged as `unnamed` with `name_source` saying how it was found (never under a spot id or layout label).
 
 Otherwise, on a pale mat the bench's wrist look can't tell a tile from the mat. So when the scans lose a tile it asks you
 the first time at that place, then compares the view with what it saw there.
@@ -260,6 +261,13 @@ the return correction (below). The scan after a return checks where it landed: o
 says so; over 25mm, or out of the hover's reach, it asks you to put the tile back on its home (Enter
 when done; logged as a reset).
 
+### Saying what's on the mat
+
+Trials on a `--layout` start with one scan and one question: each spot with what the scan reads there. Enter if they're
+right, `S7=2B` to correct one, `-S7` for no tile there, `r` to scan again, `q` to leave them unchecked (those placements then
+go unscored in `name_report.py`). `--unattended` asks this too, before the trials start. If a tile has to be put back
+mid-run, type its name at that prompt if it's a different tile.
+
 ## Checking what the scans said moved: `scripts/bump_report.py`
 
 Goes through a bench session's pickups and returns, for you to say which tiles really moved. `bench.py --unattended`
@@ -285,6 +293,39 @@ Clicks save straight away, and the latest click on a tile stands. A verdict is a
 `events.jsonl`, and `session_report.py`, the scorecard and `status.py` follow it: **Didn't move** turns a bump into a
 glitch, and **Moved** on a neighbour the scans said nothing about makes it a knock. Until you check them, self-reported
 bumps count as knocks.
+
+## Which tiles get misread: `scripts/name_report.py`
+
+```
+python scripts/name_report.py                    # every tile, per detector and surface, worst first
+python scripts/name_report.py --by lighting      # also split by lighting (or spot, or session; repeatable)
+python scripts/name_report.py --tile 8C --list   # one tile, and each placement behind it
+python scripts/name_report.py --since 20261103   # sessions from that date (name prefix) on
+python scripts/name_report.py --json out.json    # the same rows and placements, as a file
+python scripts/name_report.py --sim              # include simulated sessions (left out by default)
+python scripts/name_report.py --sessions-dir ../other/sessions   # another checkout's sessions
+```
+
+A *placement* is one physical tile at one place, until a person or a knock changes that. The report scores every read of
+it against what a person said was there: bench attempts and hovers (at a spot or not) and `wrist_capture.py` tiles, the
+last as "read once" since one scan can't vote. Exam sessions are never read. Its sample size is placements and sessions, not scans. A placement ends up
+**accepted wrong** (the votes cleared their bar for a wrong name, so the robot would act without asking), **asks**, or
+accepted right.
+
+| Band | Meaning (thresholds are first guesses) |
+|---|---|
+| severe | a wrong name was accepted without asking |
+| costly | a person is asked on 25%+ of placements |
+| flaky | votes right, but 10%+ of scans wrong or unnamed |
+| fine | none of those, over 5+ placements and 3+ sessions |
+| not enough data | anything else; names with no placement at all are listed under the table |
+
+"(up to)" is the highest accepted-wrong rate the placements so far can't rule out (95%). The truth comes from your check of
+the mat before trials, your answers during a hand, and `wrist_review.py`, whose verdicts overrule the others (the report
+counts how often). The first lines also show what play's extra checks would have done (`identity.doubt`); the bands stay on
+the votes alone. Older sessions have only reviewed photos, and their votes are replayed over the whole placement, so they
+say less than a played hand will. `status.py` prints the worst tiles and `session_report.py` the session's. Run it from
+the main checkout. What's collected and why: `docs/name_data.md`.
 
 ## Reading results: `scripts/session_report.py`
 
@@ -336,11 +377,13 @@ A hand: it reads the 13 tiles (asking about any it isn't sure of), then each tur
 checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
 tiles still left, then kinds), drops it in the container, and if it came from the hand moves the drawn
 tile into the slot it left, aimed so it lands on the slot's home. Type `end` at the draw prompt when the
-wall is empty. At the end you check its hand against the table: Enter if it's right, or the wrong slots
+wall is empty. At the end you check its hand against the table and its discards (`D1`, `D2`...) against the
+container: Enter if it's right, or the wrong slots
 as `H3=5D`.
 
-It asks rather than guess: a name the votes over the scans aren't clearly for, a slot that reads
-differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
+It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C or 5C (names
+other tiles get misread as: `identity.ALWAYS_ASK_READS`, a stopgap, `docs/name_data.md`), a read under 0.80 confidence, a slot
+that reads differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
 question is logged, and the hand is graded **clean** (nothing asked), **attended** (questions only),
 **rescued** (you touched something) or **silent error** (the end check found a tile it had wrong).
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
@@ -792,7 +835,8 @@ python scripts/status.py --set-default pickup_mat_cl_v5 --evidence "sessions/202
 It prints this checkout against origin/main (and warns if it's behind or has uncommitted code), the default
 policy with the evidence it was chosen on, every registered policy's bench total over all sessions, the eval
 sets and detector exam, the layouts and their notes, the drop zone and whether the bench has checked a pickup
-there, and how many merged branches are waiting to be closed.
+there, the worst-read tiles on the standard surface (`name_report.py`), and how many merged branches are waiting to be
+closed.
 
 **Changing the default policy**: always with `--set-default ID --evidence ...` (and `--why`). It writes a
 `default_note` next to the default in `data/policies.json`; a test fails if the default changes without one.

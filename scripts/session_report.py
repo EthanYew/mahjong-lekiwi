@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import bump_report, config, interventions, scorecard
+from mahjong import bump_report, config, interventions, name_ledger, scorecard
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
@@ -307,6 +307,8 @@ def main():
                                     + ", ".join(f"{s:.0f}mm" for s in shifts) + ")" if shifts else ""))
     returns_report(events)
     play_report(events, found)
+    for line in name_ledger.session_lines(session_dir):
+        print(line)
 
 
 def play_report(events, found):

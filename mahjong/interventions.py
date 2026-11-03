@@ -418,6 +418,17 @@ def _apply_verdict(reviews, verdict):
                    "by": "scans", "verified": True}]
 
 
+def scan_reviews(events):
+    """{scan number: what was said about its changes}, with a person's later verdicts applied."""
+    reviews = {}
+    for e in events:
+        if e["type"] == "scan_review":
+            reviews.setdefault(e["scan"], []).append(e)
+    for verdict in latest_verdicts(events).values():
+        reviews[verdict["scan"]] = _apply_verdict(reviews.get(verdict["scan"], []), verdict)
+    return reviews
+
+
 def derive(events):
     """Every intervention in a session's events, logged or derived, in order:
     [{kind, class, attempt_dir, source, time, ...}]. source: logged (an intervention event or a logged
@@ -440,12 +451,7 @@ def derive(events):
     events = [e for e in events if not (e["type"] == "keys" and (e["attempt_dir"], e.get("during")) in void)]
     # a → during a pickup someone also pressed a key for says nothing the key didn't
     keyed = {e["attempt_dir"] for e in events if e["type"] == "keys" and e.get("during") == "pickup" and e["presses"]}
-    scan_reviews = {}
-    for e in events:
-        if e["type"] == "scan_review":
-            scan_reviews.setdefault(e["scan"], []).append(e)
-    for verdict in latest_verdicts(events).values():
-        scan_reviews[verdict["scan"]] = _apply_verdict(scan_reviews.get(verdict["scan"], []), verdict)
+    reviews_of_scan = scan_reviews(events)
     last_attempt, mat, ended = None, MatWatch(), False
     for e in events:
         kind, time = e["type"], e.get("time")
@@ -477,7 +483,7 @@ def derive(events):
                 off_parked_deg=e.get("off_parked_deg"))
         elif kind == "detections":
             proposal = mat.propose(e)
-            answered = scan_reviews.get(e.get("scan"), [])
+            answered = reviews_of_scan.get(e.get("scan"), [])
             if proposal is None:    # the scans saw nothing: only a person saying something moved all the same stands
                 answered = [r for r in answered if r.get("verified")]
             during = e["label"].removeprefix("after_") if e["label"] in ATTEMPT_SCANS else None

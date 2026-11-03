@@ -6,7 +6,8 @@ sources have files under sessions/:
   (its f0; the other frames of the view share its verdict), grouped by the physical tile (set, tile):
   if the detector misnamed it, every view of it is wrong together.
 - bench attempts and hovers: <session>_bench/<n>_<time>_<NAME>/wrist_0000.jpg, the policy's first frame (at
-  the hover), or the frame the bench's `hover` command took. One photo per attempt or hover.
+  the hover), or the frame the bench's `hover` command took. One photo per attempt or hover. A played hand's
+  pickups (<session>_play/) count as bench photos: the same pickup, and the only look at a tile that went in the bin.
 (Recorded episodes start at the hover too, but their frames are inside the dataset videos; they're
 only counted, by their episode logs.)
 
@@ -43,7 +44,7 @@ def photos(sessions_dir=None):
                 out.append({"key": str(first.relative_to(sessions_dir)), "path": first, "name": first.parent.name,
                             "source": "wrist_capture", "session": folder.name, "group": f"{folder.name}/{set_tile}",
                             "frames": sorted(first.parent.glob(first.name.replace("_f0.jpg", "_f*.jpg")))})
-        elif folder.name.endswith("_bench"):
+        elif folder.name.endswith(("_bench", "_play")):
             for first in sorted(folder.glob("*/wrist_0000.jpg")):
                 out.append({"key": str(first.relative_to(sessions_dir)), "path": first,
                             "name": first.parent.name.rsplit("_", 1)[-1], "source": "bench", "session": folder.name,
@@ -70,8 +71,8 @@ def record(keys, verdict, name=None, path=None):
 def name_of(photo, review):
     """The photo's name after review: the corrected one, its own, or None (wrong, no right name)."""
     verdict = review.get(photo["key"])
-    if verdict is None or verdict["verdict"] == "ok":
-        return photo["name"]
+    if verdict is None or verdict["verdict"] == "ok":   # a photo no scan named waits for a person's name
+        return None if photo["name"] == config.UNNAMED else photo["name"]
     return verdict.get("name")
 
 

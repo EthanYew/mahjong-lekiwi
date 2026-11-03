@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, layout, markers, scorecard
+from mahjong import checkout, config, layout, markers, name_ledger, scorecard
 from mahjong.session import read_events
 
 
@@ -101,6 +101,7 @@ def report(sessions_dir=None):
                  f"held-out episodes: {sum(len(v) for v in split.get('heldout', {}).values())}")
     exam = json.loads((config.DATA / "detector_exam.json").read_text()).get("sessions", {})
     lines.append(f"Detector exam sessions: {len(exam)} ({', '.join(exam) or 'none'})")
+    lines.append(name_ledger.worst_line(sessions_dir))
 
     lines.append("\nLayouts:")
     for name, entry in layout.load_layouts().items():

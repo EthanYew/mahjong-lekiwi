@@ -90,7 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import bump_report, config, detector, interventions, layout, wrist_check
+from mahjong import bump_report, config, detector, interventions, layout, placements, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
@@ -172,7 +172,8 @@ class Bench:
             devices = sim.connect(wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
-            self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True)
+            self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
+                                   detector=detector.weights_id())
         else:
             from mahjong import hardware
             from mahjong.policy import Policy
@@ -180,7 +181,8 @@ class Bench:
             # hardware first: nothing (not even the session folder) is created until it's all there
             devices = hardware.connect(["arm", "wrist_camera", "realsense"])
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
-            self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False)
+            self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False,
+                                   detector=detector.weights_id())
         # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
         self.events = new_events()
         self.terminal = TerminalKeys(self.events, on_char=lambda char: self.keys.press(char))
@@ -200,6 +202,8 @@ class Bench:
         self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
         self.views = wrist_check.PlaceViews()       # what the wrist camera saw where lost tiles turned out to be
         self.names = {}             # {spot id or tile name: the tile last picked up there}
+        self.placements = placements.Placements(self.session)   # what's on the mat, for the name report
+        self.ask_names = None if args.sim else input            # a simulated mat's reads stand as what's there
         self.batch = False          # during trials: a tile not found is put back by a person, not skipped
         self.defer = False          # questions wait for the caller (play: the end of the step)
         self.correction = HoverCorrection.load()
@@ -531,7 +535,8 @@ class Bench:
         if home is None or any(n == self.scan_n and math.dist(xy, home) <= config.TILE_MERGE_RADIUS_M
                                for n, xy in self.looked_empty):
             return None
-        tile = {"tile_name": tile_name or self.names.get(key) or key, "xy": list(home)}
+        tile = {"tile_name": tile_name or self.placements.truth_at(key) or self.names.get(key) or config.UNNAMED,
+                "xy": list(home)}
         box = self.faint_at(tile, self.scan_n, config.TILE_MERGE_RADIUS_M)
         if box:                     # picked up from where the box is, as a named tile would be
             self.mat.restore(tile)
@@ -610,10 +615,13 @@ class Bench:
         where = f" at ({home[0]:.3f}, {home[1]:+.3f})" if home else ""
         name = tile_name or "the tile"
         drain_stdin()
-        answer = input(f"  {missing}. Put {name}{where} squarely, then Enter to rescan, "
-                       f"or s to skip: ").strip().lower()
-        if answer.startswith("s"):
+        answer = input(f"  {missing}. Put {name}{where} squarely, then Enter to rescan (type its name first if it's "
+                       f"a different tile), or s to skip: ").strip().upper()
+        if answer == "S" or answer == "SKIP":
             return False
+        if spot:
+            known = answer if answer in detector.TILE_NAMES else self.placements.truth_at(spot["id"])
+            self.placements.start(spot["id"], spot["xy"], truth=known, truth_source="person" if known else "unconfirmed")
         self.session.intervention("tile_reset", attempt_dir=self.last_attempt, tile=tile_name,
                                   reason="repositioned: not detected", **({"spot": spot["id"]} if spot else {}))
         return True
@@ -708,7 +716,9 @@ class Bench:
             self.to_review.append((attempt.name, tile["tile_name"], run, bool(presses)))
         elif not self.defer:
             review = self.review(attempt.name, tile["tile_name"], run, keyed=bool(presses))
-        self.session.event("attempt", tile=tile["tile_name"], policy=self.policy.id, detection_xy=tile["xy"],
+        name_source = "faint" if tile.get("faint") else "wrist_seen" if tile.get("wrist_seen") else "read"
+        self.session.event("attempt", tile=tile["tile_name"], name_source=name_source, policy=self.policy.id,
+                           placement=self.placements.id_at(spot["id"]) if spot else None, detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
                            hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
                            gripper_says_held=holding, success=success, attempt_dir=attempt.name,
@@ -868,6 +878,29 @@ class Bench:
             print(f"Saved {config.DISCARD_POSE}")
         self.arm.rest()
 
+    def name_the_mat(self):
+        """Before trials on a layout, once: a person checks what the scan reads at each spot, so every read after this
+        can be scored against what's really there (mahjong/placements.py, scripts/name_report.py). An unattended run asks
+        this too, like the setup questions: nothing is asked once the trials start."""
+        todo = [s for s in self.spots or [] if not self.placements.id_at(s["id"])]
+        if not todo:
+            return
+        if not self.arm.is_at_rest():
+            self.arm.rest()
+        checked = None
+        while checked is None:
+            rows = placements.rows(todo, self.scan("name_check", look=False))
+            if self.ask_names is None:
+                checked = [{**row, "sim": True} for row in rows]
+            else:
+                drain_stdin()
+                checked = placements.confirm(rows, self.ask_names)
+        for row in checked:
+            source = "sim" if row.get("sim") else "person" if row["confirmed"] or "renamed_from" in row else "unconfirmed"
+            named = row["tile_name"] != config.UNNAMED and source != "unconfirmed"
+            self.placements.start(row["id"], row["xy"], truth=row["tile_name"] if named else None, truth_source=source,
+                                  read=row["detected_as"])
+
     def trials(self, n=None, tile_name=None):
         """n rounds on one tile, or at every spot of the layout. A round is one attempt per policy, from
         the same hover offset, in alternating order (a b, b a, ...)."""
@@ -876,6 +909,7 @@ class Bench:
             n = int(input(f"How many rounds{' per spot' if self.spots else ''}? ").strip() or 0)
             if not self.spots:
                 tile_name = input("Which tile (name)? ").strip() or None
+        self.name_the_mat()
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
         plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
                 for policy in (self.policies if i % 2 == 0 else self.policies[::-1])]

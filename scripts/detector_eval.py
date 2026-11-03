@@ -22,9 +22,7 @@ Ship new weights only if they beat the current ones on the same exam: copy best.
 assets/tile_detector.pt and commit it, with these numbers in the message.
 """
 import argparse
-import hashlib
 import json
-import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, detector
+from mahjong.detector import weights_id, wrong_rate_bound
 
 
 def parse_args(argv=None):
@@ -59,11 +58,6 @@ def parse_names(text):
     return tuple(dict.fromkeys(names))
 
 
-def weights_id(path):
-    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()[:8]
-    return f"{Path(path).stem}@{digest}"
-
-
 def predictor(weights):
     from ultralytics import YOLO
     from mahjong.perception import run_detector
@@ -73,20 +67,6 @@ def predictor(weights):
 
 def pct(value):
     return "  -  " if value is None else f"{value * 100:5.1f}%"
-
-
-def wrong_rate_bound(wrong, n, confidence=0.95):
-    """The exact (Clopper-Pearson) upper bound on a rate seen `wrong` times in `n`: with 0 in n, ~3/n."""
-    if wrong >= n:
-        return 1.0
-
-    def at_most(p):         # P(X <= wrong) for X ~ Binomial(n, p)
-        return sum(math.comb(n, k) * p ** k * (1 - p) ** (n - k) for k in range(wrong + 1))
-    lo, hi = wrong / n, 1.0
-    for _ in range(60):
-        mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if at_most(mid) > 1 - confidence else (lo, mid)
-    return hi
 
 
 def report(name, scores, mixups):

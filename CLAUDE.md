@@ -71,6 +71,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/bump_report.py`, `scripts/bump_report.py` | every pickup and return before / after from the scans, for a person to say which tiles really moved (`scan_verdict` events) |
+| `mahjong/placements.py`, `name_ledger.py`, `scripts/name_report.py`, `docs/name_data.md` | which tiles get misread and how much it matters: a person's word on what's at each spot (bench, before trials; play's answers and audit), every read scored against it per placement, with reviewed wrist photos for older sessions |
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |
@@ -193,6 +194,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   stripe passed as tiles. Where it matters, use what a tile looks like: the detector's box on the RealSense
   (`layout.find_tile`, which can't read yaw there, so green is position only) and the reference's picture of the tile in
   the wrist view (`setup_check.match_tile`, so a spot needs the same tile each time). Evidence: `docs/invariant_notes.md`.
+- **A stricter rule for a problem tile has to go on the name read, not the tile.** The robot never sees "8C", only the "7C"
+  it reads, so real 7Cs pay too (`identity.ALWAYS_ASK_READS`, a stopgap in play). Confidence alone isn't enough: wrong EW and
+  7C reads overlap real ones. Evidence: `docs/name_data.md`.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).
