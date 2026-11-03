@@ -1,19 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*scripts/status.py)",
-      "Bash(*scripts/session_report.py*)",
-      "Bash(*scripts/handoff_report.py*)",
-      "Bash(*scripts/quality_report.py*)",
-      "Bash(*python -m pytest*)"
+      "Bash(~/miniforge3/envs/lerobot/bin/python scripts/status.py*)",
+      "Bash(~/miniforge3/envs/lerobot/bin/python scripts/session_report.py*)",
+      "Bash(~/miniforge3/envs/lerobot/bin/python scripts/handoff_report.py*)",
+      "Bash(~/miniforge3/envs/lerobot/bin/python scripts/quality_report.py*)",
+      "Bash(~/miniforge3/envs/lerobot/bin/python -m pytest*)"
     ],
     "ask": [
-      "Bash(*scripts/bench.py*)",
-      "Bash(*scripts/record.py*)",
-      "Bash(*scripts/play.py*)",
-      "Bash(*scripts/collect_corrections.py*)",
-      "Bash(*scripts/setup_check.py*)",
-      "Bash(*scripts/wrist_capture.py*)",
+      "Bash(*python* *scripts/bench.py*)",
+      "Bash(*python* *scripts/record.py*)",
+      "Bash(*python* *scripts/play.py*)",
+      "Bash(*python* *scripts/collect_corrections.py*)",
+      "Bash(*python* *scripts/setup_check.py*)",
+      "Bash(*python* *scripts/wrist_capture.py*)",
       "Bash(*scripts/status.py --set-default*)"
     ],
     "deny": [
