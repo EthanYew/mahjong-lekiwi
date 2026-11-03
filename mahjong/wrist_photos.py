@@ -5,8 +5,8 @@ sources have files under sessions/:
 - wrist_capture.py views: <session>_wrist/wrist/<NAME>/<set>_<tile>_v<view>_f<k>.jpg. One photo per view
   (its f0; the other frames of the view share its verdict), grouped by the physical tile (set, tile):
   if the detector misnamed it, every view of it is wrong together.
-- bench attempts: <session>_bench/<n>_<time>_<NAME>/wrist_0000.jpg, the policy's first frame (at the
-  hover). One photo per attempt.
+- bench attempts and hovers: <session>_bench/<n>_<time>_<NAME>/wrist_0000.jpg, the policy's first frame (at
+  the hover), or the frame the bench's `hover` command took. One photo per attempt or hover.
 (Recorded episodes start at the hover too, but their frames are inside the dataset videos; they're
 only counted, by their episode logs.)
 

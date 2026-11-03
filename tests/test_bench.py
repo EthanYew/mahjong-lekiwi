@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mahjong import config
+from mahjong import config, detector, wrist_photos
 from mahjong.arm import release_height
 from mahjong.hover_correction import read_all
 from mahjong.session import read_events
@@ -36,6 +36,52 @@ def test_sim_trials_write_a_complete_session(tmp_path, monkeypatch):
     assert (session / "session.log").read_text()
     samples = read_all(session / "hover_corrections.jsonl")     # sim samples stay out of data/
     assert [r["source"] for r in samples] == ["bench", "bench"] and not samples[0].get("excluded")
+
+
+def hover_once(tmp_path, monkeypatch, camera=None):
+    """The bench's hover command on the sim, with the first tile chosen: the session folder."""
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr("builtins.input", lambda *_: "1")
+    b = bench.Bench(bench.parse_args(["--sim"]))
+    try:
+        b.camera = camera or b.camera
+        b.hover()
+    finally:
+        b.close()
+    return next(tmp_path.iterdir())
+
+
+def test_hover_saves_a_wrist_photo_where_the_wrist_photos_are_gathered_from(tmp_path, monkeypatch):
+    monkeypatch.setattr(detector, "is_sim", lambda _: False)     # photos() leaves simulated sessions out
+    session = hover_once(tmp_path, monkeypatch)
+    hover = next(e for e in read_events(session) if e["type"] == "hover")
+    assert (session / hover["attempt_dir"] / "wrist_0000.jpg").exists()
+    photo, = wrist_photos.photos(tmp_path)
+    assert (photo["source"], photo["name"]) == ("bench", hover["tile"])
+    assert not [e for e in read_events(session) if e["type"] == "attempt"]    # a hover isn't a pickup attempt
+
+
+def test_hover_with_a_lost_wrist_camera_reopens_it_and_still_logs_the_hover(tmp_path, monkeypatch):
+    import bench
+
+    class Lost:
+        def flush(self):
+            pass
+
+        def read(self):
+            return False, None
+
+        def release(self):
+            pass
+
+    reopened = []
+    monkeypatch.setattr(bench.Bench, "reopen_camera", lambda self: reopened.append(True))
+    monkeypatch.setattr("mahjong.camera.read_within", lambda camera: (False, None))
+    session = hover_once(tmp_path, monkeypatch, camera=Lost())
+    hover = next(e for e in read_events(session) if e["type"] == "hover")
+    assert reopened == [True] and hover["attempt_dir"] is None
+    assert not list(session.glob("*/wrist_0000.jpg"))
 
 
 def test_perturbed_trials_offset_the_hover_and_set_their_samples_aside(tmp_path, monkeypatch):
