@@ -307,7 +307,8 @@ python scripts/name_report.py --sessions-dir ../other/sessions   # another check
 ```
 
 A *placement* is one physical tile at one place, until a person or a knock changes that. The report scores every read of
-it against what a person said was there. Its sample size is placements and sessions, not scans. A placement ends up
+it against what a person said was there: bench attempts and hovers (at a spot or not) and `wrist_capture.py` tiles, the
+last as "read once" since one scan can't vote. Exam sessions are never read. Its sample size is placements and sessions, not scans. A placement ends up
 **accepted wrong** (the votes cleared their bar for a wrong name, so the robot would act without asking), **asks**, or
 accepted right.
 
@@ -321,7 +322,8 @@ accepted right.
 
 "(up to)" is the highest accepted-wrong rate the placements so far can't rule out (95%). The truth comes from your check of
 the mat before trials, your answers during a hand, and `wrist_review.py`, whose verdicts overrule the others (the report
-counts how often). Older sessions have only reviewed photos, and their votes are replayed over the whole placement, so they
+counts how often). The first lines also show what play's extra checks would have done (`identity.doubt`); the bands stay on
+the votes alone. Older sessions have only reviewed photos, and their votes are replayed over the whole placement, so they
 say less than a played hand will. `status.py` prints the worst tiles and `session_report.py` the session's. Run it from
 the main checkout. What's collected and why: `docs/name_data.md`.
 
@@ -379,8 +381,9 @@ wall is empty. At the end you check its hand against the table and its discards 
 container: Enter if it's right, or the wrong slots
 as `H3=5D`.
 
-It asks rather than guess: a name the votes over the scans aren't clearly for, a slot that reads
-differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
+It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C or 5C (names
+other tiles get misread as: `identity.ALWAYS_ASK_READS`, a stopgap, `docs/name_data.md`), a read under 0.80 confidence, a slot
+that reads differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
 question is logged, and the hand is graded **clean** (nothing asked), **attended** (questions only),
 **rescued** (you touched something) or **silent error** (the end check found a tile it had wrong).
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm

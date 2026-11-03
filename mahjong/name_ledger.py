@@ -14,6 +14,13 @@ person who skipped the check) isn't truth, and a placement with no truth isn't s
 
 A person's or a knock's change at a spot ends what's known there: a knocked 3D on 1B's spot isn't a misread of 1B
 (20261030_115706_bench). What follows counts only once a reviewed photo says what's there.
+
+Bench attempts and hovers without a spot (--tile trials, the menu) are grouped by where they were. wrist_capture.py sets count
+too, as "read once": one scan and a person's name, which says how the read went but not what the votes would have done. Exam
+sessions are never read here: nothing gets tuned on them.
+
+An outcome is what the votes alone would do. `guarded` is the same placement with play's extra checks (identity.doubt):
+the bands stay on the first, since the checks are a stopgap that hides how bad a tile is.
 """
 import hashlib
 import math
@@ -29,7 +36,7 @@ from .session import read_events
 
 SCORED_SCANS = ("choose", "after_return", "name_check", "register", "drawn", "final")   # not after_pickup: the tile's held
 ENDS_A_PLACEMENT = {"knocked", "moved_elsewhere", "tile_reset", "straightened"}
-RIGHT, ASKS, WRONG = "accepted right", "asks", "accepted wrong"
+RIGHT, ASKS, WRONG, READ_ONCE = "accepted right", "asks", "accepted wrong", "read once"
 # Bands. First guesses, to be set from data like identity.py's bars
 COSTLY_ASK_SHARE = 0.25     # asks on this share of placements
 FLAKY_BAD_SHARE = 0.10      # votes right, but this share of scans wrong or unnamed
@@ -110,15 +117,24 @@ def segments(events):
     event, or None), "attempts"}]. A placement event, its end, or a change at the spot closes one."""
     marks, ends = defaultdict(list), changes_by_scan(events)[0]
     home = {}
+
+    def spot_of(e):
+        """Its layout spot, or, for --tile trials and the menu, a place named by where the tile first was."""
+        if e.get("spot"):
+            return e["spot"]
+        xy = e["detection_xy"]
+        near = [s for s in home if s.startswith("@") and math.dist(home[s], xy) <= config.TILE_MERGE_RADIUS_M]
+        return near[0] if near else f"@{xy[0]:.3f},{xy[1]:+.3f}"
     for i, e in enumerate(events):
         if e["type"] == "placement":
             marks[e["spot"]].append((i, "placement", e))
             home[e["spot"]] = e["xy"]
         elif e["type"] == "placement_ended":
             marks[e["spot"]].append((i, "ended", e))
-        elif e["type"] == "attempt" and e.get("spot"):
-            marks[e["spot"]].append((i, "attempt", e))
-            home.setdefault(e["spot"], e.get("spot_xy") or e["detection_xy"])
+        elif (e["type"] == "attempt" or (e["type"] == "hover" and e.get("attempt_dir"))) and e.get("detection_xy"):
+            spot = spot_of(e)
+            marks[spot].append((i, "attempt", e))
+            home.setdefault(spot, e.get("spot_xy") or e["detection_xy"])
     out = []
     for spot, spot_marks in marks.items():
         cuts = [(i, "change", None) for i, points in ends if _near(points, home[spot])]
@@ -136,7 +152,7 @@ def segments(events):
 
 def _truth(segment, session_name, reviewed, answers, audited, by_id):
     """(the name, where it came from, whether a review overruled the placement), (None, why not, False) if unscorable."""
-    photos = {reviewed[key] for key in (f"{session_name}/{a['attempt_dir']}/wrist_0000.jpg" for a in segment["attempts"])
+    photos = {reviewed[key] for key in (f"{session_name}/{a.get('attempt_dir')}/wrist_0000.jpg" for a in segment["attempts"])
               if key in reviewed}
     if len(photos) > 1:
         return None, "conflicted", False
@@ -169,12 +185,39 @@ def _audited(sessions):
     return out
 
 
+def wrist_placements(meta, events, reviewed):
+    """A wrist_capture.py session's tiles: what the one scan read, against the name a person gave it (a review overrules)."""
+    views = defaultdict(list)
+    for e in events:
+        if e["type"] == "wrist_view":
+            views[(e.get("set"), e.get("tile_n"))].append(e)
+    scored, skipped = [], Counter()
+    for (_, tile_n), group in views.items():
+        first = group[0]
+        photos = {reviewed[key] for key in (f"{meta['session']}/{e['files'][0]}" for e in group if e.get("files"))
+                  if key in reviewed}
+        if len(photos) > 1:
+            skipped["conflicted"] += 1
+            continue
+        truth = next(iter(photos)) if photos else first["tile"]
+        read, right = first.get("detected_as"), first.get("detected_as") == truth
+        scored.append({**meta, "spot": f"T{tile_n}", "tile": truth, "truth_source": "review" if photos else "person",
+                       "overruled": bool(photos) and truth != first["tile"], "backfilled": False, "scans": 1,
+                       "right": int(right), "wrong": int(not right), "unnamed": 0, "faint": 0,
+                       "mixups": Counter({read: 1}) if not right else Counter(),
+                       "wrong_confidence": [first.get("confidence") or 0.0] if not right else [], "glitches": 0,
+                       "outcome": READ_ONCE, "guarded": READ_ONCE, "decided_live": False})
+    return scored, skipped
+
+
 def placements_of(session_name, events, reviewed, audited=None):
     """Scored placements of one session, and a Counter of why the rest weren't."""
     start = next((e for e in events if e["type"] == "session_start"), {})
     conditions = start.get("conditions") or {}
     meta = {"session": session_name, "surface": surface_of(conditions), "lighting": detector.lighting(conditions),
             "weights": weights_of(session_name, start)}
+    if session_name.endswith("_wrist"):
+        return wrist_placements(meta, events, reviewed)
     by_id = {e["id"]: e for e in events if e["type"] == "placement"}
     answers = {}
     for e in events:
@@ -223,6 +266,8 @@ def placements_of(session_name, events, reviewed, audited=None):
             continue
         said = (decision["name"] if decision["how"] == "vote" else None) if decision else votes.sure(segment["spot"])
         row["outcome"] = ASKS if said is None else RIGHT if said == truth else WRONG
+        guarded = said if decision or said is None or votes.doubt(segment["spot"], said) is None else None
+        row["guarded"] = ASKS if guarded is None else RIGHT if guarded == truth else WRONG
         row["decided_live"] = decision is not None
         row["glitches"] = sum(segment["lo"] <= i < segment["hi"] and _near(points, segment["xy"]) for i, points in glitches)
         scored.append(row)
@@ -235,20 +280,22 @@ def reviewed_names(review=None):
     out = {}
     for key, verdict in review.items():
         if verdict["verdict"] == "ok":
-            parts = key.split("/")      # <session>/<n>_<time>_<NAME>/wrist_0000.jpg: only attempts are joined
+            parts = key.split("/")      # <session>/<n>_<time>_<NAME>/wrist_0000.jpg or <session>/wrist/<NAME>/<view>.jpg
             if len(parts) == 3 and parts[2] == "wrist_0000.jpg":
                 out[key] = parts[1].rsplit("_", 1)[-1]
+            elif len(parts) == 4 and parts[1] == "wrist":
+                out[key] = parts[2]
         elif verdict.get("name"):
             out[key] = verdict["name"]
     return {key: name for key, name in out.items() if name in detector.TILE_NAMES}     # not an old S9 folder, or "unnamed"
 
 
 def load(sessions_dir=None, review=None, include_sim=False, since=None):
-    """(scored placements, Counter of why the others weren't, sessions read) over every bench and play session."""
+    """(scored placements, Counter of why the others weren't, sessions read) over every bench, play and wrist session."""
     sessions_dir = Path(sessions_dir or config.SESSIONS)
-    sessions = []
-    for folder in sorted(p for pattern in ("*_bench", "*_play") for p in sessions_dir.glob(pattern)):
-        if since and folder.name < since:
+    sessions, exam = [], detector.load_exam()["sessions"]
+    for folder in sorted(p for pattern in ("*_bench", "*_play", "*_wrist") for p in sessions_dir.glob(pattern)):
+        if (since and folder.name < since) or folder.name in exam:
             continue
         if not folder.is_dir() or (detector.is_sim(folder) and not include_sim):
             continue
@@ -265,7 +312,7 @@ def load(sessions_dir=None, review=None, include_sim=False, since=None):
 def band(row):
     if row["accepted_wrong"]:
         return "severe"
-    if row["asks"] / row["placements"] >= COSTLY_ASK_SHARE:
+    if row.get("voted", row["placements"]) and row["asks"] / row.get("voted", row["placements"]) >= COSTLY_ASK_SHARE:
         return "costly"
     if row["wrong_share"] + row["unnamed_share"] >= FLAKY_BAD_SHARE:
         return "flaky"
@@ -285,10 +332,13 @@ def rows(placements, by=()):
         mixups = sum((p["mixups"] for p in group), Counter())
         confidences = [c for p in group for c in p["wrong_confidence"]]
         outcomes = Counter(p["outcome"] for p in group)
+        voted = len(group) - outcomes[READ_ONCE]
         row = {"tile": tile, "weights": weights, "surface": surface, "extra": extra, "placements": len(group),
                "sessions": len({p["session"] for p in group}), "scans": sum(p["scans"] for p in group),
                "accepted_wrong": outcomes[WRONG], "asks": outcomes[ASKS], "accepted_right": outcomes[RIGHT],
-               "accepted_wrong_bound": detector.wrong_rate_bound(outcomes[WRONG], len(group)),
+               "voted": voted, "read_once": outcomes[READ_ONCE],
+               "read_once_wrong": sum(p["outcome"] == READ_ONCE and p["wrong"] > 0 for p in group),
+               "accepted_wrong_bound": detector.wrong_rate_bound(outcomes[WRONG], voted) if voted else None,
                "right_share": share("right"), "wrong_share": share("wrong"), "unnamed_share": share("unnamed"),
                "mixups": mixups.most_common(), "wrong_confidence": statistics.median(confidences) if confidences else None,
                "overruled": sum(p["overruled"] for p in group), "glitches": sum(p["glitches"] for p in group),
@@ -308,12 +358,13 @@ def untested(all_rows, weights, surface):
 def table(all_rows):
     """The rows as lines of text."""
     lines = [f"  {'tile':<4} {'band':<15} {'plc':>3} {'sess':>4} {'scans':>5} {'wrong acc':>9} {'(up to)':>7} {'asks':>4} "
-             f"{'right':>5} {'wrong':>5} {'unnamed':>7} {'conf wrong':>10}  read as"]
+             f"{'once':>5} {'right':>5} {'wrong':>5} {'unnamed':>7} {'conf wrong':>10}  read as"]
     for r in all_rows:
         extra = f" [{' '.join(r['extra'])}]" if r["extra"] else ""
         conf = "-" if r["wrong_confidence"] is None else f"{r['wrong_confidence']:.2f}"
         lines.append(f"  {r['tile']:<4} {r['band']:<15} {r['placements']:>3} {r['sessions']:>4} {r['scans']:>5} "
-                     f"{r['accepted_wrong']:>9} {r['accepted_wrong_bound']:>7.0%} {r['asks']:>4} {r['right_share']:>5.0%} "
+                     f"{r['accepted_wrong']:>9} {'-' if r['accepted_wrong_bound'] is None else format(r['accepted_wrong_bound'], '.0%'):>7} "
+                     f"{r['asks']:>4} {str(r['read_once_wrong']) + '/' + str(r['read_once']) if r['read_once'] else '-':>5} {r['right_share']:>5.0%} "
                      f"{r['wrong_share']:>5.0%} {r['unnamed_share']:>7.0%} {conf:>10}  "
                      + (" ".join(f"{name} x{n}" for name, n in r["mixups"][:3]) or "-") + extra)
     return lines

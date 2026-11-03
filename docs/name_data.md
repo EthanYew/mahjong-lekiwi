@@ -34,13 +34,26 @@ old sessions.
 | The scan's vote (`perception.merge_tiles`) | No: it's what's being tested | Reads |
 | Faint boxes (`faint`, `tile_faint`) | No | "Unnamed" reads |
 | `attempt.tile`, and its copies in `hover_corrections.jsonl`, `return_corrections.jsonl`, `return_landed`, `wrist_check` | No | Never as evidence of what a tile is. Attempts before this logged spot ids and labels there (`S9`, `NW`) |
-| `wrist_capture.py` (`detected_as` vs the name) | Yes, first | Training photos. Not in the report: one read per set |
+| `wrist_capture.py` (`detected_as` vs the name) | Yes, first | Training photos; in the report as "read once" (one scan each, so no vote) |
 | `wrist_review.py` (`data/wrist_review.jsonl`) | Yes, after | The strongest truth; now covers played hands' photos too |
 | The bench's check before trials | Yes, first | Truth for every read after it |
 | Play's answers and end-of-hand audit (now with discards) | Yes | Truth for that hand |
 | Detector exam (`data/detector_exam.json`, Roboflow) | Yes, labelled | Scoring new weights, frame by frame. Separate from this report |
 | `capture_frames.py` counts, `record.py` `tile_name` | No | Not evidence: counts are of what YOLO read. `record.py` also saves no scan frames (ROADMAP 10) |
 | Layout labels | No | Never: what taught the layout, not what's on the mat |
+
+## The stopgap in play
+
+Until a second read from the wrist camera passes its exam, `play.py` also asks when a name's read is on
+`identity.ALWAYS_ASK_READS`, or its confidence is under `identity.CONFIDENCE_FLOOR`, even if the votes are sure. The list is
+of names READ, not problem tiles: the robot never sees "8C", only the "7C" it's misread as, so real 7Cs get asked about too.
+Confidence alone can't do this job. On the 42 mat placements in dim or no daylight, requiring 0.80 of every tile left 1.1% of
+3-scan windows accepting a wrong name and doubled the questions; 0.95 stopped them but asked on 65%. Wrong reads of EW and 7C
+overlap real ones, and today's capture read a 7C as 6C at 0.87. With the list and the floor, the 47 mat placements now scored
+show no wrong name in any 3-scan window, at 30.5% questions, about 8 in a 27-read hand against about 4 today
+(`evidence/2026-11-04_name_data/rule_replay.txt`). That 0 is not a safety result: the list was picked from the same data it's
+checked on, so it will miss a mix-up nobody has seen yet. `name_report.py` prints what the guard would have done beside what the votes alone
+would, and the bands stay on the votes alone, so the guard can't hide a bad tile.
 
 ## What the report can't say yet
 
@@ -51,6 +64,7 @@ old sessions.
   coming up.
 - **Older knocks:** those reviews don't say what moved, so the scans are compared again. A tile landing within a few mm of
   where another left looks like the same tile, and stays a misread.
-- **Attempts by name:** only spots of a layout are scored, not `--tile` trials or menu pickups.
+- **Hover photos:** bench hovers count once a person has reviewed their photo. Until then they're "no truth".
+- **Exam sessions** aren't read at all, so a tile only on an exam capture still shows as not tested.
 - **The bands' thresholds** are first guesses, and the check before trials could lean towards agreeing with what's on the
   screen. The report counts how often a review overrules it.

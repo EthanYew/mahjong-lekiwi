@@ -210,3 +210,56 @@ def test_the_report_runs_end_to_end(tmp_path, capsys):
 
 def test_status_says_when_nothing_is_scored(tmp_path):
     assert "no scored placements" in name_ledger.worst_line(tmp_path)
+
+
+def test_the_guard_shows_beside_what_the_votes_alone_would_do(tmp_path):
+    write_session(tmp_path, "20261103_121112_bench", [
+        scan(1, [("4B", XY)]), attempt("001_1_NW"), scan(2, [("4B", XY)], "after_return")])
+    placements, _, _ = name_ledger.load(tmp_path, review={"20261103_121112_bench/001_1_NW/wrist_0000.jpg": verdict("2B")})
+    assert (placements[0]["outcome"], placements[0]["guarded"]) == (name_ledger.WRONG, name_ledger.ASKS)
+    assert name_ledger.rows(placements)[0]["band"] == "severe"      # the guard doesn't hide how bad the tile is
+
+
+def test_attempts_and_hovers_without_a_spot_are_grouped_by_place(tmp_path):
+    other = (0.2, 0.06)
+    events = [scan(1, [("7B", XY), ("9C", other)]),
+              {**attempt("001_1_7B", tile="7B"), "spot": None, "spot_xy": None},
+              scan(2, [("7B", XY), ("9C", other)], "after_return"),
+              {**attempt("002_1_7B", xy=(0.2, 0.004), tile="7B"), "spot": None, "spot_xy": None},
+              {"type": "hover", "tile": "9C", "detection_xy": list(other), "attempt_dir": "003_1_9C"},
+              {"type": "hover", "tile": "9C", "detection_xy": list(other), "attempt_dir": None}]
+    write_session(tmp_path, "20261103_233642_bench", events)
+    review = {"20261103_233642_bench/001_1_7B/wrist_0000.jpg": verdict(),
+              "20261103_233642_bench/002_1_7B/wrist_0000.jpg": verdict(),
+              "20261103_233642_bench/003_1_9C/wrist_0000.jpg": verdict()}
+    placements, skipped, _ = name_ledger.load(tmp_path, review=review)
+    assert sorted((p["tile"], p["right"]) for p in placements) == [("7B", 2), ("9C", 2)] and not skipped
+
+
+def wrist_view(tile, detected, tile_n, confidence=0.9, view=0):
+    return {"type": "wrist_view", "tile": tile, "detected_as": detected, "confidence": confidence, "set": 1, "tile_n": tile_n,
+            "view": view, "files": [f"wrist/{tile}/01_{tile_n:02d}_v{view:02d}_f0.jpg"]}
+
+
+def test_a_wrist_capture_set_counts_as_one_read_each_against_the_persons_name(tmp_path):
+    write_session(tmp_path, "20261104_085309_wrist", [wrist_view("7C", "6C", 1, 0.87), wrist_view("7C", "6C", 1, 0.87, view=1),
+                                                      wrist_view("EW", "EW", 2)])
+    placements, _, _ = name_ledger.load(tmp_path, review={})
+    assert sorted((p["tile"], p["outcome"], p["truth_source"], p["scans"]) for p in placements) == [
+        ("7C", name_ledger.READ_ONCE, "person", 1), ("EW", name_ledger.READ_ONCE, "person", 1)]
+    rows = {r["tile"]: r for r in name_ledger.rows(placements)}
+    assert rows["7C"]["read_once_wrong"] == 1 and rows["7C"]["mixups"] == [("6C", 1)] and rows["7C"]["band"] == "flaky"
+    assert rows["EW"]["band"] == "not enough data" and rows["EW"]["accepted_wrong_bound"] is None
+    assert "7C" in "\n".join(name_ledger.table(list(rows.values())))
+    # a person's review overrules the name given at the capture
+    review = {"20261104_085309_wrist/wrist/EW/01_02_v00_f0.jpg": verdict("1B")}
+    placements, _, _ = name_ledger.load(tmp_path, review=review)
+    overruled = next(p for p in placements if p["spot"] == "T2")
+    assert (overruled["tile"], overruled["truth_source"], overruled["overruled"], overruled["wrong"]) == ("1B", "review", True, 1)
+
+
+def test_an_exam_session_is_never_read(tmp_path, monkeypatch):
+    from mahjong import detector
+    write_session(tmp_path, "20261104_085309_wrist", [wrist_view("EW", "EW", 2)])
+    monkeypatch.setattr(detector, "load_exam", lambda path=None: {"sessions": {"20261104_085309_wrist": {}}})
+    assert name_ledger.load(tmp_path, review={})[2] == 0

@@ -194,6 +194,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   stripe passed as tiles. Where it matters, use what a tile looks like: the detector's box on the RealSense
   (`layout.find_tile`, which can't read yaw there, so green is position only) and the reference's picture of the tile in
   the wrist view (`setup_check.match_tile`, so a spot needs the same tile each time). Evidence: `docs/invariant_notes.md`.
+- **A stricter rule for a problem tile has to go on the name read, not the tile.** The robot never sees "8C", only the "7C"
+  it reads, so real 7Cs pay too (`identity.ALWAYS_ASK_READS`, a stopgap in play). Confidence alone isn't enough: wrong EW and
+  7C reads overlap real ones. Evidence: `docs/name_data.md`.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).

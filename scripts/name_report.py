@@ -1,4 +1,4 @@
-"""Which tiles get misread, and how much it matters, over every bench session and played hand (mahjong/name_ledger.py).
+"""Which tiles get misread, and how much it matters, over every bench, wrist-capture and play session (mahjong/name_ledger.py).
 
     python scripts/name_report.py                      # every tile, per detector and surface, worst first
     python scripts/name_report.py --by lighting        # also split by lighting (or spot, or session)
@@ -8,7 +8,8 @@
 
 Bands: severe (a wrong name was accepted without asking), costly (a person asked on 25%+ of placements), flaky (votes right,
 10%+ of scans wrong or unnamed), fine (none of those over 5+ placements and 3+ sessions), not enough data. The thresholds are
-first guesses. "(up to)" is the highest accepted-wrong rate the placements so far can't rule out (95%).
+first guesses. "(up to)" is the highest accepted-wrong rate the placements so far can't rule out (95%). "once" is wrong/total of
+wrist_capture tiles, read by one scan only: they show how the read went, not what the votes would do. Exam sessions aren't read.
 
 Reads the sessions and data/wrist_review.jsonl and writes nothing unless --json is given; moves nothing. Run it from the main
 checkout: sessions are per checkout (--sessions-dir reads another's).
@@ -46,7 +47,11 @@ def main(argv=None):
     all_rows = name_ledger.rows(placements, by=args.by)
     outcomes = Counter(p["outcome"] for p in placements)
     print(f"{sessions} sessions, {len(placements)} scored placements: {outcomes[name_ledger.RIGHT]} accepted right, "
-          f"{outcomes[name_ledger.ASKS]} ask, {outcomes[name_ledger.WRONG]} accepted wrong")
+          f"{outcomes[name_ledger.ASKS]} ask, {outcomes[name_ledger.WRONG]} accepted wrong, "
+          f"{outcomes[name_ledger.READ_ONCE]} read once")
+    guarded = Counter(p["guarded"] for p in placements)
+    print(f"  with play's extra checks (identity.doubt): {guarded[name_ledger.RIGHT]} accepted right, "
+          f"{guarded[name_ledger.ASKS]} ask, {guarded[name_ledger.WRONG]} accepted wrong")
     print(f"  {sum(p['backfilled'] for p in placements)} backfilled from reviewed photos (votes replayed over the whole "
           f"placement, not as play would see it); {sum(p['decided_live'] for p in placements)} decided live in a hand")
     print(f"  a review overruled the name given at the time: {sum(p['overruled'] for p in placements)}")
