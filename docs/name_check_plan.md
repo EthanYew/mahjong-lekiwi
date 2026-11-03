@@ -1,6 +1,6 @@
 # A second tile-name read from the wrist camera: LLM, VLM or classifier
 
-Written 2026-11-03, last checked against `main` at `249d25f`. A proposal: nothing here is built. It grew out of Move 3 in
+Written 2026-11-03, first test run 2026-11-04. A proposal: nothing here runs on the arm. It grew out of Move 3 in
 `docs/retrospectives/2026-11-02_week3_skills_assessment.md`. What's done and next stays in ROADMAP.md's status table.
 
 ## The question
@@ -114,6 +114,48 @@ verdicts, and the 476 photos that looked right are still unreviewed.
 
 On the mat, the tile is often well off `wrist_check.EXPECTED_PX`, sometimes with that point at its edge, so a crop has to be
 larger than the disc.
+
+## First test, 2026-11-04: step 2 of the plan
+
+**A small classifier far outread untrained VLMs, and fine-tuning a VLM isn't justified yet. The classifier catches YOLO's wrong
+names, but it asks a person too often to remove the person.** This is a screen on 154 mat photos, not an exam.
+
+Trained on 830 non-mat photos, tested on all 154 usable mat photos (55 placements, all 34 names, labels reviewed by the owner).
+All in `docs/retrospectives/evidence/2026-11-04_name_check_test/`.
+
+| Reader | Right | Agrees with YOLO and wrong | Would ask a person | Seconds a photo here |
+|---|---|---|---|---|
+| YOLO's own read | 135 (88%) | | | |
+| Classifier, 240px crop (3 seeds) | 128-140 (83-91%) | 0, 0, 1 | 21-27% | under 0.01 |
+| Classifier, 360px crop (3 seeds) | 90-119 (58-77%) | 2, 8, 7 | 25-44% | under 0.01 |
+| Moondream2 | 50 (32%) | 0 | 68% | 0.23 |
+| Qwen2.5-VL-3B, 1024 image tokens | 41 (27%) | 0 | 74% | 0.44 |
+| SmolVLM-500M | 34 (22%) | 0 | 79% | 0.04 |
+
+What it shows:
+- **The crop matters more than anything else tried.** The tighter crop gained 9-45 photos per seed. Neighbours in a wider crop
+  are the likely reason, not yet shown.
+- **The classifier disagrees where YOLO is wrong.** It flagged 56 of YOLO's 57 wrong reads over 3 seeds. The one it missed is the
+  table's one wrong acceptance: a 9C both called 5C, at 0.33 confidence, so a confidence bar would also have caught it.
+- **That is safety, not autonomy.** Bench photos, the closest to real use, were 94% right with 19% asks, about 5 asks over a hand's
+  27 reads. Confidence doesn't fix that yet: at 0.9 no name was wrong, but only 25% of reads cleared it, and 23% once agreeing with YOLO too.
+- **The weak spots are thin names.** Of 59 wrong answers over 3 seeds, 7C and 4B were 39 (21 and 18), mostly 7C as 6C. They have
+  14 and 10 non-mat photos, from 2 and 1 placements. Capture views were 78% right, against bench photos' 94%; they vary more, but the
+  two also cover different tiles, so this doesn't separate the causes.
+- **Mat photos in training helped little.** Holding out each mat tile set in turn, adding the other two moved it from 100% to
+  100%, 90% to 92%, and 79% to 84%. Seeds alone vary by more, and there are few mat photos per name.
+- **Untrained VLMs mostly confuse suits** (9C as 9B, 4B as 4D, 7C as 7B) and overuse a few answers. Qwen does see the image: in free
+  text it read some marks like 3 三, E 東 and corner C and P, and got others wrong (`vlm_check.json`). Fine-tuning could do better,
+  which this doesn't rule out, but a classifier costs seconds to train where that costs far more.
+
+What it can't show: other lighting (every mat photo has the lamp and ceiling lights on), speed on a Pi, or the ~1000-read gate.
+Photos of a placement aren't independent. The 240px crop was fixed in advance, but seeing it win picks it, so a real exam has to
+confirm it. Each VLM used one prompt, unchanged, and two got a settings fix after their first pass: Qwen for image tokens (it
+scored 14% before), and Moondream's chat template, without which it failed. No reader was given a "no tile" photo. Seeds differ by up to
+12 photos, so small gaps mean little.
+
+**What's next:** give 7C, 4B and the other thin names more placements, measure tile offsets for the crop, and retest. Only then
+is a real exam (steps 3-4) worth recording. YOLO's retraining (step 5) stands regardless.
 
 ## The plan
 
