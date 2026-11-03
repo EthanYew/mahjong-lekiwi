@@ -1,0 +1,155 @@
+"""The hook that asks before an arm script runs: real runs prompt, reads and --sim don't."""
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+HOOK = REPO / ".claude" / "hooks" / "arm_run_gate.py"
+PY = "~/miniforge3/envs/lerobot/bin/python"
+
+spec = importlib.util.spec_from_file_location("arm_run_gate", HOOK)
+gate = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gate)
+
+
+@pytest.mark.parametrize("command", [
+    f"{PY} scripts/bench.py --trials 3",
+    "python scripts/play.py --layout even-hand13",
+    f"HF_HUB_OFFLINE=1 {PY} scripts/record.py --dataset Yewy/x",
+    f"timeout 300 {PY} scripts/setup_check.py 2>&1 | tail -3",
+    f"cd ~/Projects/mahjong-lekiwi && {PY} scripts/collect_corrections.py",
+    f"{PY} /home/ethanYew/Projects/mahjong-lekiwi/scripts/wrist_capture.py",
+    f"nohup {PY} -u scripts/bench.py &",
+    "./scripts/bench.py",
+    f"{PY} scripts/bench.py --sim; {PY} scripts/bench.py",            # only the first part is simulated
+    f"{PY} scripts/record.py --sim",                                  # no --sim there, so nothing vouches for it
+    f"{PY} -c \"import runpy; runpy.run_path('scripts/bench.py')\" --sim",
+    f"{PY} -m somemodule scripts/bench.py --sim",
+    f"{PY} scripts/other.py scripts/bench.py --sim",
+    f"P={PY}; $P scripts/bench.py",
+    "$UNSET scripts/bench.py --sim",                                  # no way to tell what that runs
+    "P=/bin/sh; $P scripts/bench.py --sim",
+    f"cd ~/Projects/mahjong-lekiwi && {PY} - <<'EOF'\nimport subprocess; subprocess.run(['python', 'scripts/bench.py'])\nEOF",
+    f"git status; echo \"$({PY} scripts/bench.py)\"",
+    f"bash -c '{PY} scripts/bench.py'",
+    f"echo scripts/bench.py | xargs {PY}",
+    f"echo \"$({PY} scripts/bench.py)\"",
+    f"for f in scripts/bench.py; do {PY} $f; done",
+    f"{PY} - <<'EOF'\nimport subprocess; subprocess.run(['python', 'scripts/bench.py'])\nEOF",
+    f"if {PY} scripts/bench.py; then echo done; fi",
+    "python scripts/bench.py 'unterminated",
+])
+def test_a_run_of_an_arm_script_asks(command):
+    assert gate.reason_to_ask(command)
+
+
+@pytest.mark.parametrize("command", [
+    # The commands that needed a manual approval under the rules this hook replaces.
+    'grep -c "def " /home/ethanYew/Projects/mahjong-lekiwi/scripts/bench.py',
+    "sed -n 415,500p scripts/bench.py; grep -rn wrist_look --include=*.py scripts mahjong | grep -v '^scripts/bench.py' | head",
+    "git log --format='%h %ad %s' --date=iso -S'def wrist_look' -- scripts/bench.py | tail -1",
+    "ls -l scripts/bench.py scripts/record.py scripts/play.py",
+    "sed -n 1,30p scripts/wrist_capture.py",
+    f"timeout 170 {PY} scripts/bench.py --sim --policy a,b --layout even-hand14 --trials 1 </dev/null 2>&1 | tail -10 | cut -c1-170",
+    f"yes '' | timeout 200 {PY} scripts/play.py --sim --layout even-hand13 2>&1 | tail -7",
+    f"{PY} scripts/setup_check.py --sim --save-reference --reference /tmp/ref < /dev/null 2>&1 | tail -4",
+    f"{PY} scripts/wrist_capture.py --sim",
+    # Help, for scripts with or without --sim.
+    f"{PY} scripts/record.py --help > /dev/null",
+    f"{PY} scripts/collect_corrections.py -h",
+    # Python on the same line isn't a run of the script.
+    f"{PY} -m pytest tests/test_bench.py -q; grep -n sim scripts/bench.py",
+    "grep python scripts/bench.py",
+    "# python scripts/bench.py",
+    "cat > notes.txt <<'EOF'\npython scripts/bench.py\nEOF",
+    # Text and edits that mention a script without running it.
+    "gh pr create --title 'Fix scripts/bench.py' --body \"$(cat <<'EOF'\npython scripts/bench.py --trials 3\nEOF\n)\"",
+    "git add scripts/bench.py && git commit -q -m \"$(cat <<'EOF'\nscripts/bench.py: why\nEOF\n)\"",
+    f"cd ~/Projects/mahjong-lekiwi && {PY} - <<'EOF'\np='scripts/bench.py'; s=open(p).read()\nEOF",
+    "cp scripts/play.py /tmp/play.bak",
+    f"{PY} -m py_compile scripts/record.py scripts/layout.py",
+    f"{PY} -m pyflakes scripts/record.py",
+    f"P={PY}; $P scripts/wrist_capture.py --help",
+    f"P={PY}; $P scripts/setup_check.py --sim --save-reference 2>&1",
+    # Not arm scripts.
+    f"{PY} scripts/status.py",
+    f"{PY} scripts/session_report.py --all",
+    "rm -rf build",
+    "",
+])
+def test_anything_else_stays_silent(command):
+    assert gate.reason_to_ask(command) is None
+
+
+def run_hook(stdin):
+    return subprocess.run([sys.executable, "-I", str(HOOK)], input=stdin, capture_output=True, text=True, timeout=30)
+
+
+def call(command):
+    return json.dumps({"tool_name": "Bash", "permission_mode": "auto", "tool_input": {"command": command}})
+
+
+def test_hook_asks_in_the_format_claude_code_reads():
+    done = run_hook(call("python scripts/bench.py"))
+    assert done.returncode == 0
+    out = json.loads(done.stdout)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse"
+    assert out["permissionDecision"] == "ask"
+    assert out["permissionDecisionReason"]
+
+
+def test_hook_has_no_opinion_on_a_read():
+    done = run_hook(call("grep -n def scripts/bench.py"))
+    assert done.returncode == 0 and done.stdout == ""
+
+
+def test_hook_asks_when_its_input_is_broken():
+    assert json.loads(run_hook("not json").stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+def test_settings_run_the_hook_and_blocks_if_it_fails():
+    settings = json.loads((REPO / ".claude" / "settings.json").read_text())
+    entry = settings["hooks"]["PreToolUse"][0]
+    assert set(entry["matcher"].split("|")) == {"Bash", "Monitor"}
+    hook = entry["hooks"][0]
+    assert "arm_run_gate.py" in hook["command"]
+    assert hook["onFailure"] == "block"
+
+
+def test_hook_is_found_from_a_worktree_and_from_outside_a_repo(tmp_path):
+    """On 2026-11-03 a path only under CLAUDE_PROJECT_DIR blocked every command in a worktree whose main lacked the file."""
+    settings = json.loads((REPO / ".claude" / "settings.json").read_text())
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    stdin = call("python scripts/bench.py")
+    empty_project = tmp_path / "main"
+    (empty_project / ".claude").mkdir(parents=True)
+    env = {"PATH": os.environ["PATH"], "CLAUDE_PROJECT_DIR": str(empty_project)}
+    in_repo = subprocess.run(["bash", "-c", command], input=stdin, cwd=REPO, env=env, capture_output=True, text=True, timeout=30)
+    assert json.loads(in_repo.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+    env["CLAUDE_PROJECT_DIR"] = str(REPO)
+    outside = subprocess.run(["bash", "-c", command], input=stdin, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
+    assert json.loads(outside.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+def test_no_ask_rule_undoes_the_sim_exemption():
+    """A matching ask rule prompts whatever the hook says, so the arm scripts can't also have one."""
+    ask = json.loads((REPO / ".claude" / "settings.json").read_text())["permissions"].get("ask", [])
+    assert not [rule for rule in ask if gate.MENTION.search(rule)]
+
+
+def test_every_script_that_connects_the_arm_is_gated():
+    connects = {p.stem for p in (REPO / "scripts").glob("*.py")
+                if re.search(r"hardware\.connect\(\s*\[\s*\"arm\"", p.read_text())}
+    assert connects and connects <= set(gate.ARM_SCRIPTS)
+
+
+def test_sim_exemption_only_for_scripts_that_define_it():
+    defines = {p.stem for p in (REPO / "scripts").glob("*.py")
+               if re.search(r"add_argument\(\s*\"--sim\"", p.read_text())}
+    assert set(gate.SIM_SCRIPTS) == defines & set(gate.ARM_SCRIPTS)

@@ -8,12 +8,6 @@
       "Bash(~/miniforge3/envs/lerobot/bin/python -m pytest*)"
     ],
     "ask": [
-      "Bash(*python* *scripts/bench.py*)",
-      "Bash(*python* *scripts/record.py*)",
-      "Bash(*python* *scripts/play.py*)",
-      "Bash(*python* *scripts/collect_corrections.py*)",
-      "Bash(*python* *scripts/setup_check.py*)",
-      "Bash(*python* *scripts/wrist_capture.py*)",
       "Bash(*scripts/status.py --set-default*)"
     ],
     "deny": [
@@ -23,6 +17,21 @@
       "Bash(git clean -f*)",
       "Bash(rm -rf *sessions*)",
       "Bash(rm -rf *data*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/arm_run_gate.py\"; [ -f \"$f\" ] || f=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/arm_run_gate.py\"; python3 -I \"$f\"",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
     ]
   }
 }
