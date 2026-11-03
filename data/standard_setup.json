@@ -1,0 +1,6 @@
+{
+  "surface": "standard mat",
+  "layout": "even-hand14",
+  "since": "2026-11-03",
+  "why": "Changing surfaces and layouts kept breaking comparisons. The owner's own mat travels with the setup, and every counted result runs on it (docs/scorecard.md). Generalising to other surfaces stays a goal, measured separately and never blocking."
+}

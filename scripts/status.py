@@ -5,7 +5,7 @@
 
 The default policy, the registered policies and how each did on the bench (every bench session's attempts:
 clean, then picked, docs/scorecard.md; the first run works out and saves each session's clean count),
-the eval sets, the detector exam, the layouts, the drop zone and whether the bench checked a pickup there
+the standard setup and each policy's clean count on it, the eval sets, the detector exam, the layouts, the drop zone and whether the bench checked a pickup there
 (markers.zone_test), and this checkout against origin/main. ROADMAP.md's status table points here.
 
 --set-default is how the default changes: it writes the decision's evidence next to it in
@@ -49,6 +49,26 @@ def bench_clean(sessions_dir=None):
     return dict(out)
 
 
+def standard_results(sessions_dir=None):
+    """policy -> {"attempts", "clean", "sessions"} over the bench sessions on the standard setup only."""
+    out = defaultdict(lambda: {"attempts": 0, "clean": 0, "sessions": 0})
+    for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
+        events = read_events(events_file.parent)
+        if scorecard.off_standard(events):
+            continue
+        clean = scorecard.session_clean(events_file.parent)
+        attempts = defaultdict(int)
+        for e in events:
+            if e["type"] == "attempt" and e.get("policy"):
+                attempts[e["policy"]] += 1
+        for policy, count in attempts.items():
+            row = out[policy]
+            row["attempts"] += count
+            row["clean"] += clean.get(policy, 0)
+            row["sessions"] += 1
+    return dict(out)
+
+
 def report(sessions_dir=None):
     reg = json.loads(config.POLICIES.read_text())
     lines = []
@@ -70,6 +90,11 @@ def report(sessions_dir=None):
                      + ("   <- default" if pid == reg["default"] else ""))
     lines.append("  clean: picked up, nothing bumped, no one helped (docs/scorecard.md). Totals mix layouts and surfaces, and\n"
                  "  bumps were marked more closely as the sessions went on: compare policies only within a paired session")
+    standard = scorecard.standard_setup()
+    lines.append(f"\nStandard setup: {standard['surface']}, {standard['layout']} (data/standard_setup.json, since {standard['since']})")
+    on_it = standard_results(sessions_dir)
+    lines += [f"  {pid:<20} {r['clean']}/{r['attempts']} clean over {r['sessions']} session(s), for orientation: gates read one session"
+              for pid, r in on_it.items()] or ["  no bench sessions on it yet"]
 
     split = json.loads((config.DATA / "eval_split.json").read_text())
     lines.append(f"\nEval sets (never trained on): {', '.join(split.get('eval_sets', [])) or 'none'}; "
@@ -85,7 +110,7 @@ def report(sessions_dir=None):
     if zone is None:
         lines.append("\nDrop zone: not taught (play.py teaches it on its first run)")
     else:
-        test = markers.zone_test(zone["xy"], layout.load("hand13")["spots"],
+        test = markers.zone_test(zone["xy"], layout.load(markers.PLAY_LAYOUT)["spots"],
                                  layout.load(markers.ZONE_TEST_LAYOUT)["spots"], sessions_dir=sessions_dir)
         lines.append(f"\nDrop zone at ({zone['xy'][0]:.3f}, {zone['xy'][1]:+.3f}): "
                      + (f"benched at {markers.ZONE_TEST_LAYOUT} {test['spot']}, {test['picked']} picked up, "

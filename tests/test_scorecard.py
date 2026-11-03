@@ -93,6 +93,73 @@ def test_the_report_shows_clean_before_picked_and_says_when_it_cant_judge():
     assert "no verdict" in "\n".join(scorecard.report([attempt(0, "a", "S1")]))
 
 
+def on_standard(events):
+    standard = scorecard.standard_setup()
+    return [{**e, "conditions": {"surface": standard["surface"]}} if e["type"] == "session_start"
+            else {**e, "layout": standard["layout"]} if e["type"] == "bench_setup" else e for e in events]
+
+
+def test_only_the_standard_surface_and_layout_count():
+    events = paired(14)
+    assert len(scorecard.off_standard(events)) == 2
+    assert scorecard.off_standard(on_standard(events)) == []
+    text = "\n".join(scorecard.report(events))
+    assert "gates don't apply" in text and "iteration check" not in text
+    text = "\n".join(scorecard.report(on_standard(paired(14, a_clean=lambda i: i > 2))))
+    assert "iteration check: AHEAD (3-0" in text and "play-ready, b: not yet (14/14" in text
+
+
+@pytest.mark.parametrize("a_misses, b_misses, rounds, expected", [
+    (3, 0, 13, "too few"),
+    (2, 0, 14, "ahead"),
+    (0, 3, 14, "drop"),
+    (0, 0, 14, "another round"),
+    (0, 2, 14, "another round"),
+    (0, 0, 28, "keep baseline"),
+    (1, 0, 28, "ahead"),
+])
+def test_the_iteration_check(a_misses, b_misses, rounds, expected):
+    events = paired(rounds, a_clean=lambda i: i >= a_misses, b_clean=lambda i: i >= b_misses)
+    assert scorecard.iteration_check(events, "a", "b")["result"] == expected
+
+
+def one_policy(rounds, spots, misses=()):
+    events, n = [], 0
+    for _ in range(rounds):
+        for spot in spots:
+            events.append(attempt(n, "a", spot))
+            if n in misses:
+                events.append(bump(n))
+            n += 1
+    return events
+
+
+def test_play_ready_needs_the_count_the_attempts_and_no_repeated_spot():
+    spots = [f"S{i}" for i in range(14)]
+    assert scorecard.play_ready(one_policy(2, spots, misses={0, 1}), "a")["ok"]                    # 26/28, two spots
+    assert not scorecard.play_ready(one_policy(2, spots, misses={0, 1, 2}), "a")["ok"]             # 25/28
+    repeated = scorecard.play_ready(one_policy(2, spots, misses={0, 14}), "a")                     # 26/28, S0 twice
+    assert not repeated["ok"] and repeated["repeated_spots"] == ["S0"]
+    assert not scorecard.play_ready(one_policy(1, spots), "a")["ok"]                               # 14/14 is too few
+
+
+def test_the_odds_match_the_docs():
+    assert scorecard.ship_chance(0.8, 0.95, 28) == pytest.approx(0.33, abs=0.01)
+    assert scorecard.ship_chance(0.8, 0.8, 28) == pytest.approx(0.022, abs=0.002)
+    assert scorecard.play_ready_chance(0.95) == pytest.approx(0.84, abs=0.01)
+    assert scorecard.play_ready_chance(0.80) == pytest.approx(0.06, abs=0.01)
+    assert scorecard.iteration_chance(0.8, 0.95) > scorecard.iteration_chance(0.8, 0.8) \
+        > scorecard.iteration_chance(0.8, 0.7)
+
+
+def test_differing_hover_openings_are_flagged():
+    events = paired(1)
+    events[1]["policies"] = [{"id": "a", "hover": {"gripper": 21.0}}, {"id": "b", "hover": {"gripper": 26.7}}]
+    assert "hover openings differ" in "\n".join(scorecard.report(events))
+    events[1]["policies"][0]["hover"]["gripper"] = 26.6
+    assert "hover openings differ" not in "\n".join(scorecard.report(events))
+
+
 def test_session_clean_is_saved_and_redone_when_the_events_grow(tmp_path):
     events_file = tmp_path / "events.jsonl"
     events_file.write_text("".join(json.dumps(e) + "\n" for e in [attempt(0, "a", "S1")]))

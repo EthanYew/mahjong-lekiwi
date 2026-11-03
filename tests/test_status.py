@@ -29,6 +29,7 @@ def test_the_report_counts_each_policys_bench_attempts_and_marks_the_default(tmp
     default = json.loads(config.POLICIES.read_text())["default"]
     assert any(line.startswith(default) and line.endswith("<- default") for line in text.splitlines())
     assert "hand14" in text and "Eval sets" in text
+    assert "Standard setup: standard mat, even-hand14" in text and "no bench sessions on it yet" in text
     assert any(line.startswith("pickup_mat_cl_v4") and "3/4" in line for line in text.splitlines())
 
 
