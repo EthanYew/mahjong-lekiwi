@@ -81,6 +81,7 @@ class Player:
         self.latest = {}                # slot -> the latest scan's detection there (or absent)
         self.bench = PlayBench(bench.parse_args(bench_argv(args)), self)
         self.session = self.bench.session
+        self.placements = self.bench.placements
         self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
         if args.sim:
             self.mat = self.bench.realsense
@@ -89,7 +90,7 @@ class Player:
         self.zone = {"xy": zone_xy} if zone_xy else self.load_zone(args.teach_zone)
         if not args.sim:
             self.check_zone_benched()
-        self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "drawn": None, "history": [],
+        self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "discard_placements": [], "drawn": None, "history": [],
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
                            policy=self.bench.policy.id)
@@ -121,6 +122,22 @@ class Player:
 
     # --- questions (each an intervention) ---
 
+    def placement_id(self, slot):
+        """The tile at `slot`'s placement (mahjong/placements.py), started now if it's the first word on it."""
+        if self.placements.id_at(slot) is None:
+            self.placements.start(slot, self.home(slot), read=self.votes.leader(slot)[0])
+        return self.placements.id_at(slot)
+
+    def votes_at(self, slot):
+        return {name: round(weight, 4) for name, weight in self.votes.totals.get(slot, {}).items()}
+
+    def decided(self, slot, name, how):
+        """Every name the robot goes on, the ones the votes accepted too: without those, asks have no denominator and a
+        wrong acceptance has no record of what the votes said (scripts/name_report.py)."""
+        _, share, scans = self.votes.leader(slot)
+        self.session.event("name_decided", slot=slot, placement=self.placement_id(slot), name=name, how=how,
+                           share=round(share, 3), scans=scans, votes=self.votes_at(slot))
+
     def ask_name(self, slot, why):
         """A person names the tile at `slot`: Enter keeps the leading read."""
         leader = self.votes.leader(slot)[0]
@@ -132,8 +149,10 @@ class Player:
             if name and game.is_playable(name):
                 break
             print(f"  {name!r} isn't a playable tile name (e.g. 5D, 9B, EW, RD; no flowers)")
-        self.session.intervention("name_asked", slot=slot, reads=self.votes.describe(slot), answer=name,
-                                  leading_read=leader, why=why)
+        self.decided(slot, name, "person")
+        self.session.intervention("name_asked", slot=slot, placement=self.placement_id(slot),
+                                  reads=self.votes.describe(slot), votes=self.votes_at(slot), answer=name,
+                                  typed=bool(answer), leading_read=leader, why=why)
         self.votes.known(slot, name)
         return name
 
@@ -213,6 +232,8 @@ class Player:
             name = self.votes.sure(slot)
             if name is None or not game.is_playable(name):
                 name = self.ask_name(slot, "Not sure of a hand tile" if name is None else f"{name} can't be played")
+            else:
+                self.decided(slot, name, "vote")
             hand[slot] = name
         self.state["hand"] = hand
         self.check_counts()
@@ -241,8 +262,9 @@ class Player:
             name = answer.strip().upper() or expected
             while not game.is_playable(name):
                 name = self.ask(f"  {name!r} isn't a playable tile name. The tile at {slot} is: ").strip().upper() or expected
-            self.session.intervention("recount", slot=slot, expected=expected, answer=name,
-                                      reads=self.votes.describe(slot))
+            self.session.intervention("recount", slot=slot, placement=self.placement_id(slot), expected=expected,
+                                      answer=name, typed=bool(answer.strip()), reads=self.votes.describe(slot),
+                                      votes=self.votes_at(slot))
             self.state["hand"][slot] = name
             self.votes.known(slot, name)
 
@@ -270,6 +292,7 @@ class Player:
                 return None
             name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
             if name is not None and game.is_playable(name):
+                self.decided(ZONE, name, "vote")
                 return name
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
         return self.ask_name(ZONE, "Not sure of the drawn tile" if name is None else f"{name} can't be played")
@@ -336,6 +359,8 @@ class Player:
                                  f"from the jaws, put it on {slot}, and --resume.")
         self.votes.reset(ZONE)
         self.votes.known(slot, name)
+        moved = self.placements.end(ZONE, "moved")
+        self.placements.start(slot, self.home(slot), truth_source="game", read=name, from_placement=moved)
         return True
 
     # --- a turn ---
@@ -378,6 +403,7 @@ class Player:
                 self.bench.discard(ask=False)
             self.votes.reset(slot)
             s["discards"].append(name)
+            s.setdefault("discard_placements", []).append(self.placements.end(slot, "discarded"))
             if slot == ZONE:
                 s["drawn"] = None
                 return self.finish_turn(name, slot)
@@ -420,25 +446,33 @@ class Player:
     # --- the end of the hand ---
 
     def audit(self, result):
-        """A person checks the robot's hand against the table: anything it had wrong without asking is a
-        silent error. Logs hand_end with the hand's grade."""
+        """A person checks the robot's hand against the table and its discards against the container: anything it had
+        wrong without asking is a silent error. Logs hand_audit (what the person vouched for, by placement) and hand_end
+        with the hand's grade."""
         s = self.state
         print("\nThe robot's hand: " + "  ".join(f"{x['id']}={s['hand'][x['id']]}" for x in self.slots))
         if s["drawn"]:
             print(f"  and {s['drawn']} on the drop zone")
-        ids = {slot.upper(): slot for slot in s["hand"]} | {"ZONE": ZONE}
+        if s["discards"]:
+            print("  Discarded: " + "  ".join(f"D{i}={name}" for i, name in enumerate(s["discards"], 1)))
+        discards = {f"D{i}": name for i, name in enumerate(s["discards"], 1)}
+        believed = {**s["hand"], **discards, ZONE: s["drawn"]}
+        ids = {slot.upper(): slot for slot in believed}
         while True:
             drain_stdin()
-            answer = self.ask("Check it against the table. Enter if every tile matches, or the wrong ones as "
-                              "SLOT=NAME (e.g. H3=5D H7=2B): ").strip().upper()
+            answer = self.ask("Check it against the table and the discard container. Enter if every tile matches, or "
+                              "the wrong ones as SLOT=NAME (e.g. H3=5D D2=2B): ").strip().upper()
             parts = [part.split("=", 1) for part in answer.split()]
             if all(len(p) == 2 and p[0] in ids for p in parts):
                 wrong = {ids[slot]: name for slot, name in parts}
                 break
-            print(f"  slots are {', '.join(s['hand'])} (or ZONE), as SLOT=NAME")
+            print(f"  slots are {', '.join(ids)}, as SLOT=NAME")
+        where = {**{slot: self.placements.id_at(slot) for slot in (*s["hand"], ZONE)},
+                 **dict(zip(discards, s.get("discard_placements", [])))}
         for slot, name in wrong.items():
-            robot = s["drawn"] if slot == ZONE else s["hand"][slot]
-            self.session.intervention("silent_error", slot=slot, robot=robot, table=name)
+            self.session.intervention("silent_error", slot=slot, placement=where.get(slot), robot=believed[slot], table=name)
+        self.session.event("hand_audit", confirmed={where[slot]: wrong.get(slot, believed[slot]) for slot in believed
+                                                    if where.get(slot) and wrong.get(slot, believed[slot])})
         # still running, so derive() sees no session_end and would count a "killed" rescue
         found = [i for i in interventions.derive(self.session_events()) if i["kind"] != "killed"]
         grade = interventions.hand_grade(found)
@@ -472,6 +506,7 @@ class Player:
         self.state = {**state, "resumed_from": folder.name}
         for slot, name in state["hand"].items():
             self.votes.known(slot, name)
+            self.placements.start(slot, self.home(slot), truth_source="game", read=name)
         self.session.event("play_resumed", from_session=folder.name, phase=state["phase"], turn=state["turn"])
         print(f"Resuming {folder.name}: turn {state['turn'] + 1}, {state['phase']}")
         self.save()
