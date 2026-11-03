@@ -59,5 +59,8 @@
     "30": "narrowed during the descent: --trim-narrowing cuts 11mm of it",
     "32": "narrowed the jaws during the descent, so --trim-narrowing cuts the descent away (39mm, 28mm); 32 also held 7.6%, under a tile's width",
     "53": "highest quality score: path 1.8x the straight line, 8.5s approach, wrist pitched the opposite way to every other demo"
+  },
+  "mahjong_surfaces_standard_mat_eval_v1": {
+    "8": "hover settled at the 65mm limit on a same-tile retry: command 23mm above the measured tip (1.5-8mm on the other nine), so its first ~16mm of commanded descent barely move; 20261103_170624_record"
   }
 }

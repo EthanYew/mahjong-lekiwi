@@ -8,6 +8,7 @@ detours, wobble), and optionally the hover→grasp move against another recordin
     python scripts/quality_report.py --dataset ... --drop 8,39 --reason "searching"   # never trained on
     python scripts/quality_report.py --dataset ... --fix-gripper 117 --reason "stopped at 5.5%"   # closed to 0 when built
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
+    python scripts/quality_report.py --dataset ... --clean Yewy/<name>_clean     # a copy without pauses or dropped episodes
 
 The hover→grasp check compares only demos that steered: one lowered straight down says "close enough for the
 jaws", not where the tile was. A shift beyond the jaws' ~6 mm at most spots, in one direction, is worth a
@@ -19,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, drift_table, drop_episodes,
+from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, clean_copy, drift_table, drop_episodes,
                              dropped_episodes, fix_gripper, load_episodes, phase_table, quality_table)
 
 
@@ -37,6 +38,9 @@ def main():
     p.add_argument("--fix-gripper", metavar="EPS",
                    help="comma-separated episodes whose gripper stopped short of 0 on the tile: built with it closed "
                         "to 0 (data/episode_fixes.json)")
+    p.add_argument("--clean", metavar="REPO",
+                   help="write a copy under this new name: every stop in the commands cut to one frame, dropped episodes "
+                        "left out; the recording itself isn't changed")
     p.add_argument("--reason", default="reviewed", help="with --drop / --fix-gripper: why, kept with each episode")
     args = p.parse_args()
     if args.fix_gripper:
@@ -45,6 +49,11 @@ def main():
     if args.drop:
         dropped = drop_episodes(args.dataset, [int(e) for e in args.drop.split(",") if e.strip()], args.reason)
         print(f"Dropped from {args.dataset} (make_policy.py leaves them out): {sorted(dropped)}\n")
+    if args.clean:
+        summary = clean_copy(args.dataset, args.clean)
+        print(f"\nWrote {args.clean}: {summary['episodes']} episodes, {summary['frames']} of {summary['source_frames']} "
+              f"frames ({summary['root']})\n")
+        return
     table, events, fps = quality_table(args.dataset)
     if args.episode is not None:
         row = table.loc[args.episode]

@@ -23,6 +23,7 @@ from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
 THUMB = (240, 180)
+CLOSE_LOW_MM, CLOSE_HIGH_MM = 10.0, 20.0     # close_height_report's bands
 
 
 def latest_session():
@@ -103,6 +104,44 @@ def success_map(attempts):
             got = [a["success"] for a in attempts if where(a) == w and a["policy"] == p]
             cells.append(f"{sum(got)}/{len(got)}" if got else "-")
         print(f"  {w:<8} " + " ".join(f"{c:>20}" for c in cells))
+
+
+def close_height_report(attempts):
+    """How high the tip was as the jaws closed (grasp_clearance_m: measured, above the grasp point), per policy and
+    per spot. The bands are from 295 real attempts: under 10mm 98% picked, 20mm or more 12%
+    (docs/retrospectives/2026-11-03_eval_validity.md). A diagnostic: picks and clean attempts still decide."""
+    closed = [a for a in attempts if a.get("grasp_clearance_m") is not None]
+    if not closed:
+        return
+    heights = lambda group: [a["grasp_clearance_m"] * 1000 for a in group]
+    policies = sorted({a["policy"] for a in attempts})
+    print("\nclose height: tip above the grasp point as the jaws closed (mm, measured)")
+    print(f"  {'policy':<20} {'closed':>7} {'median':>7} {'picked':>7} {'missed':>7} {f'<{CLOSE_LOW_MM:.0f}mm':>6} {f'{CLOSE_HIGH_MM:.0f}mm+':>6}")
+    for p in policies:
+        mine = [a for a in closed if a["policy"] == p]
+        if not mine:
+            continue
+        median = lambda group: f"{np.median(heights(group)):.1f}" if group else "-"
+        all_mine = sum(a["policy"] == p for a in attempts)
+        print(f"  {p:<20} {f'{len(mine)}/{all_mine}':>7} {median(mine):>7} {median([a for a in mine if a['success']]):>7} "
+              f"{median([a for a in mine if not a['success']]):>7} {sum(h < CLOSE_LOW_MM for h in heights(mine)):>6} "
+              f"{sum(h >= CLOSE_HIGH_MM for h in heights(mine)):>6}")
+    spots = list(dict.fromkeys(where(a) for a in closed))
+    print(f"  {'':<8} " + " ".join(f"{p:>20}" for p in policies) + "   (x: a miss there)")
+    by_spot = {}
+    for w in spots:
+        cells = []
+        for p in policies:
+            group = [a for a in closed if where(a) == w and a["policy"] == p]
+            if group:
+                by_spot[(w, p)] = float(np.median(heights(group)))
+            cells.append(f"{by_spot[(w, p)]:.1f}" + ("x" if not all(a["success"] for a in group) else "") if group else "-")
+        print(f"  {w:<8} " + " ".join(f"{c:>20}" for c in cells))
+    if len(policies) == 2:
+        shared = [w for w in spots if (w, policies[0]) in by_spot and (w, policies[1]) in by_spot]
+        lower = sum(by_spot[(w, policies[1])] < by_spot[(w, policies[0])] for w in shared)
+        if shared:
+            print(f"  {policies[1]} closed lower than {policies[0]} at {lower} of {len(shared)} spots")
 
 
 def perturbation_report(attempts):
@@ -231,6 +270,7 @@ def main():
         if void:
             print(f"  {void} attempt(s) left out: the wrist camera stopped giving frames (the bench reopened it)")
         success_map(attempts)
+        close_height_report(attempts)
         perturbation_report(attempts)
     episodes = [e for e in events if e["type"] == "episode_saved"]
     dagger = [e for e in episodes if e.get("policy")]

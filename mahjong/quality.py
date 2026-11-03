@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, kinematics
-from .dataset import episode_log
+from .dataset import EPISODE_LOG, build, episode_log
 
 DROPPED_FILE = config.DATA / "dropped_episodes.json"     # {repo: {episode: reason}}: reviewed, never trained on
 GRIPPER_FIXES_FILE = config.DATA / "episode_fixes.json"   # {repo: {episode: reason}}: gripper closed to 0 when built
@@ -204,6 +204,27 @@ def drift_table(episodes, reference):
         rows.append({**row, "move_x": mine[0], "move_y": mine[1], "ref_x": theirs[0], "ref_y": theirs[1],
                      "shift_x": mine[0] - theirs[0], "shift_y": mine[1] - theirs[1]})
     return pd.DataFrame(rows).set_index("spot").sort_index()
+
+
+# --- a cleaned copy: the recording itself stays as it was ---
+
+def clean_copy(repo_id, dst_repo, log=print):
+    """Write dst_repo: repo_id at its own image size, without its dropped episodes and with every stop cut
+    (dataset.pause_mask). Its episode log says which source episode each came from. Returns dataset.build's summary."""
+    root = dataset_root(repo_id)
+    info = json.loads((root / "meta" / "info.json").read_text())
+    dropped = dropped_episodes(repo_id)
+    episodes = [e for e in range(info["total_episodes"]) if e not in dropped]
+    size = tuple(info["features"]["observation.images.wrist"]["shape"][:2])
+    summary = build(repo_id, dst_repo, trim_idle=False, trim_pauses=True, size=size, episodes=episodes, log=log)
+    records = episode_log(repo_id)
+    rows = [{**records.get(source, {}), "episode_index": built, "source_repo": repo_id, "source_episode": source,
+             "source_frames": records.get(source, {}).get("frames")}
+            for built, source in enumerate(summary["source_episodes"])]
+    (dataset_root(dst_repo) / EPISODE_LOG).write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (dataset_root(dst_repo) / "clean_summary.json").write_text(
+        json.dumps({"source": repo_id, "dropped": {str(e): r for e, r in dropped.items()}, **summary}, indent=2) + "\n")
+    return summary
 
 
 # --- episodes dropped after review: listed, not deleted, so a dataset still being recorded into keeps its

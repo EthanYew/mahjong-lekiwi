@@ -250,6 +250,8 @@ python scripts/session_report.py --all                           # every bench s
 Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, the scorecard (clean attempts,
 and a ship / revert / extend verdict when the session paired two policies: `docs/scorecard.md`), interventions
 (rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
+Bench sessions also get close height: how high the tip was as the jaws closed, per policy and spot. Under 10mm
+picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`). It explains a run; it doesn't decide one.
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 
@@ -377,6 +379,7 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3 --episode 
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases          # phases per episode
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_jitter_v3 --drop 8,39 --reason "searching"
+python scripts/quality_report.py --dataset mahjong_surfaces_standard_mat_eval_v1 --clean Yewy/mahjong_surfaces_standard_mat_eval_v1_clean
 ```
 
 `--drop EPS` leaves reviewed episodes out of training without deleting them: they're listed in
@@ -386,13 +389,20 @@ The recording keeps its episode numbers, so you can go on recording into it.
 the tile: `make_policy.py` builds it with the command carried on to 0 at the rate it was closing
 (`data/episode_fixes.json`). The jaws had already stalled on the tile, so the frames still match.
 
+`--clean REPO` writes a copy under a new name with every stop in the commands cut to one frame (the build's idle
+trim leaves about half of a stop-go demo's still frames) and dropped episodes left out; each row of its episode log
+names its source episode. The recording isn't changed. A move backwards stays: cutting it would make the arm jump.
+A cleaned eval set runs faster than the demos a policy trained on, so read its `arm_mae` and `grasp_mm`, not its timing:
+on `mahjong_surfaces_standard_mat_eval_v1` the descent lag went from 14 to 29 steps and the close error from 0.34s to
+0.76s for v6 with its arm error barely moved, past gates calibrated on the standard trim.
+
 `--against REPO` compares each spot's hover→grasp move with the other recording's at the same place
 (within 15 mm), counting only demos that steered. A demo lowered straight down only says the tile was
 close enough for the jaws (a third of v2's were). Shifts beyond ~6 mm in one direction at most spots
 are worth a `collect_corrections.py` check; a few spots differing is as likely to be how the demos were done.
 
 Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table),
-`--phases`, `--against REPO`, `--drop EPS --reason TEXT`, `--fix-gripper EPS --reason TEXT`.
+`--phases`, `--against REPO`, `--drop EPS --reason TEXT`, `--fix-gripper EPS --reason TEXT`, `--clean REPO`.
 
 ## Training a policy: `scripts/make_policy.py`
 

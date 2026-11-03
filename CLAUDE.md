@@ -166,6 +166,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   height 50). XLeRobot gives pan a fixed deg/s, ~130mm/s at the jaws at full reach and 0.5x, so the left stick lurched
   once past the deadzone. Clipping the top would keep that steep start. Demos descend at 50, so that cap costs them
   nothing. The L/R tilt buttons (~92mm/s at the tool point) and wrist roll aren't capped. Unconfirmed on the arm.
+- **Closing high is what a miss looks like, and only the arm shows it.** Tip under 10mm above the grasp point as the
+  jaws close: 127/130 picked; 20mm or more: 3/25 (295 real attempts, `grasp_clearance_m`; `session_report.py` prints it).
+  Teacher-forced scores don't see it: v6 and v7 tied on arm, grasp and timing error over 53 demos they never trained on,
+  while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script. If `/dev/wristcam` is gone, only a replug helps. Evidence:

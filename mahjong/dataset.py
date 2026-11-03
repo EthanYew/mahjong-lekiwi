@@ -9,6 +9,10 @@ Trims (each a per-episode frame mask, applied in order):
 - gripper narrowing (optional): the opening phase where the jaws are narrowed from the hover's 90% to
   ~21% before descending. Trimming it makes episodes start where that ends, so they can be mixed with
   episodes recorded from a ~23% hover.
+- pauses (optional, quality.clean_copy): every stop cut to its last frame, however short. The idle trim keeps
+  IDLE_WINDOW frames on each side of a stop and misses any under ~0.5s, so half the still frames of a stop-go demo
+  survive it (mahjong_surfaces_standard_mat_eval_v1, 2026-11-03). Only frames where nothing is commanded go, so
+  the commands stay continuous; a move backwards stays, since cutting it would make the arm jump.
 - DAgger (record.py --policy): frames before the takeover are the policy's own, not a demo; they're
   dropped, and an episode with no takeover is left out.
 Deltas (observation.state, action) are re-anchored to each episode's first kept frame, so every
@@ -37,6 +41,8 @@ from .session import read_jsonl
 IDLE_WINDOW = 7
 IDLE_DELTA = 0.5
 SAG_SETTLE_MM, SAG_SETTLE_FRAMES, SAG_MAX_FRAMES = 0.3, 9, 60
+PAUSE_DELTA = 0.02             # a joint's command changing less than this between frames isn't moving
+PAUSE_MIN_FRAMES = 4           # a stop at least this long (~0.13s) is cut: shorter is the stick's own stepping
 NARROWING_TOLERANCE = 2.0      # gripper % of its pre-grasp opening that counts as "narrowed"
 EPISODE_LOG = "episode_log.jsonl"                          # record.py's sidecar log: one row per saved episode
 EPISODE_LOGS = (EPISODE_LOG, "episode_teleop_log.jsonl")   # ...and the pre-rebuild recorder's
@@ -46,6 +52,26 @@ def idle_mask(actions):
     n = len(actions)
     return np.array([np.abs(actions[max(0, i - IDLE_WINDOW):i + IDLE_WINDOW + 1] - actions[i]).max() < IDLE_DELTA
                      for i in range(n)])
+
+
+def pause_mask(actions_raw):
+    """True on frames to cut: the frames of a stop of at least PAUSE_MIN_FRAMES where no joint's command moves,
+    all but its last, which shows what the arm settled to as it moves on. Frame 0 stays: deltas are anchored there."""
+    actions_raw = np.asarray(actions_raw)
+    still = np.r_[False, np.abs(np.diff(actions_raw, axis=0)).max(axis=1) < PAUSE_DELTA]
+    cut = np.zeros(len(actions_raw), bool)
+    i = 0
+    while i < len(still):
+        if not still[i]:
+            i += 1
+            continue
+        end = i
+        while end + 1 < len(still) and still[end + 1]:
+            end += 1
+        if end - i + 1 >= PAUSE_MIN_FRAMES:
+            cut[i:end] = True
+        i = end + 1
+    return cut
 
 
 def is_pre_takeover_fix(states_raw, actions_raw):
@@ -93,7 +119,8 @@ def finish_close(grip, default_rate=1.67):
     return grip
 
 
-def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False, start=0):
+def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, trim_narrowing=False, start=0,
+              trim_pauses=False):
     """start: the first frame that can be kept (a DAgger episode's takeover). Idle is checked only from
     there on, so the window doesn't reach into the dropped pre-takeover frames the policy drove (a
     different enough regime to mask real idling right after the takeover). The same goes for a trimmed
@@ -102,6 +129,8 @@ def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, t
     first = max(start, narrowing_end(actions_raw)) if trim_narrowing else start
     if trim_idle:
         drop[first:] = idle_mask(actions[first:])
+    if trim_pauses:
+        drop |= pause_mask(actions_raw)
     drop[:first] = True
     if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
         drop[:takeover_sag_end(states_raw)] = True
@@ -114,7 +143,7 @@ def takeover_frame(record):
 
 
 def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=False, size=(224, 224), episodes=None,
-          close_gripper=(), extra=(), replace_mat=0.0, seed=0, log=print):
+          close_gripper=(), extra=(), replace_mat=0.0, seed=0, log=print, trim_pauses=False):
     """Write dst_repo: src_repo's wrist camera at `size`, trimmed and re-anchored. episodes: the source
     episode indices to include (default all). extra: [(repo, episodes, close_gripper)] of other recorded
     datasets to add after them. Returns a summary; its source_episodes maps each built episode of src_repo
@@ -133,7 +162,7 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
     features["observation.images.wrist"]["shape"] = (size[0], size[1], 3)
     dst = LeRobotDataset.create(repo_id=dst_repo, fps=src.fps, features=features, robot_type=src.meta.robot_type,
                                 use_videos=True)
-    trims = dict(trim_idle=trim_idle, trim_sag=trim_sag, trim_narrowing=trim_narrowing)
+    trims = dict(trim_idle=trim_idle, trim_sag=trim_sag, trim_narrowing=trim_narrowing, trim_pauses=trim_pauses)
     surfacing = dict(fraction=replace_mat, seed=seed)
     sources, dagger, source_frames, start_grippers, surfaces = [], [], 0, [], []
     for repo, eps, closing in [(src_repo, episodes, close_gripper), *extra]:
@@ -178,7 +207,8 @@ def _add_episodes(dst, src, repo, episodes, close_gripper, size, trims, log, lab
             actions[a:b, 5] += fixed - actions_raw[a:b, 5]
             actions_raw[a:b, 5] = fixed
         keep = np.flatnonzero(keep_mask(states_raw[a:b], actions_raw[a:b], actions[a:b], trims["trim_idle"],
-                                        trims["trim_sag"] and not dagger, trims["trim_narrowing"], start=takeover or 0))
+                                        trims["trim_sag"] and not dagger, trims["trim_narrowing"], start=takeover or 0,
+                                        trim_pauses=trims["trim_pauses"]))
         if not len(keep):
             log(f"  {label}episode {ep} ({n}/{len(episodes)}): left out, nothing kept")
             continue
