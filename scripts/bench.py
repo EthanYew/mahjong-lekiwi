@@ -1,6 +1,6 @@
 """Test bench for isolated pickups: closed-loop hover + an ACT policy, one tile at a time or in batches.
 
-    1 hover          detect, choose a tile, hover over it (corrected, settled from above)
+    1 hover          detect, choose a tile, hover over it (corrected, settled from above); saves a wrist photo
     2 pickup         hover, then the policy picks it up; parks at rest holding it
     3 return         put the held tile back at its home (where it was first seen this session), aimed so it
                      lands there (mahjong/return_correction.py; up to 15mm closer if beyond reach), then rest
@@ -25,7 +25,8 @@ caught drop); a → with no key is asked about right after the attempt. Clean at
 pickup, return and discard, so knocked tiles and tiles put back by hand show up without anyone saying
 so; each scan's frames and boxes go in scans/, for the tile detector's data: scripts/mine_frames.py),
 and per attempt the wrist frames (wrist.mp4: every frame), act_trace.npz and RealSense overview frames
-before and after. `python scripts/session_report.py` summarises the latest one, interventions included
+before and after. A hover alone gets a folder too, with its wrist photo (wrist_0000.jpg, as a pickup's first
+frame). `python scripts/session_report.py` summarises the latest one, interventions included
 (mahjong/interventions.py).
 
 What a scan sees change is settled without the end-of-batch questions:
@@ -84,6 +85,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 
 from mahjong import config, detector, interventions, layout, wrist_check
+from mahjong.camera import grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -617,7 +619,23 @@ class Bench:
             return print(f"Holding {self.held['tile_name']} — return or discard it first.")
         tile = self.choose()
         if tile and (result := self.hover_over(tile)):
-            self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"], **result)
+            self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"],
+                               attempt_dir=self.hover_photo(tile["tile_name"]), **result)
+
+    def hover_photo(self, tile_name):
+        """Save a current wrist frame from the hover, under the name a pickup's first frame has (policy.run), so
+        mahjong.wrist_photos gathers both. Returns its folder's name, or None if the camera gave no frame."""
+        frames = grab_frames(self.camera, 1)
+        if not frames:
+            self.reopen_camera()
+            frames = grab_frames(self.camera, 1)
+        if not frames:
+            print("No wrist camera frame: no photo saved for this hover.")
+            return None
+        folder = self.session.attempt_dir(tile_name)
+        cv2.imwrite(str(folder / "wrist_0000.jpg"), frames[0])
+        print(f"Wrist photo: {folder.name}/wrist_0000.jpg")
+        return folder.name
 
     def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None, camera_retries=1):
         """One attempt with self.policy, from its hover moved by `perturb` (m), at the named tile or the
