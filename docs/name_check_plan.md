@@ -155,7 +155,7 @@ scored 14% before), and Moondream's chat template, without which it failed. No r
 12 photos, so small gaps mean little.
 
 **What's next:** give 7C, 4B and the other thin names more placements, measure tile offsets for the crop, and retest. Only then
-is a real exam (steps 3-4) worth recording. YOLO's retraining (step 5) stands regardless.
+is a real exam (steps 3-4) worth recording. Whether YOLO needs retraining is step 5's question.
 
 ## The plan
 
@@ -182,8 +182,10 @@ testing in other places.
    two tile sets, one lighting family, and step 2 will have looked at them. Unlike ACT's offline scores
    (`docs/retrospectives/2026-11-03_eval_validity.md`), a name exam measures the task itself, if its frames match how the
    reader will be used.
-5. **Retrain YOLO on the mat, and score it on the mat exam.** Its names already need this (`docs/invariant_notes.md`), and
-   bench scans on the mat are already saved for `mine_frames.py`. It may be the cheapest fix, and it changes which errors a
+5. **Score YOLO on the mat exam before deciding to retrain it.** It has never had a mat exam, but it has trained on the mat:
+   about 536 of the 1,310 frames in `data/detector/train_v6x3` show the striped mat (a colour check on frame centres), and it
+   still reads 2B as 4B. So more mat frames may not fix its names, especially with a tile only ~29px wide in that view. If the
+   exam's mix-ups point to retraining, bench scans on the mat are saved for `mine_frames.py`. A retrain changes which errors a
    second read has to catch, so score second reads against the YOLO that will actually run.
 6. **Compare the readers on that exam.**
 
