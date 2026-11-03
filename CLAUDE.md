@@ -159,6 +159,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Every gamepad handoff uses a 0.35 deadzone (`gamepad.DEADZONE`) and warns of a stick off centre
   (`gamepad.warn_off_centre`): a resting thumb past XLeRobot's 0.15 pulled the arm 87mm. Teleop is traced
   (`mahjong/handoff_trace.py`, `scripts/handoff_report.py`). Evidence: `docs/invariant_notes.md`.
+- **Stick speed is capped at the jaws, by scaling the stick's whole travel** (`gamepad.cap_sticks`: left stick 30mm/s,
+  height 50). XLeRobot gives pan a fixed deg/s, ~130mm/s at the jaws at full reach and 0.5x, so the left stick lurched
+  once past the deadzone. Clipping the top would keep that steep start. Demos descend at 50, so that cap costs them
+  nothing. The L/R tilt buttons (~92mm/s at the tool point) and wrist roll aren't capped. Unconfirmed on the arm.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script. If `/dev/wristcam` is gone, only a replug helps. Evidence:

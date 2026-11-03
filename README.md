@@ -361,6 +361,7 @@ with when you took over. Use a dataset of their own, never an eval slice.
 | `--policy ID` | DAgger: this registered policy drives from its own hover until you press A on the gamepad (see above) |
 | `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't. The right stick moves height *or* wrist roll: whichever moves first, until it's back at centre |
 | `--deadzone F` | stick deadzone, fraction of its travel (default 0.35, as collect_corrections: a thumb resting past XLeRobot's 0.15 pulled the arm 87mm). The wrist window's bottom line shows what the sticks read (red while they move the arm), and a stick off centre when you take over is said in the terminal. Lower it if gentle pushes don't register |
+| `--left-stick-max-mm-s F` | the jaws' speed at a full push of the left stick (pan, reach), with lighter pushes scaled down from it, so it can't jump to a fast move just past the deadzone (default 30, 0 for no cap). The right stick's height is capped at 50 mm/s the same way, so `+` past 0.5x changes little. The L/R tilt buttons and wrist roll aren't capped. The window's line then shows the scaled stick: a full push reads below 1, its raw value in brackets |
 | `--device PATH` | gamepad device path (default: the first gamepad found) |
 
 ## Reviewing a dataset: `scripts/quality_report.py`
@@ -473,7 +474,8 @@ The window's bottom line is what the gamepad reads: each stick as it reaches the
 in brackets, red while it's moving the arm and green while it isn't. If a stick rests off centre when you
 take over, the terminal says so: let go of it. `--deadzone` (default 0.35 of the stick's travel; XLeRobot's
 own is 0.15) is wider so a thumb resting on a stick doesn't drive the arm; push a bit further for the same
-slow speed.
+slow speed. `--left-stick-max-mm-s` (default 30, 0 for no cap) is the jaws' speed at a full push of the left
+stick, as in `record.py`.
 
 Each tile's teleop is traced too (`handoff/<n>_<tile>.jsonl`: command, measured joints and gamepad input
 every step), and a few lines after → / ← say what the arm did once you had it. To look back at a session:
