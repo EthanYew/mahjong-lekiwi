@@ -38,3 +38,19 @@ def test_a_known_name_outweighs_flicker_but_not_a_real_change():
 def test_scan_votes_fall_back_to_the_best_read():
     assert scan_votes(tile("1B", 0.7)) == {"1B": 0.7}
     assert scan_votes(tile("1B", 0.7, votes={"1B": 3.1, "7B": 0.4})) == {"1B": 3.1, "7B": 0.4}
+
+
+def test_doubt_is_about_the_name_read_and_its_confidence():
+    v = Votes()
+    v.add(0, tile("7C", 0.99))
+    assert "misread" in v.doubt(0, "7C")        # however confident: an 8C reads 7C at up to 0.91
+    v.add(1, tile("1D", 0.9))
+    v.add(1, tile("1D", 0.8))
+    assert v.doubt(1, "1D") is None
+    v.add(2, tile("1D", 0.7))
+    v.add(2, tile("1D", 0.8))
+    assert "0.75" in v.doubt(2, "1D")
+    v.add(3, {"tile_name": "1D", "confidence": 0.0})    # no read of a name: found by the wrist camera
+    assert "0.00" in v.doubt(3, "1D")
+    v.reset(2)
+    assert "0.00" in v.doubt(2, "1D")

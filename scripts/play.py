@@ -49,7 +49,7 @@ HAND_SLOTS = game.HAND_SIZE
 SIM_SLOTS = ([{"id": f"H{i + 1}", "xy": [0.15, round(-0.171 + 0.057 * i, 4)]} for i in range(7)]
              + [{"id": f"H{i + 8}", "xy": [0.21, round(-0.1425 + 0.057 * i, 4)]} for i in range(6)])
 SIM_ZONE = [0.25, 0.0]
-SIM_HAND = ["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "EW", "EW", "EW", "RD", "NW"]
+SIM_HAND = ["1D", "2D", "3D", "4D", "5D", "6D", "7B", "8B", "SW", "SW", "SW", "RD", "NW"]     # none in ALWAYS_ASK_READS
 SIM_DRAWS = ["GD", "9B", "NW"]
 
 
@@ -137,6 +137,12 @@ class Player:
         _, share, scans = self.votes.leader(slot)
         self.session.event("name_decided", slot=slot, placement=self.placement_id(slot), name=name, how=how,
                            share=round(share, 3), scans=scans, votes=self.votes_at(slot))
+
+    def why_ask(self, slot, name, unsure):
+        """Why a person should name this tile (`unsure` if the votes have no name yet), or None if the robot can go on it."""
+        if name is None:
+            return unsure or "Not sure"
+        return f"{name} can't be played" if not game.is_playable(name) else self.votes.doubt(slot, name)
 
     def ask_name(self, slot, why):
         """A person names the tile at `slot`: Enter keeps the leading read."""
@@ -230,8 +236,9 @@ class Player:
                 self.scan("register")
                 self.scan("register")
             name = self.votes.sure(slot)
-            if name is None or not game.is_playable(name):
-                name = self.ask_name(slot, "Not sure of a hand tile" if name is None else f"{name} can't be played")
+            why = self.why_ask(slot, name, "Not sure of a hand tile")
+            if why:
+                name = self.ask_name(slot, why)
             else:
                 self.decided(slot, name, "vote")
             hand[slot] = name
@@ -291,11 +298,11 @@ class Player:
             if ZONE not in self.latest:
                 return None
             name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
-            if name is not None and game.is_playable(name):
+            if not self.why_ask(ZONE, name, ""):
                 self.decided(ZONE, name, "vote")
                 return name
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
-        return self.ask_name(ZONE, "Not sure of the drawn tile" if name is None else f"{name} can't be played")
+        return self.ask_name(ZONE, self.why_ask(ZONE, name, "Not sure of the drawn tile"))
 
     def wait_for_draw(self):
         """The drawn tile's name, or None when the wall is empty."""

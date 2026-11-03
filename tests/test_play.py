@@ -111,7 +111,7 @@ def test_the_end_of_hand_check_counts_silent_errors(tmp_path, monkeypatch):
     end = next(e for e in events_of(p) if e["type"] == "hand_end")
     assert (end["result"], end["silent_errors"]) == ("end", 1)
     error = next(i for i in interventions_of(p) if i["kind"] == "silent_error")
-    assert (error["slot"], error["robot"], error["table"]) == ("H3", "3C", "4C")
+    assert (error["slot"], error["robot"], error["table"]) == ("H3", "3D", "4C")
 
 
 def test_a_hand_resumes_from_its_checkpoint(tmp_path, monkeypatch):
@@ -171,3 +171,25 @@ def test_a_pickup_marked_during_play_is_asked_about_at_the_end_of_the_step(tmp_p
     (review,) = [e for e in events_of(p) if e["type"] == "attempt_review"]
     assert review["mark_kind"] == "touched_tile"
     assert any("what happened" in q for q in prompts)
+
+
+def test_a_name_other_tiles_get_misread_as_is_asked_about_even_when_the_votes_are_sure(tmp_path, monkeypatch):
+    import play
+    monkeypatch.setattr(play, "SIM_HAND", ["7C", *play.SIM_HAND[1:]])
+    p = player(tmp_path, monkeypatch, Answers("8C"))
+    assert run(p) == "attended"
+    asked = [i for i in interventions_of(p) if i["kind"] == "name_asked"]
+    assert [(a["slot"], a["answer"], a["leading_read"]) for a in asked] == [("H1", "8C", "7C")]
+    assert "8C, 6C and 3C have been misread" in asked[0]["why"]
+
+
+def test_a_low_confidence_read_is_asked_about(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("1D"))
+    detect = p.mat.detect_tiles
+
+    def faint_first_tile(n_frames=None):
+        return [{**t, "confidence": 0.6} if t["tile_name"] == "1D" else t for t in detect(n_frames)]
+    p.mat.detect_tiles = faint_first_tile
+    assert run(p) == "attended"
+    asked = [i for i in interventions_of(p) if i["kind"] == "name_asked"]
+    assert [a["slot"] for a in asked] == ["H1"] and "0.60 confidence" in asked[0]["why"]
