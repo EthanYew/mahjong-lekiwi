@@ -1,6 +1,6 @@
 # A second tile-name read from the wrist camera: LLM, VLM or classifier
 
-Written 2026-11-03, against `main` at `f853b3e`. A proposal: nothing here is built. It grew out of Move 3 in
+Written 2026-11-03, last checked against `main` at `249d25f`. A proposal: nothing here is built. It grew out of Move 3 in
 `docs/retrospectives/2026-11-02_week3_skills_assessment.md`. What's done and next stays in ROADMAP.md's status table.
 
 ## The question
@@ -18,10 +18,12 @@ proposed fine-tuning Qwen2.5-VL-3B on 800+ labelled tile images and running it o
   expectation, not a measurement. The frames below make a VLM more plausible than first assumed, because many tiles carry
   readable marks, so both get tested.
 - **The reader's job is the name, not presence.** Whether a tile is there now has its own answer: the detector's faint
-  boxes (`perception.faint_tiles`, tested offline), then the wrist look if those don't settle it. A reader should use the
-  frame the look captures, and add to the look rather than replace it. Its "no tile" answer is there so it doesn't invent
-  a name for an empty spot. It might later help with the look's first-time question to a person on the pale mat, if the
-  exam supports that.
+  boxes (`perception.faint_tiles`), then the wrist look if those don't settle it. The last 58 attempts on the mat logged
+  77 `tile_faint` events and no looks, so the look's frame isn't the place to read. An attempt's first frame at the hover
+  is (`wrist_0000.jpg`), just before the arm commits. A reader's "no tile" answer is there so it doesn't invent a name for
+  an empty spot.
+- **Enough photos exist to start, with no arm.** All 34 names are in the 1,004 usable photos, though mostly on the black
+  top. Whether that training carries over to the mat decides how much mat data is needed, and it can be tested today.
 - **Read every name, not only low-confidence ones.** Wrong names aren't reliably low-confidence, and the votes can accept
   one (below).
 - **Not decided:** Move 3 says tile names should "only make the robot ask more often, never to guess". This plan keeps
@@ -61,8 +63,8 @@ face. That led to `wrist_check.CROWDED_M`. 5 of the 8 "still there" looks were f
 viewing the frame.
 
 **Standard mat, 11 looks** (`20261103_121112_bench`): all saw a tile, but this doesn't validate the test, because bare white
-stripe also reads 0.72 against the 0.5 cutoff. Faint boxes now answer all 11 offline, without moving the arm. See
-`docs/invariant_notes.md` for those and for how the look handles a pale surface.
+stripe also reads 0.72 against the 0.5 cutoff. Faint boxes, which answer all 11 offline, have since replaced these looks on
+the arm. See `docs/invariant_notes.md` for those and for how the look handles a pale surface.
 
 ### YOLO's votes on the standard mat
 Reads from `20261103_121112_bench` (74 scans) replayed through `identity.Votes`, grouped by place:
@@ -84,22 +86,64 @@ miss. In 4 of the 7 "not there" frames, the missing tile is visible elsewhere in
 which had read the logs and seen the expected names, and is a much larger model than Qwen 3B. It shows the input is good
 enough, and nothing about any small model.
 
+### The photos we already have
+From `wrist_photos.labelled`: each `wrist_capture.py` view and each bench attempt's first frame at the hover.
+
+| Surface | Usable photos | Names, of 34 | Reviewed before this audit | Notes |
+|---|---|---|---|---|
+| Black top | 858 (488 bench, 370 `wrist_capture`) | 34 | 509 | 12 names rest on 1-2 placements: 1C, 2C, 3B, 4B, 4C, 5B, 7C, 8B, 8C, 9B, 9C, RD |
+| Standard mat | 87 (bench) | 26 once corrected | 0 | 2-6 photos a name, mostly near-duplicate pairs |
+| Green mat, other | 59 (bench) | 14 each | 0 | |
+
+The 56 mat demos and about 10 mat eval episodes also hold hover frames, inside dataset videos. Their logged names look right,
+but that's unchecked.
+
+**How often the logged names are wrong.** A person fixes names at `wrist_capture.py` but not at the bench, where a photo
+takes YOLO's read, or the spot's ID if YOLO found no name. Claude viewed all 495 unreviewed bench photos:
+
+| Photos | Wrong name | Not usable |
+|---|---|---|
+| 87 on the standard mat | 11 (1B, 2B, 3C, 8C, 2C) | 2 |
+| 408 elsewhere | 4 (1B as EW, 5C as 6C) | 2 |
+
+So logged names are mostly right off the mat and often wrong on it. Those 11 come from 5 physical tiles, so this is a few tiles
+misread repeatedly, not wrong names spread evenly. It also changes what's missing: logged counts show 7C and EW on the mat and no 2B or 8C, but it's the reverse. Never yet on
+the mat: **2D, 4B, 6D, 7B, 7C, 9B, 9C, EW**. The 19 proposed verdicts, a sheet of them and a script to record them are in
+`docs/retrospectives/evidence/2026-11-03_name_check_audit/`. They are Claude's reading: only the owner's check makes them
+verdicts, and the 476 photos that looked right are still unreviewed.
+
+On the mat, the tile is often well off `wrist_check.EXPECTED_PX`, sometimes with that point at its edge, so a crop has to be
+larger than the disc.
+
 ## The plan
 
 Training happens on the RTX 5080 machine. Inference happens there now, and on a Raspberry Pi 5 (8 GB) later, for play
 testing in other places.
 
-1. **Capture on the standard mat** (needs the arm).
-   - `wrist_capture.py`, all 34 playable faces, named by the person placing them, never by YOLO.
-   - Also capture the bare mat at the disc, so a reader can learn "no tile".
-   - Hold out whole sessions in other lighting as the exam (a new `data/name_check_exam.json`, following
-     `data/detector_exam.json`). The mat travels with the setup; the room's light doesn't.
-   - Save scans too: the same sessions give YOLO its first exam on this mat.
-   - Train on these plus the 744 older photos (`mahjong/wrist_photos.py`, `data/wrist_review.jsonl`). Those are all from
-     2026-10-28 on the black top, with 4-9 names per session, so they can't be the exam.
-2. **Retrain YOLO on the mat first, and score it on the mat exam.** Its names already need this (`docs/invariant_notes.md`).
-   It may be the cheapest fix, and it changes which errors a second read has to catch.
-3. **Compare the readers on one exam.**
+1. **Review the names** (no arm). The owner checks the audit's 19 proposed verdicts, then looks through the rest in
+   `scripts/wrist_review.py`.
+2. **First test: does black-top training carry to the mat?** (No arm.)
+   - Train the small classifier on the reviewed non-mat photos, and test it on the 85 usable mat photos.
+   - If a crop that's mostly tile face carries over, the mat needs only a top-up. If it fails, the mat needs real training
+     data before anything else.
+   - Run the stock VLMs on the same photos. This is a screen, with 26 names and near-duplicates, not an exam.
+   - Report per physical tile, and in particular 1B, 2B, 3C, 8C and 2C, which the bench logged wrongly.
+3. **Grow mat data through normal bench work.**
+   - Swap the 8 never-on-mat names into the next `even-hand14` bench sessions. Each session gives 14 new placements, and
+     correcting a bench photo's name is one review.
+   - Use `wrist_capture.py` only for what's left: the 12 thin names, and lighting. Correct names on screen before accepting,
+     since on the mat the proposed names come from YOLO.
+   - Mat photos so far all have the lamp and ceiling lights on, in dim or no daylight. The mat travels with the setup and the
+     room's light doesn't, so daylight and lamp-off sessions are the real gap.
+4. **Hold a real exam.** Whole sessions in lighting chosen in advance, on the standard mat, with all 34 names, listed in a new
+   `data/name_check_exam.json` (following `data/detector_exam.json`) and never trained on. Today's mat sessions can't be it:
+   two tile sets, one lighting family, and step 2 will have looked at them. Unlike ACT's offline scores
+   (`docs/retrospectives/2026-11-03_eval_validity.md`), a name exam measures the task itself, if its frames match how the
+   reader will be used.
+5. **Retrain YOLO on the mat, and score it on the mat exam.** Its names already need this (`docs/invariant_notes.md`), and
+   bench scans on the mat are already saved for `mine_frames.py`. It may be the cheapest fix, and it changes which errors a
+   second read has to catch, so score second reads against the YOLO that will actually run.
+6. **Compare the readers on that exam.**
 
    | Reader | Setup | Why |
    |---|---|---|
@@ -108,21 +152,22 @@ testing in other places.
    | Qwen2.5-VL-3B, stock | `ggml-org` Q4_K_M + mmproj, no training | The draft's model, about 3 GB of files |
    | Hosted VLM (optional) | Needs a key and a budget | A laptop benchmark for how good a VLM can get; venues may have no network |
 
-   Every reader gets a crop around the disc (`wrist_check.EXPECTED_PX`), since neighbours are in view. It answers from all
-   34 names or "no tile", **and is never given YOLO's candidates or the expected name**: YOLO's options for the 2B tile
-   were 4B and 3B.
-4. **Score them the same way** (a new `scripts/name_check_eval.py`, reusing `detector_eval.wrong_rate_bound`).
+   Every reader gets the same crop, sized from a measurement of how far tiles sit from `wrist_check.EXPECTED_PX`. A larger
+   crop admits neighbours, so training and testing must match. It answers from all 34 names or "no tile", **and is never
+   given YOLO's candidates or the expected name**: YOLO's options for the 2B tile were 4B and 3B.
+7. **Score them the same way** (a new `scripts/name_check_eval.py`, reusing `detector_eval.wrong_rate_bound`).
    - The gate: names accepted and wrong, when paired with YOLO's vote. It must be 0, towards the ~1000 reads in
      `docs/autonomy_plan.md`. Report distinct tiles and sessions too, as photos of one tile aren't independent.
    - Also: share of asks removed, whether it says "no tile" on an empty spot, a usable confidence, seconds per read, memory.
-5. **Time the finalists on a Pi 5, with the whole stack.** A hand has about 27 name reads, so 30 seconds a read (an
+8. **Time the finalists on a Pi 5, with the whole stack.** A hand has about 27 name reads, so 30 seconds a read (an
    illustration, not a measurement) would add about 13 minutes. ACT runs at 30 Hz on the GPU today and YOLO at 1280 px. If
    ACT can't keep up on a Pi, that decides the setup before any reader does.
-6. **Decide.**
-   - A reader passes: wire it in as a second read on every name entering the hand and every drawn tile, and during the
-     wrist look. Agreement accepts; disagreement asks. Compare with the slot's established name, not with a lost
-     detection's name. Don't use `Votes.known()` for a model's answer: it's a person's word, and later scans can't outvote
-     it. Log every read as an event.
+9. **Decide.**
+   - A reader passes: wire it in as a second read on every name entering the hand and every drawn tile. Agreement accepts;
+     disagreement asks. Compare with the slot's established name, not with a lost detection's name. Don't use
+     `Votes.known()` for a model's answer: it's a person's word, and later scans can't outvote it. Log every read as an
+     event. An attempt's first frame covers the tile about to be picked; reading the 13-tile hand at the start needs its
+     own hover over each tile, which needs timing on the arm.
    - Only a stock VLM comes close: fine-tune, with the corrections below.
    - None pass: keep asking a person, and write that up. It's a real finding.
 
