@@ -146,7 +146,8 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
         dagger += [len(sources) + k for k, t in enumerate(takeovers) if t is not None]
         sources += [[repo, ep] for ep in built]
         source_frames += frames
-        start_grippers += grippers
+        if repo == src_repo:        # the hover it deploys from is the source's, however many episodes --add brings
+            start_grippers += grippers
         surfaces += kinds
     dst.finalize()
     return {"episodes": len(sources), "source_episodes": [ep for repo, ep in sources if repo == src_repo],

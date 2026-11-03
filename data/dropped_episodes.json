@@ -36,7 +36,9 @@
     "90": "went the wrong way 37mm before closing; began closing far above the tile (v3 bench 2026-10-27: high closes, early closes, a wrong-way move)",
     "118": "closed high: tip 18mm above the grasp point",
     "120": "closed high (20mm) and began closing 30mm up",
-    "128": "went 26mm the wrong way before closing"
+    "128": "went 26mm the wrong way before closing",
+    "129": "narrowed during the descent: --trim-narrowing cuts 10-13mm of it (v8 review, 2026-11-03)",
+    "131": "narrowed during the descent: --trim-narrowing cuts 10-13mm of it (v8 review, 2026-11-03)"
   },
   "Yewy/mahjong_mat_dagger_v4": {
     "20": "never closed after the takeover (jaws stopped at 8%), 5 x/y reversals",
@@ -46,6 +48,16 @@
     "0": "descended 27mm and went back up at 5.6s before the grasp (a retry)",
     "23": "turned back after a 27mm run in x near the tile before closing",
     "24": "went 27mm the wrong way in x before descending",
-    "35": "descended 34mm and went back up at 11.2s, 3 reversals, path 2.7x the straight line"
+    "31": "narrowed during the descent: --trim-narrowing cuts 19-36mm of it (v8 review, 2026-11-03)",
+    "32": "narrowed during the descent: --trim-narrowing cuts 19-36mm of it (v8 review, 2026-11-03)",
+    "35": "descended 34mm and went back up at 11.2s, 3 reversals, path 2.7x the straight line",
+    "51": "narrowed during the descent: --trim-narrowing cuts 19-36mm of it (v8 review, 2026-11-03)"
+  },
+  "mahjong_surfaces_standard_mat_v1": {
+    "18": "held 12.6% on the way down, about a tile's width (11%): the opening that pushed tiles on the bench (20261103_121112_bench); wrist pitched 24.5 degrees, the most in the set",
+    "21": "narrowed the jaws during the descent, so --trim-narrowing cuts the descent away (39mm, 28mm); 32 also held 7.6%, under a tile's width",
+    "30": "narrowed during the descent: --trim-narrowing cuts 11mm of it",
+    "32": "narrowed the jaws during the descent, so --trim-narrowing cuts the descent away (39mm, 28mm); 32 also held 7.6%, under a tile's width",
+    "53": "highest quality score: path 1.8x the straight line, 8.5s approach, wrist pitched the opposite way to every other demo"
   }
 }
