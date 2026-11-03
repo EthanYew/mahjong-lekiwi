@@ -123,17 +123,17 @@ def keep_mask(states_raw, actions_raw, actions, trim_idle=True, trim_sag=True, t
               trim_pauses=False):
     """start: the first frame that can be kept (a DAgger episode's takeover). Idle is checked only from
     there on, so the window doesn't reach into the dropped pre-takeover frames the policy drove (a
-    different enough regime to mask real idling right after the takeover)."""
+    different enough regime to mask real idling right after the takeover). The same goes for a trimmed
+    narrowing: a still frame just after it would count as moving only because of frames that are dropped."""
     drop = np.zeros(len(actions), bool)
+    first = max(start, narrowing_end(actions_raw)) if trim_narrowing else start
     if trim_idle:
-        drop[start:] = idle_mask(actions[start:])
+        drop[first:] = idle_mask(actions[first:])
     if trim_pauses:
         drop |= pause_mask(actions_raw)
-    drop[:start] = True
+    drop[:first] = True
     if trim_sag and is_pre_takeover_fix(states_raw, actions_raw):
         drop[:takeover_sag_end(states_raw)] = True
-    if trim_narrowing:
-        drop[:narrowing_end(actions_raw)] = True
     return ~drop
 
 
@@ -175,7 +175,8 @@ def build(src_repo, dst_repo, trim_idle=True, trim_sag=True, trim_narrowing=Fals
         dagger += [len(sources) + k for k, t in enumerate(takeovers) if t is not None]
         sources += [[repo, ep] for ep in built]
         source_frames += frames
-        start_grippers += grippers
+        if repo == src_repo:        # the hover it deploys from is the source's, however many episodes --add brings
+            start_grippers += grippers
         surfaces += kinds
     dst.finalize()
     return {"episodes": len(sources), "source_episodes": [ep for repo, ep in sources if repo == src_repo],

@@ -125,7 +125,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   the hover its episodes started at — that hover is stored per policy in `data/policies.json` and the
   bench uses it. Changing the hover (e.g. gripper 90% → 27.2, v2n) means a new dataset, or trimming old
   episodes to match (`dataset.build(trim_narrowing=True)`). Two policies compare one change only if they
-  start from the same hover (v3 vs v2n: record v3 at `--hover-gripper 27.2`).
+  start from the same hover (v3 vs v2n: record v3 at `--hover-gripper 27.2`). `--hover-gripper` below a policy's own
+  hover closes the jaws that much further on the way down: v6 and v7 at 21% commanded 12-15%, a tile reads ~11%, and 22 of
+  28 attempts pushed the tile (2026-11-03, the likely cause, not proven). Mixing recordings needs their gripper deltas to
+  agree; deltas start from the measured reading, which lags the command. `docs/retrospectives/2026-11-03_standard_mat_data_review.md`.
 - **Idle frames teach waiting.** A policy has no clock; still frames all look the same, so it learns to
   wait at the hover forever (v1). Training datasets drop idle frames (`dataset.build`); new
   recordings should avoid pauses before the descent.
