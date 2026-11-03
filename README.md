@@ -250,6 +250,8 @@ python scripts/session_report.py --all                           # every bench s
 Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, the scorecard (clean attempts,
 and a ship / revert / extend verdict when the session paired two policies: `docs/scorecard.md`), interventions
 (rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
+Bench sessions also get close height: how high the tip was as the jaws closed, per policy and spot. Under 10mm
+picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`). It explains a run; it doesn't decide one.
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 

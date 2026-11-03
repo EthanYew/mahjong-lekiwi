@@ -29,6 +29,25 @@ def test_no_slope_without_offsets_both_ways():
     assert session_report.perturbation_slopes(plain) == {}
 
 
+def test_close_height_is_given_per_policy_and_spot_and_says_which_closed_lower(capsys):
+    def attempt(policy, spot, mm, success=True):
+        return {"policy": policy, "spot": spot, "tile": "4D", "success": success, "grasp_clearance_m": mm / 1000}
+    session_report.close_height_report([attempt("a", "S1", 22, False), attempt("a", "S2", 12), attempt("b", "S1", 8),
+                                        attempt("b", "S2", 9), {"policy": "b", "spot": "S3", "tile": "4D", "success": False}])
+    lines = capsys.readouterr().out.splitlines()
+    row = next(line for line in lines if line.strip().startswith("a ")).split()
+    assert row == ["a", "2/2", "17.0", "12.0", "22.0", "0", "1"]    # closed, median, picked, missed, under 10, 20+
+    row = next(line for line in lines if line.strip().startswith("b ")).split()
+    assert row == ["b", "2/3", "8.5", "8.5", "-", "2", "0"]         # one attempt never closed
+    assert next(line for line in lines if line.strip().startswith("S1 ")).split() == ["S1", "22.0x", "8.0"]
+    assert any("b closed lower than a at 2 of 2 spots" in line for line in lines)
+
+
+def test_no_close_height_section_for_sessions_from_before_it_was_logged(capsys):
+    session_report.close_height_report([{"policy": "a", "spot": "S1", "tile": "4D", "success": True}])
+    assert capsys.readouterr().out == ""
+
+
 def test_the_interventions_section_counts_rescues_and_lists_the_rest(capsys):
     def attempt(n, **fields):
         return {"type": "attempt", "attempt_dir": f"00{n}_4D", "tile": "4D", "success": True,
