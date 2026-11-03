@@ -166,8 +166,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a
-  person is asked the first time. After 3 confirmations a place's next 10 losses aren't looked at, unless the arm was near
-  it or a key was pressed (`interventions.GlitchTrust`, `glitch_ignored` events). Evidence: `docs/invariant_notes.md`.
+  person is asked the first time (`wrist_check.PlaceViews`). Evidence: `docs/invariant_notes.md`.
 - **Whether a tile is there and which tile it is are separate questions.** The detector boxes tiles it can't name (3C at a
   median 0.18, so it looked gone in 45 of 46 scans), so a box down to `config.DETECTION_PRESENCE_CONFIDENCE` proves a tile
   is there (`perception.faint_tiles`, `tile_faint` events), and only a name over `DETECTION_CONFIDENCE` is acted on as one.

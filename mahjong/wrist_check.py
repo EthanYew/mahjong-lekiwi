@@ -22,6 +22,7 @@ import math
 import cv2
 import numpy as np
 
+from . import config
 from .camera import grab_frames
 from .layout import FACE_MAX_S
 from .setup_check import WRIST_MIN_V, match_tile, wrist_template
@@ -41,6 +42,30 @@ _LOOK_TILE = {"centre_px": [float(v) for v in EXPECTED_PX], "area_px": 15000.0, 
 # 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
 # look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
 CROWDED_M = 0.03
+
+
+class PlaceViews:
+    """What the wrist camera saw at each place a lost tile turned out to be, for check() to compare the next look there
+    with. By place, never by name: the name is what flickers (2B read as 4B and 3B). A place is forgotten when its tile may
+    have moved: the arm handling it, a look or a person finding it gone."""
+
+    def __init__(self):
+        self.places = []
+
+    def _near(self, xy):
+        return [p for p in self.places if math.dist(p["xy"], xy) <= config.TILE_MERGE_RADIUS_M]
+
+    def template(self, xy):
+        """What the wrist camera saw at this place, or None."""
+        near = self._near(xy)
+        return min(near, key=lambda p: math.dist(p["xy"], xy))["template"] if near else None
+
+    def keep(self, xy, template):
+        self.forget(xy)
+        self.places.append({"xy": list(xy), "template": template})
+
+    def forget(self, xy):
+        self.places = [p for p in self.places if p not in self._near(xy)]
 
 
 def crowded(xy, tiles):

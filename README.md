@@ -136,9 +136,7 @@ When the detector can't name a tile but still boxes it (down to 0.1 confidence),
 looks: `tile_faint` events. A tile a spot's scan can't name is picked up from that box, under the spot's id.
 
 Otherwise, on a pale mat the bench's wrist look can't tell a tile from the mat. So when the scans lose a tile it asks you
-the first time at that place, then compares the view with what it saw there. After 3 checks find a tile still at a place, the next
-10 losses there aren't looked at, unless the arm was near it or you pressed a key; then one look earns 10 more. Those show
-as `glitch_ignored` events.
+the first time at that place, then compares the view with what it saw there.
 
 Each run writes `sessions/<time>_setup/`
 (the RealSense frame, `camera_vs_reference.jpg`, each spot's `wrist_<spot>_vs_reference.jpg`, and a

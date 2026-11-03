@@ -118,10 +118,9 @@ The bullets below were shortened in CLAUDE.md, which loads into every session.
   as "WW". Of those, "NW" and "WW" are the spots' labels in `even-hand14`, not reads; the detector misread 2B as 4B and
   1B as EW, and misses 3C at S13 in 45 of 46 scans. So a look can't be made safe by matching the lost tile's name. On a pale
   surface it compares the view with an earlier look at that place (`wrist_check.SAME_VIEW_SCORE`: 0.96-1.00 on 8 looks,
-  another place at most 0.81, bare stripe at most 0.70). Three tiles of 14 caused all 11 looks, so a place confirmed 3
-  times has its next 10 losses ignored (`interventions.GlitchTrust`), but not when the arm was within
-  `interventions.NEIGHBOUR_M` or a key was pressed, because that's when a knock is likely. An ignored loss that was real
-  isn't counted against the attempt: `glitch_ignored` events show how many went unchecked.
+  another place at most 0.81, bare stripe at most 0.70; `wrist_check.PlaceViews`). A rule that stopped looking at a place
+  after 3 confirmations was removed before it reached the arm: it could hide a real loss, and the faint boxes below
+  answer all 11 looks anyway.
 
 - **Whether a tile is there and which tile it is are separate questions** (`20261103_121112_bench`). 11 lost-tile events
   came from 3 of 14 tiles the detector does box, just under its cut. Over a scan's 5 frames, in at least 2, at 0.1: all 14

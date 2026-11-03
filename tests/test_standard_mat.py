@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from mahjong import interventions, layout, sim, wrist_check
+from mahjong import layout, sim, wrist_check
 from mahjong import setup_check as sc
 from mahjong.layout import find_face, find_tile
 
@@ -156,22 +156,16 @@ def test_on_a_pale_surface_the_look_only_says_the_view_has_not_changed():
     assert wrist_check.check(Arm(), Camera(knocked), 0.2, 0.0, HOVER, template)["present"] is None
 
 
-def test_glitch_trust_counts_by_place_and_forgets_a_tile_that_may_have_moved():
-    trust = interventions.GlitchTrust()
+def test_place_views_go_by_place_and_forget_a_tile_that_may_have_moved():
+    views = wrist_check.PlaceViews()
     here, beside, far = (0.2, 0.0), (0.205, 0.0), (0.2, 0.1)
-    assert trust.ignore(here) is None
-    trust.confirmed(here, "picture")
-    trust.confirmed(beside)                # the same place: a detection moves a few mm
-    assert trust.ignore(here) is None and trust.template(beside) == "picture"
-    trust.confirmed(here)
-    assert trust.ignore(far) is None
-    for left in range(trust.IGNORE_NEXT - 1, -1, -1):
-        assert trust.ignore(here)["ignore_left"] == left
-    assert trust.ignore(here) is None      # the window's over: one look
-    trust.confirmed(here)                  # and that earns another, not three more
-    assert trust.ignore(here)["ignore_left"] == trust.IGNORE_NEXT - 1
-    trust.forget(here)
-    assert trust.ignore(here) is None and trust.template(here) is None
+    assert views.template(here) is None
+    views.keep(here, "picture")
+    assert views.template(beside) == "picture" and views.template(far) is None   # a detection moves a few mm
+    views.keep(beside, "newer")
+    assert views.template(here) == "newer" and len(views.places) == 1
+    views.forget(beside)
+    assert views.template(here) is None
 
 
 def test_the_wrist_look_still_answers_on_a_dark_surface():
