@@ -23,6 +23,32 @@
         "battery": "full"
       },
       "note": ""
+    },
+    "20261104_092917_capture": {
+      "added": "2026-11-04T09:29:17",
+      "conditions": {
+        "daylight": "bright",
+        "lamp": false,
+        "ceiling_lights": true,
+        "moved": "nothing",
+        "tiles": "rows",
+        "battery": "full",
+        "surface": "standard mat"
+      },
+      "note": ""
+    },
+    "20261104_101205_capture": {
+      "added": "2026-11-04T10:12:05",
+      "conditions": {
+        "daylight": "bright",
+        "lamp": true,
+        "ceiling_lights": true,
+        "moved": "nothing",
+        "tiles": "few spread",
+        "battery": "full",
+        "surface": "standard mat"
+      },
+      "note": ""
     }
   }
 }
