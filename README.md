@@ -46,8 +46,10 @@ not a worktree, or the sessions go when the worktree does.
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
-| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout hand14 --trials 2` (a tile on every spot) |
-| Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout hand13` |
+| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot) |
+| Check a new policy iteration against the default (`docs/scorecard.md`) | `python scripts/bench.py --policy BASELINE,CANDIDATE --layout even-hand14 --trials 1`, then `session_report.py` |
+| Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` |
+| Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout even-hand13` |
 | Play a hand without the robot | `python scripts/play.py --sim` |
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
@@ -247,27 +249,27 @@ drop zone and press Enter. Why it works the way it does, and the targets it's me
 `docs/autonomy_plan.md`.
 
 ```
-python scripts/play.py --layout hand13                 # play a hand
-python scripts/play.py --layout hand13 --teach-zone    # find the drop-zone marker again first
-python scripts/play.py --layout hand13 --resume        # carry on the latest play session's hand
+python scripts/play.py --layout even-hand13                 # play a hand
+python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
 python scripts/play.py --sim                           # no hardware: a fixed hand that wins in 3 draws
 ```
 
 Before the first hand:
-1. **The hand slots**: teach a 13-spot layout in two rows (13 in one row don't fit the reach) with
-   `python scripts/layout.py --name hand13 --teach`, inside the area pickups were checked on.
-2. **The test layout** `hand14`: the same 13 slots plus one spot where the drawn tile will go (today S13, WW at
-   (0.223, −0.158), at the edge of the reach). Check it with `bench.py --layout hand14 --trials 2`, a tile on
+1. **The hand slots**: `even-hand13`, 13 spots in two rows (13 in one row don't fit the reach), part of the standard
+   setup (`data/standard_setup.json`).
+2. **The test layout** `even-hand14`: the same 13 slots plus one spot where the drawn tile will go (S13, WW at
+   (0.192, −0.165)). Check it with `bench.py --layout even-hand14 --trials 2`, a tile on
    every spot: pickups and returns at every slot *and* at the drop zone.
 3. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered, on
-   hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
+   even-hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
    RealSense calibration). The drawn tile goes on top of it.
 4. **The discard pose**: `bench.py`, `teach-discard`, over the container.
 
 Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
-checked: hand14 must still hold all of hand13's slots, have a spot within 25mm of the taught zone, and some
+checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and some
 bench session must have picked up and returned a tile there. If not, it prints the commands that fix it
-(e.g. `layout.py --name hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
+(e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
 
 A hand: it reads the 13 tiles (asking about any it isn't sure of), then each turn reads the drawn tile,

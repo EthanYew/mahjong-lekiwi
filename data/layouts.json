@@ -814,5 +814,129 @@
         "label": "4D"
       }
     ]
+  },
+  "even-hand13": {
+    "spots": [
+      {
+        "id": "S1",
+        "xy": [
+          0.192,
+          0.141
+        ],
+        "yaw_deg": 0.0,
+        "label": "1D"
+      },
+      {
+        "id": "S2",
+        "xy": [
+          0.142,
+          0.141
+        ],
+        "yaw_deg": 0.0,
+        "label": "5D"
+      },
+      {
+        "id": "S3",
+        "xy": [
+          0.192,
+          0.09
+        ],
+        "yaw_deg": 0.0,
+        "label": "WD"
+      },
+      {
+        "id": "S4",
+        "xy": [
+          0.142,
+          0.09
+        ],
+        "yaw_deg": 0.0,
+        "label": "6D"
+      },
+      {
+        "id": "S5",
+        "xy": [
+          0.192,
+          0.039
+        ],
+        "yaw_deg": 0.0,
+        "label": "SW"
+      },
+      {
+        "id": "S6",
+        "xy": [
+          0.142,
+          0.039
+        ],
+        "yaw_deg": 0.0,
+        "label": "2D"
+      },
+      {
+        "id": "S7",
+        "xy": [
+          0.192,
+          -0.012
+        ],
+        "yaw_deg": 0.0,
+        "label": "NW"
+      },
+      {
+        "id": "S8",
+        "xy": [
+          0.142,
+          -0.012
+        ],
+        "yaw_deg": 0.0,
+        "label": "9D"
+      },
+      {
+        "id": "S9",
+        "xy": [
+          0.192,
+          -0.063
+        ],
+        "yaw_deg": 0.0,
+        "label": "GD"
+      },
+      {
+        "id": "S10",
+        "xy": [
+          0.142,
+          -0.063
+        ],
+        "yaw_deg": 0.0,
+        "label": "3D"
+      },
+      {
+        "id": "S11",
+        "xy": [
+          0.192,
+          -0.114
+        ],
+        "yaw_deg": 0.0,
+        "label": "8D"
+      },
+      {
+        "id": "S12",
+        "xy": [
+          0.142,
+          -0.114
+        ],
+        "yaw_deg": 0.0,
+        "label": "7D"
+      },
+      {
+        "id": "S14",
+        "xy": [
+          0.142,
+          -0.165
+        ],
+        "yaw_deg": 0.0,
+        "label": "4D"
+      }
+    ],
+    "created": "2026-11-03T00:00:00",
+    "note": "autonomous play: even-hand14's 13 hand slots (play.py --layout even-hand13), without S13 (WW), where the drawn tile's drop zone goes; spots keep even-hand14's ids; bench them with even-hand14",
+    "ghost": null
   }
 }

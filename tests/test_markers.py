@@ -65,13 +65,24 @@ def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(t
     test_layout = HAND + [{"id": "S14", "xy": [0.1627, -0.1626]}]
     result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
     assert not result["ok"] and result["spot"] == "S14" and result["attempts"] == 0
-    assert any("bench.py --layout hand14" in f for f in result["fix"])
+    assert any(f"bench.py --layout {markers.ZONE_TEST_LAYOUT}" in f for f in result["fix"])
 
     bench_session(tmp_path, "20261029_094543", [0.1627, -0.1626], success=False)      # skipped or missed: not yet
     assert not markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)["ok"]
     bench_session(tmp_path, "20261030_100000", [0.1627, -0.1626])
     result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
     assert result["ok"] and (result["attempts"], result["picked"], result["returned"]) == (2, 1, 1)
+
+
+def test_the_standard_layouts_are_a_hand_plus_the_zone(tmp_path):
+    from mahjong import layout, scorecard
+    assert scorecard.standard_setup()["layout"] == markers.ZONE_TEST_LAYOUT
+    hand, test = layout.load(markers.PLAY_LAYOUT)["spots"], layout.load(markers.ZONE_TEST_LAYOUT)["spots"]
+    assert len(hand) == 13 and len(test) == 14
+    zone = next(s for s in test if s["id"] == "S13")["xy"]
+    bench_session(tmp_path, "20261103_100000", zone)
+    result = markers.zone_test(zone, hand, test, sessions_dir=tmp_path)
+    assert result["ok"] and result["spot"] == "S13"
 
 
 def test_a_test_layout_off_the_zone_or_missing_a_slot_is_reported_with_the_commands_to_fix_it(tmp_path):

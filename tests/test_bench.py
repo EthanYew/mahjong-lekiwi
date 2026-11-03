@@ -333,6 +333,34 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert len(asked) == 1 and "spot empty" in asked[0]
 
 
+def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monkeypatch):
+    import builtins
+    import bench
+    from mahjong import layout, scorecard
+    monkeypatch.setattr(builtins, "input", lambda prompt: "s")
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    standard = scorecard.standard_setup()
+    b = bench.Bench(bench.parse_args(["--sim", "--policy", "a,b", "--trials", "1", "--layout", standard["layout"],
+                                      "--hover-gripper", "21"]))
+    spots = layout.load(standard["layout"])["spots"]
+    b.realsense.tiles = [{"tile_name": s["label"], "xy": list(s["xy"])} for s in spots]    # the sim's own tiles aren't there
+    try:
+        b.arm.rest()
+        b.trials(1)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    for e in events:
+        if e["type"] == "session_start":
+            e["conditions"] = {"surface": standard["surface"]}                             # --sim asks no setup questions
+    assert [e for e in events if e["type"] == "attempt_skipped"] == []
+    assert len(scorecard.pairs(events, "a", "b")) == len(spots)
+    assert scorecard.off_standard(events) == []
+    text = "\n".join(scorecard.report(events))
+    assert "iteration check:" in text and f"of {len(spots)})" in text and "play-ready, a:" in text
+    assert "hover openings differ" not in text
+
+
 def test_a_tile_not_detected_in_trials_is_put_back_by_a_person_and_rescanned(tmp_path, monkeypatch):
     import builtins
     from mahjong import interventions

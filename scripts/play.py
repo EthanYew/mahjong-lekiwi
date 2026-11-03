@@ -1,9 +1,9 @@
 """Autonomous play: the robot plays one closed hand of mahjong. A person only puts each drawn tile on the
 drop zone (an ArUco marker, mahjong/markers.py) and presses Enter.
 
-    python scripts/play.py --layout hand13                 # the 13 hand slots, taught with scripts/layout.py
-    python scripts/play.py --layout hand13 --teach-zone    # find the drop-zone marker again first
-    python scripts/play.py --layout hand13 --resume        # carry on the latest play session's hand
+    python scripts/play.py --layout even-hand13                 # the 13 hand slots (data/layouts.json)
+    python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+    python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
     python scripts/play.py --sim                           # simulated arm and mat, a fixed hand and wall
 
 A turn: read the drawn tile, check the table still matches the hand, choose the discard (lowest shanten,
