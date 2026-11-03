@@ -10,11 +10,14 @@ setup you trust (mahjong/setup_check.py has what each measures and why).
 Steps: the arm goes to rest; the RealSense looks at the robot's base and the mat. If the robot isn't where it
 was in the image, a window shows the reference blended with the live view and an arrow: nudge the tripod
 until the box turns green, then Enter (moving it back keeps T_cam_to_base and both corrections valid;
-recalibrating doesn't). Then for each check spot: place one tile until its outline is green, the arm hovers
+recalibrating doesn't). Then for each check spot: place the spot's tile until its outline is green, the arm hovers
 over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
 (by the RealSense at the spot, or in the wrist view at the hover) is asked about: reposition it, chasing green
 again, and Enter looks again; s skips the spot, q stops the tile test. At the end the arm
 is switched off and settles onto its stops, and that pose is compared too.
+
+The wrist view finds the tile by the reference's picture of it, so each spot needs the same tile every time (the one
+it names). Saving a reference: click the middle of the tile in the window if the cross is off it.
 
 The reference lives in data/setup_reference/ (commit it: it's what "set up correctly" means). Each run writes
 sessions/<time>_setup/ with the images and a `setup_check` event; exits 1 if any check failed.
@@ -115,14 +118,16 @@ def tile_at(realsense, spot, sim, again=False):
     if sim:
         place_sim_tile(realsense, spot)
     else:
-        print(f"  {'Move the tile on' if again else 'Put a tile on'} {spot['id']} until its outline is green, then "
-              "Enter in the window (s skips the spot, q stops the tile test).")
-        placed = layout.place(realsense.snapshot, [spot], spot["id"], K, T, window=WINDOW)
+        tile = spot.get("label") or "the reference's tile"
+        print(f"  {'Move' if again else 'Put'} {tile} on {spot['id']} until its outline is green, "
+              "then Enter in the window (s skips the spot, q stops the tile test).")
+        placed = layout.place(realsense.snapshot, [spot], spot["id"], K, T, window=WINDOW, boxes=realsense.tile_boxes)
         if placed["action"] in ("quit", "skip"):
             return None, placed["action"]
         if placed["status"] != "ok":
             print(f"  (accepted while {placed['status']}, not green)")
-    row = layout.capture(realsense.snapshot, [spot], K, T, frames=3 if sim else layout.CAPTURE_FRAMES)[0]
+    row = layout.capture(realsense.snapshot, [spot], K, T, frames=3 if sim else layout.CAPTURE_FRAMES,
+                         boxes=realsense.tile_boxes)[0]
     if "dx_mm" not in row:
         return None, "missing"
     return {"xy": [spot["xy"][0] + row["dx_mm"] / 1000, spot["xy"][1] + row["dy_mm"] / 1000],
@@ -136,18 +141,37 @@ def ask_again(ask, spot, problem):
     return {"s": "skip", "q": "quit"}.get(answer[:1], "retry")
 
 
+def mark_view(frame, spot, mark):
+    """The wrist frame with the cross at `mark` and the template's square around it."""
+    image = frame.copy()
+    u, v = (int(c) for c in mark)
+    half = sc.WRIST_PATCH_HALF_PX
+    cv2.drawMarker(image, (u, v), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
+    cv2.rectangle(image, (u - half, v - half), (u + half, v + half), (0, 0, 255), 1)
+    cv2.putText(image, f"{spot['id']}: click the middle of the tile if the cross is off it", (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    return image
+
+
 def confirm_on_screen(ask):
-    """--save-reference: show the wrist frame with the tile it found crossed and ask whether that's the tile, so a
-    reference can't be saved on glare or a neighbour (the 2026-10-28 F3). Returns confirm(spot, frame, found)."""
+    """--save-reference: show the wrist frame with a cross where the tile should be (the one found, else where a hovered
+    tile sits) and let a person click it onto the tile, so a reference can't be saved on glare, a neighbour (the
+    2026-10-28 F3) or a stripe. Returns confirm(spot, frame, found) -> "retry", or the tile's centre."""
     def confirm(spot, frame, found):
-        image = frame.copy()
-        cv2.drawMarker(image, tuple(int(v) for v in found["centre_px"]), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
-        cv2.putText(image, f"{spot['id']}: is the cross on the tile?", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    (0, 0, 255), 2)
-        cv2.imshow(WINDOW, image)
+        mark = [list(found["centre_px"]) if found else list(wrist_check.EXPECTED_PX)]
+
+        def clicked(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                mark[0] = sc.patch_centre((x, y), frame.shape)
+                cv2.imshow(WINDOW, mark_view(frame, spot, mark[0]))
+
+        cv2.imshow(WINDOW, mark_view(frame, spot, mark[0]))
+        cv2.setMouseCallback(WINDOW, clicked)
         cv2.waitKey(1)
-        answer = ask(f"  Is the cross on the tile at {spot['id']}? [Enter = yes / r = reposition and look again]: ")
-        return "retry" if answer.strip().lower().startswith("r") else "ok"
+        answer = ask(f"  Is the cross on the tile at {spot['id']}? Click it in the window if not. "
+                     "[Enter = yes / r = reposition and look again]: ")
+        cv2.setMouseCallback(WINDOW, lambda *_: None)
+        return "retry" if answer.strip().lower().startswith("r") else mark[0]
     return confirm
 
 
@@ -175,8 +199,9 @@ def hover_delta(spot_reference, correction, xy):
 def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input, confirm=None):
     """Every spot: place, hover (with the reference's hover correction), look. A tile not found (by the RealSense,
     or in the wrist view at the hover) is repositioned and looked at again, until it's found or the person skips
-    the spot / stops; confirm(spot, frame, found) -> "ok" / "retry" can reject a find too (saving). Returns
-    ({id: per-spot result}, {id: wrist frame}, camera)."""
+    the spot / stops. Saving, confirm(spot, frame, found) -> "ok" / "retry" / the tile's centre lets a person reject a
+    find or mark the tile themselves, so nothing needs finding by colour. Returns ({id: per-spot result},
+    {id: wrist frame}, camera)."""
     by_id = {s["id"]: s for s in (reference or {}).get("spots", [])}
     results, frames = {}, {}
     for spot in spots:
@@ -197,11 +222,17 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
                 delta = hover_delta(ref, correction, placed["xy"])
                 shots, hover, camera = wrist_look(arm, camera, placed["xy"], delta)
                 frame = shots[-1] if shots else None
-                found = sc.median_tile([sc.wrist_tile(f, ref["tile"]["centre_px"] if ref else None) for f in shots])
-                problem = None if frame is None or found is not None else "no tile in the wrist view at the hover"
-            if problem is None and found is not None and confirm is not None and confirm(spot, frame, found) == "retry":
-                arm.lift()
-                continue
+                found = sc.median_tile([sc.match_tile(f, ref["template_image"], ref["tile"]) if ref else sc.wrist_tile(f)
+                                        for f in shots])
+                marking = confirm is not None and ref is None
+                problem = None if frame is None or found is not None or marking else "no tile in the wrist view at the hover"
+            if problem is None and frame is not None and confirm is not None:
+                answer = confirm(spot, frame, found)
+                if answer == "retry":
+                    arm.lift()
+                    continue
+                if answer != "ok":
+                    found = sc.marked_tile(answer, found, frame.shape)
             if problem is None:
                 break
             print(f"  {spot['id']}: {problem}")
@@ -223,7 +254,8 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
             else:
                 frames[spot["id"]] = frame
                 if reference:
-                    turn = layout.wrap_yaw(placed["yaw_deg"] - ref["measured_yaw_deg"])
+                    was = ref["measured_yaw_deg"]
+                    turn = None if placed["yaw_deg"] is None or was is None else layout.wrap_yaw(placed["yaw_deg"] - was)
                     result = sc.wrist_result(found, ref["tile"], placed_turn_deg=turn)
                 else:
                     result = {**found, "status": "pass"}
@@ -270,9 +302,11 @@ def main(argv=None, ask=None, devices=None):
         raise SystemExit(f"No reference in {folder}. On a setup you trust, run setup_check.py "
                          f"{'--sim ' if args.sim else ''}--save-reference first.")
     spots = check_spots(args, reference)
-    if reference and not args.skip_tiles and any("hover_delta_mm" not in s for s in reference.get("spots", [])):
-        raise SystemExit(f"The reference in {folder} ({reference.get('time')}) predates the stored hover correction "
-                         "the tile test now uses: run setup_check.py --save-reference again (or --skip-tiles).")
+    if reference and not args.skip_tiles and any("hover_delta_mm" not in s or s.get("template_image") is None
+                                                 for s in reference.get("spots", [])):
+        raise SystemExit(f"The reference in {folder} ({reference.get('time')}) predates the stored hover correction and "
+                         "the tile's picture the tile test now uses: run setup_check.py --save-reference again (or "
+                         "--skip-tiles).")
     if devices is None and args.sim:
         from mahjong import sim
         devices = sim.connect(tiles=[], wrist_view=True)

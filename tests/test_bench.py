@@ -723,3 +723,66 @@ def test_a_grip_keyed_low_in_the_pickup_and_high_in_the_return_are_counted_and_t
         ("grip_high", "observation", "return"), ("grip_low", "observation", "pickup")]
     s = interventions.summary(found, [e for e in events if e["type"] == "attempt"])
     assert (s["low_grips"], s["high_grips"], s["clean_successes"], s["rescues"]) == (1, 1, 1, 0)
+
+
+def test_a_place_confirmed_three_times_is_ignored_for_the_next_ten_then_looked_at_again(tmp_path, monkeypatch):
+    from mahjong import interventions
+    b = sim_bench(tmp_path, monkeypatch, trials=5)
+    after_each_run(b, lambda: b.realsense.flicker("3B", 2))
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(5, "8D")
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    looks = [e for e in events if e["type"] == "wrist_check"]
+    ignored = [e for e in events if e["type"] == "glitch_ignored"]
+    assert asked == [] and len(looks) == 3 and len(ignored) == 2
+    assert [e["ignore_left"] for e in ignored] == [9, 8] and all(e["tile"] == "3B" for e in ignored)
+    assert {i["kind"] for i in interventions.derive(events)} == {"scan_glitch"}    # the replay agrees: no knock
+
+
+def test_a_loss_is_still_looked_at_when_the_arm_was_near_it(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    for _ in range(3):
+        b.trust.confirmed(next(t for t in b.realsense.tiles if t["tile_name"] == "3B")["xy"])
+    target = next(t for t in b.realsense.tiles if t["tile_name"] == "3B")["xy"]
+    tile = {"tile_name": "3B", "xy": target}
+    try:
+        assert b.ignore_loss(tile, 1, target) is False       # the arm was right there
+        assert b.ignore_loss(tile, 1, [target[0] + 0.3, target[1]]) is True
+        assert b.ignore_loss(tile, 1, None) is True
+    finally:
+        b.close()
+
+
+def test_a_pale_surface_asks_once_a_place_and_then_goes_by_the_view(tmp_path, monkeypatch):
+    import builtins
+
+    import numpy as np
+
+    from mahjong import wrist_check
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    tile = {"tile_name": "3B", "xy": next(t for t in b.realsense.tiles if t["tile_name"] == "3B")["xy"]}
+    frame = np.full((480, 640, 3), 200, np.uint8)
+    templates = []
+
+    def pale(arm, camera, x, y, hover, template=None):
+        templates.append(template)
+        if template is None:
+            return {"present": None, "fill": 0.7, "pale": True, "why": "pale", "hover_xy": [x, y], "frame": frame}
+        return {"present": True, "fill": 0.7, "pale": True, "by": "same view", "hover_xy": [x, y], "frame": frame}
+    monkeypatch.setattr(wrist_check, "check", pale)
+    prompts = []
+    monkeypatch.setattr(builtins, "input", lambda prompt: prompts.append(prompt) or "")
+    try:
+        first = b.wrist_look(tile, 1)
+        second = b.wrist_look(tile, 2)
+        assert first["present"] is True and first["by"] == "person" and len(prompts) == 1
+        assert second["present"] is True and second["by"] == "same view" and len(prompts) == 1
+        assert templates[0] is None and templates[1] is not None
+        monkeypatch.setattr(builtins, "input", lambda prompt: "n")
+        b.trust.forget(tile["xy"])
+        assert b.wrist_look(tile, 3)["present"] is False and b.trust.template(tile["xy"]) is None
+    finally:
+        b.close()

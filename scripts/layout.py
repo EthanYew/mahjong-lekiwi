@@ -2,7 +2,9 @@
 
 A layout is a list of target spots (x, y, yaw) in data/layouts.json (mahjong/layout.py). The live view
 draws each spot as a tile outline: green when the tile there is within 5mm / 6° (and stays green up to
-1.5x that, so it doesn't flicker), amber within twice that, red otherwise. `record.py --layout NAME` walks through the spots one episode at a time.
+1.5x that, so it doesn't flicker), amber within twice that, red otherwise. On a pale or patterned mat there's no yaw
+reading: green is position only, so line the outline up by eye. `record.py --layout NAME` walks through the spots one
+episode at a time.
 
     python scripts/layout.py --name eval_v1 --teach            # place tiles, t saves them (+ a ghost photo)
     python scripts/layout.py --name eval_v1 --teach --append --prefix N   # more spots, ids N1, N2, ...
@@ -127,7 +129,7 @@ def teach(realsense, args):
         elif key == ord("d"):
             start = 1 + sum(s["id"].startswith(args.prefix) for s in existing)
             candidates = layout.spots_from_tiles(realsense.detect_tiles(), image, realsense.intrinsics,
-                                                 realsense.T_cam_to_base, prefix=args.prefix)
+                                                 realsense.T_cam_to_base, prefix=args.prefix, boxes=realsense.tile_boxes)
             for k, s in enumerate(candidates):
                 s["id"] = f"{args.prefix}{start + k}"
             print(f"  {len(candidates)} tiles: " + ", ".join(f"{s['id']} {s['label']} yaw {s['yaw_deg']:+.0f}" for s in candidates))
@@ -154,7 +156,7 @@ def view(realsense, args):
         found, states = {}, {}
         for s in spots:
             found[s["id"]], states[s["id"]] = smoother.update(
-                s, layout.find_tile(image, s, realsense.intrinsics, realsense.T_cam_to_base))
+                s, layout.find_tile(image, s, realsense.intrinsics, realsense.T_cam_to_base, boxes=realsense.tile_boxes))
         out = layout.draw(image, spots, realsense.intrinsics, realsense.T_cam_to_base, found=found, active=active,
                           ghost=ghost if use_ghost else None, states=states)
         out = reach.draw(out)
@@ -182,7 +184,8 @@ def view(realsense, args):
 
 def capture(realsense, name, spots):
     print(f"Capturing {layout.CAPTURE_FRAMES} frames — keep hands off the mat...")
-    rows = layout.capture(realsense.snapshot, spots, realsense.intrinsics, realsense.T_cam_to_base)
+    rows = layout.capture(realsense.snapshot, spots, realsense.intrinsics, realsense.T_cam_to_base,
+                          boxes=realsense.tile_boxes)
     trend = layout.yaw_trend(rows)
     print(layout.capture_report(rows, trend))
     path = config.DATA / "layouts" / f"{name}_capture_{datetime.now():%Y%m%d_%H%M%S}.json"

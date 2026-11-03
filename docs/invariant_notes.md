@@ -111,7 +111,26 @@ The bullets below were shortened in CLAUDE.md, which loads into every session.
 - **The wrist look sees a tile face, not which tile.** Between the jaw tips at a policy's hover, the hovered tile's
   face fills a fixed disc of the wrist image (`wrist_check.EXPECTED_PX`; fill >= 0.73 on 103 black-top frames, 0
   without). A tile knocked to within 30mm of a lost one's spot fills it too (3D for 1B, 2026-10-30), so the bench
-  doesn't look there (`wrist_check.CROWDED_M`). Not measured on other surfaces: brown paper is pale too.
+  doesn't look there (`wrist_check.CROWDED_M`). A pale surface fills it with no tile at all: bare white stripe reads
+  0.72 (`20261103_120259_setup`), so with too little dark surface in view (`wrist_check.MIN_DARK_SHARE`: >= 0.31 on
+  171 black-top frames, >= 0.29 on the green mat, <= 0.12 on the stripes, <= 0.09 on paper) it asks a person. All 11
+  looks in `20261103_121112_bench` did see a tile, but under a name it didn't have: 2B as "4B" and "NW", 1B as "EW", 3C
+  as "WW". Of those, "NW" and "WW" are the spots' labels in `even-hand14`, not reads; the detector misread 2B as 4B and
+  1B as EW, and misses 3C at S13 in 45 of 46 scans. So a look can't be made safe by matching the lost tile's name. On a pale
+  surface it compares the view with an earlier look at that place (`wrist_check.SAME_VIEW_SCORE`: 0.96-1.00 on 8 looks,
+  another place at most 0.81, bare stripe at most 0.70). Three tiles of 14 caused all 11 looks, so a place confirmed 3
+  times has its next 10 losses ignored (`interventions.GlitchTrust`), but not when the arm was within
+  `interventions.NEIGHBOUR_M` or a key was pressed, because that's when a knock is likely. An ignored loss that was real
+  isn't counted against the attempt: `glitch_ignored` events show how many went unchecked.
+
+- **A tile's white face can't be found by colour on a pale mat.** On the striped mat, face and white stripe overlap in
+  brightness (face median ~225, stripe up to ~240) and match in colour (Lab `a` ~133). Of 950 colour reads at real
+  tiles (`20261103_121112_bench`), 713 found nothing, 231 were stripe slices, 5 were tile-shaped but ~9mm off, 1 was
+  right; with no tile there it reported slices of stripe as F2 and F6, so a hover could follow one. So the RealSense's
+  find goes by the detector's box (a colour read only refines it, and gives the only yaw reading, so on this mat there
+  is none), and the setup check's wrist view matches the reference's own picture of the tile
+  (`setup_check.match_tile`: same tile 0.82-0.96 on 14 pairs, no tile 0.68 on one frame; it can't tell which tile,
+  another reached 0.84). The cutoff comes from one session's light and hasn't run on the arm.
 
 - **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
   for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the

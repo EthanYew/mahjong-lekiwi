@@ -40,6 +40,7 @@ class RealSense:
         self.filters = [rs.spatial_filter(), rs.temporal_filter(), rs.hole_filling_filter()]
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
         self._model = None
+        self._boxes_of = (None, [])  # the last frame tile_boxes ran on, and its boxes
         self.last_frames = []       # the latest scan's frames and boxes (detector.save_scan)
         for _ in range(warmup_frames):
             self.pipeline.wait_for_frames()
@@ -74,13 +75,25 @@ class RealSense:
         """The detector's class names, in class order (once it has loaded)."""
         return [self._model.names[i] for i in sorted(self._model.names)] if self._model else []
 
+    def _load_detector(self):
+        if self._model is None:
+            from ultralytics import YOLO
+            self._model = YOLO(str(config.TILE_DETECTOR))
+
+    def tile_boxes(self, image_bgr):
+        """The confident detector boxes in a frame, [(x1, y1, x2, y2)], for layout.find_tile. Names aren't used: only
+        that a tile is there. One detector run per frame, however many spots ask (~7ms on the GPU)."""
+        if self._boxes_of[0] is not image_bgr:
+            self._load_detector()
+            boxes = [b["xyxy"] for b in run_detector(self._model, image_bgr) if b["confidence"] >= config.DETECTION_CONFIDENCE]
+            self._boxes_of = (image_bgr, boxes)
+        return self._boxes_of[1]
+
     def detect_tiles(self, n_frames=config.DETECTION_FRAMES):
         """Tiles seen over n_frames, merged into one entry per physical tile by a vote (merge_tiles), which
         counts every box down to config.DETECTION_SAVE_CONFIDENCE. Each frame, its filtered depth and
         every box YOLO found in it stay in self.last_frames, for the detector's data (detector.save_scan)."""
-        if self._model is None:
-            from ultralytics import YOLO
-            self._model = YOLO(str(config.TILE_DETECTOR))
+        self._load_detector()
         raw, self.last_frames = [], []
         for k in range(n_frames):
             color, depth = self._frames()
