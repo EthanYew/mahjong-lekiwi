@@ -39,6 +39,7 @@ from mahjong import config, detector, hardware, wrist_photos
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection
+from mahjong.placements import parse_answer
 from mahjong.session import Session, read_jsonl
 
 WINDOW = "wrist capture"
@@ -104,29 +105,6 @@ def plan_views(n, jitter_m, clearances_m, roll_deg, rng):
         r, a = jitter_m * math.sqrt(rng.random()), rng.uniform(0, 2 * math.pi)
         views.append((r * math.cos(a), r * math.sin(a), clearances_m[v % len(clearances_m)], rng.uniform(-roll_deg, roll_deg)))
     return views
-
-
-def parse_answer(answer, tiles):
-    """The names step: "" accept, "r" rescan, "q" quit, else edits "3=2C -5" (1-based). Returns
-    ("accept"|"rescan"|"quit"|"edit", tiles after the edits) or ("error", message)."""
-    answer = answer.strip()
-    if answer.lower() in ("", "r", "q"):
-        return {"": "accept", "r": "rescan", "q": "quit"}[answer.lower()], tiles
-    tiles = [dict(t) for t in tiles]
-    for part in answer.replace(",", " ").split():
-        try:
-            if part.startswith("-"):
-                tiles[int(part[1:]) - 1]["skip"] = True
-            else:
-                n, name = part.split("=")
-                name = name.strip().upper()
-                if name not in detector.TILE_NAMES:
-                    return "error", f"{name} isn't a tile name ({', '.join(detector.TILE_NAMES)})"
-                tiles[int(n) - 1]["tile_name"] = name
-                tiles[int(n) - 1]["renamed_from"] = tiles[int(n) - 1].get("renamed_from") or tiles[int(n) - 1]["detected_as"]
-        except (ValueError, IndexError):
-            return "error", f"can't read {part!r}: use e.g. 3=2C to rename tile 3, -3 to leave it out"
-    return "edit", tiles
 
 
 def overview(image, tiles, intrinsics, T_cam_to_base):

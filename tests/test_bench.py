@@ -876,3 +876,53 @@ def test_a_missing_tile_is_never_asked_for_by_the_layouts_label(tmp_path, monkey
     finally:
         b.close()
     assert "WW" not in prompts[0] and "the tile" in prompts[0]
+
+
+def test_trials_on_a_layout_record_whats_on_the_mat_and_tie_attempts_to_it(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    b.realsense.tiles = [{"tile_name": "9D", "xy": [0.21, 0.02]}, {"tile_name": "3B", "xy": [0.21, -0.04]}]
+    b.spots = [{"id": f"S{i + 1}", "xy": list(t["xy"])} for i, t in enumerate(b.realsense.tiles)]
+    names = [t["tile_name"] for t in b.realsense.tiles]
+    answers = iter(["r", "S1=2B", ""])
+    b.ask_names = lambda prompt: next(answers)
+    try:
+        b.trials(1)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    placed = {e["spot"]: e for e in events if e["type"] == "placement"}
+    assert (placed["S1"]["truth"], placed["S1"]["truth_source"], placed["S1"]["read_at_start"]) == ("2B", "person", names[0])
+    assert (placed["S2"]["truth"], placed["S2"]["truth_source"]) == (names[1], "person")
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert {a["placement"] for a in attempts} == {placed["S1"]["id"], placed["S2"]["id"]}
+    assert all(a["name_source"] == "read" for a in attempts)
+
+
+def test_quitting_the_names_step_leaves_them_unconfirmed(tmp_path, monkeypatch):
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    b.spots = [{"id": "S1", "xy": list(b.realsense.tiles[0]["xy"])}]
+    b.ask_names = lambda prompt: "q"
+    try:
+        b.name_the_mat()
+    finally:
+        b.close()
+    placed = next(e for e in read_events(b.session.dir) if e["type"] == "placement")
+    assert (placed["truth"], placed["truth_source"]) == (None, "unconfirmed")
+
+
+def test_a_repositioned_tile_starts_a_new_placement_with_the_name_given(tmp_path, monkeypatch):
+    import builtins
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    spot = {"id": "S1", "xy": [0.2, 0.0]}
+    b.placements.start("S1", spot["xy"], truth="3C", truth_source="person")
+    try:
+        monkeypatch.setattr(builtins, "input", lambda prompt: "2c")
+        assert b.reposition("No tile", spot=spot) is True
+        monkeypatch.setattr(builtins, "input", lambda prompt: "")
+        assert b.reposition("No tile", spot=spot) is True
+        monkeypatch.setattr(builtins, "input", lambda prompt: "s")
+        assert b.reposition("No tile", spot=spot) is False
+    finally:
+        b.close()
+    placed = [e for e in read_events(b.session.dir) if e["type"] == "placement"]
+    assert [p["truth"] for p in placed] == ["3C", "2C", "2C"]
