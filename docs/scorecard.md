@@ -19,6 +19,12 @@ Offline scores come before all three as a screen. They can't clear a policy: v5'
 (1.0-1.2° vs 0.9°) while it closed its jaws 45mm in the air. Times assume about 40 seconds an attempt, from 75 attempts
 in about 50 minutes (`20261029_094543_bench`).
 
+They also can't rank policies that basically work: over 53 standard-mat demos neither had trained on, v6 and v7 tied on
+arm, grasp and timing error, while this bench had them at 6/14 vs 11/14 picked. Use them to catch gross failures such as
+freezes or jaws that never close. `session_report.py`'s close height helps explain a run (under 10mm: 127/130 picked; 20mm
+or more: 3/25), but it's a diagnostic and doesn't decide anything here. Evidence:
+`docs/retrospectives/2026-11-03_eval_validity.md`.
+
 ## The standard setup
 
 `data/standard_setup.json` names the mat and layout. Only sessions on it count towards the checks, and
