@@ -35,6 +35,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   changes are settled by the next scans. No questions wait for the end of a batch. "Touched the tile" is a rescue; "the
   arm bumped a tile, no one helped" is a failure. The scorecard's numbers: `docs/scorecard.md`. Rules and cases:
   `docs/invariant_notes.md`.
+- Unattended: `bench.py --unattended --layout NAME --trials N` asks nothing once the trials start. A neighbour the scans
+  see move is a self-reported bump (settled by later scans; counts as a knock); a person checks them afterwards with
+  `python scripts/bump_report.py`, whose verdicts (`scan_verdict` events) `interventions.derive` applies. README has what
+  replaces each question. A new question in the bench's trials path needs an unattended answer: `tests/test_bump_report.py`
+  fails any `input()`.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A command that may run an arm script prompts for a person, in auto mode too (`.claude/hooks/arm_run_gate.py`, a
@@ -65,6 +70,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
 | `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
+| `mahjong/bump_report.py`, `scripts/bump_report.py` | every pickup and return before / after from the scans, for a person to say which tiles really moved (`scan_verdict` events) |
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |

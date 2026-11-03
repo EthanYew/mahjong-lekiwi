@@ -36,6 +36,8 @@ A counted result needs:
 - **The setup check:** `setup_check.py` passing against the mat's reference. Sessions don't log this, so it's your step.
 - **One hover opening within a comparison:** `session_report.py` warns if a pair's openings differ. Set both with
   `--hover-gripper`.
+- **After an unattended run (`bench.py --unattended`), its self-reported bumps checked:** unchecked ones count as knocks,
+  and scans are often wrong about them, so read the clean count after `bump_report.py`.
 
 **Lighting can't be locked if the setup travels.** It's still recorded on every session. Pairing shares it between both
 policies, and a play-ready run should happen in the room where you'll play.

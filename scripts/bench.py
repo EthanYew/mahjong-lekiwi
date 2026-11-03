@@ -71,6 +71,12 @@ daylight) doesn't favour one. Each attempt starts from its own policy's hover (d
 --layout NAME (taught with scripts/layout.py) walks the layout's spots: --trials rounds at each spot,
 picking the tile detected nearest the spot; a spot it can't attempt is skipped, not the walk.
 session_report.py prints success per spot and policy side by side.
+
+--unattended runs --trials with no one watching: nothing is asked once the trials start (the setup questions still
+are, before them). A neighbour the scans see move or turn is a self-reported bump, settled by the later scans like
+any other watched change; a tile that isn't found is skipped, a tile that lands far off its home is left there, and a
+wrist camera that won't reopen ends the run. Ctrl-C stops it. Afterwards `python scripts/bump_report.py` shows every
+pickup and return before / after, to say which tiles really moved (mahjong/bump_report.py).
 """
 import argparse
 import json
@@ -83,7 +89,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, interventions, layout, wrist_check
+from mahjong import bump_report, config, detector, interventions, layout, wrist_check
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -212,7 +218,7 @@ class Bench:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
         self.session.event("bench_setup", policy=self.policy.id, hover=self.hover_of(self.policy),
                            policies=[{"id": p.id, "hover": self.hover_of(p)} for p in self.policies],
-                           layout=args.layout, spots=self.spots,
+                           layout=args.layout, spots=self.spots, unattended=args.unattended,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
                            hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper)
 
@@ -325,6 +331,9 @@ class Bench:
         kind, diff = proposal
         empty = {k: [] for k in diff}
         target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
+        if target is None and self.args.unattended:     # no one here to have straightened or put back anything
+            self.watch_changes(scan, diff, "moved_elsewhere")
+            return None
         if target is None:
             straightened, rest = self.mat.by_hand(diff)
             self.watch_changes(scan, straightened, "straightened")
@@ -350,6 +359,9 @@ class Bench:
         else:
             keyed = empty
             asked, watched = interventions.split(near, lambda k, c: k in ("moved", "turned"))
+        if self.args.unattended and interventions.changed(asked):    # no one to ask: the scans decide, bump_report checks
+            print(f"  self-report: {interventions.changes_text(asked)} during the {during} (the next scans settle it)")
+            watched, asked = interventions.merge(watched, asked), empty
         knocked = interventions.merge(keyed, absent)
         if interventions.changed(knocked):
             by = "key" if interventions.changed(keyed) else "wrist camera"
@@ -401,6 +413,13 @@ class Bench:
             if kind not in ("scan_glitch", "unsettled"):
                 print(f"  {interventions.changes_text(change)} (scan {p['scan']}), {why}: "
                       f"{interventions.KINDS[kind][0]}")
+
+    def settle_handled(self, tile):
+        """Unattended: a watched change at the tile about to be picked up is settled now. Its return aims at the tile's
+        home, so a knocked tile would go back there, and the next scans would call the knock a glitch."""
+        near = self.changes.forget(lambda p: not interventions.near_any(p["change"], [tile["xy"]],
+                                                                        config.TILE_MERGE_RADIUS_M))
+        self.log_settled([(p, p["kind"]) for p in near], note="the arm picked that tile up next, before the scans settled it")
 
     def explain(self, scan_n, explained, note):
         """Changes of scan `scan_n` whose cause is known (explained(category, change)): neither asked nor watched."""
@@ -474,7 +493,7 @@ class Bench:
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
             result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template)
-        if result["present"] is None and result.get("pale"):
+        if result["present"] is None and result.get("pale") and not self.args.unattended:
             self.arm.lift()
             result = {**result, "present": self.ask_still_there(name, x, y), "by": "person"}
             result.pop("why", None)
@@ -582,6 +601,9 @@ class Bench:
 
     def reposition(self, missing, tile_name=None, spot=None):
         """Ask a person to put the missing tile where it belongs; True if they did (rescan), False to skip."""
+        if self.args.unattended:
+            print(f"  {missing}. No one here to put it back: skipping it.")
+            return False
         home = spot["xy"] if spot else self.homes.get(tile_name)
         where = f" at ({home[0]:.3f}, {home[1]:+.3f})" if home else ""
         name = tile_name or "the tile"
@@ -629,6 +651,8 @@ class Bench:
         tile = self.choose(tile_name, spot)
         if tile is None:
             return None
+        if self.args.unattended:
+            self.settle_handled(tile)
         attempt = self.session.attempt_dir(tile["tile_name"])
         self.snapshot(attempt / "overview_before.jpg")
         self.keys.start("pickup")
@@ -701,13 +725,22 @@ class Bench:
             self.session.event("keys", attempt_dir=attempt_dir, during=during, presses=presses)
 
     def reopen_camera(self):
-        """Release and reopen the wrist camera (hardware.reopen_wrist_camera: retry / quit if it won't open)."""
+        """Release and reopen the wrist camera (hardware.reopen_wrist_camera: retry / quit if it won't open; an
+        unattended run stops instead of waiting on the retry prompt)."""
         from mahjong import hardware
-        self.camera = hardware.reopen_wrist_camera(self.camera)
+        if not self.args.unattended:
+            self.camera = hardware.reopen_wrist_camera(self.camera)
+            return
+        try:
+            self.camera = hardware.reopen_wrist_camera(self.camera, ask=lambda prompt: "q")
+        except SystemExit:
+            raise SystemExit("The wrist camera wouldn't reopen: stopping the unattended run.")
 
     def review(self, attempt_dir, tile_name, run, keyed=False):
         """Ask about an aborted or marked attempt: {abort_reason, mark_kind, mark_note}; {} (no question)
         for a clean one, or a → when a key during it already said what happened (`keyed`)."""
+        if self.args.unattended:    # a key someone pressed in passing still counts; there's no one to ask (derive lists it)
+            return {}
         answers, what = {}, f"{attempt_dir} ({tile_name})"
         marked = run["marks_s"] and not keyed
         if run["aborted"] or marked:
@@ -763,6 +796,11 @@ class Bench:
         # was the landing itself, not a knock (anything else the scan saw change is still settled as usual)
         self.explain(scan_n, lambda k, c: k == "appeared" and list(c["xy"]) == list(tile["xy"]),
                      "the returned tile landing off its home")
+        if self.args.unattended:    # picked up from where it landed if the next hover can find it, else its spot is skipped
+            print(f"  No one here to put {name} back: leaving it there.")
+            self.session.event("reset_skipped", tile=name, attempt_dir=held["attempt_dir"], home_xy=home,
+                               landed_xy=list(tile["xy"]))
+            return
         drain_stdin()
         input(f"  Put {name} back on its home, ({home[0]:.3f}, {home[1]:+.3f}), then Enter: ")
         # what the next scan sees move was a person putting it back: say so instead of asking again
@@ -918,6 +956,8 @@ class Bench:
     def close(self):
         try:
             self.arm.rest()
+            if self.args.unattended and self.scan_n:    # one more look: a bump in the last return still gets a later scan
+                self.scan("final", look=False)
         finally:
             self.log_settled(self.changes.flush())
             self.arm.disconnect()
@@ -947,6 +987,9 @@ def parse_args(argv=None):
     p.add_argument("--trials", type=int, default=None,
                    help="run this many rounds of pickup/return trials, then quit: a round is one attempt per policy, "
                         "at every spot with --layout")
+    p.add_argument("--unattended", action="store_true",
+                   help="with --trials and --tile or --layout: run with no one watching. Nothing is asked once the trials "
+                        "start; neighbours the scans see move are self-reported, for scripts/bump_report.py to verify")
     p.add_argument("--tile", default=None, help="tile name for --trials")
     p.add_argument("--layout", default=None, help="trials walk this layout's spots (scripts/layout.py)")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
@@ -956,7 +999,10 @@ def parse_args(argv=None):
     p.add_argument("--hover-gripper", type=float, default=None,
                    help="gripper opening at the hover (%%) for every policy, instead of the one its episodes started "
                         "at (data/policies.json; v6 26.7). Its narrowing on the way down shifts by the same amount")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.unattended and not (args.trials and (args.tile or args.layout)):
+        p.error("--unattended needs --trials and --tile or --layout: at the menu, or asked which tile, it would wait for you")
+    return args
 
 
 def main(argv=None):
@@ -987,6 +1033,20 @@ def main(argv=None):
         pass            # Ctrl-C at the menu: quit
     finally:
         bench.close()
+        if args.unattended:
+            print_bump_report(bench.session.dir)
+
+
+def print_bump_report(session_dir):
+    """Write the session's report for a person to verify the self-reports against the scans (mahjong/bump_report.py).
+    A failure here must not hide why the run ended, nor cost the session: it can be made later."""
+    try:
+        counts = bump_report.write(session_dir)
+    except Exception as e:
+        print(f"Couldn't write the bump report ({type(e).__name__}: {e}); try: python scripts/bump_report.py {session_dir}")
+        return
+    print(f"\nUnattended run done: {counts['attempts']} attempts, {counts['picked']} picked up, "
+          f"{counts['flagged']} self-reported bump(s).\nGo through them: python scripts/bump_report.py {session_dir}")
 
 
 if __name__ == "__main__":

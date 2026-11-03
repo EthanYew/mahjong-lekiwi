@@ -39,6 +39,7 @@ not a worktree, or the sessions go when the worktree does.
 | Run the bench without the robot | `python scripts/bench.py --sim --trials 3 --tile 8D` |
 | Test a policy on the arm, interactively | `python scripts/bench.py` |
 | Run N pickup trials on one tile | `python scripts/bench.py --trials 5 --tile 8D` |
+| Run the bench with no one watching, then check what the scans said moved | `python scripts/bench.py --unattended --layout even-hand14 --trials 2`, then `python scripts/bump_report.py` |
 | Test a specific policy | `python scripts/bench.py --policy pickup_mat_cl_v1 --trials 5 --tile 8D` |
 | Check a policy steers to the tile (vs. a memorised move) | `python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y` |
 | Try a narrower (or wider) gripper opening at the hover | `python scripts/bench.py --layout hand14 --trials 3 --hover-gripper 25` |
@@ -165,11 +166,13 @@ python scripts/bench.py --trials 5 --tile 8D              # 5 pickup→return tr
 python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated (no hardware)
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
+python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 ```
 
 | Option | What it does |
 |---|---|
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default). `a,b` compares two, paired: rounds alternate a b / b a from the same hover |
+| `--unattended` | with `--trials` and `--tile` or `--layout`: run with no one watching (see below) |
 | `--layout NAME` | trials walk this layout's spots (`scripts/layout.py`); the report shows success by spot and policy |
 | `--trials N` | run N rounds of pickup/return trials, then quit. A round is one attempt per policy, at every spot with `--layout`: pickups = N × policies × spots. Without `--tile` or `--layout`, it asks which tile. Every return aims the tile at its home (see below), so it doesn't walk off |
 | `--tile NAME` | tile for `--trials`, e.g. `8D` |
@@ -187,7 +190,23 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 at with the wrist camera: the arm hovers where it was first seen and checks for a tile face between the jaw
 tips. If it's there (the detector flickered) the pickup goes ahead from there. If not, it stops for you:
 put it back where it belongs, Enter rescans (logged as a reset), `s` skips the spot (`--tile`: ends the
-trials). An unattended run waits there.
+trials). `--unattended` skips it without asking.
+
+**`--unattended`** asks nothing once the trials start (the setup questions come first, so stay for those). Ctrl-C stops
+it. Where a run with you there would ask, it does this instead, and `bump_report.py` shows the result:
+
+| With you there | Unattended |
+|---|---|
+| A neighbour moved or turned: asked what moved it | a self-reported bump, unless a later scan shows it undone (a glitch). It counts as a knock until you say otherwise |
+| A change with the arm at rest: taken as you moving tiles | watched the same way, as a tile moved away from the arm, not a reset |
+| A tile not found: asked to put it back | spot skipped (`--tile`: the trials end) |
+| A return landing over 25mm off its home, or out of reach: asked to put it back | left there (`reset_skipped` event). The next pickup starts from there if the hover finds it, else the spot is skipped |
+| A pale surface the wrist look can't judge: asked if a tile's there | left unknown, and the scans settle it |
+| Wrist camera won't reopen: retry prompt | the run ends |
+| A marked or stopped attempt: asked why | not asked; listed as unexplained |
+
+It doesn't stop by itself after repeated misses or knocks: it runs its whole plan, so the mat can drift out of shape.
+One closing scan at the end gives a bump in the last return a later scan to settle against.
 
 **While the arm picks up or returns a tile, say what you see with a key** (no Enter; the terminal prints
 `[b] bumped another tile (noted)`; the keys are printed as each pickup and return starts). Keys typed at a
@@ -239,6 +258,32 @@ aims the tile at its home, not where the jaws closed, so errors don't add up rou
 the return correction (below). The scan after a return checks where it landed: over 12mm from home it
 says so; over 25mm, or out of the hover's reach, it asks you to put the tile back on its home (Enter
 when done; logged as a reset).
+
+## Checking what the scans said moved: `scripts/bump_report.py`
+
+Goes through a bench session's pickups and returns, for you to say which tiles really moved. `bench.py --unattended`
+writes the page as it ends; any bench session with scans works.
+
+```
+python scripts/bump_report.py                       # the latest bench session, opens in your browser
+python scripts/bump_report.py sessions/<folder>
+python scripts/bump_report.py --no-serve            # only write <session>/bump_report.html (buttons won't save)
+```
+
+| Option | What it does |
+|---|---|
+| `--no-serve` | write the page and stop. Opened as a file it's readable, but its buttons can't save |
+| `--port N` | port for the page, on this machine only (default: any free one) |
+
+Each pickup and return is a card: the mat before and after, cropped around the tile the arm handled, and the same two
+frames flipping back and forth with nothing drawn on them, which is the easiest way to see a small shift. Below it, a row
+per neighbouring tile with what the scans said and **Moved** / **Didn't move**. Cards where the scans saw a change are
+open; quiet ones are closed, so open one if you think the scans missed something (under 5mm doesn't count as a change).
+
+Clicks save straight away, and the latest click on a tile stands. A verdict is a `scan_verdict` line in the session's
+`events.jsonl`, and `session_report.py`, the scorecard and `status.py` follow it: **Didn't move** turns a bump into a
+glitch, and **Moved** on a neighbour the scans said nothing about makes it a knock. Until you check them, self-reported
+bumps count as knocks.
 
 ## Reading results: `scripts/session_report.py`
 
