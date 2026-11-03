@@ -111,16 +111,17 @@ class SimPerception:
     def detect_tiles(self, n_frames=None):
         """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
         from .layout import table_to_pixel, tile_corners
-        boxes, seen = [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])]
+        boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])]
         self.hidden = {name: n - 1 for name, n in self.hidden.items() if n > 1}
         for t in seen:
             corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
             (u0, v0), (u1, v1) = corners.min(axis=0), corners.max(axis=0)
             boxes.append({"tile_name": t["tile_name"], "confidence": 0.9,
                           "xyxy": [round(float(c), 1) for c in (u0, v0, u1, v1)]})
+            pixels.append((round(float(u0 + u1) / 2), round(float(v0 + v1) / 2)))
         self.last_frames = [{"color": self.snapshot(), "boxes": boxes}]
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
-                 "reads": 5, "pixel": (0, 0)} for t in seen]
+                 "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
 
     def nearest(self, x, y, within_m=GRASP_REACH_M):
         def distance(t):

@@ -69,7 +69,7 @@ def log_scan(realsense, session, scan_n, label, **fields):
     tiles = realsense.detect_tiles()
     frames = save_session_scan(realsense, session, scan_n, label)
     event = session.event("detections", label=label, scan=scan_n, **fields, **frames,
-                          tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px") if k in t}
+                          tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px", "pixel") if k in t}
                                  for t in tiles], faint=realsense.faint)
     return tiles, event
 

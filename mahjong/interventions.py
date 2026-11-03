@@ -17,8 +17,10 @@ are asked only after marking an attempt with → and no key, aborting it (Esc), 
 wide, with the bench's `note` command, or when a scan shows a neighbour of the handled tile moved or
 turned and no bump was keyed (asked right then, so a detection glitch isn't logged as a knock:
 `scan_review`). Every other change the scans show is settled by the scans after it (ChangeWatch): one
-that goes back was the detector, one that stays happened.
+that goes back was the detector, one that stays happened. With no one there (bench.py --unattended) that goes
+for the neighbours too; a person checks them afterwards (mahjong/bump_report.py: `scan_verdict` events).
 """
+import json
 import math
 from collections import Counter
 
@@ -392,6 +394,30 @@ def without(diff, gone=(), appeared=()):
             "appeared": [t for t in diff["appeared"] if t not in appeared]}
 
 
+def latest_verdicts(events):
+    """A person's verdicts on what the scans said (`scan_verdict` events, appended by mahjong/bump_report.py, which may
+    be long after the session), the latest per change: {(scan, category, its change as JSON): the event}."""
+    return {(e["scan"], e["category"], json.dumps(e["change"], sort_keys=True)): e
+            for e in events if e["type"] == "scan_verdict"}
+
+
+def _apply_verdict(reviews, verdict):
+    """A scan's `scan_review`s once a person has said whether one change happened: it's taken out of what they say,
+    and stands as verdict["kind"] (not moved: a glitch). by="scans", so it isn't counted as a person's step in the run."""
+    category, change = verdict["category"], verdict["change"]
+    out = []
+    for r in reviews:
+        if r["kinds"] and change in r.get("changes", {}).get(category, []):
+            changes = {k: [c for c in v if not (k == category and c == change)] for k, v in r["changes"].items()}
+            if not changed(changes):
+                continue
+            r = {**r, "changes": changes}
+        out.append(r)
+    kind = verdict["kind"] if verdict["verdict"] == "moved" else "scan_glitch"
+    return out + [{"type": "scan_review", "scan": verdict["scan"], "kinds": [kind], "changes": merge({category: [change]}),
+                   "by": "scans", "verified": True}]
+
+
 def derive(events):
     """Every intervention in a session's events, logged or derived, in order:
     [{kind, class, attempt_dir, source, time, ...}]. source: logged (an intervention event or a logged
@@ -418,6 +444,8 @@ def derive(events):
     for e in events:
         if e["type"] == "scan_review":
             scan_reviews.setdefault(e["scan"], []).append(e)
+    for verdict in latest_verdicts(events).values():
+        scan_reviews[verdict["scan"]] = _apply_verdict(scan_reviews.get(verdict["scan"], []), verdict)
     last_attempt, mat, ended = None, MatWatch(), False
     for e in events:
         kind, time = e["type"], e.get("time")
@@ -449,7 +477,9 @@ def derive(events):
                 off_parked_deg=e.get("off_parked_deg"))
         elif kind == "detections":
             proposal = mat.propose(e)
-            answered = scan_reviews.get(e.get("scan"), []) if proposal is not None else []
+            answered = scan_reviews.get(e.get("scan"), [])
+            if proposal is None:    # the scans saw nothing: only a person saying something moved all the same stands
+                answered = [r for r in answered if r.get("verified")]
             during = e["label"].removeprefix("after_") if e["label"] in ATTEMPT_SCANS else None
             # each review stands for the changes it names (older sessions: one review for the whole scan)
             found = [(k, r.get("changes") or proposal[1], r.get("by")) for r in answered for k in r["kinds"]]
