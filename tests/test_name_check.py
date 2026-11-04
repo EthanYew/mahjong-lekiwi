@@ -426,6 +426,86 @@ def test_a_reopen_at_the_hover_gives_the_terminal_back_for_its_prompt(tmp_path, 
     p.close()
 
 
+def watch_the_realsense(p, monkeypatch):
+    """Whether the arm was at rest for each RealSense frame detect_tiles or snapshot took."""
+    at_rest = []
+    for method in ("detect_tiles", "snapshot"):
+        def watched(*args, original=getattr(p.mat, method), **kwargs):
+            at_rest.append(p.bench.arm.is_at_rest())
+            return original(*args, **kwargs)
+        monkeypatch.setattr(p.mat, method, watched)
+    return at_rest
+
+
+class Pictures:
+    """The window's calls to compose: (the frame, the caption)."""
+    def __init__(self, monkeypatch):
+        import play
+        self.seen, compose = [], play.hand_view.compose
+
+        def kept(overview, tiles, caption, *args, **kwargs):
+            self.seen.append((overview, caption))
+            return compose(overview, tiles, caption, *args, **kwargs)
+        monkeypatch.setattr(play.hand_view, "compose", kept)
+
+
+class NoWindow:
+    def show(self, image):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_a_question_at_the_hover_shows_the_mat_from_before_the_arm_moved(tmp_path, monkeypatch):
+    import play
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers("8C"))
+    reader_for(p, monkeypatch, {"7C": "8C"})
+    p.view, pictures = NoWindow(), Pictures(monkeypatch)
+    at_rest = watch_the_realsense(p, monkeypatch)
+    p.bench.arm.rest()
+    p.register()
+    p.close()
+    frame, caption = pictures.seen[0]
+    assert play.CLEAR_VIEW_NOTE in caption
+    assert all(at_rest)                                  # no frame taken with the arm over the mat, for the window or anything else
+    assert (p.session.dir / checks_of(p)[0]["attempt_dir"] / "overview_before.jpg").exists()
+
+
+def test_a_scan_rests_the_arm_first(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.scan("register")
+    p.bench.hover_over(p.latest["H1"])
+    assert not p.bench.arm.is_at_rest()
+    at_rest = watch_the_realsense(p, monkeypatch)
+    p.scan("register")
+    p.close()
+    assert at_rest and all(at_rest)
+
+
+def test_the_window_is_live_with_the_arm_at_rest(tmp_path, monkeypatch):
+    import play
+    p = player(tmp_path, monkeypatch, Answers())
+    p.view, pictures = NoWindow(), Pictures(monkeypatch)
+    p.bench.arm.rest()
+    p.scan("register")
+    p.show("at rest")
+    p.close()
+    assert play.CLEAR_VIEW_NOTE not in pictures.seen[0][1]
+
+
+def test_no_realsense_frame_is_taken_with_the_arm_off_rest_in_a_whole_hand(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--read-hand"))
+    reader_for(p, monkeypatch)
+    p.view = NoWindow()
+    at_rest = watch_the_realsense(p, monkeypatch)
+    run(p)
+    assert at_rest and all(at_rest)
+
+
 def test_read_hand_doesn_t_look_twice_at_a_problem_read(tmp_path, monkeypatch):
     hand_with(monkeypatch, "7C")
     p = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--read-hand"))
