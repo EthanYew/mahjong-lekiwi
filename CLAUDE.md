@@ -17,7 +17,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `--tile` it asks which tile). Paired comparison across the mat: `--policy a,b --layout NAME --trials N`
   (`--trials` counts rounds: N at every spot, each policy once per round, alternating a b / b a from the
   same hover offset, so N × 2 × spots pickups; each attempt saves `wrist.mp4`).
-- DAgger (on the default policy): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v6`. The policy drives, and a press of A
+- DAgger (on the default policy): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v7`. The policy drives, and a press of A
   (the rightmost face button, `gamepad.TAKEOVER_KEY`) hands you the arm. Training uses only the frames from the takeover on, as deltas from
   the hover: `make_policy.py --source <main> --add <dagger>`.
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
