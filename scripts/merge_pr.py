@@ -5,7 +5,8 @@
     python scripts/merge_pr.py 34 --slow     # ... with the slow (GPU) tests on the merged tree too
     python scripts/merge_pr.py --close       # close every merged branch: worktree, local and GitHub branch (asks)
 
-Run it from the main checkout. Before asking, it shows what you're approving:
+Run it from the main checkout. It stops, with nothing changed, if the pull after the merge would fail: main has commits
+GitHub doesn't, or the PR changes a data file with uncommitted changes here. Before asking, it shows what you're approving:
 1. the PR's description, and which of its sections are missing (what changed / files / overlaps /
    unverified on the arm);
 2. what the branch and main both changed since the branch point (same files; the same function, constant or
@@ -142,6 +143,25 @@ def must_be_main_checkout():
         raise SystemExit(f"uncommitted code in the main checkout: {', '.join(files)} (commit or move it first)")
 
 
+def pull_blockers(ref, touched, repo=None):
+    """What would stop `git pull --ff-only` after the merge, which by then has already happened on GitHub, leaving main
+    merged there but not here, untested and its branch not closed (PR #65, 2026-11-04). One message per cause. Call after a
+    fetch. Uncommitted data that the PR doesn't touch doesn't block a pull, and neither do the same lines already staged."""
+    problems = []
+    if (commits := checkout.unpushed(repo)):
+        problems.append(f"this checkout's main has {len(commits)} commit(s) GitHub doesn't: "
+                        + "; ".join(commits[:5]) + (" ..." if len(commits) > 5 else "")
+                        + "\n  Put them on GitHub first: git pull --rebase origin main && git push origin main")
+    both = [path for path in checkout.changed_data(repo) if path in touched
+            and (checkout.git("diff", "--name-only", ref, "--", path, repo=repo)
+                 or checkout.git("diff", "--name-only", "--", path, repo=repo))]
+    if both:
+        problems.append(f"uncommitted changes to files this PR also changes: {', '.join(both)}"
+                        "\n  Commit and push them first: git add <files> && git commit -m 'Samples from <session>' "
+                        "&& git pull --rebase origin main && git push origin main")
+    return problems
+
+
 def abandoned():
     """Unmerged branches whose PR was closed without merging (e.g. superseded): closing them loses their commits,
     so they're listed apart, with the commit to recover them from."""
@@ -207,6 +227,8 @@ def merge(number, slow=False, ask=input):
     branch = pr["headRefName"]
     run(["git", "fetch", "--prune", "origin"])
     ref = f"origin/{branch}"
+    if (problems := pull_blockers(ref, [f["path"] for f in pr["files"]])):
+        raise SystemExit(f"not merging #{number}, nothing changed:\n" + "\n".join(f"- {p}" for p in problems))
     print(f"\n#{number} {pr['title']}\n{pr['url']}\n\n{pr['body'] or '(no description)'}\n")
     if (missing := missing_sections(pr["body"])):
         print(f"MISSING from the description: {', '.join(missing)}")

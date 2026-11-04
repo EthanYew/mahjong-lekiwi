@@ -916,6 +916,30 @@ was closed without merging (printing the commit they can be recovered from).
 
 Don't merge on GitHub's page: it runs no tests, and this checkout stays behind.
 
+It stops before asking, with nothing changed, if the pull after the merge would fail: `main` here has commits GitHub doesn't, or
+the PR changes a data file with uncommitted changes here. Uncommitted data the PR doesn't touch is fine.
+
+### Data files and merging
+
+The arm's scripts append to files in `data/` as they run, so this checkout is often "dirty" with data. That's normal.
+
+| What | Where it goes | When |
+|---|---|---|
+| Code, docs, anything a person reviews | a branch and a PR, merged with `merge_pr.py` | when it's ready |
+| Samples the scripts log (`hover_corrections.jsonl`, `return_corrections.jsonl`, reviews) | straight to `main`, in one step below | after a hardware session |
+| A decision (the default policy, exam lists, scores, new weights) | a PR, with its evidence; commit an exam list the session it's added, so no training can pick those frames up | when it's made |
+
+Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub:
+
+```
+git add data/hover_corrections.jsonl data/return_corrections.jsonl
+git commit -m "Samples from 20261104_150542_bench"
+git pull --rebase origin main && git push origin main
+```
+
+Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach
+`main` from this checkout, where the hardware runs, and these three files merge by union if two ever meet.
+
 ## Tests
 
 ```

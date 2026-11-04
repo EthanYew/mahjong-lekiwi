@@ -116,6 +116,91 @@ def test_the_merged_tree_is_tested_in_a_scratch_worktree_and_a_conflict_stops_it
     assert not (repo / ".claude" / "worktrees" / "_merge_check").exists()
 
 
+def pulls_cleanly(repo):
+    return subprocess.run(["git", "-C", str(repo), "pull", "-q", "--ff-only", "origin", "main"], capture_output=True,
+                          env=checkout.ENV).returncode == 0
+
+
+def merged_on_github(repo, tmp_path, path, text):
+    """origin/main moves on as a merge would, and a PR branch with the same file, as last fetched here."""
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(tmp_path / "origin.git"), str(other)], check=True, capture_output=True,
+                   env=checkout.ENV)
+    git(other, "config", "user.email", "t@t"), git(other, "config", "user.name", "t")
+    commit(other, path, text, "the PR")
+    git(other, "push", "-q", "origin", "main", "main:feature")
+    git(repo, "fetch", "-q", "origin")
+
+
+def test_local_commits_github_lacks_stop_a_merge_until_pushed(repo, tmp_path):
+    git(repo, "fetch", "-q", "origin")
+    assert merge_pr.pull_blockers("origin/main", [], repo) == []
+    commit(repo, "data/hover_corrections.jsonl", "{}\n", "data updates")
+    problems = merge_pr.pull_blockers("origin/main", [], repo)
+    assert len(problems) == 1 and "1 commit(s)" in problems[0] and "data updates" in problems[0]
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "fetch", "-q", "origin")
+    assert merge_pr.pull_blockers("origin/main", [], repo) == []
+
+
+def test_those_commits_are_what_makes_the_pull_fail(repo, tmp_path):
+    commit(repo, "data/hover_corrections.jsonl", "{}\n", "data updates")
+    merged_on_github(repo, tmp_path, "mahjong/x.py", "X = 1\n")
+    assert merge_pr.pull_blockers("origin/feature", ["mahjong/x.py"], repo)
+    assert not pulls_cleanly(repo)
+
+
+def test_being_behind_github_alone_doesn_t_stop_a_merge(repo, tmp_path):
+    merged_on_github(repo, tmp_path, "mahjong/x.py", "X = 1\n")
+    assert merge_pr.pull_blockers("origin/feature", ["mahjong/x.py"], repo) == []
+    assert pulls_cleanly(repo)
+
+
+def test_uncommitted_data_only_matters_if_the_pr_changes_that_file(repo, tmp_path):
+    commit(repo, "data/hover_corrections.jsonl", "{}\n", "start")
+    commit(repo, "data/return_corrections.jsonl", "{}\n", "start")
+    git(repo, "push", "-q", "origin", "main")
+    (repo / "data" / "hover_corrections.jsonl").write_text("{}\n{\"new\": 1}\n")
+    merged_on_github(repo, tmp_path, "data/return_corrections.jsonl", "{}\n{\"pr\": 1}\n")
+    assert merge_pr.pull_blockers("origin/feature", ["data/return_corrections.jsonl"], repo) == []
+    assert pulls_cleanly(repo)                            # the bench's uncommitted samples came through
+    assert "new" in (repo / "data" / "hover_corrections.jsonl").read_text()
+
+
+def test_uncommitted_data_the_pr_also_changes_stops_a_merge_unless_it_s_the_same_lines_staged(repo, tmp_path):
+    commit(repo, "data/hover_corrections.jsonl", "{}\n", "start")
+    git(repo, "push", "-q", "origin", "main")
+    (repo / "data" / "hover_corrections.jsonl").write_text("{}\n{\"mine\": 1}\n")
+    merged_on_github(repo, tmp_path, "data/hover_corrections.jsonl", "{}\n{\"pr\": 1}\n")
+    problems = merge_pr.pull_blockers("origin/feature", ["data/hover_corrections.jsonl"], repo)
+    assert len(problems) == 1 and "hover_corrections" in problems[0]
+    assert not pulls_cleanly(repo)
+    (repo / "data" / "hover_corrections.jsonl").write_text("{}\n{\"pr\": 1}\n")     # PR #63: review lines staged here too
+    git(repo, "add", "data/hover_corrections.jsonl")
+    assert merge_pr.pull_blockers("origin/feature", ["data/hover_corrections.jsonl"], repo) == []
+    assert pulls_cleanly(repo)
+
+
+def test_a_blocked_merge_stops_before_it_asks_or_touches_github(repo, monkeypatch):
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    git(repo, "fetch", "-q", "origin")
+    commit(repo, "data/hover_corrections.jsonl", "{}\n", "data updates")
+    calls = []
+
+    def gh(*args):
+        calls.append(args)
+        return ('{"number": 7, "title": "t", "state": "OPEN", "isDraft": true, "headRefName": "feature", "body": "", '
+                '"url": "u", "files": [{"path": "mahjong/x.py"}]}')
+    monkeypatch.setattr(merge_pr, "gh", gh)
+
+    def never(question):
+        raise AssertionError("it asked")
+    with pytest.raises(SystemExit, match="not merging #7, nothing changed"):
+        merge_pr.merge(7, ask=never)
+    assert [c[:2] for c in calls] == [("pr", "view")]
+
+
 def test_a_pr_description_is_checked_for_its_sections():
     body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n"
     assert merge_pr.missing_sections(body) == ["Unverified on the arm"]
