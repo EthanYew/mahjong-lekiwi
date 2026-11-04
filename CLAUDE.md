@@ -124,7 +124,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   at S1). It cancels going back to the same place, so only play showed it: tiles landed 15-18mm off and the first hit its
   neighbours (2026-11-04). `return_correction.fit_across`; `bench.py --carry` tests it, and play needs that from the zone.
   Only a close's stray from the usual place carries over (70% x, 52% y): a steady margin at the close doesn't.
-  Unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
+  Confirmed on the arm: 7 carried landings in 2 hands, median 4mm, worst 10.5mm (v7; before the fix, 15-19mm on v6). Evidence:
+  `docs/invariant_notes.md`, `docs/retrospectives/2026-11-04_first_hands.md`.
   Evidence: `docs/invariant_notes.md`.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
 - **In play, a held tile goes straight from its pickup to where it's set down; everything else goes via rest** (`Bench.direct`, `Arm.travel`;
