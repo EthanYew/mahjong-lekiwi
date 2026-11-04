@@ -63,7 +63,7 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v6 --policy pickup_mat_cl_v6` (press A on the gamepad to take over) |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7` (press A on the gamepad to take over) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
@@ -77,10 +77,11 @@ not a worktree, or the sessions go when the worktree does.
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v6`, v3c's hover-jittered demos,
-DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos, trained with `--augment --replace-mat 0.7`;
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v7`, `pickup_mat_cl_v6`'s data + 52 brown/white
+paper demos, 30 of them closing short as recorded;
 also `pickup_mat_cl_v8` (37 standard-mat demos + other surfaces + black-top jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%),
-also `pickup_mat_cl_v7` (the same + 52 brown/white paper demos, 30 of them closing short as recorded),
+`pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
+trained with `--augment --replace-mat 0.7`),
 `pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
 (without v4's corrections),
 `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
@@ -456,7 +457,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v6 --policy pickup_mat_cl_v6                  # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7                  # DAgger corrections
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
