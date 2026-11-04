@@ -405,9 +405,13 @@ are, with both reads. A drawn tile on the list is always asked about, since no h
 tile gets the look first, whatever made it uncertain (split votes, a low-confidence read, the list), with the camera's read in the
 question or a note that it got none. A camera found lost at a read is reopened and read again.
 
-A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, the
-tile in question in thick yellow (orange: on the list or not settled yet), and the wrist camera's view beside it once the arm has
-looked. You still answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
+A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, and
+the wrist camera's view beside the tile in question once the arm has looked. When you're reviewing names (the hand check, a name
+question, a slot that doesn't match, a fifth copy), the tiles to look at stand out from a dimmed mat, thick orange (thick yellow:
+the one being asked about now). Each is labelled with what it might be (`S9 5C or 9C`: the robot has 5C, it could be 9C) and listed
+under the picture with every other name and why. At the hand check that means another name in the votes (5% or more), a read on the
+list above, a read under 0.80, or the wrist camera disagreeing; you still check all 13, and the marks ask nothing and don't affect
+the grade. You answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
