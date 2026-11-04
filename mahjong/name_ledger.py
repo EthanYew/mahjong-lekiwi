@@ -176,11 +176,12 @@ def _truth(segment, session_name, reviewed, answers, audited, by_id):
 
 
 def _audited(sessions):
-    """{placement id: the name a person gave it at a hand's end}, over all sessions: a resumed hand audits earlier ones."""
+    """{placement id: the name a person gave it, at the hand check before the first draw or at a hand's end (which wins)}, over
+    all sessions: a resumed hand audits earlier ones."""
     out = {}
     for _, events in sessions:
         for e in events:
-            if e["type"] == "hand_audit":
+            if e["type"] in ("hand_confirmed", "hand_audit"):
                 out.update(e["confirmed"])
     return out
 
@@ -264,7 +265,8 @@ def placements_of(session_name, events, reviewed, audited=None):
         if decision is None and not row["scans"]:
             skipped["no scans"] += 1
             continue
-        said = (decision["name"] if decision["how"] == "vote" else None) if decision else votes.sure(segment["spot"])
+        # "wrist": the votes and the wrist camera agreed, so the robot went on it unasked, and a wrong one counts as accepted
+        said = (decision["name"] if decision["how"] != "person" else None) if decision else votes.sure(segment["spot"])
         row["outcome"] = ASKS if said is None else RIGHT if said == truth else WRONG
         guarded = said if decision or said is None or votes.doubt(segment["spot"], said) is None else None
         row["guarded"] = ASKS if guarded is None else RIGHT if guarded == truth else WRONG

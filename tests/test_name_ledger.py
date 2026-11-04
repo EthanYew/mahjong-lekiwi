@@ -172,7 +172,7 @@ def test_a_played_hand_logs_every_name_and_the_audit_settles_them(tmp_path, monk
 
 
 def test_a_wrong_discard_found_at_the_audit_counts_as_accepted_wrong(tmp_path, monkeypatch):
-    p = play_a_hand(tmp_path, monkeypatch, "d1=5D")
+    p = play_a_hand(tmp_path, monkeypatch, "", "d1=5D")
     events = read_events(p.session.dir)
     error = next(e for e in events if e["type"] == "intervention" and e["kind"] == "silent_error")
     assert error["slot"] == "D1" and error["placement"] and error["table"] == "5D"

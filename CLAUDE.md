@@ -78,6 +78,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
 | `mahjong/name_check.py`, `scripts/train_name_check.py`, `name_check_eval.py` | a second read of a tile's name from the wrist camera at the hover: in play, agreement changes nothing and disagreement asks; its exam is `data/name_check_exam.json` |
 | `scripts/label_sheets.py` | one picture per tile name of every box labelled with it, to check a labelled set by eye |
+| `mahjong/hand_view.py` | play's window: the mat zoomed on the tiles, every slot named, the wrist view of the tile asked about |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `scripts/status.py`, `scripts/merge_pr.py`, `mahjong/checkout.py` | where things stand (from `data/`); approve + merge a PR and close its branch; the checkout vs origin/main, merged branches and worktrees |
@@ -201,6 +202,14 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   7C reads overlap real ones. Evidence: `docs/name_data.md`.
 - **A second read may only add questions until it passes its exam.** Agreement changes nothing and disagreement asks
   (`name_check`, `play.py`): the two together can still agree on a wrong name, and the gate is 0 of those towards ~1000 reads.
+  One exception, at the owner's request: registering the hand, agreement on a read from `identity.ALWAYS_ASK_READS` moves its
+  question into the hand check a person does on all 13 before the first draw. A drawn tile has no such check, so it's still asked.
+- **The votes can be sure of a wrong name, and nothing asks.** A 5C read as 9C at 0.91 of the votes (S9, `20261104_164541_play`), and
+  the only way to say so was to stop the hand. So a person checks the hand before the first draw (`Player.confirm_hand`) and can
+  correct a tile at any draw prompt. Enter isn't graded; a correction is a `recount`, and counts as a wrong name in the ledger.
+- **Play's window has its own process** (`mahjong/hand_view.py`). The main thread sits in the policy loop and `input()`, and an OpenCV
+  window nobody pumps gets marked "not responding". It draws on a zoom of the tiles: on the real layout a tile is ~30px of the frame, and
+  labels on the whole frame overprint each other (only seen rendering a real frame; the tests pass either way).
   Questions during a pickup need the key listener stopped first (`keys.stop()`): it holds the terminal in cbreak and eats the answer.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a

@@ -375,7 +375,9 @@ bench session must have picked up and returned a tile there. If not, it prints t
 (e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
 
-A hand: it reads the 13 tiles (asking about any it isn't sure of), then each turn reads the drawn tile,
+A hand: it reads the 13 tiles (asking about any it isn't sure of), then **shows you the whole hand to check against the table**:
+Enter if it's right, or the wrong ones as `S9=5C`. It won't ask for a drawn tile until you've done this (`--resume` asks too, if
+the hand never had it), and the draw prompt takes `S9=5C` as well, for a tile you spot later. Then each turn it reads the drawn tile,
 checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
 tiles still left, then kinds), drops it in the container, and if it came from the hand moves the drawn
 tile into the slot it left, aimed so it lands on the slot's home. Type `end` at the draw prompt when the
@@ -383,11 +385,20 @@ wall is empty. At the end you check its hand against the table and its discards 
 container: Enter if it's right, or the wrong slots
 as `H3=5D`.
 
-It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C, 5C or 2C (names
+It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C, 5C, 2C or 9C (names
 other tiles get misread as: `identity.ALWAYS_ASK_READS`, a stopgap, `docs/name_data.md`), a read under 0.80 confidence, a slot
 that reads differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
-question is logged, and the hand is graded **clean** (nothing asked), **attended** (questions only),
-**rescued** (you touched something) or **silent error** (the end check found a tile it had wrong).
+question is logged, and the hand is graded **clean** (nothing asked; pressing Enter at the hand check doesn't count, correcting
+a tile there does), **attended** (questions only), **rescued** (you touched something) or **silent error** (the end check found a
+tile it had wrong).
+
+A read on that list gets the wrist camera's look first: the arm hovers over the tile before you're asked. While registering the
+hand, if the camera agrees you aren't asked about that tile (you still check it with the rest of the hand); if it disagrees you
+are, with both reads. A drawn tile is always asked about, since no hand check follows it, with the camera's read in the question.
+
+A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, the
+tile in question in thick yellow (orange: on the list or not settled yet), and the wrist camera's view beside it once the arm has
+looked. You still answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
@@ -404,6 +415,7 @@ holds a tile).
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--no-name-check` | play without the wrist camera's second read |
 | `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
+| `--no-view` | no window showing what each question is about; the terminal only |
 | `--sim` | simulated arm, cameras, mat and policy (no second read) |
 
 ## Recording demonstrations: `scripts/record.py`

@@ -139,7 +139,7 @@ def test_agreement_changes_nothing(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, ask)
     p.reader = Says(p)
     assert run(p) == "clean"
-    assert len(ask.prompts) == 1                         # only the end-of-hand check
+    assert len(ask.prompts) == 2                         # only the hand checks, before the first draw and at the end
     checks = checks_of(p)
     assert [c["name"] for c in checks] == ["GD", "RD", "9B"] and all(c["agrees"] for c in checks)
     assert (p.session.dir / checks[0]["attempt_dir"] / "name_check.jpg").exists()
@@ -170,7 +170,7 @@ def test_a_read_never_changes_a_name_without_a_person(tmp_path, monkeypatch):
 
 
 def test_a_corrected_discard_calls_off_the_pickup_and_chooses_again(tmp_path, monkeypatch):
-    ask = Answers("GD")                                   # the tile at H12 is a GD: the robot has the wrong name for it
+    ask = Answers("", "GD")                               # the tile at H12 is a GD: the robot has the wrong name for it
     p = player(tmp_path, monkeypatch, ask)
     p.reader = Says(p, {"RD": "GD"})
     run(p)
@@ -183,7 +183,7 @@ def test_a_corrected_discard_calls_off_the_pickup_and_chooses_again(tmp_path, mo
 
 
 def test_a_drawn_tile_corrected_on_its_way_to_the_hand_goes_in_under_the_person_s_name(tmp_path, monkeypatch):
-    ask = Answers("8B")                                   # the 9B on the zone is really an 8B
+    ask = Answers("", "8B")                               # the 9B on the zone is really an 8B
     p = player(tmp_path, monkeypatch, ask)
     p.reader = Says(p, {"9B": "8B"})
     run(p)
@@ -218,3 +218,127 @@ def test_the_ask_list_has_the_name_3c_gets_misread_as():
     votes = identity.Votes()
     votes.add("H1", {"tile_name": "2C", "confidence": 0.96, "votes": {"2C": 4.8}})
     assert "2C" in votes.doubt("H1", "2C")
+
+
+# --- a read on the ask list gets the wrist camera's look before a person is asked ---
+
+def hand_with(monkeypatch, *names):
+    import play
+    monkeypatch.setattr(play, "SIM_HAND", [*names, *play.SIM_HAND[len(names):]])
+
+
+def reader_for(p, monkeypatch, wrong=None):
+    """A reader that echoes the name being looked at, except `wrong`."""
+    reader = Says(p, wrong)
+    p.reader, original = reader, p.read_wrist
+
+    def named(slot, name, folder, keep_as=None):
+        p.current_hand_name = name
+        return original(slot, name, folder, keep_as)
+    monkeypatch.setattr(p, "read_wrist", named)
+    return reader
+
+
+def test_a_problem_read_the_wrist_agrees_with_waits_for_the_hand_check(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    ask = Answers()
+    p = player(tmp_path, monkeypatch, ask)
+    reader = reader_for(p, monkeypatch)
+    p.draws = []
+    assert run(p) == "clean"
+    assert not [i for i in interventions_of(p) if i["kind"] == "name_asked"]
+    decided = next(e for e in events_of(p) if e["type"] == "name_decided" and e["slot"] == "H1")
+    assert (decided["name"], decided["how"]) == ("7C", "wrist") and reader.reads == 1
+    assert any(e["type"] == "hand_confirmed" for e in events_of(p))      # a person still saw it
+    assert p.bench.arm.tip_clearance()[0] > 0.05                          # and the arm went back to rest
+
+
+def test_a_problem_read_the_wrist_disagrees_with_asks_and_says_what_it_saw(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    ask = Answers("8C")
+    p = player(tmp_path, monkeypatch, ask)
+    reader_for(p, monkeypatch, {"7C": "8C"})
+    p.draws = []
+    assert run(p) == "attended"
+    asked = next(i for i in interventions_of(p) if i["kind"] == "name_asked")
+    assert asked["answer"] == "8C" and "wrist camera reads 8C (0.90)" in asked["why"]
+    assert p.state["hand"]["H1"] == "8C"
+
+
+def test_the_arm_is_back_at_rest_once_the_looks_are_done(tmp_path, monkeypatch):
+    """The next scan needs the mat in clear view, and a person's asked about the hand next."""
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers())
+    reader_for(p, monkeypatch)
+    p.bench.arm.rest()
+    p.register()
+    commanded = p.bench.arm.commanded()
+    p.close()
+    commanded.pop("gripper")                              # rest leaves the jaws as they are
+    assert commanded == pytest.approx({j: v for j, v in config.REST_POSE.items() if j != "gripper"})
+
+
+def test_only_problem_reads_get_a_look(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C", "9C")
+    p = player(tmp_path, monkeypatch, Answers())
+    reader = reader_for(p, monkeypatch)
+    p.bench.arm.rest()
+    p.register()
+    p.close()
+    assert reader.reads == 2 and [c["slot"] for c in checks_of(p)] == ["H1", "H2"]
+
+
+def test_without_a_reader_a_problem_read_is_asked_as_before(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers("7C"))
+    p.draws = []
+    assert p.reader is None and run(p) == "attended"
+    assert [i["slot"] for i in interventions_of(p) if i["kind"] == "name_asked"] == ["H1"]
+
+
+def test_a_tile_out_of_reach_of_the_look_is_asked_about(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers("7C"))
+    reader = reader_for(p, monkeypatch)
+    monkeypatch.setattr(p.bench, "hover_over", lambda tile: None)
+    p.bench.arm.rest()
+    p.register()
+    p.close()
+    assert reader.reads == 0 and [i["slot"] for i in interventions_of(p) if i["kind"] == "name_asked"] == ["H1"]
+
+
+def test_a_drawn_problem_read_is_asked_about_even_when_the_wrist_agrees(tmp_path, monkeypatch):
+    ask = Answers("", "7C")                              # the hand's fine; the drawn tile is the 7C it reads
+    p = player(tmp_path, monkeypatch, ask)
+    reader_for(p, monkeypatch)
+    p.draws = ["7C"]
+    run(p)
+    asked = [i for i in interventions_of(p) if i["kind"] == "name_asked"]
+    assert [a["slot"] for a in asked] == ["zone"] and "wrist camera reads 7C (0.90)" in asked[0]["why"]
+
+
+def test_read_hand_doesn_t_look_twice_at_a_problem_read(tmp_path, monkeypatch):
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--read-hand"))
+    reader_for(p, monkeypatch)
+    p.bench.arm.rest()
+    p.register()
+    p.close()
+    slots = [c["slot"] for c in checks_of(p)]
+    assert len(slots) == 13 and slots.count("H1") == 1
+
+
+def test_a_wrong_name_the_wrist_agreed_with_counts_against_the_votes_in_the_ledger(tmp_path, monkeypatch):
+    """A person corrects it at the hand check: the robot's agreed name was wrong, so it mustn't read as a question that was asked."""
+    from mahjong import name_ledger
+    hand_with(monkeypatch, "7C")
+    p = player(tmp_path, monkeypatch, Answers("H1=8C", ""))
+    reader_for(p, monkeypatch)
+    p.draws = []
+    run(p)
+    placements, _, _ = name_ledger.load(tmp_path, review={}, include_sim=True)
+    assert [row["tile"] for row in placements if row["outcome"] == name_ledger.WRONG] == ["8C"]
+
+
+def test_the_ask_list_has_the_name_5c_was_misread_as():
+    assert "5C" in identity.ALWAYS_ASK_READS["9C"]
