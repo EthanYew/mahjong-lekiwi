@@ -125,7 +125,7 @@ the product:
 
 **Names are still the gap, but it has narrowed (update 2026-10-28 afternoon).** The old game
 auto-accepted only 5 of 13 names (38 %). Since then:
-- **Detector v6x3** (live, `2fee0eb`): on the exam, without flowers, it found 97.1 % of tiles and
+- **Detector v6x3** (live then, `2fee0eb`; `ROADMAP.md` has what's live now): on the exam of that day, without flowers, it found 97.1 % of tiles and
   named all 99 it found correctly.
 - **The `scan-voting` branch** (`ea055a9`, not merged yet): the 5 frames of a scan vote on each name.
   98.0 % right and 0 mix-ups; a split read is left out instead of misnamed.
