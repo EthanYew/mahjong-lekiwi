@@ -1,6 +1,6 @@
 # A second tile-name read from the wrist camera: LLM, VLM or classifier
 
-Written 2026-11-03, first test run 2026-11-04. A proposal: nothing here runs on the arm. It grew out of Move 3 in
+Written 2026-11-03, first test run and first build 2026-11-04 ("Built" below). It grew out of Move 3 in
 `docs/retrospectives/2026-11-02_week3_skills_assessment.md`. What's done and next stays in ROADMAP.md's status table.
 
 ## The question
@@ -156,6 +156,26 @@ scored 14% before), and Moondream's chat template, without which it failed. No r
 
 **What's next:** give 7C, 4B and the other thin names more placements, measure tile offsets for the crop, and retest. Only then
 is a real exam (steps 3-4) worth recording. Whether YOLO needs retraining is step 5's question.
+
+## Built, 2026-11-04: ask-only, ahead of the exam
+
+The owner asked for it to be built now. So steps 1-3 and 9's wiring exist before step 4's exam has passed, and to keep this
+plan's rule the reader **can only add questions**: in `play.py`, at the hover before a pickup, agreement changes nothing and
+disagreement asks. A poor reader costs questions, not wrong tiles. The ask list and confidence floor stay in force, because
+agreement removes nothing. `mahjong/name_check.py`, `scripts/train_name_check.py`, `scripts/name_check_eval.py`,
+`assets/name_check.pt` (YOLO11n-cls, crop 240, seed 0 set before any score).
+
+Evidence (`docs/retrospectives/evidence/2026-11-04_name_check_build/`):
+- **First exam session** (`20261104_150542_bench`, listed before training: dim, lamp and ceiling lights off, 42 photos of 14
+  tiles, a person's names): reader 42/42. The detector was also 42/42, so this tests reading in new light, not catching errors.
+- **Held out** (retrained without `20261104_085309_wrist`, `20261104_111043_wrist` and `20261103_235212_wrist`; 208 photos, 26
+  tiles, reads from the previous detector): reader 90.4%, flagged 24 of 24 wrong detector reads, 0 wrong in 164 agreements, 21%
+  asks. These are jittered wrist_capture views, harder than a real hover. All 24 were 3 tiles (7C x2, 9C), 8 views each.
+- **Smoke test**: the 11 frames in `20261103_121112_bench/wrist_checks/` read 2B, 1B and 3C, as this plan requires. That session's
+  hover photos may be in training, so it's a weak check.
+- About 12 ms a read here. No "no tile" answer yet: an empty spot gets a low-confidence name, which disagrees, so it asks.
+
+Not shown: a real hand on the arm, `--read-hand`'s time, the ~1000-read gate, or other lighting beyond these sessions.
 
 ## The plan
 

@@ -19,6 +19,10 @@ failed after RETRIES re-scanned retries. Every question is logged as an interven
 hand grades as clean (nothing asked), attended (questions only), rescued (a person touched something) or
 silent error; `python scripts/session_report.py` prints it. One session is one hand.
 
+Before a pickup, at the hover, the wrist camera reads the tile too (mahjong/name_check.py). Agreement changes nothing; a
+disagreement asks you, and if your answer changes the name the discard is chosen again. It never names a tile by itself.
+--read-hand does the same for all 13 tiles after registering them, since a tile that's never discarded is otherwise never read.
+
 Built on the bench (scripts/bench.py): the same hover, policy, scans before and after every pickup,
 return and discard, homes, return correction and landing check, discard pose and session folder
 (sessions/<time>_play/), plus checkpoint.json after every step. Teach the discard pose with
@@ -32,7 +36,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import config, game, interventions, layout, markers
+import cv2
+
+from mahjong import config, game, interventions, layout, markers, name_check
+from mahjong.camera import grab_frames
 from mahjong.identity import DRAWN_MIN_SHARE, Votes
 from mahjong.perception import drain_stdin
 
@@ -66,6 +73,9 @@ class PlayBench(bench.Bench):
         self.player.observe(tiles)
         return tiles
 
+    def at_hover(self, spot, attempt):
+        return self.player.second_read(spot["id"], attempt) if spot else True
+
 
 class Player:
     def __init__(self, args, ask=input):
@@ -79,6 +89,12 @@ class Player:
             zone_xy = None
         self.votes = Votes()
         self.latest = {}                # slot -> the latest scan's detection there (or absent)
+        self.picking = None             # the name the pickup under way goes on
+        self.name_changed = False       # a person's answer at the hover changed it: the pickup was called off
+        self.person_said = {}           # placement -> the name a person gave it: no need to ask about it again
+        self.reader = None if args.sim or args.no_name_check else name_check.load_reader()
+        if not args.sim and self.reader is None:
+            print("No wrist name check: " + ("--no-name-check" if args.no_name_check else f"no weights at {name_check.WEIGHTS}"))
         self.bench = PlayBench(bench.parse_args(bench_argv(args)), self)
         self.session = self.bench.session
         self.placements = self.bench.placements
@@ -160,7 +176,75 @@ class Player:
                                   reads=self.votes.describe(slot), votes=self.votes_at(slot), answer=name,
                                   typed=bool(answer), leading_read=leader, why=why)
         self.votes.known(slot, name)
+        self.person_said[self.placement_id(slot)] = name
         return name
+
+    # --- the second read, from the wrist camera at the hover (mahjong/name_check.py) ---
+
+    def read_wrist(self, slot, name, folder, keep_as=None):
+        """The reader's word on the tile under the jaws, logged whatever it says, or None without a frame. The frame is kept
+        in the attempt's folder, so its read can be checked later."""
+        frames = grab_frames(self.bench.camera, 1)
+        if not frames:
+            print("  no wrist camera frame: no second read of this tile")
+            self.session.event("name_check", slot=slot, placement=self.placement_id(slot), name=name, read=None)
+            return None
+        read = self.reader.read(frames[0])
+        for file in filter(None, ("name_check.jpg", keep_as)):
+            cv2.imwrite(str(folder / file), frames[0])
+        self.session.event("name_check", slot=slot, placement=self.placement_id(slot), name=name, read=read["name"],
+                           confidence=read["confidence"], agrees=read["name"] == name, attempt_dir=folder.name,
+                           person_said=self.person_said.get(self.placement_id(slot)))
+        return read
+
+    def settle(self, slot, name, read):
+        """The reader and the name the robot's going on disagree: a person says. Returns the tile's name."""
+        why = f"The wrist camera reads {read['name']} ({read['confidence']:.2f}), the scans {name}"
+        if slot == ZONE:
+            return self.ask_name(ZONE, why)
+        print(f"  {why}")
+        self.recount([slot])
+        return self.state["hand"][slot]
+
+    def second_read(self, slot, folder):
+        """At the hover, before the policy starts. False calls the pickup off: a person's answer changed the tile about to
+        be discarded, so the discard has to be chosen again. A tile being moved from the drop zone carries on under its new name."""
+        name = self.picking
+        if self.reader is None or name is None:
+            return True
+        read = self.read_wrist(slot, name, folder)
+        if read is None or read["name"] == name or self.person_said.get(self.placement_id(slot)) == name:
+            return True
+        presses = self.bench.keys.stop()    # the pickup's key listener would eat the answer
+        if presses:
+            self.bench.log_keys(folder.name, "pickup", presses)
+        now = self.settle(slot, name, read)
+        if slot == ZONE:
+            self.state["drawn"] = now
+        if now == name or self.state["phase"] != "discard":
+            self.picking = now
+            self.bench.keys.start("pickup")
+            return True
+        self.name_changed = True
+        self.session.event("pickup_called_off", slot=slot, name=name, now=now, attempt_dir=folder.name)
+        print(f"  It's {now}, not {name}: choosing the discard again")
+        return False
+
+    def read_hand_at_hover(self):
+        """Every hand tile read by the wrist camera (--read-hand): the arm hovers over each. A tile that's never discarded
+        is otherwise never read. Agreement changes nothing; a disagreement asks."""
+        if self.reader is None:
+            return
+        print("Reading the hand with the wrist camera...")
+        for s in self.slots:
+            slot, tile = s["id"], self.latest.get(s["id"])
+            if tile is None or self.bench.hover_over(tile) is None:
+                continue
+            name = self.state["hand"][slot]
+            read = self.read_wrist(slot, name, self.session.attempt_dir(name), keep_as="wrist_0000.jpg")
+            if read and read["name"] != name and self.person_said.get(self.placement_id(slot)) != name:
+                self.settle(slot, name, read)
+        self.bench.arm.rest()
 
     def end_step(self):
         """What happened during the step, asked now: pickups marked with → or stopped with Esc (the bench's
@@ -243,6 +327,8 @@ class Player:
                 self.decided(slot, name, "vote")
             hand[slot] = name
         self.state["hand"] = hand
+        if self.args.read_hand:
+            self.read_hand_at_hover()
         self.check_counts()
         self.state["phase"] = "draw"
         self.save()
@@ -274,6 +360,7 @@ class Player:
                                       votes=self.votes_at(slot))
             self.state["hand"][slot] = name
             self.votes.known(slot, name)
+            self.person_said[self.placement_id(slot)] = name
 
     def check_hand(self):
         """Before a discard: every slot still shows its tile. A slot whose votes now lean to another name,
@@ -339,7 +426,12 @@ class Player:
                     now = self.state["hand"][slot]
                 if now != name:
                     return False            # it's another tile: the caller decides again
+            self.picking = name
             success = self.bench.pickup(ask=False, spot=self.spot(slot))
+            name, self.picking = self.picking, None
+            if self.name_changed:           # a person's answer at the hover: it's another tile
+                self.name_changed = False
+                return False
             if success:
                 return True
             print(f"  {name} at {slot} not picked up" + (", retrying" if attempt < RETRIES else ""))
@@ -357,6 +449,7 @@ class Player:
         picked = self.pick(ZONE, name)
         if picked is False:
             return False
+        name = self.state["drawn"]          # a person may have corrected it at the hover
         if picked:
             self.bench.held["home_xy"] = list(self.home(slot))
             self.bench.held["spot"] = slot
@@ -420,7 +513,7 @@ class Player:
             slot, drawn = s["vacated"], s["drawn"]
             if self.place_drawn(slot, drawn) is False:
                 raise SystemExit(f"The tile on the drop zone isn't the {drawn} the robot read: check it and --resume.")
-            s["hand"][slot] = drawn
+            s["hand"][slot] = s["drawn"]
             s["drawn"] = None
             return self.finish_turn(s["discard"]["tile_name"], s["discard_slot"])
         return None
@@ -554,6 +647,10 @@ def parse_args(argv=None):
     p.add_argument("--skip-zone-test", action="store_true",
                    help=f"play even if the bench hasn't picked up and returned a tile on the drop zone (its spot "
                         f"in {markers.ZONE_TEST_LAYOUT}); logged")
+    p.add_argument("--no-name-check", action="store_true",
+                   help="play without the wrist camera's second read of a tile before it's picked up (logged reads and questions stop)")
+    p.add_argument("--read-hand", action="store_true",
+                   help="also hover over all 13 hand tiles after registering them and read each with the wrist camera")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)
     if not args.sim and not args.layout:

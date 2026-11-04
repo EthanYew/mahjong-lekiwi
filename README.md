@@ -71,6 +71,8 @@ not a worktree, or the sessions go when the worktree does.
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
 | Photograph every tile on the mat with the wrist camera from jittered hovers | `python scripts/wrist_capture.py` (rings when a set is done) |
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
+| Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
+| Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
@@ -381,11 +383,15 @@ wall is empty. At the end you check its hand against the table and its discards 
 container: Enter if it's right, or the wrong slots
 as `H3=5D`.
 
-It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C or 5C (names
+It asks rather than guess: a name the votes over the scans aren't clearly for, a read of 7C, 4B, 3C, EW, 6C, 5C or 2C (names
 other tiles get misread as: `identity.ALWAYS_ASK_READS`, a stopgap, `docs/name_data.md`), a read under 0.80 confidence, a slot
 that reads differently from the hand, a fifth copy of a tile, a pickup that failed 3 times (you move the tile). Each
 question is logged, and the hand is graded **clean** (nothing asked), **attended** (questions only),
 **rescued** (you touched something) or **silent error** (the end check found a tile it had wrong).
+
+Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
+it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
+discarded, the arm rests and the discard is chosen again. It never names a tile on its own.
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
 holds a tile).
 
@@ -396,7 +402,9 @@ holds a tile).
 | `--teach-zone` | find the drop-zone marker again (after moving it or the camera); it must be uncovered |
 | `--resume [FOLDER]` | carry on a play session's hand (default: the latest) |
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
-| `--sim` | simulated arm, cameras, mat and policy |
+| `--no-name-check` | play without the wrist camera's second read |
+| `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
+| `--sim` | simulated arm, cameras, mat and policy (no second read) |
 
 ## Recording demonstrations: `scripts/record.py`
 
@@ -663,6 +671,25 @@ python scripts/spot_novelty.py eval_familiar eval_new
 python scripts/spot_novelty.py eval_new --against Yewy/mahjong_mat_pickup_v3_jitter   # repeatable
 ```
 
+## The wrist-camera name check
+
+A small classifier reads a tile's name from the wrist camera at the hover, and is never told what the detector said. It trains on
+wrist photos a person named (`wrist_capture.py` views, photos reviewed in `wrist_review.py`). Its exam is whole sessions in
+`data/name_check_exam.json`, which never train it. `docs/name_check_plan.md` has the evidence and the gate.
+
+```
+python scripts/train_name_check.py --dry-run          # the photos it would train on
+python scripts/train_name_check.py                    # weights in outputs/name_check/name_check.pt (GPU, about a minute)
+python scripts/name_check_eval.py --weights outputs/name_check/name_check.pt
+python scripts/name_check_eval.py --list              # what the exam holds
+```
+
+`train_name_check.py`: `--out PATH`, `--seed N` (default 0: choose before any score), `--epochs N`, `--sessions-dir DIR`, `--dry-run`.
+`name_check_eval.py`: `--weights PATH` (default: the installed `assets/name_check.pt`), `--sessions-dir DIR`, `--list`. It refuses
+weights that trained on an exam session, and scores go in `data/name_check_eval/`. The score that matters is **accepted and wrong**:
+the two agree on a wrong name, so nothing catches it. To install new weights, copy them to `assets/name_check.pt` and commit them
+with the score.
+
 ## The tile detector: photos, labels, exam, retraining
 
 The RealSense finds tiles with a YOLO detector (`assets/tile_detector.pt`). It was trained in July on
@@ -723,6 +750,14 @@ neighbouring numbers within a suit (6/7C, 2/3C, 5/8C, 3D/5D, 2/3/4B).
 
 Current exam (Roboflow v7, downloaded to `data/detector/exam_v7`): 103 frames over 4 capture sessions, 48 of them on the
 standard mat, where the live detector gets 80.9% right overall (`--by session` shows it).
+
+To check a labelled set by eye, `label_sheets.py` makes one picture per tile name, of every box labelled with it. A wrong label is
+the odd one out, and `lists.txt` beside the sheets names each crop's file so you can fix it in Roboflow:
+
+```
+python scripts/label_sheets.py data/detector/exam_20261104_mat_all             # into <folder>_sheets/
+python scripts/label_sheets.py data/detector/exam_20261104_mat_all --names 2C,3C --out /tmp/sheets
+```
 
 **3. Mining and retraining.** `mine_frames.py` picks the frames worth labelling: a tile whose name
 changed across a scan's 5 frames (flicker), a tile seen in some frames and not others (dropout), a

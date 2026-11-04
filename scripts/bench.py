@@ -639,6 +639,10 @@ class Bench:
             self.session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
         return result
 
+    def at_hover(self, spot, attempt):
+        """The arm is over the tile and the policy hasn't started: False calls the pickup off (play's name check)."""
+        return True
+
     def snapshot(self, path):
         cv2.imwrite(str(path), self.realsense.snapshot())
 
@@ -685,6 +689,10 @@ class Bench:
         hover = self.hover_over(tile, perturb)
         if hover is None:
             self.keys.stop()
+            return None
+        if not self.at_hover(spot, attempt):
+            self.keys.stop()
+            self.arm.rest()
             return None
         self.abort.clear()
         run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
