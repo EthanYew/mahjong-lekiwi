@@ -295,6 +295,109 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
     assert chosen and "9C" in chosen[0] and "NW" not in chosen[0]
 
 
+def test_a_marker_that_moved_stops_play_with_the_turn_already_saved(tmp_path, monkeypatch):
+    """Its message says --resume, which reads the checkpoint: a turn not saved would be played again on a tile already moved."""
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state.update(phase="place", vacated="H12", discard_slot="H12", discard={"tile_name": "RD", "shanten_after": 1}, drawn=None)
+    p.state["discards"].append("RD")
+    p.save()
+
+    def marker_moved():
+        raise SystemExit("The drop-zone marker moved")
+    monkeypatch.setattr(p, "check_zone", marker_moved)
+    with pytest.raises(SystemExit):
+        p.finish_turn("RD", "H12")
+    p.close()
+    saved = json.loads((p.session.dir / "checkpoint.json").read_text())
+    assert (saved["phase"], saved["turn"]) == ("draw", 1) and "vacated" not in saved
+
+
+def drawn_reading_differently(p, phase, drawn="GD", now_reads="9B"):
+    """A settled drawn tile, on the zone, whose votes have since moved to another name."""
+    p.bench.arm.rest()
+    p.register()
+    p.mat.tiles.append({"tile_name": now_reads, "xy": list(p.zone["xy"])})
+    p.state.update(phase=phase, drawn=drawn, vacated="H12")
+    p.votes.known("zone", now_reads)
+
+
+def test_a_drawn_tile_corrected_before_its_discard_is_chosen_from_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "discard")
+    assert p.pick("zone", "GD") is False                # it's another tile: the caller chooses again
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def test_a_drawn_tile_corrected_on_its_way_to_a_slot_carries_on_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "place")
+    assert p.pick("zone", "GD") is True
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def over_counted(tmp_path, monkeypatch, ask, discards, drawn=None, hand=None):
+    """A registered hand holding too many of a tile. A check_counts that stops asking would loop for ever: fail instead."""
+    p = player(tmp_path, monkeypatch, ask)
+    p.bench.arm.rest()
+    p.register()
+    p.state.update(discards=discards, drawn=drawn)
+    p.state["hand"].update(hand or {})
+    if drawn:
+        p.votes.known("zone", drawn)
+    recount, calls = p.recount, []
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        assert len(calls) < 5, "check_counts is going round for ever"
+        return recount(*args, **kwargs)
+    monkeypatch.setattr(p, "recount", counted)
+    return p
+
+
+def test_five_of_a_tile_none_of_them_in_the_hand_asks_about_the_drawn_one(tmp_path, monkeypatch):
+    p = over_counted(tmp_path, monkeypatch, Answers("9B"), ["GD"] * 4, drawn="GD")
+    p.check_counts()
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def test_too_many_of_a_tile_can_be_settled_by_correcting_the_drawn_one(tmp_path, monkeypatch):
+    p = over_counted(tmp_path, monkeypatch, Answers("", "9B"), ["GD"] * 3, drawn="GD", hand={"H1": "GD"})
+    p.check_counts()
+    p.close()
+    assert (p.state["hand"]["H1"], p.state["drawn"]) == ("GD", "9B")
+    assert not [i for i in interventions_of(p) if i["kind"] == "count_unresolved"]
+
+
+def test_a_person_who_keeps_every_name_ends_the_count_check_and_isnt_asked_again(tmp_path, monkeypatch):
+    # the misread one is a discard, already in the bin: nothing a person types at the hand can fix it
+    ask = Answers()
+    p = over_counted(tmp_path, monkeypatch, ask, ["GD"] * 4, hand={"H1": "GD"})
+    p.check_counts()
+    asked = len(ask.prompts)
+    p.check_counts()
+    p.close()
+    assert len(ask.prompts) == asked == 1
+    assert [i["names"] for i in interventions_of(p) if i["kind"] == "count_unresolved"] == [["GD"]]
+
+
+def test_a_turn_goes_on_the_drawn_name_the_count_check_left(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    monkeypatch.setattr(p, "check_counts", lambda: p.state.update(drawn="NW"))
+    chosen = []
+    choose = __import__("mahjong.game").game.choose_discard
+    monkeypatch.setattr("mahjong.game.choose_discard", lambda hand, drawn, seen: chosen.append(drawn) or choose(hand, drawn, seen))
+    p.turn()
+    p.close()
+    assert chosen[0] == "NW"
+
+
 # --- a person's word holds until the tile moves ---
 
 def reads_nw_as_ww(p, monkeypatch, moved_m=0.0, after_scans=3):

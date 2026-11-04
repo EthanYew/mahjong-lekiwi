@@ -468,14 +468,22 @@ class Player:
         self.save()
 
     def check_counts(self):
-        """More than 4 of a tile among the hand, the drawn tile and the discards: one is misread."""
-        names = list(self.state["hand"].values()) + self.state["discards"] + \
-            ([self.state["drawn"]] if self.state["drawn"] else [])
-        while extra := game.too_many(names):
-            print(f"More than 4 of {', '.join(extra)}: one is misread.")
-            self.recount([slot for slot, n in self.state["hand"].items() if n in extra], why=f"More than 4 of {', '.join(extra)}")
-            names = list(self.state["hand"].values()) + self.state["discards"] + \
-                ([self.state["drawn"]] if self.state["drawn"] else [])
+        """More than 4 of a tile among the hand, the drawn tile and the discards: one is misread, and a person checks the ones
+        still on the mat. It may be a discard, already in the bin, so if they change nothing their word stands (logged), and
+        those names aren't brought up again: asking until the count came right left no way on but a false answer."""
+        s = self.state
+        while extra := [name for name in game.too_many([*s["hand"].values(), *s["discards"], *([s["drawn"]] if s["drawn"] else [])])
+                        if name not in s.get("count_accepted", [])]:
+            why = f"More than 4 of {', '.join(extra)}"
+            print(f"{why}: one is misread.")
+            before = dict(s["hand"]), s["drawn"]
+            self.recount([slot for slot, n in s["hand"].items() if n in extra], why=why)
+            if s["drawn"] in extra:
+                s["drawn"] = self.ask_name(ZONE, why)
+            if (s["hand"], s["drawn"]) == before:
+                print(f"  Going on your word: {', '.join(extra)} may have a misread discard.")
+                self.session.intervention("count_unresolved", names=extra)
+                s["count_accepted"] = [*s.get("count_accepted", []), *extra]
 
     def recount(self, slots, seen=None, why=None):
         """A person checks slots the table and the robot disagree on: Enter for each keeps the robot's
@@ -628,7 +636,9 @@ class Player:
             # the last check before a tile goes in the bin: the votes there must still be for it
             if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None) and not self.word_holds(slot, name):
                 if slot == ZONE:
-                    now = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
+                    now = self.state["drawn"] = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
+                    if self.state["phase"] != "discard":
+                        name = now      # going to a slot, not the bin: it carries on under its new name (as second_read)
                 else:
                     self.recount([slot])
                     now = self.state["hand"][slot]
@@ -689,7 +699,7 @@ class Player:
             self.check_hand()
             self.check_counts()
             self.end_step()
-            hand13 = [s["hand"][x["id"]] for x in self.slots]       # a person may have just corrected it
+            hand13, drawn = [s["hand"][x["id"]] for x in self.slots], s["drawn"]    # a person may have just corrected them
             if game.is_win(hand13 + [drawn]):
                 print(f"Drew {drawn}: the hand is complete. Win!")
                 s["history"].append({"turn": s["turn"] + 1, "drawn": drawn, "win": True})
@@ -750,9 +760,9 @@ class Player:
         s["phase"] = "draw"
         for key in ("discard_slot", "discard", "vacated"):
             s.pop(key, None)
+        self.save()                     # before anything that can stop play: --resume starts from this
         self.end_step()
         self.check_zone()
-        self.save()
         return None
 
     # --- the end of the hand ---

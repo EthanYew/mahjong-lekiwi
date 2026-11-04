@@ -29,7 +29,7 @@ import numpy as np
 
 from . import config
 from .hover_correction import setup_fingerprint
-from .layout import FACE_MAX_S, FACE_MIN_V, table_to_pixel, wrap_yaw
+from .layout import FACE_MAX_S, table_to_pixel, wrap_yaw
 
 REFERENCE_DIR = config.DATA / "setup_reference"
 

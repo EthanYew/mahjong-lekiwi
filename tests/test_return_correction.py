@@ -69,6 +69,13 @@ def test_landed_tile_prefers_the_same_name_nearest_home():
     assert landed_tile(tiles, "8D", [0.2, 0.2]) is None
 
 
+def test_a_misread_landing_isnt_lost_to_another_copy_of_the_name_across_the_mat():
+    # 20261104_195901_bench: a 2C carried to S1 read 3C 3mm from home, and a real 2C 104mm away took the name match
+    tiles = [{"tile_name": "3C", "xy": (0.189, 0.139)}, {"tile_name": "2C", "xy": (0.187, 0.037)},
+             {"tile_name": "2C", "xy": (0.428, -0.151)}]
+    assert landed_tile(tiles, "2C", [0.192, 0.141])["tile_name"] == "3C"
+
+
 def test_landings_pair_each_return_with_its_after_return_scan():
     attempt = {"type": "attempt", "tile": "8D", "attempt_dir": "001", "detection_xy": [0.2, 0.0],
                "hover_xy": [0.23, 0.01], "grasp_xy": [0.235, 0.012], "policy": "p"}

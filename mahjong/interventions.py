@@ -23,6 +23,7 @@ for the neighbours too; a person checks them afterwards (mahjong/bump_report.py:
 import json
 import math
 from collections import Counter
+from functools import lru_cache
 
 from . import config, kinematics, session
 
@@ -68,6 +69,7 @@ KINDS = {
     "name_asked": ("said what a tile is: the robot wasn't sure of its name", ASK),
     "zone_asked": ("put the drawn tile on the drop zone again: none was seen there", ASK),
     "recount": ("checked the hand: the table didn't match what the robot thought it held", ASK),
+    "count_unresolved": ("kept every name though more than 4 of a tile were counted: a discard may be misread", ASK),
     "pickup_failed": ("moved a tile by hand: the robot couldn't pick it up after its retries", RESCUE),
     "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
     "zone_unchecked": ("played before the bench checked a pickup on the drop zone (--skip-zone-test)", OBSERVATION),
@@ -159,11 +161,17 @@ def ask_scan(scan, proposal, ask=None):
 
 # --- what changed on the mat between two scans ---
 
+@lru_cache(maxsize=4096)
+def _reachable_mm(x_mm, y_mm):
+    return kinematics.hover_command(x_mm / 1000, y_mm / 1000, config.HOVER_OFFSET_M, config.HOVER_GRIPPER)[0] is not None
+
+
 def on_mat(tile):
     """Within the arm's reach. Detections beyond it are phantoms or tiles off the workspace
-    (2026-10-23: an 8D at (0.478, +0.232) came and went)."""
+    (2026-10-23: an 8D at (0.478, +0.232) came and went). To the mm, cached: the same tiles are checked in every scan, and
+    the IK was nearly all of status.py's time."""
     x, y = tile["xy"]
-    return kinematics.hover_command(x, y, config.HOVER_OFFSET_M, config.HOVER_GRIPPER)[0] is not None
+    return _reachable_mm(round(x * 1000), round(y * 1000))
 
 
 def scene_diff(before, after, ignore=(), radius_m=config.TILE_MERGE_RADIUS_M, moved_m=KNOCK_M, turn_px=TURN_PX):

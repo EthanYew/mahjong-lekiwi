@@ -1,3 +1,6 @@
+import json
+import math
+
 import cv2
 import numpy as np
 import pytest
@@ -62,6 +65,47 @@ def bench_session(sessions, name, spot_xy, success=True, landed=True, carried_mm
             events.append({"type": "return_landed", "attempt_dir": "002_carry", "error_m": carried_mm / 1000,
                            "carried": True, "from_xy": spot_xy})
     (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def carry_session(sessions, name, zone, home, scan):
+    """A real carry's log, in the order bench.py writes it: the after-return scan, then a landing logged as not seen."""
+    folder = sessions / f"{name}_bench"
+    folder.mkdir(parents=True)
+    events = [{"type": "session_start"},
+              {"type": "attempt", "tile": "2C", "attempt_dir": "001_x", "detection_xy": zone, "hover_xy": zone,
+               "spot": "S14", "spot_xy": zone, "success": True},
+              {"type": "return", "attempt_dir": "001_x", "xy": home, "home_xy": home},
+              {"type": "detections", "label": "after_return", "tiles": scan},
+              {"type": "return_landed", "tile": "2C", "attempt_dir": "001_x", "home_xy": home, "landed_xy": None,
+               "carried": True, "from_xy": zone}]
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def test_a_landing_logged_as_not_seen_is_scored_again_from_its_scan(tmp_path):
+    # 20261104_195901_bench: logged as not seen, while the scan shows it 3mm from home under another name
+    home = [0.192, 0.141]
+    scan = [{"tile_name": "3C", "xy": [0.189, 0.139]}, {"tile_name": "2C", "xy": [0.187, 0.037]}]
+    carry_session(tmp_path, "20261104_195901", ZONE, home, scan)
+    assert markers.carried_from(ZONE, tmp_path) == pytest.approx([math.dist([0.189, 0.139], home)])
+
+
+def test_a_landing_with_nothing_near_home_stays_not_seen_and_says_so(tmp_path):
+    carry_session(tmp_path, "20261104_100000", ZONE, [0.192, 0.141], [{"tile_name": "2C", "xy": [0.187, 0.037]}])
+    carry_session(tmp_path, "20261104_110000", ZONE, [0.192, 0.141], [])
+    assert markers.carried_from(ZONE, tmp_path) == [math.inf, math.inf]
+    result = markers.zone_test(ZONE, HAND, HAND + [{"id": "S14", "xy": ZONE}], sessions_dir=tmp_path)
+    problem = next(p for p in result["problems"] if "carried" in p)
+    assert "inf" not in problem and "2 not seen" in problem
+
+
+def test_a_simulated_bench_doesnt_check_the_real_zone(tmp_path):
+    folder = tmp_path / "20261104_100000_bench"
+    folder.mkdir()
+    events = [{"type": "session_start", "sim": True},
+              {"type": "attempt", "spot_xy": ZONE, "success": True, "attempt_dir": "001_x"},
+              {"type": "return_landed", "attempt_dir": "001_x", "error_m": 0.0}]
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert markers.benched_at(ZONE, tmp_path) == (0, 0, 0)
 
 
 def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(tmp_path):

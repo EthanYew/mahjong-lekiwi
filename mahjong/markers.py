@@ -25,6 +25,7 @@ import numpy as np
 from . import config
 from .hover_correction import setup_fingerprint
 from .layout import pixel_to_table
+from .return_correction import landings
 from .session import read_events
 
 DRAWN_TILE_MARKER_ID = 3
@@ -89,11 +90,13 @@ def moved(zone, xy, limit_m=ZONE_MOVED_M):
 
 def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     """Bench attempts at a layout spot within radius_m of xy, over every bench session: (attempts, picked up,
-    returns whose landing was scanned)."""
+    returns whose landing was scanned). A simulated bench says nothing about the real zone."""
     attempts = picked = returned = 0
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        here = [e for e in events if e["type"] == "attempt" and e.get("spot_xy")
+        if any(e["type"] == "session_start" and e.get("sim") for e in events):
+            continue
+        here =[e for e in events if e["type"] == "attempt" and e.get("spot_xy")
                 and math.dist(e["spot_xy"], xy) <= radius_m]
         held = {e.get("attempt_dir") for e in here if e.get("success")} - {None}
         attempts += len(here)
@@ -104,15 +107,18 @@ def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
 
 def carried_from(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     """How far from home each tile carried from xy landed, in real bench sessions (bench.py --carry): metres, inf where
-    the scan didn't find it. Landings from before carried tiles had their own aim, or a person's hands in, don't count."""
+    the scan didn't find it. Landings from before carried tiles had their own aim, or a person's hands in, don't count. One
+    logged as not seen is scored again from its scan, with today's matching (a misread once lost a landing, nearest_tile)."""
     errors = []
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
         if any(e["type"] == "session_start" and e.get("sim") for e in events):
             continue
-        errors += [e["error_m"] if e.get("error_m") is not None else math.inf for e in events
-                   if e["type"] == "return_landed" and e.get("carried") and not e.get("by_hand")
-                   and math.dist(e["from_xy"], xy) <= radius_m]
+        scored = {r["attempt_dir"]: r["error_m"] for r in landings(events)}
+        for e in events:
+            if e["type"] == "return_landed" and e.get("carried") and not e.get("by_hand") and math.dist(e["from_xy"], xy) <= radius_m:
+                error = e["error_m"] if e.get("error_m") is not None else scored.get(e["attempt_dir"])
+                errors.append(math.inf if error is None else error)
     return errors
 
 
@@ -148,8 +154,10 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
     landed = carried_from(zone_xy, sessions_dir)
     median_mm = statistics.median(landed) * 1000 if landed else None
     if len(landed) < CARRY_MIN_LANDINGS or median_mm > config.RETURN_DRIFT_WARN_M * 1000:
+        unseen = sum(math.isinf(error) for error in landed)
         problems.append(f"tiles carried from the drop zone to a slot on the bench: {len(landed)} landed"
-                        + (f", median {median_mm:.0f}mm from home" if landed else "")
+                        + (f", {unseen} not seen near home by the scan after" if unseen else "")
+                        + (f", median {median_mm:.0f}mm from home" if landed and not math.isinf(median_mm) else "")
                         + f" (needs {CARRY_MIN_LANDINGS}+, median {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm or less)")
         from_id = (spot or closest or {"id": "S13"})["id"]
         fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2 --carry {from_id},{play_spots[0]['id']}"

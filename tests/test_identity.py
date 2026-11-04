@@ -5,6 +5,13 @@ def tile(name, confidence=0.9, votes=None):
     return {"tile_name": name, "confidence": confidence, **({"votes": votes} if votes else {})}
 
 
+def test_a_tile_seen_with_no_read_of_its_name_counts_for_nothing():
+    v = Votes()
+    v.add(0, tile("2C", confidence=0.0))        # what bench.scan returns for a tile only the wrist camera saw
+    assert v.leader(0) == ("2C", 0.0, 1)
+    assert v.sure(0, min_scans=1) is None and v.rivals(0, "3C") == []
+
+
 def test_one_scan_isnt_enough_and_a_split_read_isnt_sure():
     v = Votes()
     v.add(0, tile("8C"))

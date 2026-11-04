@@ -212,6 +212,15 @@ def test_status_says_when_nothing_is_scored(tmp_path):
     assert "no scored placements" in name_ledger.worst_line(tmp_path)
 
 
+def test_status_says_when_the_live_detector_isnt_the_one_scored(tmp_path, monkeypatch):
+    monkeypatch.setattr(name_ledger, "load", lambda sessions_dir: ([{"weights": "old@1", "surface": "mat"}], None, None))
+    monkeypatch.setattr(name_ledger, "rows", lambda placements: [])
+    monkeypatch.setattr(name_ledger.detector, "weights_id", lambda: "new@2")
+    assert "live detector new@2 has no scored placements yet" in name_ledger.worst_line(tmp_path, surface="mat")
+    monkeypatch.setattr(name_ledger.detector, "weights_id", lambda: "old@1")
+    assert "live detector" not in name_ledger.worst_line(tmp_path, surface="mat")
+
+
 def test_the_guard_shows_beside_what_the_votes_alone_would_do(tmp_path):
     write_session(tmp_path, "20261103_121112_bench", [
         scan(1, [("4B", XY)]), attempt("001_1_NW"), scan(2, [("4B", XY)], "after_return")])
