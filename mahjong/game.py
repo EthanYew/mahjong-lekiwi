@@ -126,22 +126,41 @@ def copies_left(hand_counts, visible=()):
     return [max(0, COPIES - h - s) for h, s in zip(hand_counts, seen)]
 
 
-def ukeire(names13, visible=()):
-    """(kinds, tiles, base shanten) for a 13-tile hand: the kinds of draw that lower its shanten, and how
-    many copies of them are left."""
+def improving_tiles(names13, visible=()):
+    """[(name, copies left)] for each kind of draw that lowers a 13-tile hand's shanten. On a ready hand
+    (shanten 0) these are exactly the tiles that win."""
     c = counts(names13)
     base = shanten(c)
     left = copies_left(c, visible)
-    kinds = tiles = 0
+    out = []
     for k in range(34):
         if c[k] >= COPIES:
             continue
         c[k] += 1
         if shanten(c) < base:
-            kinds += 1
-            tiles += left[k]
+            out.append((NAMES[k], left[k]))
         c[k] -= 1
-    return kinds, tiles, base
+    return out
+
+
+def ukeire(names13, visible=()):
+    """(kinds, tiles, base shanten) for a 13-tile hand: the kinds of draw that lower its shanten, and how
+    many copies of them are left."""
+    tiles = improving_tiles(names13, visible)
+    return len(tiles), sum(left for _, left in tiles), shanten(counts(names13))
+
+
+def seeking(names13, visible=()):
+    """What a 13-tile hand is after, in words a person can check against the table."""
+    away = shanten(counts(names13))
+    tiles = improving_tiles(names13, visible)
+    listed = ", ".join(f"{name} ({left} left)" for name, left in tiles)
+    total = sum(left for _, left in tiles)
+    if away > 0:
+        return f"{away} from ready (shanten {away}). Draws that get closer: {listed}: {total} tiles left"
+    if not tiles:
+        return "Ready (shanten 0), but no tile can complete it: it holds every copy of what it needs"
+    return f"Ready (shanten 0). Wins on: {listed}: {total} tiles left"
 
 
 def is_win(names14):

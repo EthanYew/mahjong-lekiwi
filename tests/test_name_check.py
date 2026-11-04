@@ -317,6 +317,115 @@ def test_a_drawn_problem_read_is_asked_about_even_when_the_wrist_agrees(tmp_path
     assert [a["slot"] for a in asked] == ["zone"] and "wrist camera reads 7C (0.90)" in asked[0]["why"]
 
 
+def drawn_player(tmp_path, monkeypatch, answers=("GD",), wrong=None, **fields):
+    """At the draw, with a reader, GD drawn and its reads on the mat changed by `fields`."""
+    p = player(tmp_path, monkeypatch, Answers(*answers))
+    reader_for(p, monkeypatch, wrong)
+    p.draws = ["GD"]
+    detect = p.mat.detect_tiles
+
+    def changed(n_frames=None):
+        return [{**t, **fields} if t["tile_name"] == "GD" else t for t in detect(n_frames)]
+    p.mat.detect_tiles = changed
+    p.bench.arm.rest()
+    return p
+
+
+def drawn_asked(p):
+    """Draw the tile, and the one question about it."""
+    assert p.wait_for_draw() == "GD"
+    p.close()
+    (asked,) = [i for i in interventions_of(p) if i["kind"] == "name_asked"]
+    assert asked["slot"] == "zone"
+    return asked
+
+
+def test_split_votes_on_a_drawn_tile_get_a_look_before_the_question(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, votes={"GD": 0.6, "RD": 0.3})   # P32, P51 of 20261104_183142_play
+    asked = drawn_asked(p)
+    assert "Not sure of the drawn tile" in asked["why"] and "wrist camera reads GD (0.90)" in asked["why"]
+    assert (checks_of(p)[0]["slot"], checks_of(p)[0]["read"]) == ("zone", "GD")
+
+
+def test_a_faint_drawn_read_gets_a_look_before_the_question(tmp_path, monkeypatch):
+    asked = drawn_asked(drawn_player(tmp_path, monkeypatch, confidence=0.6))
+    assert "0.60 confidence" in asked["why"] and "wrist camera reads GD (0.90)" in asked["why"]
+
+
+def test_a_look_at_a_drawn_tile_shows_a_disagreement_and_doesn_t_name_it(tmp_path, monkeypatch):
+    asked = drawn_asked(drawn_player(tmp_path, monkeypatch, wrong={"GD": "RD"}, confidence=0.6))
+    assert "wrist camera reads RD (0.90)" in asked["why"] and asked["answer"] == "GD"
+
+
+def test_a_sure_drawn_tile_isn_t_asked_about_or_looked_at_before_its_pickup(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, answers=())
+    assert p.wait_for_draw() == "GD"
+    p.close()
+    assert not checks_of(p) and not interventions_of(p)
+
+
+def test_the_arm_rests_after_a_look_at_a_drawn_tile(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, confidence=0.6)
+    rests = []
+    rest = p.bench.arm.rest
+    monkeypatch.setattr(p.bench.arm, "rest", lambda *a, **k: (rests.append(1), rest(*a, **k))[1])
+    drawn_asked(p)
+    assert rests and p.hovering is False
+
+
+def test_a_drawn_tile_out_of_reach_of_the_look_says_so_in_the_question(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, confidence=0.6)
+    monkeypatch.setattr(p.bench, "hover_over", lambda tile: None)
+    assert "No read from the wrist camera" in drawn_asked(p)["why"]
+
+
+def test_without_a_reader_a_drawn_question_has_no_look(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, confidence=0.6)
+    p.reader = None
+    assert "wrist" not in drawn_asked(p)["why"].lower() and not checks_of(p)
+
+
+def lose_camera(p, monkeypatch, reads):
+    """The wrist camera gives nothing for `reads` reads. Returns the list that counts its reopens."""
+    import play
+    grab, reopened, left = play.grab_frames, [], [reads]
+
+    def flaky(camera, n):
+        if left[0]:
+            left[0] -= 1
+            return []
+        return grab(camera, n)
+    monkeypatch.setattr(play, "grab_frames", flaky)
+    monkeypatch.setattr(p.bench, "reopen_camera", lambda: reopened.append(1))
+    return reopened
+
+
+def test_a_lost_camera_is_reopened_and_the_look_still_happens(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, confidence=0.6)
+    reopened = lose_camera(p, monkeypatch, 1)
+    asked = drawn_asked(p)
+    assert reopened == [1] and "wrist camera reads GD (0.90)" in asked["why"] and checks_of(p)[0]["read"] == "GD"
+
+
+def test_a_camera_that_stays_lost_says_so_in_the_question(tmp_path, monkeypatch):
+    p = drawn_player(tmp_path, monkeypatch, confidence=0.6)
+    reopened = lose_camera(p, monkeypatch, 2)
+    asked = drawn_asked(p)
+    assert reopened == [1] and "No read from the wrist camera" in asked["why"] and checks_of(p)[0]["read"] is None
+
+
+def test_a_reopen_at_the_hover_gives_the_terminal_back_for_its_prompt(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    terminal, calls = p.bench.terminal, []
+    terminal.running.set()
+    monkeypatch.setattr(terminal, "stop", lambda: (calls.append("stop"), terminal.running.clear()))
+    monkeypatch.setattr(terminal, "start", lambda: calls.append("start"))
+    monkeypatch.setattr(p.bench, "reopen_camera", lambda: calls.append("reopen"))
+    p.reopen_camera()
+    assert calls == ["stop", "reopen", "start"]
+    p.close()
+
+
 def test_read_hand_doesn_t_look_twice_at_a_problem_read(tmp_path, monkeypatch):
     hand_with(monkeypatch, "7C")
     p = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--read-hand"))

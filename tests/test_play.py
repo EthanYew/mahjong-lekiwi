@@ -64,6 +64,17 @@ def test_a_sim_hand_plays_to_a_clean_win(tmp_path, monkeypatch):
     assert p.session.dir.name.endswith("_play")
 
 
+def test_every_turn_says_which_tiles_it_is_after(tmp_path, monkeypatch, capsys):
+    p = player(tmp_path, monkeypatch, Answers())
+    assert run(p) == "clean"
+    out = capsys.readouterr().out
+    assert "=== Turn 1 ===" in out and "Wins on: " in out
+    chosen = [e for e in events_of(p) if e["type"] == "discard_chosen"]
+    assert chosen and all(e["seeking"] for e in chosen)
+    for e in chosen:                                    # the log's list and the choice's count are the same tiles
+        assert (len(e["seeking"]), sum(left for _, left in e["seeking"])) == (e["ukeire_kinds"], e["ukeire_tiles"])
+
+
 def test_an_unsure_drawn_tile_is_asked_not_guessed(tmp_path, monkeypatch):
     ask = Answers("", "9B")
     p = player(tmp_path, monkeypatch, ask)
@@ -333,12 +344,12 @@ def test_the_picture_has_the_wrist_view_beside_the_mat_when_the_arm_has_looked(t
     import numpy as np
     from mahjong import hand_view, sim
     mat = sim.SimPerception()
-    tiles = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C", "unsure": True}, {"id": "zone", "xy": [0.25, 0.0], "name": None}]
+    tiles = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C"}, {"id": "zone", "xy": [0.25, 0.0], "name": None}]
     overview = mat.snapshot()
     alone = hand_view.compose(overview, tiles, "x " * 200, mat.intrinsics, mat.T_cam_to_base, focus="S1")
     wrist = np.zeros((480, 640, 3), np.uint8)
     beside = hand_view.compose(overview, tiles, "short", mat.intrinsics, mat.T_cam_to_base, focus="S1", wrist=wrist)
-    assert alone.shape[1] <= overview.shape[1] and beside.shape[1] == alone.shape[1] + hand_view.PANEL_PX
+    assert alone.shape[1] <= hand_view.PICTURE_FIT_PX[0] and beside.shape[1] == alone.shape[1] + hand_view.PANEL_PX
     long, short = (hand_view.compose(overview, tiles, c, mat.intrinsics, mat.T_cam_to_base) for c in ("x " * 200, "short"))
     assert long.shape[0] > short.shape[0]           # a long caption wraps onto more lines
 
@@ -389,3 +400,112 @@ def test_a_window_that_died_doesn_t_stop_the_hand(capsys):
     window.show(big)
     window.close()
     assert "window is gone" in capsys.readouterr().out
+
+
+def recording_compose(monkeypatch):
+    """What each picture was asked to show: [(tiles, focus)]."""
+    from mahjong import hand_view
+    composed, compose = [], hand_view.compose
+
+    def record(overview, tiles, *args, **kwargs):
+        composed.append((tiles, kwargs.get("focus")))
+        return compose(overview, tiles, *args, **kwargs)
+    monkeypatch.setattr(hand_view, "compose", record)
+    return composed
+
+
+def test_the_hand_check_marks_a_tile_the_votes_were_sure_of_with_what_else_it_could_be(tmp_path, monkeypatch):
+    """The real case: S9's 5C read as 9C at 0.91 of the votes, 20261104_164541_play. Nothing asked, and nothing pointed at it."""
+    from mahjong import hand_view
+    p = player(tmp_path, monkeypatch, Answers())
+    p.view = Shown()
+    p.bench.arm.rest()
+    p.register()
+    p.votes.totals["H1"]["5C"] = 1.8                    # H1's 1D has about 14 from the sim's 3 scans
+    composed = recording_compose(monkeypatch)
+    p.confirm_hand()
+    p.close()
+    tiles = {t["id"]: t for t in composed[-1][0]}
+    assert tiles["H1"]["could_be"] == ["5C"] and "scans also read 5C" in tiles["H1"]["why"]
+    assert not tiles["H2"].get("why")                   # the rest aren't marked
+    assert hand_view.suspected(tiles["H1"]) == "1D or 5C" and hand_view.suspected(tiles["H2"]) == "2D"
+    assert not [i for i in interventions_of(p) if i["kind"] in ("name_asked", "recount")]       # the marks ask nothing
+
+
+def test_a_review_of_several_tiles_shows_them_all_from_the_first_question(tmp_path, monkeypatch):
+    """The recount at each turn of 20261104_183142_play asked about S5 and S9 in turn, with only the one on screen."""
+    p = player(tmp_path, monkeypatch, Answers("", ""))
+    p.view = Shown()
+    p.bench.arm.rest()
+    p.register()
+    p.set_name("H1", "1D", typed=False)
+    p.votes.totals["H1"]["9C"] = 20.0
+    p.votes.totals["H2"]["9B"] = 30.0
+    composed = recording_compose(monkeypatch)
+    p.recount(["H1", "H2"])
+    p.close()
+    (first, focus), (second, then) = composed
+    assert (focus, then) == ("H1", "H2")
+    marked = {t["id"]: t for t in first if t.get("why")}
+    assert set(marked) == {"H1", "H2"} and marked["H1"]["could_be"] == ["9C"] and marked["H2"]["could_be"] == ["9B"]
+    assert marked["H1"]["why"].startswith("you said 1D")    # a person's earlier answer is on screen
+    assert {t["id"] for t in second if t.get("why")} == {"H1", "H2"}
+
+
+def test_a_tile_a_person_has_checked_isn_t_marked_for_being_on_the_list(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state["hand"]["H1"] = "7C"
+    assert "misread" in p.attention("H1")["why"]
+    p.set_name("H1", "7C", typed=True)
+    assert p.attention("H1") == {}
+    p.close()
+
+
+def test_the_wrist_camera_s_word_goes_with_the_mark(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state["hand"]["H1"] = "7C"
+    p.wrist_seen["H1"] = {"frame": None, "read": {"name": "7C", "confidence": 0.97}}
+    assert "wrist camera agrees (0.97)" in p.attention("H1")["why"]
+    p.wrist_seen["H1"] = {"frame": None, "read": {"name": "8C", "confidence": 0.9}}
+    found = p.attention("H1")
+    assert found["why"].startswith("wrist camera reads 8C (0.90)") and found["could_be"][0] == "8C"
+    p.wrist_seen["H2"] = {"frame": None, "read": {"name": "2D", "confidence": 0.97}}
+    assert p.attention("H2") == {}                          # agreeing about a tile nothing's wrong with says nothing
+    p.close()
+
+
+def test_every_list_entry_names_the_tiles_misread_as_it():
+    from mahjong import game, identity
+    for read in identity.ALWAYS_ASK_READS:
+        found = identity.misread_from(read)
+        assert found and read not in found and all(game.is_playable(name) for name in found)
+    assert identity.misread_from("2C") == ["3C"]            # "by detector v7x3 at up to 0.96" names no tile
+    assert identity.misread_from("1D") == []
+
+
+def test_only_a_review_dims_the_mat_and_its_list_says_why():
+    import numpy as np
+    from mahjong import hand_view, sim
+    mat = sim.SimPerception()
+    plain = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C"}, {"id": "S2", "xy": [0.15, 0.06], "name": "1D"}]
+    marked = [{**plain[0], "why": "scans also read 9C (9%)", "could_be": ["9C", "3C"]}, plain[1]]
+    overview = np.full((480, 848, 3), 200, np.uint8)
+    quiet = hand_view.compose(overview, plain, "q", mat.intrinsics, mat.T_cam_to_base)
+    loud = hand_view.compose(overview, marked, "q", mat.intrinsics, mat.T_cam_to_base)
+    assert quiet[-1, 0].max() == 200                        # nothing marked: no list, the mat as bright as it was
+    assert loud.shape[0] > quiet.shape[0]                   # a list under the picture
+    assert hand_view.attention_list(marked, focus="S1") == [("> S1: 5C or 9C, 3C. scans also read 9C (9%)", hand_view.FOCUS)]
+    assert hand_view.suspected(marked[0]) == "5C or 9C"     # the picture has room for one; the list has them all
+    assert hand_view.suspected(plain[0]) == "5C"
+
+
+def test_a_detection_s_box_outlines_the_tile_and_a_tile_with_none_is_projected():
+    from mahjong import hand_view, sim
+    mat = sim.SimPerception()
+    box = hand_view.outline_of({"box": (100, 200, 20, 30), "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base)
+    assert box.tolist() == [[90, 185], [110, 185], [110, 215], [90, 215]]
+    assert hand_view.outline_of({"box": None, "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base).shape == (4, 2)
