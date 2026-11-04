@@ -131,7 +131,8 @@ def off_standard(events, standard=None):
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
     return ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
-        + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else [])
+        + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
+        + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else [])
 
 
 def iteration_check(events, baseline, candidate, found=None):
