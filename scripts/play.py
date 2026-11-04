@@ -30,7 +30,8 @@ A read that other tiles get misread as (identity.ALWAYS_ASK_READS) gets the wris
 the hand, agreement drops that question, because of the next step: before the first draw you check all 13 against the table, and
 can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about.
 Any question about a drawn tile, whatever made it uncertain (split votes, a faint read, the ask list), gets that look first, with the
-wrist read in the question and its view in the window. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about.
+wrist read in the question and its view in the window. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about. The RealSense reads tiles only with the
+arm at rest, and while the arm is over the mat the window shows the latest scan's frame, not a live one, beside the wrist view.
 
 Built on the bench (scripts/bench.py): the same hover, policy, scans before and after every pickup,
 return and discard, homes, return correction and landing check, discard pose and session folder
@@ -59,6 +60,7 @@ REGISTER_SCANS = 3          # scans when registering the hand (each 5 frames): v
 DRAWN_SCANS = 3             # scans of a drawn tile before asking its name
 RETRIES = 2                 # re-scanned pickup retries before a person is asked to move the tile
 HAND_SLOTS = game.HAND_SIZE
+CLEAR_VIEW_NOTE = "[mat from before the arm moved]"
 
 # --sim: two rows of hand slots 57mm apart (Arm.place assumes tiles sit 57mm+ apart; 13 in one row
 # won't fit the reach), the drop zone beyond the second row, and a hand that wins on the 3rd draw
@@ -78,7 +80,9 @@ class PlayBench(bench.Bench):
         super().__init__(args)
 
     def scan(self, label, confirmed=None, **fields):
+        self.arm.rest()         # the RealSense reads tiles only with the arm out of its view (nothing if it's there already)
         tiles = super().scan(label, confirmed, **fields)
+        self.player.clear_view = self.realsense.snapshot()
         self.player.observe(tiles)
         return tiles
 
@@ -112,6 +116,7 @@ class Player:
         self.placements = self.bench.placements
         self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
         self.hovering = False           # a look before asking left the arm over the mat
+        self.clear_view = None          # the RealSense frame from the latest scan: the mat with the arm at rest, for when it isn't
         if args.sim:
             self.mat = self.bench.realsense
             self.mat.tiles = [{"tile_name": n, "xy": list(s["xy"])} for n, s in zip(SIM_HAND, self.slots)]
@@ -197,8 +202,16 @@ class Player:
                  for slot in [s["id"] for s in self.slots] + [ZONE]]
         realsense = self.bench.realsense
         wrist = self.wrist_seen.get(focus)
-        self.view.show(hand_view.compose(realsense.snapshot(), tiles, caption, realsense.intrinsics, realsense.T_cam_to_base,
-                                         focus=focus, wrist=wrist["frame"] if wrist else None))
+        overview, note = self.mat_view()
+        self.view.show(hand_view.compose(overview, tiles, f"{caption} {note}" if note else caption, realsense.intrinsics,
+                                         realsense.T_cam_to_base, focus=focus, wrist=wrist["frame"] if wrist else None))
+
+    def mat_view(self):
+        """The RealSense picture for the window, and a note if it isn't live. With the arm over the mat a live frame shows it across the
+        tiles the question is about, so the window keeps the latest scan's frame, taken at rest."""
+        if self.bench.arm.is_at_rest() or self.clear_view is None:
+            return self.bench.realsense.snapshot(), None
+        return self.clear_view, CLEAR_VIEW_NOTE
 
     def question(self, prompt, focus=None, caption=None, flagged=None):
         """Ask a person, with what it's about on screen."""
@@ -343,7 +356,14 @@ class Player:
         if self.reader is None or tile is None or self.bench.hover_over(tile) is None:
             return None
         self.hovering = True
-        return self.read_wrist(slot, name, self.session.attempt_dir(name or config.UNNAMED), keep_as="wrist_0000.jpg")
+        return self.read_wrist(slot, name, self.look_folder(name or config.UNNAMED), keep_as="wrist_0000.jpg")
+
+    def look_folder(self, name):
+        """A folder for a look at a tile, with the mat from before the arm moved, to compare with the wrist frame saved beside it."""
+        folder = self.session.attempt_dir(name)
+        if self.clear_view is not None:
+            cv2.imwrite(str(folder / "overview_before.jpg"), self.clear_view)
+        return folder
 
     def rest_after_looking(self):
         """Back to rest if a look left the arm over the mat: the next scan needs a clear view."""
@@ -373,7 +393,7 @@ class Player:
             if slot in self.looked_at or tile is None or self.bench.hover_over(tile) is None:
                 continue
             name = self.state["hand"][slot]
-            read = self.read_wrist(slot, name, self.session.attempt_dir(name), keep_as="wrist_0000.jpg")
+            read = self.read_wrist(slot, name, self.look_folder(name), keep_as="wrist_0000.jpg")
             if read and read["name"] != name and self.person_said.get(self.placement_id(slot)) != name:
                 self.settle(slot, name, read)
         self.bench.arm.rest()

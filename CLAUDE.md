@@ -221,6 +221,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   202 scans, the name a person gave outvoted within 2-3 scans, and 53 re-asks in one hand changed no answer (`20261104_183142_play`). So a
   person's word, the hand check's Enter too, holds against scans until the tile moves past `interventions.KNOCK_M` (`Player.word_holds`). The most
   a re-asked tile had moved was 2.9mm. It doesn't hold against the wrist camera at the hover. Unconfirmed on the arm.
+- **Play's RealSense frames are taken with the arm at rest.** A frame with the arm hovering shows it across the tiles, and its hole
+  pattern looks like a dotted tile (the owner saw one in play's window, 2026-11-04; no logged scan has one). `PlayBench.scan` rests the arm first and keeps
+  that frame, and the window shows it whenever the arm is off rest (`Player.mat_view`). Unconfirmed on the arm.
 - **Play's window has its own process** (`mahjong/hand_view.py`). The main thread sits in the policy loop and `input()`, and an OpenCV
   window nobody pumps gets marked "not responding". It draws on a zoom of the tiles: on the real layout a tile is ~30px of the frame, and
   labels on the whole frame overprint each other (only seen rendering a real frame; the tests pass either way).

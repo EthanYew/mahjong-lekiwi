@@ -421,7 +421,8 @@ question, a slot that doesn't match, a fifth copy), the tiles to look at stand o
 the one being asked about now). Each is labelled with what it might be (`S9 5C or 9C`: the robot has 5C, it could be 9C) and listed
 under the picture with every other name and why. At the hand check that means another name in the votes (5% or more), a read on the
 list above, a read under 0.80, or the wrist camera disagreeing; you still check all 13, and the marks ask nothing and don't affect
-the grade. You answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
+the grade. While the arm is over the mat the picture is the latest scan's, taken at rest and marked `[mat from before the arm moved]`,
+so the arm never covers the tiles, and each look saves it beside the wrist photo (`overview_before.jpg`). You answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
