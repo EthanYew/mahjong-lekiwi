@@ -1,0 +1,13 @@
+{
+  "xy": [
+    0.2028,
+    -0.1723
+  ],
+  "marker_id": 3,
+  "setup": {
+    "follower_id": "ethan_lekiwi_arm",
+    "t_cam_to_base_sha": "abdaa1b17abe"
+  },
+  "taught": "2026-11-04T16:45:41",
+  "session": "20261104_164541_play"
+}
