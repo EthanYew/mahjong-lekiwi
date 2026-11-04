@@ -139,7 +139,7 @@ def scans(session_dir):
                           for boxes in reads["frames"]]
         _follow(live, boxes_by_frame)
         where.update(live)
-        if e.get("label") not in USED_SCANS:
+        if e.get("label") not in USED_SCANS and not e.get("released"):     # released: an after-pickup scan with the tile let go
             continue
         frames = []
         for index, boxes in enumerate(boxes_by_frame):

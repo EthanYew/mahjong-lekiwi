@@ -99,9 +99,8 @@ def changes_by_scan(events):
             if kinds & ENDS_A_PLACEMENT:
                 points = _points(review.get("changes") or {})
                 if not points and k:
-                    target = event.get("target_xy")
                     points = _points(interventions.scene_diff(scans[k - 1][1]["tiles"], event["tiles"],
-                                                              ignore=[target] if target else ()))
+                                                              ignore=interventions.handled_points(event)))
                 ends.append((i, points))
             elif "scan_glitch" in kinds:
                 glitches.append((i, _points(review.get("changes") or {})))

@@ -13,6 +13,10 @@ into the slot it left, aimed with the return correction so it lands on the slot'
 when you type `end` at the draw prompt (the wall is empty). Then you check the robot's hand against the
 table: anything it had wrong without noticing is a silent error.
 
+A tile the policy picked up goes straight from there to the container or the slot, without a trip to rest. Everything else
+goes back to rest first: the RealSense can't see past the arm, so the scan after a tile is set down answers for its pickup too.
+A miss or a key pressed during a pickup goes to rest and scans at once. --via-rest goes to rest and scans after every pickup too.
+
 It asks instead of guessing (docs/autonomy_plan.md, sections 3-4): a tile name the votes aren't clearly
 for (mahjong/identity.py), a slot that doesn't match the hand, a fifth copy of a tile, a pickup that
 failed after RETRIES re-scanned retries. Every question is logged as an intervention (class "ask"), so a
@@ -115,6 +119,7 @@ class Player:
         self.session = self.bench.session
         self.placements = self.bench.placements
         self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
+        self.bench.direct = not args.via_rest
         self.hovering = False           # a look before asking left the arm over the mat
         self.clear_view = None          # the RealSense frame from the latest scan: the mat with the arm at rest, for when it isn't
         if args.sim:
@@ -127,7 +132,7 @@ class Player:
         self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "discard_placements": [], "drawn": None, "history": [],
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
-                           policy=self.bench.policy.id)
+                           policy=self.bench.policy.id, direct=self.bench.direct)
 
     # --- what the scans see ---
 
@@ -904,6 +909,8 @@ def parse_args(argv=None):
                    help="play without the wrist camera's second read of a tile before it's picked up (logged reads and questions stop)")
     p.add_argument("--read-hand", action="store_true",
                    help="also hover over all 13 hand tiles after registering them and read each with the wrist camera")
+    p.add_argument("--via-rest", action="store_true",
+                   help="go to rest and scan after every pickup before setting the tile down, as the bench does (slower)")
     p.add_argument("--no-view", action="store_true", help="no window showing what each question is about; the terminal only")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)

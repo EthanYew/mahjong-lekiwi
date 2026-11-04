@@ -426,7 +426,13 @@ so the arm never covers the tiles, and each look saves it beside the wrist photo
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
-discarded, the arm rests and the discard is chosen again. It never names a tile on its own.
+discarded, the discard is chosen again and the arm goes straight to it. It never names a tile on its own.
+
+A tile the policy picked up goes straight from there to the container or the slot, without a trip to rest. Everything else goes back
+to rest first, a look with the wrist camera included, so the RealSense has a clear view whenever it needs one, and the scan after a
+tile is set down answers for its pickup too. A miss, or a key you pressed during the pickup, goes to rest and scans at once. `--via-rest`
+goes to rest and scans after every pickup too, as the bench does.
+
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
 holds a tile).
 
@@ -439,6 +445,7 @@ holds a tile).
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--no-name-check` | play without the wrist camera's second read |
 | `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
+| `--via-rest` | go to rest and scan after every pickup before setting the tile down, as the bench does (slower) |
 | `--no-view` | no window showing what each question is about; the terminal only |
 | `--sim` | simulated arm, cameras, mat and policy (no second read) |
 

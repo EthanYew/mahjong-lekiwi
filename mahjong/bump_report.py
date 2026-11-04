@@ -47,11 +47,11 @@ def _said(reviews, seen, scan_n, category, change):
 
 
 def _phase(before, after, proposal, reviews, seen, verdicts, attempts, landings, skipped_resets):
-    scan_n, target = after["scan"], after.get("target_xy")
+    scan_n, target, handled = after["scan"], after.get("target_xy"), iv.handled_points(after)
     items, shown = [], []
 
     def add(item_id, category, change, what, said, note=None):
-        real = "knocked" if target and iv.near_any(change, [target], iv.NEIGHBOUR_M) else "moved_elsewhere"
+        real = "knocked" if iv.near_any(change, handled, iv.NEIGHBOUR_M) else "moved_elsewhere"
         verdict = verdicts.get((scan_n, category, json.dumps(change, sort_keys=True)))
         items.append({"id": item_id, "scan": scan_n, "category": category, "change": change, "what": what, "said": said,
                       "note": note, "kind_if_real": real, "flagged": said == "knocked",
@@ -63,9 +63,9 @@ def _phase(before, after, proposal, reviews, seen, verdicts, attempts, landings,
             add(f"{scan_n}-{category}-{i}", category, change, iv.changes_text(iv.merge({category: [change]})), said, note)
             shown += iv.where(change)
     for i, tile in enumerate(before["tiles"]):      # the neighbours the scans saw no change in: a person can still see one
-        if not target or iv.near_any({"xy": tile["xy"]}, shown, iv.KNOCK_M) or not iv.on_mat(tile):
+        if not handled or iv.near_any({"xy": tile["xy"]}, shown, iv.KNOCK_M) or not iv.on_mat(tile):
             continue
-        if not config.TILE_MERGE_RADIUS_M < math.dist(tile["xy"], target) <= iv.NEIGHBOUR_M:
+        if not config.TILE_MERGE_RADIUS_M < min(math.dist(tile["xy"], p) for p in handled) <= iv.NEIGHBOUR_M:
             continue
         shift = min((math.dist(tile["xy"], t["xy"]) for t in after["tiles"]), default=math.inf)
         # not moved or gone, so a tile too unsure for the scans to count its going (CHANGE_CONFIDENCE), or one matched elsewhere

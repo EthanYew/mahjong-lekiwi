@@ -127,6 +127,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
   Evidence: `docs/invariant_notes.md`.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
+- **In play, a held tile goes straight from its pickup to where it's set down; everything else goes via rest** (`Bench.direct`, `Arm.travel`;
+  `play.py --via-rest` for the old way; the bench always rests). The RealSense can't scan with the arm out: at the discard pose it covers S7-S9. So
+  that pickup has no scan of its own, and the scan after the release answers for it: `handled_xy` on an after-return scan, or an `after_pickup` scan
+  marked `released` for a discard (`interventions.handled_points`), so what it handled isn't taken for a person's doing. A miss or a key pressed goes to
+  rest and scans at once. The return model was measured arriving from rest, so the move to a slot turns the pan past and comes back the same way
+  (`TRAVEL_PAN_BACK_DEG`, reasoned from the height invariant, not measured). Unconfirmed on the arm.
 - **Every move off the table rises straight up first** (`Arm.lift`, called by `rest`, `hover` and `place`, so
   bench, record and every other script share it): 5mm steps keeping the jaws' tilt and roll
   (`kinematics.straight_up`), up to 80mm. The old lift was one joint-space move to the IK's pose, which curved
