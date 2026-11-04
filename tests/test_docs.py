@@ -12,7 +12,7 @@ README, ROADMAP, CLAUDE = ((REPO / f).read_text() for f in ("README.md", "ROADMA
 REGISTRY = json.loads(config.POLICIES.read_text())
 DEFAULT = REGISTRY["default"]
 # argparse's own, and options of other programs the docs mention (git, gh)
-OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard"}
+OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard", "--rebase"}
 
 
 def options_in_code():
