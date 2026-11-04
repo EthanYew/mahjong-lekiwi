@@ -82,6 +82,32 @@ def test_copies_left_change_the_discard():
     assert best["tile_name"] == "RD" and best["ukeire_tiles"] == 3     # the other 3 NW
 
 
+def test_a_ready_hand_names_exactly_the_tiles_that_win():
+    # the hand 20261104_183142_play waited on from turn 11: 3456789C 123456B wins on 3C, 6C and 9C
+    hand = ["3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "4B", "5B", "6B"]
+    assert game.improving_tiles(hand) == [("3C", 3), ("6C", 3), ("9C", 3)]
+    assert game.seeking(hand) == "Ready (shanten 0). Wins on: 3C (3 left), 6C (3 left), 9C (3 left): 9 tiles left"
+    assert game.improving_tiles(hand, visible=["6C", "6C"]) == [("3C", 3), ("6C", 1), ("9C", 3)]
+    for name in game.NAMES:
+        if hand.count(name) < game.COPIES:
+            assert game.is_win(hand + [name]) == (name in ("3C", "6C", "9C")), name
+
+
+def test_a_hand_not_ready_says_how_far_and_which_draws_help():
+    hand = ["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "EW", "SW", "WW", "NW", "RD"]
+    text = game.seeking(hand)
+    away = game.shanten(game.counts(hand))
+    assert away > 0 and text.startswith(f"{away} from ready (shanten {away}). Draws that get closer: ")
+    assert "9B (4 left)" in text and "6B (4 left)" in text and "RD (3 left)" in text    # none held; one RD held
+
+
+def test_a_ready_hand_holding_every_copy_of_its_wait_says_so():
+    # shanten calls this ready, but its only wait is the 1C it already holds all four of
+    hand = ["1C", "1C", "1C", "1C", "4D", "5D", "6D", "7B", "8B", "9B", "EW", "EW", "EW"]
+    assert game.shanten(game.counts(hand)) == 0 and game.improving_tiles(hand) == []
+    assert "no tile can complete it" in game.seeking(hand)
+
+
 def test_ukeire_counts_kinds_and_copies():
     hand = ["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "9B", "EW", "EW", "EW", "RD"]
     assert game.ukeire(hand) == (1, 3, 0)               # only RD, 3 copies left
