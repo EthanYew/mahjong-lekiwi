@@ -380,7 +380,9 @@ Enter if it's right, or the wrong ones as `S9=5C`. It won't ask for a drawn tile
 the hand never had it), and the draw prompt takes `S9=5C` as well, for a tile you spot later. Then each turn it reads the drawn tile,
 checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
 tiles still left, then kinds), drops it in the container, and if it came from the hand moves the drawn
-tile into the slot it left, aimed so it lands on the slot's home. Type `end` at the draw prompt when the
+tile into the slot it left, aimed so it lands on the slot's home. Each turn the terminal and the window say what it's after:
+the tiles that win once it's ready, else how far from ready it is and which draws get it closer, with the copies of each still
+left (4 minus its hand and its discards; there are no other players' tiles to count). Type `end` at the draw prompt when the
 wall is empty. At the end you check its hand against the table and its discards (`D1`, `D2`...) against the
 container: Enter if it's right, or the wrong slots
 as `H3=5D`.

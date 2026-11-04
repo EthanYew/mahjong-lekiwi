@@ -542,8 +542,9 @@ class Player:
     def ask_for_draw(self, what):
         """Wait for the drawn tile: "end" if the wall is empty. A hand tile found to be wrong can be corrected here too."""
         while True:
+            hand13 = [self.state["hand"][x["id"]] for x in self.slots]
             answer = self.question(f"\n{what}, then Enter ('end' if the wall is empty, S9=5C to correct a hand tile): ",
-                                   focus=ZONE).strip()
+                                   focus=ZONE, caption=f"{what}. {game.seeking(hand13, self.state['discards'])}").strip()
             if "=" not in answer:
                 return answer.lower()
             if self.corrections(answer):
@@ -608,8 +609,8 @@ class Player:
         s = self.state
         if s["phase"] == "draw":
             hand13 = [s["hand"][x["id"]] for x in self.slots]
-            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()} "
-                  f"(shanten {game.shanten(game.counts(hand13))})")
+            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()}")
+            print(f"  {game.seeking(hand13, s['discards'])}")
             drawn = self.wait_for_draw()
             if drawn is None:
                 return "end"
@@ -626,10 +627,11 @@ class Player:
                 return "win"
             best, candidates = game.choose_discard(hand13, drawn, s["discards"])
             slot = ZONE if best["index"] == game.HAND_SIZE else self.slots[best["index"]]["id"]
-            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}: shanten {best['shanten_after']}, "
-                  f"{best['ukeire_tiles']} improving tiles left ({best['ukeire_kinds']} kinds)")
+            kept = (hand13 + [drawn])[:best["index"]] + (hand13 + [drawn])[best["index"] + 1:]
+            after = [*s["discards"], best["tile_name"]]
+            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}. {game.seeking(kept, after)}")
             self.session.event("discard_chosen", turn=s["turn"] + 1, drawn=drawn, slot=slot, **best,
-                               candidates=candidates[:5])
+                               candidates=candidates[:5], seeking=game.improving_tiles(kept, after))
             s.update(phase="discard", discard_slot=slot, discard=best)
             self.save()
         if s["phase"] == "discard":
