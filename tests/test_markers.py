@@ -51,13 +51,16 @@ HAND = [{"id": f"S{i + 1}", "xy": [0.15 + 0.06 * (i % 2), 0.17 - 0.057 * (i // 2
 ZONE = [0.163, -0.163]
 
 
-def bench_session(sessions, name, spot_xy, success=True, landed=True):
+def bench_session(sessions, name, spot_xy, success=True, landed=True, carried_mm=5.0):
     import json
     folder = sessions / f"{name}_bench"
     folder.mkdir(parents=True)
     events = [{"type": "attempt", "spot": "S14", "spot_xy": spot_xy, "success": success, "attempt_dir": "001_x"}]
     if landed:
         events.append({"type": "return_landed", "attempt_dir": "001_x", "error_m": 0.003})
+        for _ in range(markers.CARRY_MIN_LANDINGS):     # and carried to a slot, as a hand does
+            events.append({"type": "return_landed", "attempt_dir": "002_carry", "error_m": carried_mm / 1000,
+                           "carried": True, "from_xy": spot_xy})
     (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
 
 
@@ -72,6 +75,19 @@ def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(t
     bench_session(tmp_path, "20261030_100000", [0.1627, -0.1626])
     result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
     assert result["ok"] and (result["attempts"], result["picked"], result["returned"]) == (2, 1, 1)
+
+
+def test_the_zone_isnt_checked_until_tiles_carried_from_it_land_near_their_slot(tmp_path):
+    test_layout = HAND + [{"id": "S14", "xy": ZONE}]
+    bench_session(tmp_path, "20261104_100000", ZONE, carried_mm=18.0)     # the aim that hit the neighbours
+    result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
+    assert not result["ok"] and "carried from the drop zone" in result["problems"][0]
+    assert any("--carry S14,S1" in f for f in result["fix"])
+    assert result["carried"] == markers.CARRY_MIN_LANDINGS and result["carried_median_mm"] == pytest.approx(18.0)
+
+    bench_session(tmp_path, "20261104_110000", ZONE, carried_mm=5.0)
+    bench_session(tmp_path, "20261104_120000", ZONE, carried_mm=5.0)
+    assert markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)["ok"]
 
 
 def test_the_standard_layouts_are_a_hand_plus_the_zone(tmp_path):
