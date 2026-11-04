@@ -81,8 +81,8 @@ class Votes:
         votes = self.totals.get(slot)
         if not votes:
             return None, 0.0, 0
-        name = max(votes, key=votes.get)
-        return name, votes[name] / sum(votes.values()), self.scans[slot]
+        name, total = max(votes, key=votes.get), sum(votes.values())
+        return name, votes[name] / total if total else 0.0, self.scans[slot]    # 0: seen, with no read of its name (add)
 
     def sure(self, slot, min_share=MIN_SHARE, min_scans=MIN_SCANS):
         """The slot's name if the vote is clearly for it, else None (ask, or scan again)."""
@@ -102,7 +102,8 @@ class Votes:
         """[(another name, its share of the slot's votes)], largest first, for the names with enough of them to mention."""
         votes = self.totals.get(slot) or {}
         total = sum(votes.values())
-        found = [(other, weight / total) for other, weight in votes.items() if other != name and weight >= RIVAL_MIN_SHARE * total]
+        found = [(other, weight / total) for other, weight in votes.items()
+                 if other != name and total and weight >= RIVAL_MIN_SHARE * total]
         return sorted(found, key=lambda rival: -rival[1])
 
     def worth_a_look(self, slot, name, vouched=False):
