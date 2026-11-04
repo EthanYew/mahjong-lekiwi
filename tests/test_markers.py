@@ -98,6 +98,16 @@ def test_a_landing_with_nothing_near_home_stays_not_seen_and_says_so(tmp_path):
     assert "inf" not in problem and "2 not seen" in problem
 
 
+def test_a_simulated_bench_doesnt_check_the_real_zone(tmp_path):
+    folder = tmp_path / "20261104_100000_bench"
+    folder.mkdir()
+    events = [{"type": "session_start", "sim": True},
+              {"type": "attempt", "spot_xy": ZONE, "success": True, "attempt_dir": "001_x"},
+              {"type": "return_landed", "attempt_dir": "001_x", "error_m": 0.0}]
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert markers.benched_at(ZONE, tmp_path) == (0, 0, 0)
+
+
 def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(tmp_path):
     test_layout = HAND + [{"id": "S14", "xy": [0.1627, -0.1626]}]
     result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)

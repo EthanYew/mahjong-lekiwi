@@ -90,11 +90,13 @@ def moved(zone, xy, limit_m=ZONE_MOVED_M):
 
 def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     """Bench attempts at a layout spot within radius_m of xy, over every bench session: (attempts, picked up,
-    returns whose landing was scanned)."""
+    returns whose landing was scanned). A simulated bench says nothing about the real zone."""
     attempts = picked = returned = 0
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        here = [e for e in events if e["type"] == "attempt" and e.get("spot_xy")
+        if any(e["type"] == "session_start" and e.get("sim") for e in events):
+            continue
+        here =[e for e in events if e["type"] == "attempt" and e.get("spot_xy")
                 and math.dist(e["spot_xy"], xy) <= radius_m]
         held = {e.get("attempt_dir") for e in here if e.get("success")} - {None}
         attempts += len(here)
