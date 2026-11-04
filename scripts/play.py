@@ -25,8 +25,9 @@ disagreement asks you, and if your answer changes the name the discard is chosen
 
 A read that other tiles get misread as (identity.ALWAYS_ASK_READS) gets the wrist camera's look before you're asked. Registering
 the hand, agreement drops that question, because of the next step: before the first draw you check all 13 against the table, and
-can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about,
-with the wrist read shown. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about.
+can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about.
+Any question about a drawn tile, whatever made it uncertain (split votes, a faint read, the ask list), gets that look first, with the
+wrist read in the question and its view in the window. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about.
 
 Built on the bench (scripts/bench.py): the same hover, policy, scans before and after every pickup,
 return and discard, homes, return correction and landing check, discard pose and session folder
@@ -220,6 +221,9 @@ class Player:
         in the attempt's folder, so its read can be checked later."""
         frames = grab_frames(self.bench.camera, 1)
         if not frames:
+            self.reopen_camera()
+            frames = grab_frames(self.bench.camera, 1)
+        if not frames:
             print("  no wrist camera frame: no second read of this tile")
             self.session.event("name_check", slot=slot, placement=self.placement_id(slot), name=name, read=None)
             return None
@@ -233,6 +237,16 @@ class Player:
                            confidence=read["confidence"], agrees=read["name"] == name, attempt_dir=folder.name,
                            person_said=self.person_said.get(self.placement_id(slot)))
         return read
+
+    def reopen_camera(self):
+        """A read found the camera lost: reopen it (5 of 55 reads in 20261104_183142_play came back empty, and the camera stayed lost
+        until a pickup voided). It may ask to retry or quit, so a pickup's key listener lets go of the terminal meanwhile."""
+        terminal = self.bench.terminal
+        listening = terminal.running.is_set()
+        terminal.stop()
+        self.bench.reopen_camera()
+        if listening:
+            terminal.start()
 
     def settle(self, slot, name, read):
         """The reader and the name the robot's going on disagree: a person says. Returns the tile's name."""
@@ -496,9 +510,15 @@ class Player:
                 self.decided(ZONE, name, "vote")
                 return name
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
-        why = self.why_ask(ZONE, name, "Not sure of the drawn tile")
-        if name in ALWAYS_ASK_READS and (read := self.look(ZONE, name)):    # no hand check to come: the read only informs
-            why += f". The wrist camera reads {read['name']} ({read['confidence']:.2f})"
+        return self.ask_drawn(self.why_ask(ZONE, name, "Not sure of the drawn tile"))
+
+    def ask_drawn(self, why):
+        """A person names the drawn tile, with the wrist camera's read of it whatever made it uncertain. `votes.sure` is None when the
+        votes split, so a look that depends on the name it returns skips the least certain tiles. No hand check is to come, so agreement
+        doesn't drop the question: the read only informs (a read never names a tile, mahjong/name_check.py)."""
+        if self.reader is not None:
+            read = self.look(ZONE, self.votes.leader(ZONE)[0])
+            why += f". The wrist camera reads {read['name']} ({read['confidence']:.2f})" if read else ". No read from the wrist camera"
         name = self.ask_name(ZONE, why)
         self.rest_after_looking()
         return name
@@ -523,8 +543,9 @@ class Player:
     def ask_for_draw(self, what):
         """Wait for the drawn tile: "end" if the wall is empty. A hand tile found to be wrong can be corrected here too."""
         while True:
+            hand13 = [self.state["hand"][x["id"]] for x in self.slots]
             answer = self.question(f"\n{what}, then Enter ('end' if the wall is empty, S9=5C to correct a hand tile): ",
-                                   focus=ZONE).strip()
+                                   focus=ZONE, caption=f"{what}. {game.seeking(hand13, self.state['discards'])}").strip()
             if "=" not in answer:
                 return answer.lower()
             if self.corrections(answer):
@@ -539,7 +560,7 @@ class Player:
             # the last check before a tile goes in the bin: the votes there must still be for it
             if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None):
                 if slot == ZONE:
-                    now = self.ask_name(ZONE, f"The drawn tile ({name}) reads differently now")
+                    now = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
                 else:
                     self.recount([slot])
                     now = self.state["hand"][slot]
@@ -589,8 +610,8 @@ class Player:
         s = self.state
         if s["phase"] == "draw":
             hand13 = [s["hand"][x["id"]] for x in self.slots]
-            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()} "
-                  f"(shanten {game.shanten(game.counts(hand13))})")
+            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()}")
+            print(f"  {game.seeking(hand13, s['discards'])}")
             drawn = self.wait_for_draw()
             if drawn is None:
                 return "end"
@@ -607,10 +628,11 @@ class Player:
                 return "win"
             best, candidates = game.choose_discard(hand13, drawn, s["discards"])
             slot = ZONE if best["index"] == game.HAND_SIZE else self.slots[best["index"]]["id"]
-            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}: shanten {best['shanten_after']}, "
-                  f"{best['ukeire_tiles']} improving tiles left ({best['ukeire_kinds']} kinds)")
+            kept = (hand13 + [drawn])[:best["index"]] + (hand13 + [drawn])[best["index"] + 1:]
+            after = [*s["discards"], best["tile_name"]]
+            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}. {game.seeking(kept, after)}")
             self.session.event("discard_chosen", turn=s["turn"] + 1, drawn=drawn, slot=slot, **best,
-                               candidates=candidates[:5])
+                               candidates=candidates[:5], seeking=game.improving_tiles(kept, after))
             s.update(phase="discard", discard_slot=slot, discard=best)
             self.save()
         if s["phase"] == "discard":

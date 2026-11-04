@@ -64,6 +64,17 @@ def test_a_sim_hand_plays_to_a_clean_win(tmp_path, monkeypatch):
     assert p.session.dir.name.endswith("_play")
 
 
+def test_every_turn_says_which_tiles_it_is_after(tmp_path, monkeypatch, capsys):
+    p = player(tmp_path, monkeypatch, Answers())
+    assert run(p) == "clean"
+    out = capsys.readouterr().out
+    assert "=== Turn 1 ===" in out and "Wins on: " in out
+    chosen = [e for e in events_of(p) if e["type"] == "discard_chosen"]
+    assert chosen and all(e["seeking"] for e in chosen)
+    for e in chosen:                                    # the log's list and the choice's count are the same tiles
+        assert (len(e["seeking"]), sum(left for _, left in e["seeking"])) == (e["ukeire_kinds"], e["ukeire_tiles"])
+
+
 def test_an_unsure_drawn_tile_is_asked_not_guessed(tmp_path, monkeypatch):
     ask = Answers("", "9B")
     p = player(tmp_path, monkeypatch, ask)
