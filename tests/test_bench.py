@@ -539,7 +539,6 @@ def test_a_return_landing_a_little_off_is_only_noted(tmp_path, monkeypatch, caps
 def test_a_mistyped_policy_fails_before_anything_connects(tmp_path, monkeypatch):
     """A policy id that isn't registered used to fail after the hardware connected and the setup questions
     made a session folder: an empty session."""
-    import types
     import bench
     from mahjong import hardware, policy
 

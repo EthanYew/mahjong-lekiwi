@@ -437,8 +437,8 @@ def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_C
             continue
         image = cv2.imread(str(image_path))
         h, w = image.shape[:2]
-        group = {"lighting": lambda: lighting(exam["sessions"][session].get("conditions")),
-                 "session": lambda: session}.get(by, lambda: "all")()
+        group = {"lighting": lambda: lighting(exam["sessions"][session].get("conditions")),  # noqa: B023 called just below
+                 "session": lambda: session}.get(by, lambda: "all")()  # noqa: B023
         truth, dropped = dedupe(read_yolo_labels(label_path, names, (w, h)))
         duplicates += [(image_path, b) for b in dropped]
         images.append({"truth": truth, "group": group,

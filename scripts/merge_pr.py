@@ -192,10 +192,10 @@ def show_status():
         for item in left:
             print(f"  {item['branch']:<36} {where(item)}")
     if gone:
-        print(f"\nPR closed without merging (--close asks about these separately):")
+        print("\nPR closed without merging (--close asks about these separately):")
         for item in gone:
             print(f"  {item['branch']:<36} {where(item)}  (#{item['pr']}, last commit {item['tip']})")
-    print(f"\nTo approve one: python scripts/merge_pr.py <number>")
+    print("\nTo approve one: python scripts/merge_pr.py <number>")
 
 
 def close_all(ask=input):

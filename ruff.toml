@@ -1,0 +1,11 @@
+# What the fast tests hold the code to (tests/test_code_health.py). Only rules that point at a mistake, not at style:
+# the code is read by agents and one person, and a rule that fires on taste gets ignored or suppressed.
+#
+# F:     pyflakes. Unused imports and variables, a name used but never defined, a function defined twice.
+# B006:  a mutable default argument, shared between calls.
+# B018:  an expression that does nothing (a comparison where an assignment was meant).
+# B023:  a function made in a loop that reads the loop's variable, which has moved on by the time it's called.
+# PLE:   errors pylint finds that pyflakes doesn't.
+# A false alarm gets `# noqa: <rule>` with the reason on that line.
+[lint]
+select = ["F", "B006", "B018", "B023", "PLE"]
