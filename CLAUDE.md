@@ -116,6 +116,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   to their centre, so the return model (`mahjong/return_correction.py`) takes the grasp as input; bench and
   record.py share the homes and landing check (`return_correction.Homes`, `check_landing`). A tile moved on
   purpose less than `HOME_RADIUS_M` (40mm) is put back at its old home. The fit pools every policy.
+- **A landing is matched by place first, then name.** The name a tile read before it moved says little: a carried 2C read 3C
+  3mm from home, and a real 2C 104mm away took the name match, so a good landing was logged as not seen and blocked play
+  (`20261104_195901_bench`). `layout.nearest_tile` filters by radius first, and `markers.carried_from` rescores old ones from their scan.
 - **A tile carried across the mat is aimed from its destination, not from where it was picked up.** Grasp minus detection
   is mostly the gap between what the RealSense sees and where the arm must go, and that varies (y: +31mm at the zone, +4mm
   at S1). It cancels going back to the same place, so only play showed it: tiles landed 15-18mm off and the first hit its
