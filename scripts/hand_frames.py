@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, detector, hand_truth
+from mahjong.perception import predictor
 
 
 def parse_args(argv=None):
@@ -42,13 +43,6 @@ def table(name, tally, per_name):
     print(f"  {'tile':<5}{'frames':>7}{'right':>7}{'wrong':>7}{'missed':>7}")
     for tile, c in sorted(per_name.items(), key=lambda kv: kv[1]["right"] / max(1, sum(kv[1].values()))):
         print(f"  {tile:<5}{sum(c.values()):>7}{100 * c['right'] / max(1, sum(c.values())):>6.1f}%{c['wrong']:>7}{c['missed']:>7}")
-
-
-def predictor(weights):
-    from ultralytics import YOLO
-    from mahjong.perception import run_detector
-    model = YOLO(str(weights))
-    return lambda image: run_detector(model, image)
 
 
 def add_onto(base, out):

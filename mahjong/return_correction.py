@@ -39,7 +39,6 @@ are set aside, and a record with an "excluded" reason stays unfitted.
     python scripts/return_samples.py        # add returns from sessions/ (bench.py adds its own)
 """
 import argparse
-import json
 import math
 
 import numpy as np

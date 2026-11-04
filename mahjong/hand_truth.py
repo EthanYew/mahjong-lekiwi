@@ -138,10 +138,9 @@ def scans(session_dir):
         boxes_by_frame = [[{**b, "mat": _to_mat(H, detector._centre(b["xyxy"]))} for b in detector.one_box_per_tile(boxes)]
                           for boxes in reads["frames"]]
         _follow(live, boxes_by_frame)
-        if e.get("label") not in USED_SCANS:
-            where.update(live)
-            continue
         where.update(live)
+        if e.get("label") not in USED_SCANS:
+            continue
         frames = []
         for index, boxes in enumerate(boxes_by_frame):
             tiles, used = {}, set()

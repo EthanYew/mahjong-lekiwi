@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, detector
 from mahjong.detector import weights_id, wrong_rate_bound
+from mahjong.perception import predictor
 
 
 def parse_args(argv=None):
@@ -56,13 +57,6 @@ def parse_names(text):
     if unknown:
         raise argparse.ArgumentTypeError(f"not tile names: {', '.join(unknown)} (groups: {', '.join(GROUPS)})")
     return tuple(dict.fromkeys(names))
-
-
-def predictor(weights):
-    from ultralytics import YOLO
-    from mahjong.perception import run_detector
-    model = YOLO(str(weights))
-    return lambda image: run_detector(model, image)
 
 
 def pct(value):
