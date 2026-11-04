@@ -295,6 +295,25 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
     assert chosen and "9C" in chosen[0] and "NW" not in chosen[0]
 
 
+def test_a_marker_that_moved_stops_play_with_the_turn_already_saved(tmp_path, monkeypatch):
+    """Its message says --resume, which reads the checkpoint: a turn not saved would be played again on a tile already moved."""
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state.update(phase="place", vacated="H12", discard_slot="H12", discard={"tile_name": "RD", "shanten_after": 1}, drawn=None)
+    p.state["discards"].append("RD")
+    p.save()
+
+    def marker_moved():
+        raise SystemExit("The drop-zone marker moved")
+    monkeypatch.setattr(p, "check_zone", marker_moved)
+    with pytest.raises(SystemExit):
+        p.finish_turn("RD", "H12")
+    p.close()
+    saved = json.loads((p.session.dir / "checkpoint.json").read_text())
+    assert (saved["phase"], saved["turn"]) == ("draw", 1) and "vacated" not in saved
+
+
 # --- a person's word holds until the tile moves ---
 
 def reads_nw_as_ww(p, monkeypatch, moved_m=0.0, after_scans=3):

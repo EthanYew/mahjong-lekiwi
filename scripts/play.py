@@ -750,9 +750,9 @@ class Player:
         s["phase"] = "draw"
         for key in ("discard_slot", "discard", "vacated"):
             s.pop(key, None)
+        self.save()                     # before anything that can stop play: --resume starts from this
         self.end_step()
         self.check_zone()
-        self.save()
         return None
 
     # --- the end of the hand ---
