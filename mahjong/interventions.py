@@ -68,6 +68,7 @@ KINDS = {
     "name_asked": ("said what a tile is: the robot wasn't sure of its name", ASK),
     "zone_asked": ("put the drawn tile on the drop zone again: none was seen there", ASK),
     "recount": ("checked the hand: the table didn't match what the robot thought it held", ASK),
+    "count_unresolved": ("kept every name though more than 4 of a tile were counted: a discard may be misread", ASK),
     "pickup_failed": ("moved a tile by hand: the robot couldn't pick it up after its retries", RESCUE),
     "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
     "zone_unchecked": ("played before the bench checked a pickup on the drop zone (--skip-zone-test)", OBSERVATION),
