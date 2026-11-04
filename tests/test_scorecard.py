@@ -103,6 +103,8 @@ def test_only_the_standard_surface_and_layout_count():
     events = paired(14)
     assert len(scorecard.off_standard(events)) == 2
     assert scorecard.off_standard(on_standard(events)) == []
+    carrying = [{**e, "carry": ["S13", "S1"]} if e["type"] == "bench_setup" else e for e in on_standard(events)]
+    assert ["carries between two spots, not a walk of the layout"] == scorecard.off_standard(carrying)
     text = "\n".join(scorecard.report(events))
     assert "gates don't apply" in text and "iteration check" not in text
     text = "\n".join(scorecard.report(on_standard(paired(14, a_clean=lambda i: i > 2))))

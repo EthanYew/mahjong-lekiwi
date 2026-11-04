@@ -1,14 +1,14 @@
 """The drop zone for drawn tiles, taught by an ArUco marker (docs/autonomy_plan.md, section 2).
 
-The marker lies flat on the mat and the drawn tile goes on top of it, as in MahjongBot's autonomous play
-(marker id 3, DICT_6X6_250). A tile on it hides it, so its position is found while it's uncovered and
-saved (data/drop_zone.json) with the calibration fingerprint it was found under: a recalibrated RealSense
-makes the saved position mean nothing. scripts/play.py looks again each time the zone is empty, and a
-marker that moved more than ZONE_MOVED_M means the camera or the LeKiwi base moved: it stops.
+Teaching (scripts/play.py --teach-zone, or the first run) reads the uncovered marker (id 3, DICT_6X6_250, flat
+on the mat) and saves its position (data/drop_zone.json) with the calibration fingerprint it was found under: a
+recalibrated RealSense makes the saved position mean nothing. Every hand after that goes on the saved position, and
+nothing reads the marker: it can move or come off the mat without play noticing. A moved marker used to stop play as
+if the camera had moved (20261104_220329_play), which is setup_check.py's question.
 
-Under the tile was chosen to match MahjongBot, with two things to watch that would move it beside the
-zone instead: first-try pickups at the zone below the ~95% seen on the mat (no policy has seen a tile on
-a black-and-white pattern), and the detector (no marker class) reading the marker's edge as a tile.
+A marker left in place can have the drawn tile on top of it, with two things to watch that would mean taking it away:
+first-try pickups at the zone below the ~95% seen on the mat (no policy has seen a tile on a black-and-white
+pattern), and the detector (no marker class) reading the marker's edge as a tile.
 
 Play reaches the zone only once a hand is under way, so it's checked on the bench beforehand: the test
 layout ZONE_TEST_LAYOUT (even-hand14) is the play layout's slots plus one spot on the zone, and play.py won't
@@ -16,6 +16,7 @@ start until the bench has picked a tile up there and set it back down (`zone_tes
 """
 import json
 import math
+import statistics
 from datetime import datetime
 
 import cv2
@@ -24,17 +25,18 @@ import numpy as np
 from . import config
 from .hover_correction import setup_fingerprint
 from .layout import pixel_to_table
+from .return_correction import landings
 from .session import read_events
 
 DRAWN_TILE_MARKER_ID = 3
 DICTIONARY = cv2.aruco.DICT_6X6_250
 ZONE_FILE = config.DATA / "drop_zone.json"
 ZONE_RADIUS_M = config.TILE_MERGE_RADIUS_M   # a drawn tile this close to the zone is on it (and pickable by spot)
-ZONE_MOVED_M = 0.005                    # the uncovered marker read this far from where it was taught: the camera moved
 LOCATE_FRAMES = 10
 PLAY_LAYOUT = "even-hand13"             # the hand's slots on the standard layout (data/standard_setup.json)
 ZONE_TEST_LAYOUT = "even-hand14"        # the play layout's slots + one spot on the zone, walked by the bench
 SLOT_MATCH_M = 0.005                    # a test-layout spot this close to a play slot is that slot
+CARRY_MIN_LANDINGS = 2                  # carried from the zone on the bench before play starts (--trials 2 of --carry)
 
 
 def find(image_bgr, marker_id=DRAWN_TILE_MARKER_ID):
@@ -81,17 +83,15 @@ def load_zone(path=None):
     return zone if zone.get("setup") == setup_fingerprint() else None
 
 
-def moved(zone, xy, limit_m=ZONE_MOVED_M):
-    return math.dist(zone["xy"], xy) > limit_m
-
-
 def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     """Bench attempts at a layout spot within radius_m of xy, over every bench session: (attempts, picked up,
-    returns whose landing was scanned)."""
+    returns whose landing was scanned). A simulated bench says nothing about the real zone."""
     attempts = picked = returned = 0
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        here = [e for e in events if e["type"] == "attempt" and e.get("spot_xy")
+        if any(e["type"] == "session_start" and e.get("sim") for e in events):
+            continue
+        here =[e for e in events if e["type"] == "attempt" and e.get("spot_xy")
                 and math.dist(e["spot_xy"], xy) <= radius_m]
         held = {e.get("attempt_dir") for e in here if e.get("success")} - {None}
         attempts += len(here)
@@ -100,11 +100,29 @@ def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     return attempts, picked, returned
 
 
+def carried_from(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
+    """How far from home each tile carried from xy landed, in real bench sessions (bench.py --carry): metres, inf where
+    the scan didn't find it. Landings from before carried tiles had their own aim, or a person's hands in, don't count. One
+    logged as not seen is scored again from its scan, with today's matching (a misread once lost a landing, nearest_tile)."""
+    errors = []
+    for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
+        events = read_events(events_file.parent)
+        if any(e["type"] == "session_start" and e.get("sim") for e in events):
+            continue
+        scored = {r["attempt_dir"]: r["error_m"] for r in landings(events)}
+        for e in events:
+            if e["type"] == "return_landed" and e.get("carried") and not e.get("by_hand") and math.dist(e["from_xy"], xy) <= radius_m:
+                error = e["error_m"] if e.get("error_m") is not None else scored.get(e["attempt_dir"])
+                errors.append(math.inf if error is None else error)
+    return errors
+
+
 def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PLAY_LAYOUT,
               test_layout=ZONE_TEST_LAYOUT):
     """Is the spot a drawn tile goes on checked on the bench? The test layout should hold every play slot plus
-    one spot on the zone, and the bench should have picked a tile up there and returned it. Returns
-    {"ok", "spot", "attempts", "picked", "returned", "problems": [...], "fix": [commands]}."""
+    one spot on the zone, the bench should have picked a tile up there and returned it, and carried tiles from there
+    to a slot and seen them land near it: no other bench walk does what a hand's first turn does. Returns {"ok", "spot",
+    "attempts", "picked", "returned", "carried", "carried_median_mm", "problems": [...], "fix": [commands]}."""
     problems, fix = [], []
     missing = [s["id"] for s in play_spots
                if not any(math.dist(s["xy"], t["xy"]) <= SLOT_MATCH_M for t in test_spots)]
@@ -113,6 +131,7 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
         fix.append(f"python scripts/layout.py --name {test_layout} --teach   # {play_layout}'s slots + a tile on the zone")
     extra = [t for t in test_spots if not any(math.dist(t["xy"], s["xy"]) <= SLOT_MATCH_M for s in play_spots)]
     spot = next((t for t in extra if math.dist(t["xy"], zone_xy) <= ZONE_RADIUS_M), None)
+    closest = None
     if spot is None:
         closest = min(extra, key=lambda t: math.dist(t["xy"], zone_xy), default=None)
         problems.append(f"no {test_layout} spot on the drop zone at ({zone_xy[0]:.3f}, {zone_xy[1]:+.3f})"
@@ -127,5 +146,18 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
         problems.append(f"the bench hasn't picked up and returned a tile on the drop zone ({attempts} attempt(s), "
                         f"{picked} picked up, {returned} returned)")
         fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2   # a tile on every spot, the zone's too")
+    landed = carried_from(zone_xy, sessions_dir)
+    median_mm = statistics.median(landed) * 1000 if landed else None
+    if len(landed) < CARRY_MIN_LANDINGS or median_mm > config.RETURN_DRIFT_WARN_M * 1000:
+        unseen = sum(math.isinf(error) for error in landed)
+        problems.append(f"tiles carried from the drop zone to a slot on the bench: {len(landed)} landed"
+                        + (f", {unseen} not seen near home by the scan after" if unseen else "")
+                        + (f", median {median_mm:.0f}mm from home" if landed and not math.isinf(median_mm) else "")
+                        + f" (needs {CARRY_MIN_LANDINGS}+, median {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm or less)")
+        from_id = (spot or closest or {"id": "S13"})["id"]
+        fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2 --carry {from_id},{play_spots[0]['id']}"
+                   f"   # a tile on {from_id}, {play_spots[0]['id']} empty")
     return {"ok": not problems, "spot": spot["id"] if spot else None, "attempts": attempts, "picked": picked,
-            "returned": returned, "problems": problems, "fix": fix}
+            "returned": returned, "carried": len(landed),
+            "carried_median_mm": None if median_mm is None or math.isinf(median_mm) else median_mm,
+            "problems": problems, "fix": fix}

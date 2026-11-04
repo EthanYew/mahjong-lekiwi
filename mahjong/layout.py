@@ -437,13 +437,13 @@ def load_ghost(name):
 
 
 def nearest_tile(tiles, xy, radius_m=config.TILE_MERGE_RADIUS_M, name=None):
-    """The detected tile (perception.detect_tiles) closest to xy, if within radius_m. With `name`: the closest
-    of that name, unless none is detected (then a misread: the closest of any)."""
-    tiles = [t for t in tiles if t["tile_name"] == name] or tiles if name else tiles
-    if not tiles:
-        return None
-    tile = min(tiles, key=lambda t: math.hypot(t["xy"][0] - xy[0], t["xy"][1] - xy[1]))
-    return tile if math.hypot(tile["xy"][0] - xy[0], tile["xy"][1] - xy[1]) <= radius_m else None
+    """The detected tile (perception.detect_tiles) closest to xy, if within radius_m. With `name`: the closest of that
+    name within radius_m, unless there's none (then a misread: the closest of any). Within radius_m first: another copy of
+    the name across the mat isn't this tile (a landed 2C read 3C, 20261104_195901_bench, was logged as not seen)."""
+    def distance(tile):
+        return math.hypot(tile["xy"][0] - xy[0], tile["xy"][1] - xy[1])
+    near = [t for t in tiles if distance(t) <= radius_m]
+    return min([t for t in near if t["tile_name"] == name] or near, key=distance, default=None)
 
 
 def schedule(spots, repeats=1, start=None):

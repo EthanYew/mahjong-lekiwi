@@ -131,6 +131,13 @@ def run_detector(model, color, conf=config.DETECTION_SAVE_CONFIDENCE):
             for box in model(color, conf=conf, iou=0.5, verbose=False)[0].boxes]
 
 
+def predictor(weights):
+    """A detector's weights file as a function from a BGR frame to its boxes (run_detector), for scoring it."""
+    from ultralytics import YOLO
+    model = YOLO(str(weights))
+    return lambda image: run_detector(model, image)
+
+
 def robust_depth(depth_frame, u, v, window=5):
     """The median depth around pixel (u, v), over the samples inside the frame: a box centred within `window`
     of the edge (a tile half in view) made get_distance raise and ended a bench session (2026-10-30)."""

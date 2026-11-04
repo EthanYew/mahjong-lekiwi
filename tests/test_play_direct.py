@@ -1,5 +1,5 @@
-"""Play's direct moves: no trip to rest between a pickup and its discard, a discard and the next pickup, or a look and a
-pickup; and the one scan at the end of the turn still answers for everything the arm handled."""
+"""Play's direct moves: a held tile goes straight from its pickup to the discard or the slot. Everything else goes via rest, a
+look with the wrist camera included, and the scan after the release still answers for the pickup."""
 import builtins
 import math
 import sys
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mahjong import arm as arm_module, config, interventions, kinematics
+from mahjong import arm as arm_module, config, hand_truth, interventions, kinematics
 from mahjong.arm import Arm
 from mahjong.sim import SimRobot
 
@@ -26,68 +26,76 @@ class Reader:
 
 
 def trips_to_rest(p):
-    """Count the trips the arm makes to rest (a rest() called away from it)."""
+    """What the arm was doing each time it went to rest from elsewhere (the phase of the turn, whether it held a tile)."""
     trips, rest = [], p.bench.arm.rest
 
     def counted():
         if not p.bench.arm.is_at_rest():
-            trips.append(p.state["phase"])
+            trips.append((p.state["phase"], p.bench.arm.holding()[0]))
         rest()
     p.bench.arm.rest = counted
     return trips
-
-
-def stopwatch(p):
-    """Add up the seconds the arm's moves and settles take."""
-    seconds = []
-    p.bench.arm.sleep = seconds.append
-    return seconds
 
 
 def scan_labels(p):
     return [e["label"] for e in events_of(p) if e["type"] == "detections"]
 
 
-def test_a_turn_goes_straight_from_tile_to_tile_and_scans_at_its_end(tmp_path, monkeypatch):
+def scans(p, label):
+    return [e for e in events_of(p) if e["type"] == "detections" and e["label"] == label]
+
+
+def test_a_held_tile_goes_straight_on_and_the_arm_rests_after_each_release(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, Answers())
     trips = trips_to_rest(p)
     assert run(p) == "clean"                                # nothing the scans saw looked like a person or a bump
-    assert trips == ["discard", "place"]                    # the zone discard's end, the moved tile's end (Arm.place rests)
-    labels = scan_labels(p)
-    assert labels == ["register"] * 3 + ["drawn", "drawn", "choose", "after_pickup"] \
-        + ["drawn", "drawn", "choose", "after_return"] + ["drawn", "drawn"]
-    end = next(e for e in events_of(p) if e["type"] == "detections" and e["label"] == "after_return")
-    assert len(end["handled_xy"]) == 2 and len(end["handled_attempts"]) == 2
+    assert not [t for t in trips if t[1]], "went to rest holding a tile"
+    # GD from the zone to the bin; RD from H12 to the bin, then 9B from the zone to H12: a rest after each release, nothing between
+    assert len(trips) == 3
+    assert scan_labels(p)[3:] == ["drawn", "drawn", "choose", "after_pickup",
+                                  "drawn", "drawn", "choose", "after_pickup", "choose", "after_return",
+                                  "drawn", "drawn"]
 
 
-def test_via_rest_keeps_a_scan_and_a_rest_after_every_move(tmp_path, monkeypatch):
+def test_the_scan_after_a_release_answers_for_the_pickup(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    run(p)
+    attempts = {e["attempt_dir"]: e for e in events_of(p) if e["type"] == "attempt"}
+    discards = scans(p, "after_pickup")
+    assert all(s["released"] and s["attempt_dir"] in attempts for s in discards)
+    assert all(s["target_xy"] == list(attempts[s["attempt_dir"]]["detection_xy"]) for s in discards)
+    back = scans(p, "after_return")[0]
+    assert back["handled_xy"] == [list(attempts[back["attempt_dir"]]["detection_xy"])] and "released" not in back
+    assert all((p.session.dir / name / "overview_after.jpg").exists() for name in attempts)
+
+
+def test_via_rest_keeps_a_rest_and_a_scan_after_every_pickup(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, Answers(), argv=("--sim", "--via-rest"))
     trips = trips_to_rest(p)
     assert run(p) == "clean"
-    assert len(trips) == 6
+    assert len(trips) == 6 and sum(held for _, held in trips) == 3
     assert scan_labels(p).count("after_pickup") == 3 and scan_labels(p).count("after_discard") == 2
+    assert not any(s.get("released") for s in scans(p, "after_pickup"))
     assert next(e for e in events_of(p) if e["type"] == "play_setup")["direct"] is False
 
 
-def test_direct_moves_take_much_less_arm_time(tmp_path, monkeypatch):
+def test_direct_moves_take_less_arm_time(tmp_path, monkeypatch):
     def arm_time(folder, argv):
         p = player(tmp_path / folder, monkeypatch, Answers(), argv=argv)
         p.bench.arm.rest()
         p.register()
         p.confirm_hand()
-        seconds = stopwatch(p)
+        seconds = []
+        p.bench.arm.sleep = seconds.append
         while p.state["turn"] < 2:
             p.turn()
         p.close()
         return sum(seconds)
-    direct, via_rest = arm_time("direct", ("--sim",)), arm_time("rest", ("--sim", "--via-rest"))
-    print(f"arm seconds over two turns: direct {direct:.0f}, via rest {via_rest:.0f}")
-    assert direct < 0.75 * via_rest
+    assert arm_time("direct", ("--sim",)) < arm_time("rest", ("--sim", "--via-rest")) - 10
 
 
-def test_a_knock_seen_at_the_end_of_the_turn_is_a_knock_not_a_person(tmp_path, monkeypatch):
+def test_a_bump_during_a_direct_pickup_is_a_knock_not_a_person(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, Answers())
-    p.bench.defer = True
     monkeypatch.setattr(builtins, "input", lambda prompt: "")     # as the scans say
     discard = p.bench.discard
 
@@ -101,16 +109,6 @@ def test_a_knock_seen_at_the_end_of_the_turn_is_a_knock_not_a_person(tmp_path, m
     reviews = [e for e in events_of(p) if e["type"] == "scan_review" and e.get("kinds")]
     assert any("knocked" in r["kinds"] for r in reviews)
     assert not any(set(r["kinds"]) & {"tile_reset", "straightened"} for r in reviews)
-
-
-def test_a_next_tile_near_the_last_one_is_scanned_for_first(tmp_path, monkeypatch):
-    """It may have been knocked, and the hover aims from the scan."""
-    monkeypatch.setattr(interventions, "NEIGHBOUR_M", 0.2)        # H12, discarded before it, counts as near the zone
-    p = player(tmp_path, monkeypatch, Answers())
-    run(p)
-    labels = scan_labels(p)
-    assert "after_discard" not in labels and labels.count("after_pickup") == 2   # the scan carries the pickup it answers for
-    assert p.state["hand"]["H12"] == "9B"
 
 
 def test_a_miss_goes_to_rest_and_aims_again_from_a_new_scan(tmp_path, monkeypatch):
@@ -128,8 +126,8 @@ def test_a_miss_goes_to_rest_and_aims_again_from_a_new_scan(tmp_path, monkeypatc
     assert run(p) == "clean"
     attempts = [e for e in events_of(p) if e["type"] == "attempt"]
     assert not attempts[0]["gripper_says_held"] and attempts[1]["success"]
-    i = next(k for k, e in enumerate(events_of(p)) if e["type"] == "attempt")
-    assert next(e for e in events_of(p)[i - 1:] if e["type"] == "detections")["label"] == "after_pickup"
+    assert scan_labels(p)[3:7] == ["drawn", "drawn", "choose", "after_pickup"]
+    assert not scans(p, "after_pickup")[0].get("released")        # taken at once, with no tile let go
 
 
 def test_a_key_pressed_during_a_pickup_gets_its_scan_straight_away(tmp_path, monkeypatch):
@@ -147,17 +145,16 @@ def test_a_key_pressed_during_a_pickup_gets_its_scan_straight_away(tmp_path, mon
     assert scan_labels(p).count("after_discard") == 1             # that one went via rest; the next turn's didn't
 
 
-def test_a_corrected_discard_hovers_over_the_new_one_without_going_to_rest(tmp_path, monkeypatch):
+def test_a_corrected_discard_rests_and_scans_before_the_new_one(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, Answers("", "GD"))          # the tile at H12 is a GD
     p.reader = Reader(p, {"RD": "GD"})
     run(p)
     events = events_of(p)
     off = next(i for i, e in enumerate(events) if e["type"] == "pickup_called_off")
-    until = next(i for i, e in enumerate(events) if i > off and e["type"] == "attempt")
-    assert not [e for e in events[off:until] if e["type"] == "detections"]        # the scan it aims from is still good
+    assert next(e for e in events[off:] if e["type"] in ("detections", "attempt"))["type"] == "detections"
 
 
-def test_a_look_at_the_drawn_tile_is_where_its_pickup_starts(tmp_path, monkeypatch):
+def test_a_look_at_the_drawn_tile_goes_back_to_rest_before_anything_else(tmp_path, monkeypatch):
     p = player(tmp_path, monkeypatch, Answers("", "7C"))          # the hand's fine; the drawn tile is the 7C it reads
     p.reader = Reader(p)
     p.draws = ["7C"]
@@ -165,28 +162,37 @@ def test_a_look_at_the_drawn_tile_is_where_its_pickup_starts(tmp_path, monkeypat
     p.register()
     p.confirm_hand()
     hover, hovers = p.bench.arm.hover, []
-    monkeypatch.setattr(p.bench.arm, "hover", lambda *a, **k: hovers.append(a[:2]) or hover(*a, **k))
-    trips = trips_to_rest(p)
+    monkeypatch.setattr(p.bench.arm, "hover", lambda *a, **k: hovers.append(p.bench.arm.is_at_rest()) or hover(*a, **k))
     p.turn()
     p.close()
-    assert p.state["discards"] == ["7C"] and len(hovers) == 1
-    assert trips == ["discard"]                                   # only after the discard
+    assert p.state["discards"] == ["7C"] and hovers == [True, True]   # the look, then the pickup, each setting out from rest
 
 
-def test_handled_points_are_this_scans_target_and_the_pickups_with_no_scan():
+def test_handled_points_are_this_scans_target_and_a_pickup_with_no_scan():
     scan = {"label": "after_return", "target_xy": [1, 2], "handled_xy": [[3, 4]]}
     assert interventions.handled_points(scan) == [[1, 2], [3, 4]]
     assert interventions.handled_points({"label": "choose", "handled_xy": [[3, 4]]}) == []
 
 
-def test_replaying_a_direct_turn_leaves_its_tiles_out_of_the_changes():
+def test_replaying_a_carry_leaves_both_of_its_ends_out_of_the_changes():
     tile = lambda name, x, y: {"tile_name": name, "xy": [x, y], "confidence": 0.9}
-    before = {"label": "choose", "scan": 1, "tiles": [tile("RD", 0.2, 0.1), tile("9B", 0.25, 0.0), tile("1D", 0.15, -0.1)]}
-    after = {"label": "after_return", "scan": 2, "target_xy": [0.2, 0.1], "handled_xy": [[0.2, 0.1], [0.25, 0.0]],
+    before = {"label": "choose", "scan": 1, "tiles": [tile("9B", 0.25, 0.0), tile("1D", 0.15, -0.1)]}
+    after = {"label": "after_return", "scan": 2, "target_xy": [0.2, 0.1], "handled_xy": [[0.25, 0.0]],
              "tiles": [tile("9B", 0.2, 0.1), tile("1D", 0.15, -0.1)]}
     watch = interventions.MatWatch()
     watch.advance(before)
     assert watch.propose(after) is None
+
+
+def test_the_detector_still_gets_a_discards_scan_but_not_one_with_the_tile_in_the_jaws(tmp_path, monkeypatch):
+    """A direct discard's scan is labelled after_pickup, which hand_truth leaves out because the tile's usually held. Not this one."""
+    p = player(tmp_path, monkeypatch, Answers())
+    run(p)
+    direct = {s["label"] for s in hand_truth.scans(p.session.dir)}
+    assert "after_pickup" in direct
+    q = player(tmp_path / "via_rest", monkeypatch, Answers(), argv=("--sim", "--via-rest"))
+    run(q)
+    assert "after_pickup" not in {s["label"] for s in hand_truth.scans(q.session.dir)}
 
 
 # --- the moves themselves ---
@@ -196,37 +202,41 @@ def lifted_over(x, y):
     return Arm(robot, sleep=lambda s: None), robot
 
 
-def test_a_direct_hover_arrives_with_the_pan_turning_up_as_it_does_from_rest():
+def test_a_direct_place_arrives_with_the_pan_turning_up_as_it_does_from_rest():
     arm, robot = lifted_over(0.142, -0.114)                       # pan well above where it's going
-    target = kinematics.hover_command(0.192, 0.09, 0.065, 26.7)[0]
-    assert target["shoulder_pan"] < arm.commanded()["shoulder_pan"]
-    arm.hover(0.192, 0.09, 0.045, 0.04, 26.7, direct=True)
+    start_pan = arm.commanded()["shoulder_pan"]
+    robot.sent.clear()
+    assert arm.place(0.192, 0.09, 0.045, direct=True) is not None
+    above = kinematics.hover_command(0.192, 0.09, 0.095, 11.0)[0]
+    assert above["shoulder_pan"] < start_pan
     pans = [c["shoulder_pan"] for c in robot.sent]
-    assert min(pans) == pytest.approx(target["shoulder_pan"] - arm_module.TRAVEL_PAN_BACK_DEG, abs=0.5)
-    assert pans[-1] > min(pans)
+    i = pans.index(min(pans[:len(pans) // 2]))
+    assert pans[i] == pytest.approx(above["shoulder_pan"] - arm_module.TRAVEL_PAN_BACK_DEG, abs=0.5)
+    assert pans[i + 1] > pans[i]
 
 
-def test_a_direct_hover_is_timed_by_its_distance_and_a_hover_from_rest_isn_t():
-    def seconds(arm_robot, **kwargs):
-        arm, _ = arm_robot
+def test_a_direct_place_is_timed_by_its_distance_and_one_from_rest_isn_t():
+    def seconds(arm, **kwargs):
         spent = []
         arm.sleep = spent.append
-        arm.hover(0.192, 0.039, 0.045, 0.04, 26.7, **kwargs)
+        arm.place(0.192, 0.039, 0.045, **kwargs)
         return sum(spent)
-    near = seconds(lifted_over(0.192, 0.09), direct=True)
-    assert near < seconds(lifted_over(0.192, 0.09)) - 1.5         # the same hop, the old 3s move
-    from_rest = (Arm(SimRobot(), sleep=lambda s: None), None)
-    assert seconds(from_rest, direct=True) > arm_module.MOVE_TIME_S + arm_module.RAISE_TIME_S
+    assert seconds(lifted_over(0.192, 0.09)[0], direct=True) < seconds(lifted_over(0.192, 0.09)[0]) - 1.5
+    rest_start = {**config.REST_POSE, "gripper": 11.0}
+    assert seconds(Arm(SimRobot(start=rest_start, holding=True), sleep=lambda s: None), direct=True) \
+        == pytest.approx(seconds(Arm(SimRobot(start=rest_start, holding=True), sleep=lambda s: None)))
 
 
 @pytest.mark.parametrize("a,b", [((0.192, 0.141), (0.142, -0.165)), ((0.142, 0.141), (0.192, -0.165)),
                                  ((0.142, -0.114), (0.192, 0.09))])
-def test_a_direct_hop_stays_over_the_tiles_even_measured(a, b):
+def test_a_held_tile_stays_over_the_others_on_the_way_even_measured(a, b):
     arm, robot = lifted_over(*a)
-    arm.hover(*b, 0.045, 0.04, 26.7, direct=True)
-    held_low = [c for c, q in zip(robot.clearances, robot.sent)
-                if math.dist(kinematics.pincer_tip(q)[:2], b) > 0.03]     # still on its way, not over the target
-    assert min(held_low) > (config.TILE_THICKNESS_M - config.GRASP_POINT_ABOVE_TABLE_M) * 1000 + 25
+    robot.sent.clear()
+    robot.clearances.clear()
+    arm.place(*b, 0.045, direct=True)
+    arrive = next(i for i, q in enumerate(robot.sent) if math.dist(kinematics.tool_point(q)[:2], b) < 0.005)
+    tile_top_mm = (config.TILE_THICKNESS_M - config.GRASP_POINT_ABOVE_TABLE_M) * 1000
+    assert min(robot.clearances[:arrive]) - 12 > tile_top_mm + 10     # 12: a held tile's underside below the tip
 
 
 def test_lift_clear_says_when_a_lift_gave_up_low(monkeypatch):

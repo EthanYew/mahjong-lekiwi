@@ -394,6 +394,8 @@ def worst_line(sessions_dir=None, surface=None, limit=5):
     weights = placements[-1]["weights"]
     on_it = rows([p for p in placements if p["surface"] == surface and p["weights"] == weights])
     bad = [r for r in on_it if r["band"] in ("severe", "costly", "flaky")]
+    live = detector.weights_id()
     return (f"Tile names on {surface} ({sum(r['placements'] for r in on_it)} placements, {weights}): "
             f"{sum(r['accepted_wrong'] for r in on_it)} accepted wrong; worst "
-            + (", ".join(f"{r['tile']} ({r['band']})" for r in bad[:limit]) or "none") + "; python scripts/name_report.py")
+            + (", ".join(f"{r['tile']} ({r['band']})" for r in bad[:limit]) or "none") + "; python scripts/name_report.py"
+            + (f"\n  These are an older detector's: live detector {live} has no scored placements yet" if live != weights else ""))

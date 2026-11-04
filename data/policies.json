@@ -1,10 +1,10 @@
 {
-  "default": "pickup_mat_cl_v6",
+  "default": "pickup_mat_cl_v7",
   "default_note": {
-    "policy": "pickup_mat_cl_v6",
-    "since": "2026-10-30",
-    "evidence": "sessions/20261029_234437_bench: close-hand14 on the green cutting mat, 2 rounds: v6 28/28, 0 bumped tiles, 0 rescues, held at 7.2s median; v5 on the same mat (20261030_010109_bench, ended early) 2/3 with 2 bumped tiles. Offline (data/offline_eval/pickup_mat_cl_v6.json vs v5.json): green episodes first-action error 15-30% lower; black top level. Not paired in one session, and not benched on the black table top at the decision. Since then, v5 vs v6 on the black top (20261030_142320_bench, close-hand14): picked 22/28 vs 27/28, clean 9/28 vs 14/28 (docs/scorecard.md)",
-    "why": "v5's data + 33 green-mat demos, trained with --augment --replace-mat 0.7: the only policy that works on a second surface"
+    "policy": "pickup_mat_cl_v7",
+    "since": "2026-11-04",
+    "evidence": "Owner's decision, 2026-11-04, ahead of a play test on v7 (none yet). Benefit named: v6 failed badly in the last real hand, 20261104_183142_play (hand graded rescued; 35/41 clean, picked 38/41; S8 0/3 at the 16s cap; 5 collisions, 2 knocks). Paired on the standard mat, both at 21% hover: 20261103_121112_bench v7 vs v6 clean 4/14 vs 2/14, picked 11/14 vs 6/14, iteration check Ahead 2-0, strict rule no verdict (14 pairs). v7 at its registry hover 26.7%: 10/14 clean, 14/14 picked (20261103_214640_bench, paired with v8 at 20.6%, not one change). v7 has not passed play-ready. v8 scored higher in the same 20261103_214640_bench (12/14 clean, Ahead 3-1 over v7) and passed play-ready in 20261104_150542_bench (42/42 clean); neither was the choice here. Not paired with v6 at 26.7% on this mat. Offline scores don't rank these two (docs/retrospectives/2026-11-03_eval_validity.md).",
+    "why": "v6 failed badly on the last play test; v7 led it when paired on the standard mat, and is next to be tried in a real hand"
   },
   "policies": {
     "pickup_mat_cl": {

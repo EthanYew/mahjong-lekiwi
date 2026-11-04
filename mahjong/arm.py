@@ -70,16 +70,15 @@ RISE_MAX_DEG_S = 60.0     # ...but no joint faster than this (near full reach 5m
 SWING_CLEARANCE_M = 0.060
 RELEASE_TIME_S = 0.6
 SQUEEZE_SETTLE_S = 0.3
-# A direct move, from over the mat to the next place without going to rest (play). Timed by distance, at the speed of
-# the slowest of today's 3s moves with a tile in the jaws (raised rest to the discard pose: 99 deg). Every pair of spots
-# on even-hand13: the commanded tip stays 66mm+ over a third tile, 81mm+ on the way to the discard pose.
+# A direct move with a tile in the jaws, from over the mat to where it's going without going to rest (play). Timed by
+# distance, at the speed of the slowest of today's 3s moves with a tile held (raised rest to the discard pose: 99 deg).
 TRAVEL_DEG_S = 33.0
 TRAVEL_MIN_S = 0.5
 # Held, the tile hangs ~12mm under the tip and a neighbour's top is 15mm over the grasp point: 45mm leaves ~18mm spare.
 # lift() commands 80mm, measured 54mm+ (sag), so this only stops a lift that gave up early.
 TRAVEL_CLEARANCE_M = 0.045
-# Hovers and returns were measured arriving from rest, the pan always turning up. A P-only servo with backlash stops
-# somewhere else coming the other way (as with heights, arriving from below), so a direct move turns past and comes back.
+# Returns were measured arriving from rest, the pan always turning up. A P-only servo with backlash stops somewhere else
+# coming the other way (as with heights, arriving from below), so a direct move turns past and comes back.
 TRAVEL_PAN_BACK_DEG = 2.0
 
 JOINT_LIMIT_MARGIN_DEG = 3.0
@@ -302,18 +301,11 @@ class Arm:
 
     def travel(self, target):
         """A direct move from over the mat to `target` over a tile, the pan arriving the way it does from rest
-        (TRAVEL_PAN_BACK_DEG). The caller has lifted first (lift, or the discard pose's height)."""
+        (TRAVEL_PAN_BACK_DEG). The caller has lifted first."""
         if target["shoulder_pan"] < self.commanded()["shoulder_pan"]:
             past = {**target, "shoulder_pan": target["shoulder_pan"] - TRAVEL_PAN_BACK_DEG}
             self.move_to(past, self.travel_time(past))
         self.move_to(target, self.travel_time(target))
-
-    def _go_over(self, target, direct):
-        """To `target` over the mat: from rest via the raised rest; from elsewhere in MOVE_TIME_S, or directly."""
-        if direct and not self.is_at_rest():
-            return self.travel(target)
-        self.raise_from_rest()
-        self.move_to(target, MOVE_TIME_S)
 
     def squeeze(self):
         """Close jaws that stopped nearly shut the rest of the way, as the policies do. Returns the command
@@ -350,13 +342,12 @@ class Arm:
         self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, MOVE_TIME_S)
         self.move_to({j: config.REST_POSE[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
-    def hover(self, x, y, offset_m, clearance_m, gripper, log=print, direct=False):
+    def hover(self, x, y, offset_m, clearance_m, gripper, log=print):
         """Hover the tool point over closed-loop target (x, y) and settle until the measured pincer tip
         is clearance_m above the grasp point. Goes SETTLE_FROM_ABOVE_M high first, measures the sag
         there, then comes down (an upward correction overshoots and comes back down), so the jaws never
         dip below the target while settling. Commanded offsets stay within
-        [offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M]. `direct`: a move from over the mat is timed by its
-        distance and arrives as from rest (travel). Returns a dict, or None if unreachable."""
+        [offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M]. Returns a dict, or None if unreachable."""
         first = None
         for extra in (SETTLE_FROM_ABOVE_M, SETTLE_FROM_ABOVE_M / 2, 0.0):
             first, tilt = kinematics.hover_command(x, y, offset_m + extra, gripper)
@@ -365,7 +356,8 @@ class Arm:
         if first is None:
             return None
         self.lift()
-        self._go_over(first, direct)
+        self.raise_from_rest()
+        self.move_to(first, MOVE_TIME_S)
         self.sleep(SETTLE_S)
         settled = self._settle(x, y, offset_m + extra, clearance_m, gripper,
                                offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M, log)
@@ -436,7 +428,8 @@ class Arm:
         """Set a held tile down with the tool point over (x, y): approach from above (extra height for
         the swing), measure the sag, descend until the measured tip is at release_height(grasp_clearance_m)
         (just above where the jaws closed on this tile, kinematics.grasp_clearance), release, lift, rest.
-        Beyond reach, (x, y) moves toward the shoulder (place_point). `direct`: as in hover. Returns {released_at_m (the measured
+        Beyond reach, (x, y) moves toward the shoulder (place_point). `direct`: from over the mat straight to the
+        approach (travel), not in MOVE_TIME_S. Returns {released_at_m (the measured
         clearance at release), release_target_m, xy, shift_m, ...}, or None if out of reach even so (nothing
         moved)."""
         held = self.commanded()["gripper"]
@@ -455,7 +448,11 @@ class Arm:
             if above is not None:       # at the latest with extra 0: place_point checked that height
                 break
         self.lift()                     # from where a recording ended, low over the table
-        self._go_over(above, direct)
+        if direct and not self.is_at_rest():
+            self.travel(above)
+        else:
+            self.raise_from_rest()
+            self.move_to(above, MOVE_TIME_S)
         self.sleep(SETTLE_S)
         settled = self._set_down(x, y, above_offset, target, held)
         released_at = settled["clearance_m"]

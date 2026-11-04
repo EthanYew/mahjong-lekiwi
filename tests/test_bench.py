@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mahjong import config, detector, wrist_photos
@@ -926,3 +927,80 @@ def test_a_repositioned_tile_starts_a_new_placement_with_the_name_given(tmp_path
         b.close()
     placed = [e for e in read_events(b.session.dir) if e["type"] == "placement"]
     assert [p["truth"] for p in placed] == ["3C", "2C", "2C"]
+
+
+def carry_bench(tmp_path, monkeypatch, returns=None, argv=()):
+    """A sim mat where the camera and the arm disagree by an amount that changes with position, as on the real mat: one
+    tile on spot Z, Y empty. A carry's landing is then only right if its aim is the destination's."""
+    import bench
+    from mahjong import layout
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
+    layout.save("carry", [{"id": "Z", "xy": [0.192, -0.165]}, {"id": "Y", "xy": [0.142, 0.09]}])
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--layout", "carry", "--carry", "Z,Y", *argv]))
+    b.realsense.tiles = [{"tile_name": "8D", "xy": [0.192, -0.165]}]
+    b.realsense.arm_offset = lambda xy: (0.040, 0.014 - 0.09 * xy[1])
+    if returns is not None:
+        b.returns = returns
+    return b
+
+
+def carried_landings(b):
+    try:
+        b.arm.rest()
+        b.trials(1)
+    finally:
+        b.close()
+    return [e for e in read_events(b.session.dir) if e["type"] == "return_landed"]
+
+
+def same_place_sim_returns():
+    from mahjong.return_correction import ReturnCorrection, return_record
+    records = []
+    for x in (0.14, 0.17, 0.20, 0.23):
+        for y in (-0.17, -0.09, 0.0, 0.09, 0.17):
+            gap = np.array([0.040, 0.014 - 0.09 * y])
+            records.append(return_record([x, y], [x, y] + gap, [x, y] + gap, [x, y], home_xy=[x, y]))
+    return ReturnCorrection(records)
+
+
+def test_a_carried_tile_lands_at_its_slot_with_the_destinations_aim(tmp_path, monkeypatch):
+    landed = carried_landings(carry_bench(tmp_path, monkeypatch, same_place_sim_returns()))
+    assert len(landed) == 2 and all(e["carried"] for e in landed)         # there and back
+    assert all(e["error_m"] < 0.003 for e in landed)
+
+
+def test_the_old_aim_misses_on_the_same_mat_which_is_what_this_sim_is_for(tmp_path, monkeypatch):
+    import builtins
+    from mahjong.return_correction import ReturnCorrection
+    class AskedToPutItBack(Exception):
+        pass
+
+    def input_(prompt):
+        raise AskedToPutItBack(prompt)
+
+    monkeypatch.setattr(builtins, "input", input_)      # it landed so far off that a person is asked: that's enough
+    b = carry_bench(tmp_path, monkeypatch, ReturnCorrection([]))
+    with pytest.raises(AskedToPutItBack, match="Put 8D back"):
+        carried_landings(b)
+    (landed,) = [e for e in read_events(b.session.dir) if e["type"] == "return_landed"]
+    assert landed["error_m"] > 0.015
+
+
+@pytest.mark.parametrize("argv", [["--carry", "A"], ["--carry", "A,A"], ["--carry", "A,B"]])
+def test_carry_needs_two_spots_of_a_layout(argv):
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(["--sim", *argv])
+
+
+def test_a_return_with_r_pressed_is_no_sample(tmp_path, monkeypatch):
+    from mahjong.return_correction import check_landing
+    import types
+    events = []
+    session = types.SimpleNamespace(dir=tmp_path, event=lambda kind, **f: events.append((kind, f)))
+    path = tmp_path / "returns.jsonl"
+    held = {"tile_name": "8D", "home_xy": [0.2, 0.0], "detection_xy": [0.2, 0.0], "grasp_xy": [0.24, 0.0],
+            "attempt_dir": "001", "spot": "S1", "by_hand": True}
+    check_landing(held, [0.24, 0.0], [{"tile_name": "8D", "xy": (0.2, 0.0)}], session, path, None, config.DEFAULT_HOVER)
+    assert not path.exists() and events[0][1]["by_hand"]

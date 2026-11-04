@@ -17,7 +17,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `--tile` it asks which tile). Paired comparison across the mat: `--policy a,b --layout NAME --trials N`
   (`--trials` counts rounds: N at every spot, each policy once per round, alternating a b / b a from the
   same hover offset, so N × 2 × spots pickups; each attempt saves `wrist.mp4`).
-- DAgger (on the default policy): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v6`. The policy drives, and a press of A
+- DAgger (on the default policy): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v7`. The policy drives, and a press of A
   (the rightmost face button, `gamepad.TAKEOVER_KEY`) hands you the arm. Training uses only the frames from the takeover on, as deltas from
   the hover: `make_policy.py --source <main> --add <dagger>`.
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
@@ -75,10 +75,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/setup_check.py`, `scripts/setup_check.py` | is the workspace where it was: measurements vs a reference (`data/setup_reference/`) |
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |
+| `mahjong/hand_truth.py`, `scripts/hand_frames.py` | detector frames labelled from a person's names in a session: scores per tile, an export to train on |
 | `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
 | `mahjong/name_check.py`, `scripts/train_name_check.py`, `name_check_eval.py` | a second read of a tile's name from the wrist camera at the hover: in play, agreement changes nothing and disagreement asks; its exam is `data/name_check_exam.json` |
 | `scripts/label_sheets.py` | one picture per tile name of every box labelled with it, to check a labelled set by eye |
-| `mahjong/hand_view.py` | play's window: the mat zoomed on the tiles, every slot named, the wrist view of the tile asked about |
+| `mahjong/hand_view.py` | play's window: the mat zoomed on the tiles, every slot named, the tiles under review picked out with what they could be (`identity.Votes.worth_a_look`; it only marks, never asks), the wrist view of the tile asked about |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `scripts/status.py`, `scripts/merge_pr.py`, `mahjong/checkout.py` | where things stand (from `data/`); approve + merge a PR and close its branch; the checkout vs origin/main, merged branches and worktrees |
@@ -115,14 +116,23 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   to their centre, so the return model (`mahjong/return_correction.py`) takes the grasp as input; bench and
   record.py share the homes and landing check (`return_correction.Homes`, `check_landing`). A tile moved on
   purpose less than `HOME_RADIUS_M` (40mm) is put back at its old home. The fit pools every policy.
+- **A landing is matched by place first, then name.** The name a tile read before it moved says little: a carried 2C read 3C
+  3mm from home, and a real 2C 104mm away took the name match, so a good landing was logged as not seen and blocked play
+  (`20261104_195901_bench`). `layout.nearest_tile` filters by radius first, and `markers.carried_from` rescores old ones from their scan.
+- **A tile carried across the mat is aimed from its destination, not from where it was picked up.** Grasp minus detection
+  is mostly the gap between what the RealSense sees and where the arm must go, and that varies (y: +31mm at the zone, +4mm
+  at S1). It cancels going back to the same place, so only play showed it: tiles landed 15-18mm off and the first hit its
+  neighbours (2026-11-04). `return_correction.fit_across`; `bench.py --carry` tests it, and play needs that from the zone.
+  Only a close's stray from the usual place carries over (70% x, 52% y): a steady margin at the close doesn't.
+  Unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
   Evidence: `docs/invariant_notes.md`.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
-- **Play doesn't go to rest between moves; the bench does** (`Bench.direct`, `Arm.travel`; `play.py --via-rest` for the old way). The
-  RealSense can't scan with the arm out: at the discard pose it covers S7-S9. So a pickup that held its tile has no scan of its own, and
-  the next scan at rest (end of turn, a miss, a key pressed, the next tile within `NEIGHBOUR_M`) carries `handled_xy`, so tiles it handled
-  aren't taken for a person's doing (`interventions.handled_points`). A knock is filed under the turn's last attempt (`handled_attempts`
-  lists them all). The hover correction and return model were measured arriving from rest, so a direct move turns the pan past and comes
-  back the same way (`TRAVEL_PAN_BACK_DEG`, reasoned from the height invariant, not measured). Unconfirmed on the arm.
+- **In play, a held tile goes straight from its pickup to where it's set down; everything else goes via rest** (`Bench.direct`, `Arm.travel`;
+  `play.py --via-rest` for the old way; the bench always rests). The RealSense can't scan with the arm out: at the discard pose it covers S7-S9. So
+  that pickup has no scan of its own, and the scan after the release answers for it: `handled_xy` on an after-return scan, or an `after_pickup` scan
+  marked `released` for a discard (`interventions.handled_points`), so what it handled isn't taken for a person's doing. A miss or a key pressed goes to
+  rest and scans at once. The return model was measured arriving from rest, so the move to a slot turns the pan past and comes back the same way
+  (`TRAVEL_PAN_BACK_DEG`, reasoned from the height invariant, not measured). Unconfirmed on the arm.
 - **Every move off the table rises straight up first** (`Arm.lift`, called by `rest`, `hover` and `place`, so
   bench, record and every other script share it): 5mm steps keeping the jaws' tilt and roll
   (`kinematics.straight_up`), up to 80mm. The old lift was one joint-space move to the IK's pose, which curved
@@ -213,10 +223,22 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The votes can be sure of a wrong name, and nothing asks.** A 5C read as 9C at 0.91 of the votes (S9, `20261104_164541_play`), and
   the only way to say so was to stop the hand. So a person checks the hand before the first draw (`Player.confirm_hand`) and can
   correct a tile at any draw prompt. Enter isn't graded; a correction is a `recount`, and counts as a wrong name in the ledger.
+- **A read a person overruled is no news until the tile moves.** The detector's wrong reads are steady, not flicker: S9 read 9C in 201 of
+  202 scans, the name a person gave outvoted within 2-3 scans, and 53 re-asks in one hand changed no answer (`20261104_183142_play`). So a
+  person's word, the hand check's Enter too, holds against scans until the tile moves past `interventions.KNOCK_M` (`Player.word_holds`). The most
+  a re-asked tile had moved was 2.9mm. It doesn't hold against the wrist camera at the hover. Unconfirmed on the arm.
+- **Play's RealSense frames are taken with the arm at rest.** A frame with the arm hovering shows it across the tiles, and its hole
+  pattern looks like a dotted tile (the owner saw one in play's window, 2026-11-04; no logged scan has one). `PlayBench.scan` rests the arm first and keeps
+  that frame, and the window shows it whenever the arm is off rest (`Player.mat_view`). Unconfirmed on the arm.
 - **Play's window has its own process** (`mahjong/hand_view.py`). The main thread sits in the policy loop and `input()`, and an OpenCV
   window nobody pumps gets marked "not responding". It draws on a zoom of the tiles: on the real layout a tile is ~30px of the frame, and
   labels on the whole frame overprint each other (only seen rendering a real frame; the tests pass either way).
   Questions during a pickup need the key listener stopped first (`keys.stop()`): it holds the terminal in cbreak and eats the answer.
+- **The drop zone is a saved position; the marker only teaches it.** Once taught, hands carry `data/drop_zone.json` over and nothing
+  reads the marker, unless `play.py --teach-zone` or a recalibrated RealSense asks. Reading it every turn stopped `20261104_220329_play` when
+  the marker itself was moved 6mm (it had read 0.4-2.1mm off in 37 checks), and a marker can't tell that from a moved camera. So a moved
+  camera or base no longer stops a hand: that's `setup_check.py`, before it. A turn goes on only once a scan sees a tile on the zone,
+  a faint box included, and a box proves a tile, never its name. Unconfirmed on the arm.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).
@@ -309,5 +331,4 @@ What's done and next (policies, eval sets, the scorecard, autonomous play, DAgge
 - Far corners (e.g. 7B) are out of reach after correction.
 - RealSense recalibration at table height across the workspace would shrink the correction needed.
 - Recording/deploying at servo I=8 would remove most sag; needs a new dataset and corrections.
-- Autonomous play runs in `--sim` only so far (`scripts/play.py`): the drop zone and its marker are untaught;
-  ROADMAP 8 has the steps on the arm.
+- Autonomous play has had its first hand on the arm (`20261104_183142_play`); ROADMAP 8 has the steps on the arm.

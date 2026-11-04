@@ -1,22 +1,21 @@
 """Autonomous play: the robot plays one closed hand of mahjong. A person only puts each drawn tile on the
-drop zone (an ArUco marker, mahjong/markers.py) and presses Enter.
+drop zone (a saved position, taught once from an ArUco marker, mahjong/markers.py) and presses Enter.
 
     python scripts/play.py --layout even-hand13                 # the 13 hand slots (data/layouts.json)
-    python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+    python scripts/play.py --layout even-hand13 --teach-zone    # move the drop zone: read the marker for its new position
     python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
     python scripts/play.py --sim                           # simulated arm and mat, a fixed hand and wall
 
-A turn: read the drawn tile, check the table still matches the hand, choose the discard (lowest shanten,
+A turn: check a tile is on the drop zone, read it, check the table still matches the hand, choose the discard (lowest shanten,
 then the most improving tiles still left, mahjong/game.py), pick it up with the policy and drop it in the
 discard container (the bench's taught discard pose), and if it came from the hand, move the drawn tile
 into the slot it left, aimed with the return correction so it lands on the slot's home. Ends on a win, or
 when you type `end` at the draw prompt (the wall is empty). Then you check the robot's hand against the
 table: anything it had wrong without noticing is a silent error.
 
-The arm doesn't go to rest between those moves: from a pickup straight to the container or the slot, from the container
-straight to the drawn tile, and from a look with the wrist camera straight to the tile to discard. The RealSense can't see
-past the arm, so the mat is scanned at the end of the turn (and after anything odd: a miss, a key pressed, a next tile
-within 85mm of the last one). --via-rest goes to rest and scans after every move.
+A tile the policy picked up goes straight from there to the container or the slot, without a trip to rest. Everything else
+goes back to rest first: the RealSense can't see past the arm, so the scan after a tile is set down answers for its pickup too.
+A miss or a key pressed during a pickup goes to rest and scans at once. --via-rest goes to rest and scans after every pickup too.
 
 It asks instead of guessing (docs/autonomy_plan.md, sections 3-4): a tile name the votes aren't clearly
 for (mahjong/identity.py), a slot that doesn't match the hand, a fifth copy of a tile, a pickup that
@@ -28,10 +27,15 @@ Before a pickup, at the hover, the wrist camera reads the tile too (mahjong/name
 disagreement asks you, and if your answer changes the name the discard is chosen again. It never names a tile by itself.
 --read-hand does the same for all 13 tiles after registering them, since a tile that's never discarded is otherwise never read.
 
+A person's word on a tile, the hand check's Enter included, holds against later scans until the tile moves more than 5mm (word_holds):
+a detector that keeps misreading a tile sitting still is no news. A recount gets the wrist camera's look first.
+
 A read that other tiles get misread as (identity.ALWAYS_ASK_READS) gets the wrist camera's look before you're asked. Registering
 the hand, agreement drops that question, because of the next step: before the first draw you check all 13 against the table, and
-can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about,
-with the wrist read shown. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about.
+can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about.
+Any question about a drawn tile, whatever made it uncertain (split votes, a faint read, the ask list), gets that look first, with the
+wrist read in the question and its view in the window. A window (mahjong/hand_view.py; --no-view for none) shows what each question is about. The RealSense reads tiles only with the
+arm at rest, and while the arm is over the mat the window shows the latest scan's frame, not a live one, beside the wrist view.
 
 Built on the bench (scripts/bench.py): the same hover, policy, scans before and after every pickup,
 return and discard, homes, return correction and landing check, discard pose and session folder
@@ -60,6 +64,7 @@ REGISTER_SCANS = 3          # scans when registering the hand (each 5 frames): v
 DRAWN_SCANS = 3             # scans of a drawn tile before asking its name
 RETRIES = 2                 # re-scanned pickup retries before a person is asked to move the tile
 HAND_SLOTS = game.HAND_SIZE
+CLEAR_VIEW_NOTE = "[mat from before the arm moved]"
 
 # --sim: two rows of hand slots 57mm apart (Arm.place assumes tiles sit 57mm+ apart; 13 in one row
 # won't fit the reach), the drop zone beyond the second row, and a hand that wins on the 3rd draw
@@ -79,7 +84,9 @@ class PlayBench(bench.Bench):
         super().__init__(args)
 
     def scan(self, label, confirmed=None, **fields):
+        self.arm.rest()         # the RealSense reads tiles only with the arm out of its view (nothing if it's there already)
         tiles = super().scan(label, confirmed, **fields)
+        self.player.clear_view = self.realsense.snapshot()
         self.player.observe(tiles)
         return tiles
 
@@ -102,7 +109,8 @@ class Player:
         self.picking = None             # the name the pickup under way goes on
         self.name_changed = False       # a person's answer at the hover changed it: the pickup was called off
         self.person_said = {}           # placement -> the name a person gave it: no need to ask about it again
-        self.wrist_seen = {}            # slot -> the wrist camera's latest frame of its tile, for the window
+        self.words = {}                 # placement -> {"name", "xy"}: a person's word (the hand check's Enter too), and where the tile was
+        self.wrist_seen = {}            # slot -> the wrist camera's latest {"frame", "read"} of its tile, for the window
         self.looked_at = set()          # hand slots the wrist camera has read since registering began
         self.reader = None if args.sim or args.no_name_check else name_check.load_reader()
         if not args.sim and self.reader is None:
@@ -113,6 +121,7 @@ class Player:
         self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
         self.bench.direct = not args.via_rest
         self.hovering = False           # a look before asking left the arm over the mat
+        self.clear_view = None          # the RealSense frame from the latest scan: the mat with the arm at rest, for when it isn't
         if args.sim:
             self.mat = self.bench.realsense
             self.mat.tiles = [{"tile_name": n, "xy": list(s["xy"])} for n, s in zip(SIM_HAND, self.slots)]
@@ -141,6 +150,11 @@ class Player:
         """Where the latest scan saw the slot's tile, else where it belongs: for outlining it on screen."""
         return self.latest[slot]["xy"] if slot in self.latest else self.home(slot)
 
+    def box_at(self, slot):
+        """The latest scan's box around the slot's tile as (u, v, w, h) in pixels, or None."""
+        tile = self.latest.get(slot, {})
+        return (*tile["pixel"], *tile["box_px"]) if "pixel" in tile and "box_px" in tile else None
+
     def observe(self, tiles):
         """Add a scan's reads to each slot's vote: the detection nearest each slot's home, if close enough."""
         self.latest = {}
@@ -150,30 +164,63 @@ class Player:
             if tile is not None:
                 self.latest[slot] = tile
                 self.votes.add(slot, tile)
+        if ZONE not in self.latest:     # a box it can't name still proves a tile is there, and gives it no votes (perception.faint_tiles)
+            box = layout.nearest_tile(self.bench.realsense.faint, self.home(ZONE), markers.ZONE_RADIUS_M)
+            if box is not None:
+                self.latest[ZONE] = {**box, "faint": True}
 
     def scan(self, label, **fields):
         return self.bench.scan(label, **fields)
 
     # --- the window, and asking ---
 
-    def show(self, caption, focus=None):
-        """Put a question on screen: the RealSense view, every slot named as the robot has it, `focus` picked out."""
+    def name_of(self, slot):
+        """The name the robot goes on at `slot`: settled, else what the votes lean to."""
+        settled = self.state["drawn"] if slot == ZONE else self.state["hand"].get(slot)
+        return settled or self.votes.leader(slot)[0]
+
+    def attention(self, slot, why=None, otherwise=None):
+        """What the window says about a tile being reviewed: {"why", "could_be"}, or {} if nothing stands out. `why`: this question's
+        reason, first if there is one. `otherwise`: said if nothing else is, for a tile being asked about regardless."""
+        name = self.name_of(slot)
+        said = self.words.get(self.placements.id_at(slot), {}).get("name") == name
+        reasons, could_be = self.votes.worth_a_look(slot, name, vouched=said)
+        wrist = self.wrist_seen.get(slot)
+        if wrist and wrist["read"]["name"] != name:
+            could_be = [wrist["read"]["name"], *(other for other in could_be if other != wrist["read"]["name"])]
+            if not why:                 # a question about a disagreement already says this
+                reasons.insert(0, f"wrist camera reads {wrist['read']['name']} ({wrist['read']['confidence']:.2f})")
+        elif wrist and reasons:
+            reasons.append(f"wrist camera agrees ({wrist['read']['confidence']:.2f})")
+        if said and reasons:
+            reasons.insert(0, f"you said {name}")
+        reasons = ([why] if why else []) + (reasons or ([otherwise] if otherwise and not why else []))
+        return {"why": "; ".join(reasons), "could_be": could_be} if reasons else {}
+
+    def show(self, caption, focus=None, flagged=None):
+        """Put a question on screen: the RealSense view, every slot named as the robot has it, `focus` (the tile asked about now) and
+        `flagged` ({slot: attention}, every tile in this review) picked out."""
         if self.view is None:
             return
-        hand = self.state["hand"]
-        tiles = []
-        for s in self.slots:
-            slot = s["id"]
-            name = hand.get(slot) or self.votes.leader(slot)[0]
-            tiles.append({"id": slot, "xy": self.seen_at(slot), "name": name, "unsure": slot not in hand or name in ALWAYS_ASK_READS})
-        tiles.append({"id": ZONE, "xy": self.seen_at(ZONE), "name": self.state["drawn"] or self.votes.leader(ZONE)[0]})
+        flagged = flagged or {}
+        tiles = [{"id": slot, "xy": self.seen_at(slot), "name": self.name_of(slot), "box": self.box_at(slot), **flagged.get(slot, {})}
+                 for slot in [s["id"] for s in self.slots] + [ZONE]]
         realsense = self.bench.realsense
-        self.view.show(hand_view.compose(realsense.snapshot(), tiles, caption, realsense.intrinsics, realsense.T_cam_to_base,
-                                         focus=focus, wrist=self.wrist_seen.get(focus)))
+        wrist = self.wrist_seen.get(focus)
+        overview, note = self.mat_view()
+        self.view.show(hand_view.compose(overview, tiles, f"{caption} {note}" if note else caption, realsense.intrinsics,
+                                         realsense.T_cam_to_base, focus=focus, wrist=wrist["frame"] if wrist else None))
 
-    def question(self, prompt, focus=None, caption=None):
+    def mat_view(self):
+        """The RealSense picture for the window, and a note if it isn't live. With the arm over the mat a live frame shows it across the
+        tiles the question is about, so the window keeps the latest scan's frame, taken at rest."""
+        if self.bench.arm.is_at_rest() or self.clear_view is None:
+            return self.bench.realsense.snapshot(), None
+        return self.clear_view, CLEAR_VIEW_NOTE
+
+    def question(self, prompt, focus=None, caption=None, flagged=None):
         """Ask a person, with what it's about on screen."""
-        self.show((caption or prompt).strip(), focus)
+        self.show((caption or prompt).strip(), focus, flagged)
         drain_stdin()
         return self.ask(prompt)
 
@@ -206,7 +253,7 @@ class Player:
         leader = self.votes.leader(slot)[0]
         while True:
             answer = self.question(f"{why}. What is the tile at {slot} (reads: {self.votes.describe(slot)})? "
-                                   f"[Enter: {leader}] ", focus=slot).strip().upper()
+                                   + (f"[Enter: {leader}] " if leader else ""), focus=slot, flagged={slot: self.attention(slot, otherwise=why)}).strip().upper()
             name = answer or leader
             if name and game.is_playable(name):
                 break
@@ -217,7 +264,28 @@ class Player:
                                   typed=bool(answer), leading_read=leader, why=why)
         self.votes.known(slot, name)
         self.person_said[self.placement_id(slot)] = name
+        self.give_word(slot, name)
         return name
+
+    def give_word(self, slot, name):
+        """A person has said what the tile at `slot` is: it holds, whatever the scans read, until the tile moves (word_holds)."""
+        self.words[self.placement_id(slot)] = {"name": name, "xy": list(self.seen_at(slot))}
+
+    def word_holds(self, slot, name):
+        """The scans disagree with `name`: True if a person's word on this tile says to ignore them. A read a person overruled is
+        no news while the tile sits where it did (S9 read 9C in 201 of 202 scans, and 53 questions in 20261104_183142_play changed
+        no answer); what could change its name is the tile moving, past interventions.KNOCK_M. A tile not seen doesn't hold."""
+        word, tile = self.words.get(self.placements.id_at(slot)), self.latest.get(slot)
+        if word is None or word["name"] != name or tile is None:
+            return False
+        if word["xy"] is None:          # the word came with a tile the robot has since set down here: this is where it landed
+            word["xy"] = list(tile["xy"])
+        moved = math.dist(tile["xy"], word["xy"])
+        if moved > interventions.KNOCK_M:
+            return False
+        self.session.event("name_held", slot=slot, placement=self.placements.id_at(slot), name=name, moved_m=round(moved, 4),
+                           reads=self.votes.describe(slot), votes=self.votes_at(slot))
+        return True
 
     # --- the second read, from the wrist camera at the hover (mahjong/name_check.py) ---
 
@@ -226,11 +294,14 @@ class Player:
         in the attempt's folder, so its read can be checked later."""
         frames = grab_frames(self.bench.camera, 1)
         if not frames:
+            self.reopen_camera()
+            frames = grab_frames(self.bench.camera, 1)
+        if not frames:
             print("  no wrist camera frame: no second read of this tile")
             self.session.event("name_check", slot=slot, placement=self.placement_id(slot), name=name, read=None)
             return None
         read = self.reader.read(frames[0])
-        self.wrist_seen[slot] = frames[0]
+        self.wrist_seen[slot] = {"frame": frames[0], "read": read}
         if slot != ZONE:
             self.looked_at.add(slot)
         for file in filter(None, ("name_check.jpg", keep_as)):
@@ -239,6 +310,16 @@ class Player:
                            confidence=read["confidence"], agrees=read["name"] == name, attempt_dir=folder.name,
                            person_said=self.person_said.get(self.placement_id(slot)))
         return read
+
+    def reopen_camera(self):
+        """A read found the camera lost: reopen it (5 of 55 reads in 20261104_183142_play came back empty, and the camera stayed lost
+        until a pickup voided). It may ask to retry or quit, so a pickup's key listener lets go of the terminal meanwhile."""
+        terminal = self.bench.terminal
+        listening = terminal.running.is_set()
+        terminal.stop()
+        self.bench.reopen_camera()
+        if listening:
+            terminal.start()
 
     def settle(self, slot, name, read):
         """The reader and the name the robot's going on disagree: a person says. Returns the tile's name."""
@@ -280,7 +361,14 @@ class Player:
         if self.reader is None or tile is None or self.bench.hover_over(tile) is None:
             return None
         self.hovering = True
-        return self.read_wrist(slot, name, self.session.attempt_dir(name), keep_as="wrist_0000.jpg")
+        return self.read_wrist(slot, name, self.look_folder(name or config.UNNAMED), keep_as="wrist_0000.jpg")
+
+    def look_folder(self, name):
+        """A folder for a look at a tile, with the mat from before the arm moved, to compare with the wrist frame saved beside it."""
+        folder = self.session.attempt_dir(name)
+        if self.clear_view is not None:
+            cv2.imwrite(str(folder / "overview_before.jpg"), self.clear_view)
+        return folder
 
     def rest_after_looking(self):
         """Back to rest if a look left the arm over the mat: the next scan needs a clear view."""
@@ -310,7 +398,7 @@ class Player:
             if slot in self.looked_at or tile is None or self.bench.hover_over(tile) is None:
                 continue
             name = self.state["hand"][slot]
-            read = self.read_wrist(slot, name, self.session.attempt_dir(name), keep_as="wrist_0000.jpg")
+            read = self.read_wrist(slot, name, self.look_folder(name), keep_as="wrist_0000.jpg")
             if read and read["name"] != name and self.person_said.get(self.placement_id(slot)) != name:
                 self.settle(slot, name, read)
         self.bench.arm.rest()
@@ -331,26 +419,33 @@ class Player:
     # --- the zone ---
 
     def load_zone(self, teach):
+        """The zone the last hand used, unless this is --teach-zone or the RealSense has been recalibrated since. Only teaching
+        reads the marker: once taught, the position is what play goes on, and the marker can move or come off the mat."""
         zone = None if teach else markers.load_zone()
-        if zone is None:
-            self.bench.arm.rest()
-            print("Finding the drop-zone marker (it must be uncovered)...")
-            while (xy := markers.locate(self.bench.realsense)) is None:
-                drain_stdin()
-                self.ask(f"Marker {markers.DRAWN_TILE_MARKER_ID} not seen: uncover it or put it in view, then Enter: ")
-            zone = markers.save_zone(xy, session=self.session.dir.name)
-            print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}")
+        if zone is not None:
+            x, y = zone["xy"]
+            print(f"Drop zone at ({x:.3f}, {y:+.3f}), taught {zone.get('taught', '?')} (--teach-zone to move it)")
+            return zone
+        self.bench.arm.rest()
+        print(("" if teach else "No drop zone saved for this RealSense calibration. ")
+              + "Finding the drop-zone marker (it must be uncovered)...")
+        while (xy := markers.locate(self.bench.realsense)) is None:
+            drain_stdin()
+            self.ask(f"Marker {markers.DRAWN_TILE_MARKER_ID} not seen: uncover it or put it in view, then Enter: ")
+        zone = markers.save_zone(xy, session=self.session.dir.name)
+        print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}. Play doesn't need the marker from here on.")
         return zone
 
     def check_zone_benched(self):
         """The zone is only reached mid-hand: refuse to start unless the bench has checked a tile there
-        (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
+        and carried tiles from it (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
         test = markers.zone_test(self.zone["xy"], self.slots, layout.load(markers.ZONE_TEST_LAYOUT)["spots"],
                                  play_layout=self.args.layout)
         self.session.event("zone_test", **test)
         if test["ok"]:
             print(f"Drop zone checked on the bench: {markers.ZONE_TEST_LAYOUT} {test['spot']}, "
-                  f"{test['picked']} picked up, {test['returned']} returned")
+                  f"{test['picked']} picked up, {test['returned']} returned, {test['carried']} carried to a slot "
+                  f"(median {test['carried_median_mm']:.0f}mm from home)")
             return
         print("\nThe drop zone isn't checked on the bench yet:\n  " + "\n  ".join(test["problems"])
               + "\nTo check it:\n  " + "\n  ".join(test["fix"]))
@@ -358,17 +453,6 @@ class Player:
             self.bench.close()
             raise SystemExit("not starting the hand (--skip-zone-test plays anyway)")
         self.session.intervention("zone_unchecked", problems=test["problems"])
-
-    def check_zone(self):
-        """With the zone empty, the marker should be where it was taught: if it moved, so did the camera or
-        the base, and every position on the mat is off. Not checked in --sim (no marker drawn)."""
-        if self.args.sim:
-            return
-        xy = markers.locate(self.bench.realsense)
-        self.session.event("zone_check", xy=xy, taught_xy=self.zone["xy"])
-        if xy is not None and markers.moved(self.zone, xy):
-            raise SystemExit(f"The drop-zone marker moved {math.dist(xy, self.zone['xy']) * 1000:.0f}mm: the camera or "
-                             f"the base moved. Check the setup, teach the zone again (--teach-zone) and --resume.")
 
     # --- the hand ---
 
@@ -408,24 +492,33 @@ class Player:
         self.save()
 
     def check_counts(self):
-        """More than 4 of a tile among the hand, the drawn tile and the discards: one is misread."""
-        names = list(self.state["hand"].values()) + self.state["discards"] + \
-            ([self.state["drawn"]] if self.state["drawn"] else [])
-        while extra := game.too_many(names):
-            print(f"More than 4 of {', '.join(extra)}: one is misread.")
-            self.recount([slot for slot, n in self.state["hand"].items() if n in extra])
-            names = list(self.state["hand"].values()) + self.state["discards"] + \
-                ([self.state["drawn"]] if self.state["drawn"] else [])
+        """More than 4 of a tile among the hand, the drawn tile and the discards: one is misread, and a person checks the ones
+        still on the mat. It may be a discard, already in the bin, so if they change nothing their word stands (logged), and
+        those names aren't brought up again: asking until the count came right left no way on but a false answer."""
+        s = self.state
+        while extra := [name for name in game.too_many([*s["hand"].values(), *s["discards"], *([s["drawn"]] if s["drawn"] else [])])
+                        if name not in s.get("count_accepted", [])]:
+            why = f"More than 4 of {', '.join(extra)}"
+            print(f"{why}: one is misread.")
+            before = dict(s["hand"]), s["drawn"]
+            self.recount([slot for slot, n in s["hand"].items() if n in extra], why=why)
+            if s["drawn"] in extra:
+                s["drawn"] = self.ask_name(ZONE, why)
+            if (s["hand"], s["drawn"]) == before:
+                print(f"  Going on your word: {', '.join(extra)} may have a misread discard.")
+                self.session.intervention("count_unresolved", names=extra)
+                s["count_accepted"] = [*s.get("count_accepted", []), *extra]
 
     def recount(self, slots, seen=None, why=None):
         """A person checks slots the table and the robot disagree on: Enter for each keeps the robot's
-        name, or types the right one."""
+        name, or types the right one. The window has them all picked out, so a person sees the whole request at the first."""
         for slot in slots:
+            flagged = {s: self.attention(s, why=why, otherwise="the scans don't match the hand") for s in slots}
             expected = self.state["hand"][slot]
             prompt = (f"  {slot}: the robot has {expected}"
                       + (f", the scans read {seen[slot]}" if seen and seen.get(slot) else "")
                       + f" (reads: {self.votes.describe(slot)}). The tile there is [Enter: {expected}]: ")
-            answer = self.question(prompt, focus=slot, caption=f"{why}. {prompt.strip()}" if why else None)
+            answer = self.question(prompt, focus=slot, caption=f"{why}. {prompt.strip()}" if why else None, flagged=flagged)
             name = answer.strip().upper() or expected
             while not game.is_playable(name):
                 name = self.ask(f"  {name!r} isn't a playable tile name. The tile at {slot} is: ").strip().upper() or expected
@@ -438,6 +531,7 @@ class Player:
         self.state["hand"][slot] = name
         self.votes.known(slot, name)
         self.person_said[self.placement_id(slot)] = name
+        self.give_word(slot, name)
 
     def hand_text(self):
         return "  ".join(f"{s['id']}={self.state['hand'][s['id']]}" for s in self.slots)
@@ -460,33 +554,43 @@ class Player:
     def confirm_hand(self):
         """A person checks all 13 against the table before the first draw: the votes can be sure of a wrong name (a 5C read as 9C,
         20261104_164541_play), and nothing else would ask. Enter isn't graded as a question (a hand has this every time); a
-        correction is a recount, so that hand isn't clean. Their word goes in the ledger as the truth for these placements."""
+        correction is a recount, so that hand isn't clean. Their word goes in the ledger as the truth for these placements, and
+        holds against later scans (word_holds). Not against the wrist camera at the hover: that's a new read, before a tile is binned."""
         while True:
             print("\nThe hand as the robot has it: " + self.hand_text())
+            flagged = {slot: self.attention(slot) for slot in self.state["hand"]}
             answer = self.question("Check it against the table. Enter if every tile matches, or the wrong ones as "
-                                   "SLOT=NAME (e.g. S9=5C): ").strip()
+                                   "SLOT=NAME (e.g. S9=5C): ", flagged=flagged).strip()
             if not answer:
                 break
             self.corrections(answer)
         self.check_counts()
         s = self.state
+        for slot, name in s["hand"].items():
+            self.give_word(slot, name)
         s["hand_confirmed"] = True
         self.session.event("hand_confirmed", confirmed={self.placement_id(slot): name for slot, name in s["hand"].items()})
         self.save()
 
     def check_hand(self):
-        """Before a discard: every slot still shows its tile. A slot whose votes now lean to another name,
-        or with no tile in the latest scan, goes to a recount."""
+        """Before a discard: every slot still shows its tile. A slot whose votes now lean to another name, unless a person's word
+        on it holds, or with no tile in the latest scan, goes to a recount, with the wrist camera's look first."""
         seen = {}
         for slot in self.state["hand"]:
             leader, share, _ = self.votes.leader(slot)
             if slot in self.latest and leader is not None:
                 seen[slot] = leader if share >= 0.5 else None
-        bad = game.hand_mismatches(self.state["hand"], seen)
+        bad = {slot: mismatch for slot, mismatch in game.hand_mismatches(self.state["hand"], seen).items()
+               if not self.word_holds(slot, mismatch[0])}
         if bad:
             print("The table doesn't match the hand: " + ", ".join(
                 f"{slot} {want} (seen {got or 'nothing sure'})" for slot, (want, got) in bad.items()))
-            self.recount(list(bad), {slot: got for slot, (_, got) in bad.items()})
+            for slot, (want, got) in bad.items():
+                note = self.look_note(slot, want)
+                if note:
+                    print(f"  {note}")
+                self.recount([slot], {slot: got}, why=note)
+            self.rest_after_looking()
 
     def read_drawn(self):
         """The drawn tile: up to DRAWN_SCANS scans until the vote clears the stricter bar, else ask."""
@@ -501,16 +605,28 @@ class Player:
                 self.decided(ZONE, name, "vote")
                 return name
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
-        why = self.why_ask(ZONE, name, "Not sure of the drawn tile")
-        if name in ALWAYS_ASK_READS and (read := self.look(ZONE, name)):    # no hand check to come: the read only informs
-            why += f". The wrist camera reads {read['name']} ({read['confidence']:.2f})"
-        name = self.ask_name(ZONE, why)
-        if not self.bench.direct:       # direct: on to the discard from here
-            self.rest_after_looking()
+        unnamed = self.votes.leader(ZONE)[0] is None
+        return self.ask_drawn(self.why_ask(ZONE, name, "There's a tile on the drop zone, but the scans can't name it" if unnamed
+                                           else "Not sure of the drawn tile"))
+
+    def look_note(self, slot, name):
+        """Look at the tile at `slot`, for a question about it: what the wrist camera read, or None with no reader. Leaves the arm there."""
+        if self.reader is None:
+            return None
+        read = self.look(slot, name)
+        return f"The wrist camera reads {read['name']} ({read['confidence']:.2f})" if read else "No read from the wrist camera"
+
+    def ask_drawn(self, why):
+        """A person names the drawn tile, with the wrist camera's read of it whatever made it uncertain. `votes.sure` is None when the
+        votes split, so a look that depends on the name it returns skips the least certain tiles. No hand check is to come, so agreement
+        doesn't drop the question: the read only informs (a read never names a tile, mahjong/name_check.py)."""
+        note = self.look_note(ZONE, self.votes.leader(ZONE)[0])
+        name = self.ask_name(ZONE, f"{why}. {note}" if note else why)
+        self.rest_after_looking()
         return name
 
     def wait_for_draw(self):
-        """The drawn tile's name, or None when the wall is empty."""
+        """The drawn tile's name, or None when the wall is empty. The turn doesn't go on until a scan sees a tile on the zone."""
         self.wrist_seen.pop(ZONE, None)
         if self.args.sim:
             if not self.draws:
@@ -520,7 +636,9 @@ class Player:
             return None
         self.votes.reset(ZONE)
         while (name := self.read_drawn()) is None:
-            if self.ask_for_draw("No tile seen on the drop zone: put it on the marker") == "end":
+            x, y = self.zone["xy"]
+            if self.ask_for_draw(f"No tile seen on the drop zone: put it at ({x:.3f}, {y:+.3f}), "
+                                 f"within {markers.ZONE_RADIUS_M * 1000:.0f}mm") == "end":
                 return None
             self.session.intervention("zone_asked")
             self.votes.reset(ZONE)
@@ -529,8 +647,9 @@ class Player:
     def ask_for_draw(self, what):
         """Wait for the drawn tile: "end" if the wall is empty. A hand tile found to be wrong can be corrected here too."""
         while True:
+            hand13 = [self.state["hand"][x["id"]] for x in self.slots]
             answer = self.question(f"\n{what}, then Enter ('end' if the wall is empty, S9=5C to correct a hand tile): ",
-                                   focus=ZONE).strip()
+                                   focus=ZONE, caption=f"{what}. {game.seeking(hand13, self.state['discards'])}").strip()
             if "=" not in answer:
                 return answer.lower()
             if self.corrections(answer):
@@ -543,15 +662,18 @@ class Player:
         (the bench's pickup does), so a tile nudged by a miss is aimed at where it is now."""
         for attempt in range(1 + RETRIES):
             # the last check before a tile goes in the bin: the votes there must still be for it
-            if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None):
+            if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None) and not self.word_holds(slot, name):
                 if slot == ZONE:
-                    now = self.ask_name(ZONE, f"The drawn tile ({name}) reads differently now")
+                    now = self.state["drawn"] = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
+                    if self.state["phase"] != "discard":
+                        name = now      # going to a slot, not the bin: it carries on under its new name (as second_read)
                 else:
                     self.recount([slot])
                     now = self.state["hand"][slot]
                 if now != name:
                     return False            # it's another tile: the caller decides again
             self.picking = name
+            self.bench.names[slot] = name       # what a tile it can only box goes down as (look_at_home), rather than unnamed
             success = self.bench.pickup(ask=False, spot=self.spot(slot))
             name, self.picking = self.picking, None
             if self.name_changed:           # a person's answer at the hover: it's another tile
@@ -586,6 +708,8 @@ class Player:
         self.wrist_seen.pop(slot, None)
         moved = self.placements.end(ZONE, "moved")
         self.placements.start(slot, self.home(slot), truth_source="game", read=name, from_placement=moved)
+        if self.words.get(moved, {}).get("name") == name:       # the same tile: the word comes with it, from where it lands
+            self.words[self.placements.id_at(slot)] = {"name": name, "xy": None}
         return True
 
     # --- a turn ---
@@ -595,8 +719,8 @@ class Player:
         s = self.state
         if s["phase"] == "draw":
             hand13 = [s["hand"][x["id"]] for x in self.slots]
-            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()} "
-                  f"(shanten {game.shanten(game.counts(hand13))})")
+            print(f"\n=== Turn {s['turn'] + 1} === hand: {self.hand_text()}")
+            print(f"  {game.seeking(hand13, s['discards'])}")
             drawn = self.wait_for_draw()
             if drawn is None:
                 return "end"
@@ -604,7 +728,7 @@ class Player:
             self.check_hand()
             self.check_counts()
             self.end_step()
-            hand13 = [s["hand"][x["id"]] for x in self.slots]       # a person may have just corrected it
+            hand13, drawn = [s["hand"][x["id"]] for x in self.slots], s["drawn"]    # a person may have just corrected them
             if game.is_win(hand13 + [drawn]):
                 print(f"Drew {drawn}: the hand is complete. Win!")
                 s["history"].append({"turn": s["turn"] + 1, "drawn": drawn, "win": True})
@@ -613,10 +737,11 @@ class Player:
                 return "win"
             best, candidates = game.choose_discard(hand13, drawn, s["discards"])
             slot = ZONE if best["index"] == game.HAND_SIZE else self.slots[best["index"]]["id"]
-            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}: shanten {best['shanten_after']}, "
-                  f"{best['ukeire_tiles']} improving tiles left ({best['ukeire_kinds']} kinds)")
+            kept = (hand13 + [drawn])[:best["index"]] + (hand13 + [drawn])[best["index"] + 1:]
+            after = [*s["discards"], best["tile_name"]]
+            print(f"Drew {drawn}; discard {best['tile_name']} from {slot}. {game.seeking(kept, after)}")
             self.session.event("discard_chosen", turn=s["turn"] + 1, drawn=drawn, slot=slot, **best,
-                               candidates=candidates[:5])
+                               candidates=candidates[:5], seeking=game.improving_tiles(kept, after))
             s.update(phase="discard", discard_slot=slot, discard=best)
             self.save()
         if s["phase"] == "discard":
@@ -626,7 +751,7 @@ class Player:
                 s["phase"] = "draw_known"
                 return self.decide_again()
             if picked:
-                self.bench.discard(ask=False, going_to=None if slot == ZONE else self.home(ZONE))
+                self.bench.discard(ask=False)
             self.votes.reset(slot)
             s["discards"].append(name)
             s.setdefault("discard_placements", []).append(self.placements.end(slot, "discarded"))
@@ -664,9 +789,8 @@ class Player:
         s["phase"] = "draw"
         for key in ("discard_slot", "discard", "vacated"):
             s.pop(key, None)
+        self.save()                     # before anything that can stop play: --resume starts from this
         self.end_step()
-        self.check_zone()
-        self.save()
         return None
 
     # --- the end of the hand ---
@@ -746,7 +870,6 @@ class Player:
         if result == "end":
             self.state["phase"] = "end"
             self.save()
-        self.bench.arm.rest()           # a look at the winning tile leaves the arm over the mat
         return self.audit(result)
 
     def close(self):
@@ -776,7 +899,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--layout", default=None, help="the 13 hand slots (a layout taught with scripts/layout.py)")
     p.add_argument("--policy", default=None, help="policy id from data/policies.json (default: its 'default')")
-    p.add_argument("--teach-zone", action="store_true", help="find the drop-zone marker again (it must be uncovered)")
+    p.add_argument("--teach-zone", action="store_true", help="move the drop zone: read the marker for its new position (it must be uncovered); otherwise the last zone carries over")
     p.add_argument("--resume", nargs="?", const="latest", default=None,
                    help="carry on a play session's hand from its checkpoint (default: the latest)")
     p.add_argument("--skip-zone-test", action="store_true",
@@ -787,7 +910,7 @@ def parse_args(argv=None):
     p.add_argument("--read-hand", action="store_true",
                    help="also hover over all 13 hand tiles after registering them and read each with the wrist camera")
     p.add_argument("--via-rest", action="store_true",
-                   help="go to rest and scan after every pickup and discard, as the bench does (slower; a scan per move)")
+                   help="go to rest and scan after every pickup before setting the tile down, as the bench does (slower)")
     p.add_argument("--no-view", action="store_true", help="no window showing what each question is about; the terminal only")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)

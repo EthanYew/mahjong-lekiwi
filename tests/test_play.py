@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mahjong import config
+from mahjong import config, markers
 from mahjong.session import read_events
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -64,6 +64,17 @@ def test_a_sim_hand_plays_to_a_clean_win(tmp_path, monkeypatch):
     assert p.session.dir.name.endswith("_play")
 
 
+def test_every_turn_says_which_tiles_it_is_after(tmp_path, monkeypatch, capsys):
+    p = player(tmp_path, monkeypatch, Answers())
+    assert run(p) == "clean"
+    out = capsys.readouterr().out
+    assert "=== Turn 1 ===" in out and "Wins on: " in out
+    chosen = [e for e in events_of(p) if e["type"] == "discard_chosen"]
+    assert chosen and all(e["seeking"] for e in chosen)
+    for e in chosen:                                    # the log's list and the choice's count are the same tiles
+        assert (len(e["seeking"]), sum(left for _, left in e["seeking"])) == (e["ukeire_kinds"], e["ukeire_tiles"])
+
+
 def test_an_unsure_drawn_tile_is_asked_not_guessed(tmp_path, monkeypatch):
     ask = Answers("", "9B")
     p = player(tmp_path, monkeypatch, ask)
@@ -92,16 +103,17 @@ def test_a_hand_tile_that_reads_differently_goes_to_a_recount(tmp_path, monkeypa
     def misread_after_registering(n_frames=None):
         calls["n"] += 1
         tiles = detect(n_frames)
-        if calls["n"] > 3:                  # after the 3 registration scans, NW reads as WW, sure of it
+        if calls["n"] > 3:                  # after the 3 registration scans, NW has moved and reads as WW, sure of it
             for t in tiles:
                 if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
                     t["tile_name"], t["votes"] = "WW", {"WW": 4.5}
+                    t["xy"] = [t["xy"][0], t["xy"][1] + 0.006]      # moved, or the hand check's word would hold
         return tiles
     monkeypatch.setattr(mat, "detect_tiles", misread_after_registering)
     p.draws = ["GD"]
-    assert run(p) == "attended"
+    assert run(p) == "rescued"              # a tile that moved with the arm away: the scans settle it as a person's touch
     recounts = [i for i in interventions_of(p) if i["kind"] == "recount"]
-    assert recounts and recounts[0]["slot"] == "H13" and recounts[0]["expected"] == "NW"
+    assert len(recounts) == 1 and recounts[0]["slot"] == "H13" and recounts[0]["expected"] == "NW"
     assert p.state["hand"]["H13"] == "NW"
 
 
@@ -270,8 +282,7 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
             return super().__call__(prompt)
     ask = AtDraw("", "h13=9C", "", "end")
     p = player(tmp_path, monkeypatch, ask)
-    p.args.sim = False                          # the real draw prompt; the zone check needs no marker in this test
-    monkeypatch.setattr(p, "check_zone", lambda: None)
+    p.args.sim = False                          # the real draw prompt
     p.bench.arm.rest()
     p.register()
     p.confirm_hand()
@@ -281,6 +292,317 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
     assert p.turn() is None
     p.close()
     assert chosen and "9C" in chosen[0] and "NW" not in chosen[0]
+
+
+def test_a_stop_after_a_turn_finds_the_turn_already_saved(tmp_path, monkeypatch):
+    """--resume reads the checkpoint: a turn not saved would be played again on a tile already moved."""
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state.update(phase="place", vacated="H12", discard_slot="H12", discard={"tile_name": "RD", "shanten_after": 1}, drawn=None)
+    p.state["discards"].append("RD")
+    p.save()
+
+    def stopped():
+        raise KeyboardInterrupt
+    monkeypatch.setattr(p, "end_step", stopped)
+    with pytest.raises(KeyboardInterrupt):
+        p.finish_turn("RD", "H12")
+    p.close()
+    saved = json.loads((p.session.dir / "checkpoint.json").read_text())
+    assert (saved["phase"], saved["turn"]) == ("draw", 1) and "vacated" not in saved
+
+
+# --- the drop zone: a saved position, and a tile on it before the turn goes on ---
+
+def no_marker(monkeypatch):
+    """Anything that reads the marker fails the test."""
+    def read(*_, **__):
+        raise AssertionError("read the marker")
+    monkeypatch.setattr(markers, "locate", read)
+    monkeypatch.setattr(markers, "find", read)
+
+
+def test_the_last_zone_carries_over_without_reading_the_marker(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    monkeypatch.setattr(markers, "ZONE_FILE", tmp_path / "drop_zone.json")
+    saved = markers.save_zone([0.2, -0.17], session="last")
+    no_marker(monkeypatch)
+    assert p.load_zone(teach=False) == saved
+    p.close()
+
+
+def test_teach_zone_reads_the_marker_and_the_next_hand_gets_the_new_position(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    monkeypatch.setattr(markers, "ZONE_FILE", tmp_path / "drop_zone.json")
+    markers.save_zone([0.2, -0.17], session="last")
+    monkeypatch.setattr(markers, "locate", lambda realsense: [0.21, -0.15])
+    assert p.load_zone(teach=True)["xy"] == [0.21, -0.15]
+    no_marker(monkeypatch)
+    assert p.load_zone(teach=False)["xy"] == [0.21, -0.15]
+    p.close()
+
+
+def at_the_real_draw_prompt(p):
+    """The hand registered and checked, with a person putting each drawn tile on the zone rather than the sim."""
+    p.args.sim = False
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+
+
+def test_a_turn_waits_for_a_tile_on_the_zone_and_never_reads_the_marker(tmp_path, monkeypatch):
+    class PutsItOnTheSecondAsk(Answers):
+        def __call__(self, prompt):
+            if "No tile seen" in prompt:
+                p.mat.tiles.append({"tile_name": "GD", "xy": list(p.zone["xy"])})
+            return super().__call__(prompt)
+    ask = PutsItOnTheSecondAsk()
+    p = player(tmp_path, monkeypatch, ask)
+    no_marker(monkeypatch)
+    at_the_real_draw_prompt(p)
+    assert p.turn() is None                     # the whole turn, finish_turn included
+    p.close()
+    asked = [prompt for prompt in ask.prompts if "drop zone" in prompt]
+    assert "Put the drawn tile on the drop zone" in asked[0] and "No tile seen on the drop zone" in asked[1]
+    assert f"{p.zone['xy'][0]:.3f}" in asked[1] and "marker" not in asked[1]
+    assert p.state["discards"] == ["GD"] and sum(e.get("kind") == "zone_asked" for e in events_of(p)) == 1
+
+
+def test_a_tile_too_far_from_the_zone_is_not_on_it(tmp_path, monkeypatch):
+    class Misplaces(Answers):
+        def __call__(self, prompt):
+            x, y = p.zone["xy"]
+            if "Put the drawn tile" in prompt:
+                p.mat.tiles.append({"tile_name": "GD", "xy": [x, y + 0.03]})    # 30mm off
+            elif "No tile seen" in prompt:
+                p.mat.tiles[-1]["xy"] = [x, y]
+            return super().__call__(prompt)
+    ask = Misplaces()
+    p = player(tmp_path, monkeypatch, ask)
+    at_the_real_draw_prompt(p)
+    assert p.turn() is None
+    p.close()
+    assert any("No tile seen" in prompt for prompt in ask.prompts) and p.state["discards"] == ["GD"]
+
+
+def test_a_tile_the_detector_can_only_box_is_there_and_is_asked_about_never_named_from_the_box(tmp_path, monkeypatch):
+    """3C reads at a median 0.18: "no tile seen" would never end, and the box's guess isn't a name to go on."""
+    class FaintDraw(Answers):
+        def __call__(self, prompt):
+            assert "No tile seen" not in prompt     # asked again, it would ask for ever
+            if "Put the drawn tile" in prompt:
+                p.mat.faint = [{"tile_name": "9B", "confidence": 0.18, "xy": tuple(p.zone["xy"])}]
+            return super().__call__(prompt)
+    ask = FaintDraw("", "", "3C")               # the hand check, the draw prompt, then the question about the tile
+    p = player(tmp_path, monkeypatch, ask)
+    at_the_real_draw_prompt(p)
+    assert p.wait_for_draw() == "3C"
+    question = ask.prompts[-1]
+    assert "can't name it" in question and "[Enter" not in question
+    named = next(e for e in events_of(p) if e["type"] == "name_decided" and e["slot"] == "zone")
+    assert (named["name"], named["how"]) == ("3C", "person")
+    p.state.update(phase="place", vacated="H12", drawn="3C")    # and it can be picked up from the box
+    assert p.pick("zone", "3C") is True
+    p.close()
+    attempt = next(e for e in events_of(p) if e["type"] == "attempt")
+    assert (attempt["tile"], attempt["name_source"]) == ("3C", "faint")
+
+
+def drawn_reading_differently(p, phase, drawn="GD", now_reads="9B"):
+    """A settled drawn tile, on the zone, whose votes have since moved to another name."""
+    p.bench.arm.rest()
+    p.register()
+    p.mat.tiles.append({"tile_name": now_reads, "xy": list(p.zone["xy"])})
+    p.state.update(phase=phase, drawn=drawn, vacated="H12")
+    p.votes.known("zone", now_reads)
+
+
+def test_a_drawn_tile_corrected_before_its_discard_is_chosen_from_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "discard")
+    assert p.pick("zone", "GD") is False                # it's another tile: the caller chooses again
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def test_a_drawn_tile_corrected_on_its_way_to_a_slot_carries_on_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "place")
+    assert p.pick("zone", "GD") is True
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def over_counted(tmp_path, monkeypatch, ask, discards, drawn=None, hand=None):
+    """A registered hand holding too many of a tile. A check_counts that stops asking would loop for ever: fail instead."""
+    p = player(tmp_path, monkeypatch, ask)
+    p.bench.arm.rest()
+    p.register()
+    p.state.update(discards=discards, drawn=drawn)
+    p.state["hand"].update(hand or {})
+    if drawn:
+        p.votes.known("zone", drawn)
+    recount, calls = p.recount, []
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        assert len(calls) < 5, "check_counts is going round for ever"
+        return recount(*args, **kwargs)
+    monkeypatch.setattr(p, "recount", counted)
+    return p
+
+
+def test_five_of_a_tile_none_of_them_in_the_hand_asks_about_the_drawn_one(tmp_path, monkeypatch):
+    p = over_counted(tmp_path, monkeypatch, Answers("9B"), ["GD"] * 4, drawn="GD")
+    p.check_counts()
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def test_too_many_of_a_tile_can_be_settled_by_correcting_the_drawn_one(tmp_path, monkeypatch):
+    p = over_counted(tmp_path, monkeypatch, Answers("", "9B"), ["GD"] * 3, drawn="GD", hand={"H1": "GD"})
+    p.check_counts()
+    p.close()
+    assert (p.state["hand"]["H1"], p.state["drawn"]) == ("GD", "9B")
+    assert not [i for i in interventions_of(p) if i["kind"] == "count_unresolved"]
+
+
+def test_a_person_who_keeps_every_name_ends_the_count_check_and_isnt_asked_again(tmp_path, monkeypatch):
+    # the misread one is a discard, already in the bin: nothing a person types at the hand can fix it
+    ask = Answers()
+    p = over_counted(tmp_path, monkeypatch, ask, ["GD"] * 4, hand={"H1": "GD"})
+    p.check_counts()
+    asked = len(ask.prompts)
+    p.check_counts()
+    p.close()
+    assert len(ask.prompts) == asked == 1
+    assert [i["names"] for i in interventions_of(p) if i["kind"] == "count_unresolved"] == [["GD"]]
+
+
+def test_a_turn_goes_on_the_drawn_name_the_count_check_left(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    monkeypatch.setattr(p, "check_counts", lambda: p.state.update(drawn="NW"))
+    chosen = []
+    choose = __import__("mahjong.game").game.choose_discard
+    monkeypatch.setattr("mahjong.game.choose_discard", lambda hand, drawn, seen: chosen.append(drawn) or choose(hand, drawn, seen))
+    p.turn()
+    p.close()
+    assert chosen[0] == "NW"
+
+
+# --- a person's word holds until the tile moves ---
+
+def reads_nw_as_ww(p, monkeypatch, moved_m=0.0, after_scans=3):
+    """After the registration scans, H13's NW reads as a sure WW, `moved_m` from where it was."""
+    detect, calls = p.mat.detect_tiles, {"n": 0}
+
+    def misread(n_frames=None):
+        calls["n"] += 1
+        tiles = [dict(t) for t in detect(n_frames)]
+        if calls["n"] > after_scans:
+            for t in tiles:
+                if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
+                    t.update(tile_name="WW", votes={"WW": 4.5}, xy=[t["xy"][0], t["xy"][1] + moved_m])
+        return tiles
+    monkeypatch.setattr(p.mat, "detect_tiles", misread)
+
+
+def recounts_of(p):
+    return [i for i in interventions_of(p) if i["kind"] == "recount"]
+
+
+def test_the_hand_checks_enter_holds_against_a_steady_misread(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch)
+    p.draws = ["GD", "9B"]                  # both leave H13 in the hand
+    run(p)
+    held = [e for e in events_of(p) if e["type"] == "name_held"]
+    assert not recounts_of(p) and held and all(e["slot"] == "H13" and e["name"] == "NW" for e in held)
+    assert p.state["hand"]["H13"] == "NW"
+
+
+def test_a_typed_correction_holds_every_turn(tmp_path, monkeypatch):
+    ask = Answers("H13=8D")     # registered as NW; it's really an 8D the scans keep reading as NW
+    p = player(tmp_path, monkeypatch, ask)
+    p.draws = ["GD", "9B", "1D"]
+    run(p)
+    fixed = recounts_of(p)
+    assert [(i["slot"], i["answer"]) for i in fixed] == [("H13", "8D")]        # the correction itself, and nothing after it
+
+
+def test_a_misread_tile_that_moved_is_asked_about_once(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch, moved_m=0.006)
+    p.draws = ["GD", "9B", "1D"]
+    run(p)
+    assert [(i["slot"], i["expected"], i["answer"]) for i in recounts_of(p)] == [("H13", "NW", "NW")]
+
+
+def test_a_tile_that_moved_under_the_knock_distance_still_holds(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch, moved_m=0.004)
+    p.draws = ["GD"]
+    run(p)
+    assert not recounts_of(p)
+
+
+def test_a_tile_gone_from_its_slot_is_asked_about_even_with_a_word_on_it(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.latest.pop("H13")
+    assert p.word_holds("H13", "NW") is False
+
+
+def test_a_word_doesn_t_cover_a_different_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    assert p.word_holds("H13", "NW") is True and p.word_holds("H13", "WW") is False
+
+
+def test_a_word_ends_with_its_placement(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.placements.end("H13", "discarded")
+    p.placements.start("H13", p.home("H13"), truth_source="game", read="NW")
+    assert p.word_holds("H13", "NW") is False
+
+
+def test_the_window_treats_the_hand_checks_enter_as_your_word(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.votes.add("H1", {"tile_name": "2C", "confidence": 0.9, "votes": {"2C": 9.0}})
+    found = p.attention("H1")
+    assert "you said 1D" in found["why"] and found["could_be"] == ["2C"]
+    p.close()
+
+
+def test_a_word_on_the_drawn_tile_goes_with_it_to_its_slot(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.draws = ["9B"]
+    p.state["drawn"] = p.wait_for_draw()
+    p.give_word("zone", "9B")
+    p.placements.end("H12", "discarded")
+    p.mat.tiles = [t for t in p.mat.tiles if t["tile_name"] != "RD"]
+    assert p.place_drawn("H12", "9B") is True
+    word = p.words[p.placements.id_at("H12")]
+    assert word == {"name": "9B", "xy": None}
+    p.scan("after")
+    assert p.word_holds("H12", "9B") is True and word["xy"] is not None
+    p.close()
 
 
 def test_a_recount_during_the_turn_changes_the_hand_the_discard_is_chosen_from(tmp_path, monkeypatch):
@@ -297,6 +619,7 @@ def test_a_recount_during_the_turn_changes_the_hand_the_discard_is_chosen_from(t
             for t in tiles:
                 if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
                     t["tile_name"], t["votes"] = "WW", {"WW": 4.5}
+                    t["xy"] = [t["xy"][0], t["xy"][1] + 0.006]      # moved, or the hand check's word would hold
         return tiles
     monkeypatch.setattr(p.mat, "detect_tiles", misread_after_registering)
     p.draws = ["GD"]
@@ -333,12 +656,12 @@ def test_the_picture_has_the_wrist_view_beside_the_mat_when_the_arm_has_looked(t
     import numpy as np
     from mahjong import hand_view, sim
     mat = sim.SimPerception()
-    tiles = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C", "unsure": True}, {"id": "zone", "xy": [0.25, 0.0], "name": None}]
+    tiles = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C"}, {"id": "zone", "xy": [0.25, 0.0], "name": None}]
     overview = mat.snapshot()
     alone = hand_view.compose(overview, tiles, "x " * 200, mat.intrinsics, mat.T_cam_to_base, focus="S1")
     wrist = np.zeros((480, 640, 3), np.uint8)
     beside = hand_view.compose(overview, tiles, "short", mat.intrinsics, mat.T_cam_to_base, focus="S1", wrist=wrist)
-    assert alone.shape[1] <= overview.shape[1] and beside.shape[1] == alone.shape[1] + hand_view.PANEL_PX
+    assert alone.shape[1] <= hand_view.PICTURE_FIT_PX[0] and beside.shape[1] == alone.shape[1] + hand_view.PANEL_PX
     long, short = (hand_view.compose(overview, tiles, c, mat.intrinsics, mat.T_cam_to_base) for c in ("x " * 200, "short"))
     assert long.shape[0] > short.shape[0]           # a long caption wraps onto more lines
 
@@ -389,3 +712,112 @@ def test_a_window_that_died_doesn_t_stop_the_hand(capsys):
     window.show(big)
     window.close()
     assert "window is gone" in capsys.readouterr().out
+
+
+def recording_compose(monkeypatch):
+    """What each picture was asked to show: [(tiles, focus)]."""
+    from mahjong import hand_view
+    composed, compose = [], hand_view.compose
+
+    def record(overview, tiles, *args, **kwargs):
+        composed.append((tiles, kwargs.get("focus")))
+        return compose(overview, tiles, *args, **kwargs)
+    monkeypatch.setattr(hand_view, "compose", record)
+    return composed
+
+
+def test_the_hand_check_marks_a_tile_the_votes_were_sure_of_with_what_else_it_could_be(tmp_path, monkeypatch):
+    """The real case: S9's 5C read as 9C at 0.91 of the votes, 20261104_164541_play. Nothing asked, and nothing pointed at it."""
+    from mahjong import hand_view
+    p = player(tmp_path, monkeypatch, Answers())
+    p.view = Shown()
+    p.bench.arm.rest()
+    p.register()
+    p.votes.totals["H1"]["5C"] = 1.8                    # H1's 1D has about 14 from the sim's 3 scans
+    composed = recording_compose(monkeypatch)
+    p.confirm_hand()
+    p.close()
+    tiles = {t["id"]: t for t in composed[-1][0]}
+    assert tiles["H1"]["could_be"] == ["5C"] and "scans also read 5C" in tiles["H1"]["why"]
+    assert not tiles["H2"].get("why")                   # the rest aren't marked
+    assert hand_view.suspected(tiles["H1"]) == "1D or 5C" and hand_view.suspected(tiles["H2"]) == "2D"
+    assert not [i for i in interventions_of(p) if i["kind"] in ("name_asked", "recount")]       # the marks ask nothing
+
+
+def test_a_review_of_several_tiles_shows_them_all_from_the_first_question(tmp_path, monkeypatch):
+    """The recount at each turn of 20261104_183142_play asked about S5 and S9 in turn, with only the one on screen."""
+    p = player(tmp_path, monkeypatch, Answers("", ""))
+    p.view = Shown()
+    p.bench.arm.rest()
+    p.register()
+    p.set_name("H1", "1D", typed=False)
+    p.votes.totals["H1"]["9C"] = 20.0
+    p.votes.totals["H2"]["9B"] = 30.0
+    composed = recording_compose(monkeypatch)
+    p.recount(["H1", "H2"])
+    p.close()
+    (first, focus), (second, then) = composed
+    assert (focus, then) == ("H1", "H2")
+    marked = {t["id"]: t for t in first if t.get("why")}
+    assert set(marked) == {"H1", "H2"} and marked["H1"]["could_be"] == ["9C"] and marked["H2"]["could_be"] == ["9B"]
+    assert marked["H1"]["why"].startswith("you said 1D")    # a person's earlier answer is on screen
+    assert {t["id"] for t in second if t.get("why")} == {"H1", "H2"}
+
+
+def test_a_tile_a_person_has_checked_isn_t_marked_for_being_on_the_list(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state["hand"]["H1"] = "7C"
+    assert "misread" in p.attention("H1")["why"]
+    p.set_name("H1", "7C", typed=True)
+    assert p.attention("H1") == {}
+    p.close()
+
+
+def test_the_wrist_camera_s_word_goes_with_the_mark(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.state["hand"]["H1"] = "7C"
+    p.wrist_seen["H1"] = {"frame": None, "read": {"name": "7C", "confidence": 0.97}}
+    assert "wrist camera agrees (0.97)" in p.attention("H1")["why"]
+    p.wrist_seen["H1"] = {"frame": None, "read": {"name": "8C", "confidence": 0.9}}
+    found = p.attention("H1")
+    assert found["why"].startswith("wrist camera reads 8C (0.90)") and found["could_be"][0] == "8C"
+    p.wrist_seen["H2"] = {"frame": None, "read": {"name": "2D", "confidence": 0.97}}
+    assert p.attention("H2") == {}                          # agreeing about a tile nothing's wrong with says nothing
+    p.close()
+
+
+def test_every_list_entry_names_the_tiles_misread_as_it():
+    from mahjong import game, identity
+    for read in identity.ALWAYS_ASK_READS:
+        found = identity.misread_from(read)
+        assert found and read not in found and all(game.is_playable(name) for name in found)
+    assert identity.misread_from("2C") == ["3C"]            # "by detector v7x3 at up to 0.96" names no tile
+    assert identity.misread_from("1D") == []
+
+
+def test_only_a_review_dims_the_mat_and_its_list_says_why():
+    import numpy as np
+    from mahjong import hand_view, sim
+    mat = sim.SimPerception()
+    plain = [{"id": "S1", "xy": [0.15, 0.0], "name": "5C"}, {"id": "S2", "xy": [0.15, 0.06], "name": "1D"}]
+    marked = [{**plain[0], "why": "scans also read 9C (9%)", "could_be": ["9C", "3C"]}, plain[1]]
+    overview = np.full((480, 848, 3), 200, np.uint8)
+    quiet = hand_view.compose(overview, plain, "q", mat.intrinsics, mat.T_cam_to_base)
+    loud = hand_view.compose(overview, marked, "q", mat.intrinsics, mat.T_cam_to_base)
+    assert quiet[-1, 0].max() == 200                        # nothing marked: no list, the mat as bright as it was
+    assert loud.shape[0] > quiet.shape[0]                   # a list under the picture
+    assert hand_view.attention_list(marked, focus="S1") == [("> S1: 5C or 9C, 3C. scans also read 9C (9%)", hand_view.FOCUS)]
+    assert hand_view.suspected(marked[0]) == "5C or 9C"     # the picture has room for one; the list has them all
+    assert hand_view.suspected(plain[0]) == "5C"
+
+
+def test_a_detection_s_box_outlines_the_tile_and_a_tile_with_none_is_projected():
+    from mahjong import hand_view, sim
+    mat = sim.SimPerception()
+    box = hand_view.outline_of({"box": (100, 200, 20, 30), "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base)
+    assert box.tolist() == [[90, 185], [110, 185], [110, 215], [90, 215]]
+    assert hand_view.outline_of({"box": None, "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base).shape == (4, 2)

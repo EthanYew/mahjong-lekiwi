@@ -48,7 +48,7 @@ not a worktree, or the sessions go when the worktree does.
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
-| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot) |
+| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot), then `--carry S13,S1` added (a tile on S13, S1 empty) |
 | Check a new policy iteration against the default (`docs/scorecard.md`) | `python scripts/bench.py --policy BASELINE,CANDIDATE --layout even-hand14 --trials 1`, then `session_report.py` |
 | Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout even-hand13` |
@@ -63,7 +63,7 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v6 --policy pickup_mat_cl_v6` (press A on the gamepad to take over) |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7` (press A on the gamepad to take over) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
@@ -74,12 +74,14 @@ not a worktree, or the sessions go when the worktree does.
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
+| Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v6`, v3c's hover-jittered demos,
-DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos, trained with `--augment --replace-mat 0.7`;
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v7`, `pickup_mat_cl_v6`'s data + 52 brown/white
+paper demos, 30 of them closing short as recorded;
 also `pickup_mat_cl_v8` (37 standard-mat demos + other surfaces + black-top jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%),
-also `pickup_mat_cl_v7` (the same + 52 brown/white paper demos, 30 of them closing short as recorded),
+`pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
+trained with `--augment --replace-mat 0.7`),
 `pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
 (without v4's corrections),
 `pickup_mat_cl_v3c`, `pickup_mat_cl_v3b`, `pickup_mat_cl_v3` (demos from jittered
@@ -170,6 +172,7 @@ python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated 
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
+python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
 ```
 
 | Option | What it does |
@@ -182,6 +185,7 @@ python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no on
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
+| `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
 | `--device PATH` | gamepad device path (only for teach-discard) |
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,
@@ -353,7 +357,7 @@ drop zone and press Enter. Why it works the way it does, and the targets it's me
 
 ```
 python scripts/play.py --layout even-hand13                 # play a hand
-python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+python scripts/play.py --layout even-hand13 --teach-zone    # move the drop zone: read the marker for its new position
 python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
 python scripts/play.py --sim                           # no hardware: a fixed hand that wins in 3 draws
 ```
@@ -366,21 +370,29 @@ Before the first hand:
    every spot: pickups and returns at every slot *and* at the drop zone.
 3. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered, on
    even-hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
-   RealSense calibration). The drawn tile goes on top of it.
+   RealSense calibration). Every hand after that uses the saved position and never reads the marker, so you can move it or
+   take it off the mat; the window outlines the zone, and the startup line gives its position. Only `--teach-zone` reads
+   the marker again (a recalibrated RealSense asks for it too).
 4. **The discard pose**: `bench.py`, `teach-discard`, over the container.
 
 Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
-checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and some
-bench session must have picked up and returned a tile there. If not, it prints the commands that fix it
+checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and bench
+sessions must have picked up and returned a tile there, and carried at least 2 from there to a slot
+(`bench.py --layout even-hand14 --trials 2 --carry S13,S1`) landing a median of 12mm or less from home. If not, it prints the commands that fix it
 (e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
+
+Each turn waits for a tile on the drop zone: after you press Enter, a scan has to see one within 25mm of the zone, or it asks again
+and says where the zone is. A tile it can only box, not name, counts as there, and it asks you the name.
 
 A hand: it reads the 13 tiles (asking about any it isn't sure of), then **shows you the whole hand to check against the table**:
 Enter if it's right, or the wrong ones as `S9=5C`. It won't ask for a drawn tile until you've done this (`--resume` asks too, if
 the hand never had it), and the draw prompt takes `S9=5C` as well, for a tile you spot later. Then each turn it reads the drawn tile,
 checks the table still matches its hand, chooses the discard (lowest shanten, then the most improving
 tiles still left, then kinds), drops it in the container, and if it came from the hand moves the drawn
-tile into the slot it left, aimed so it lands on the slot's home. Type `end` at the draw prompt when the
+tile into the slot it left, aimed so it lands on the slot's home. Each turn the terminal and the window say what it's after:
+the tiles that win once it's ready, else how far from ready it is and which draws get it closer, with the copies of each still
+left (4 minus its hand and its discards; there are no other players' tiles to count). Type `end` at the draw prompt when the
 wall is empty. At the end you check its hand against the table and its discards (`D1`, `D2`...) against the
 container: Enter if it's right, or the wrong slots
 as `H3=5D`.
@@ -392,23 +404,34 @@ question is logged, and the hand is graded **clean** (nothing asked; pressing En
 a tile there does), **attended** (questions only), **rescued** (you touched something) or **silent error** (the end check found a
 tile it had wrong).
 
+Your word on a tile holds: once you've named it, or pressed Enter at the hand check, later scans that read it differently are ignored
+(and logged) until the tile moves more than 5mm. Then you're asked once, after the wrist camera's look, and your answer holds from
+there. The tile's word ends when it leaves the slot. The wrist camera disagreeing at a pickup still asks about a tile you only passed
+with Enter, since that's a new read. `--resume` starts without these words, so a tile that reads differently is asked about once again.
+
 A read on that list gets the wrist camera's look first: the arm hovers over the tile before you're asked. While registering the
 hand, if the camera agrees you aren't asked about that tile (you still check it with the rest of the hand); if it disagrees you
-are, with both reads. A drawn tile is always asked about, since no hand check follows it, with the camera's read in the question.
+are, with both reads. A drawn tile on the list is always asked about, since no hand check follows it. Any question about a drawn
+tile gets the look first, whatever made it uncertain (split votes, a low-confidence read, the list), with the camera's read in the
+question or a note that it got none. A camera found lost at a read is reopened and read again.
 
-A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, the
-tile in question in thick yellow (orange: on the list or not settled yet), and the wrist camera's view beside it once the arm has
-looked. You still answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
+A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, and
+the wrist camera's view beside the tile in question once the arm has looked. When you're reviewing names (the hand check, a name
+question, a slot that doesn't match, a fifth copy), the tiles to look at stand out from a dimmed mat, thick orange (thick yellow:
+the one being asked about now). Each is labelled with what it might be (`S9 5C or 9C`: the robot has 5C, it could be 9C) and listed
+under the picture with every other name and why. At the hand check that means another name in the votes (5% or more), a read on the
+list above, a read under 0.80, or the wrist camera disagreeing; you still check all 13, and the marks ask nothing and don't affect
+the grade. While the arm is over the mat the picture is the latest scan's, taken at rest and marked `[mat from before the arm moved]`,
+so the arm never covers the tiles, and each look saves it beside the wrist photo (`overview_before.jpg`). You answer in the terminal, so click back on it if the window takes the keyboard. `--no-view` turns it off.
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
 discarded, the discard is chosen again and the arm goes straight to it. It never names a tile on its own.
 
-The arm doesn't go back to rest between moves in a turn: pickup straight to the container or the slot, container straight to the
-drawn tile, a wrist look straight to the tile to discard. The RealSense can't see past the arm, so the mat is scanned once, at the
-end of the turn, and that scan answers for every tile handled. It goes to rest and scans sooner after a miss, a key you pressed
-during a pickup, or when the next tile is within 85mm of the one just picked up (it may have been knocked, and the hover aims from
-the scan). `--via-rest` goes to rest and scans after every move, as the bench does.
+A tile the policy picked up goes straight from there to the container or the slot, without a trip to rest. Everything else goes back
+to rest first, a look with the wrist camera included, so the RealSense has a clear view whenever it needs one, and the scan after a
+tile is set down answers for its pickup too. A miss, or a key you pressed during the pickup, goes to rest and scans at once. `--via-rest`
+goes to rest and scans after every pickup too, as the bench does.
 
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
 holds a tile).
@@ -417,12 +440,12 @@ holds a tile).
 |---|---|
 | `--layout NAME` | **required** (except `--sim`): the 13 hand slots |
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default) |
-| `--teach-zone` | find the drop-zone marker again (after moving it or the camera); it must be uncovered |
+| `--teach-zone` | move the drop zone: read the marker for its new position, which later hands carry over; it must be uncovered |
 | `--resume [FOLDER]` | carry on a play session's hand (default: the latest) |
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--no-name-check` | play without the wrist camera's second read |
 | `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
-| `--via-rest` | go to rest and scan after every pickup and discard, as the bench does (slower; a scan per move) |
+| `--via-rest` | go to rest and scan after every pickup before setting the tile down, as the bench does (slower) |
 | `--no-view` | no window showing what each question is about; the terminal only |
 | `--sim` | simulated arm, cameras, mat and policy (no second read) |
 
@@ -447,7 +470,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v6 --policy pickup_mat_cl_v6                  # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7                  # DAgger corrections
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
@@ -820,7 +843,11 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
-v7x3 (2026-11-04, live since: `tile_detector@24a163b4`): v6's frames + 61 of the standard mat (Roboflow training v7, split by
+v8 (2026-11-04, live since: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
+repeats: they're near copies already). On the exam, without flowers: **98.8% right overall** (v7x3: 97.6%), **98.3% on the standard
+mat** (v7x3: 96.8%). Box centres moved a median 0.16 px, at most 0.76. Not yet run on the arm.
+
+v7x3 (2026-11-04, live until v8: `tile_detector@24a163b4`): v6's frames + 61 of the standard mat (Roboflow training v7, split by
 scene, session frames repeated 3× in train). On the current exam, without flowers: **97.6% right overall** (v6x3: 86.2%), and
 **96.8% on the standard mat** (v6x3: 80.9%). Box centres moved a median 0.1-0.15 px. Not yet run on the arm.
 
@@ -840,6 +867,16 @@ mirrored tile face isn't a real tile) and refuses a dataset with any exam frame 
 weights only if they beat the old ones on the exam: copy `best.pt` to `assets/tile_detector.pt` and
 commit it with the scores. Exports and downloads under `data/detector/` aren't in git; Roboflow keeps
 the labels.
+
+**Frames a person already named.** `scripts/hand_frames.py` labels a played hand's or a bench's frames from a person's answers
+(names) and the detector's boxes, so they don't need correcting in Roboflow (`mahjong/hand_truth.py`):
+
+```
+python scripts/hand_frames.py 20261104_183142_play                                     # per tile: right, wrong, missed
+python scripts/hand_frames.py 20261104_183142_play --out data/detector/train_v8 --onto data/detector/train_v7x3
+python scripts/hand_frames.py 20261104_150542_bench --weights NEW.pt --against assets/tile_detector.pt
+# --sessions-dir DIR (from a worktree), --per-arrangement N (default 2), --per-hard-name N (default 40)
+```
 
 **4. Wrist-camera photos (for a name check at the hover).** The wrist camera sees a tile from ~4 cm at
 the hover, far sharper than the RealSense. `wrist_capture.py` collects photos to train a check there:
