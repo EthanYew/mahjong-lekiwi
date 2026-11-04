@@ -997,7 +997,8 @@ without changing it. Merging its PR is what marks the range reviewed (`data/post
 **Is the reviewer any good?** `scripts/review_backtest.py` runs it on old merges whose real bugs are known, in a copy of the repo as it stood then.
 
 ```
-python scripts/review_backtest.py run evening-11-04   # one run; takes a while and uses a review's worth of tokens
+python scripts/review_backtest.py run evening-11-04   # one run; stops past --budget dollars (default 12)
+python scripts/review_backtest.py run evening-11-04 --subscription   # on the claude.ai login, not an ANTHROPIC_API_KEY in the shell
 python scripts/review_backtest.py score               # a separate model grades new runs against data/review_backtest/cases.json
 python scripts/review_backtest.py table               # every run: hits, partials, extras, minutes, cost
 ```

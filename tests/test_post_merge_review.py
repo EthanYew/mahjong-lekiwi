@@ -142,6 +142,17 @@ def test_a_backtest_refuses_an_arm_script_where_the_real_gate_would_ask(tmp_path
     assert subprocess.run(["sh", "-c", command], cwd=tmp_path, input=payload, capture_output=True, text=True).stdout.strip() == ""
 
 
+def test_only_the_subscription_option_drops_the_api_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert "ANTHROPIC_API_KEY" in review_backtest.account_env()
+    assert "ANTHROPIC_API_KEY" not in review_backtest.account_env(subscription=True)
+
+
+def test_a_stopped_run_says_why():
+    assert review_backtest.stopped_because('{"result": "Credit balance is too low"}') == "Credit balance is too low"
+    assert review_backtest.stopped_because("not json") == "not json"
+
+
 def test_tally_counts_hits_and_partials():
     known = [{"grade": "hit"}, {"grade": "partial"}, {"grade": "miss"}, {"grade": "hit"}]
     assert review_backtest.tally(known) == {"hit": 2, "partial": 1, "of": 4}

@@ -93,7 +93,7 @@ def prompt_for(case, brief_path):
             f"read-only links under sessions/. Return the findings as the structured output.")
 
 
-def run_case(name, runs_dir, source=None, sessions_from=None):
+def run_case(name, runs_dir, source=None, sessions_from=None, budget=12, subscription=False):
     case = load_cases()["cases"][name]
     sessions_from = sessions_from or _main_checkout_sessions()
     work = Path(tempfile.mkdtemp(prefix=f"bt-{name}-", dir=runs_dir))
@@ -106,14 +106,31 @@ def run_case(name, runs_dir, source=None, sessions_from=None):
     brief_path.write_text(text)
     print(f"brief: {len(text)} characters, {time.time() - started:.0f}s", flush=True)
     command = ["claude", "-p", prompt_for(case, ".review_brief.md"), "--agent", "merge-reviewer", "--model", "opus", "--effort", "high",
-               "--permission-mode", "auto", "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(FINDINGS_SCHEMA)]
+               "--permission-mode", "auto", "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(FINDINGS_SCHEMA),
+               "--max-budget-usd", str(budget)]
     started = time.time()
-    done = subprocess.run(command, cwd=target, capture_output=True, text=True, stdin=subprocess.DEVNULL, env={**os.environ, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+    done = subprocess.run(command, cwd=target, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=account_env(subscription))
     raw = work / "output.json"
     raw.write_text(done.stdout or done.stderr)
     if done.returncode:
-        raise SystemExit(f"the reviewer stopped with exit {done.returncode}: see {raw}")
+        raise SystemExit(f"the reviewer stopped with exit {done.returncode}: {stopped_because(done.stdout or done.stderr)} (see {raw})")
     return save_run(name, json.loads(done.stdout), time.time() - started, str(work))
+
+
+def account_env(subscription=False):
+    """Which account pays. An ANTHROPIC_API_KEY in the shell wins over a claude.ai login, so a run bills it unless told otherwise:
+    on 2026-11-05 three runs used up a key's credit five minutes in, while the session that started them ran on regardless."""
+    if not subscription:
+        return dict(os.environ)
+    return {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+
+def stopped_because(output):
+    """The reason in a failed run's output, so "Credit balance is too low" doesn't read as a bad review."""
+    try:
+        return str(json.loads(output).get("result"))[:200]
+    except ValueError:
+        return output[:200]
 
 
 def save_run(name, output, seconds, work):
@@ -191,6 +208,8 @@ def parse_args(argv=None):
     run = sub.add_parser("run", help="review one case in a scratch copy")
     run.add_argument("case")
     run.add_argument("--runs-dir", default=tempfile.gettempdir(), help="where the scratch copies go")
+    run.add_argument("--budget", type=float, default=12, help="stop the run past this many US dollars (a stopped run scores nothing)")
+    run.add_argument("--subscription", action="store_true", help="use the claude.ai login, not an ANTHROPIC_API_KEY set in the shell")
     sub.add_parser("score", help="grade the runs not graded yet")
     sub.add_parser("table", help="every run so far")
     return p.parse_args(argv)
@@ -199,7 +218,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     if args.command == "run":
-        run_case(args.case, args.runs_dir)
+        run_case(args.case, args.runs_dir, budget=args.budget, subscription=args.subscription)
     elif args.command == "score":
         score_all()
     else:
