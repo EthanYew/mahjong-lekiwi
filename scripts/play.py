@@ -97,7 +97,7 @@ class Player:
         self.picking = None             # the name the pickup under way goes on
         self.name_changed = False       # a person's answer at the hover changed it: the pickup was called off
         self.person_said = {}           # placement -> the name a person gave it: no need to ask about it again
-        self.wrist_seen = {}            # slot -> the wrist camera's latest frame of its tile, for the window
+        self.wrist_seen = {}            # slot -> the wrist camera's latest {"frame", "read"} of its tile, for the window
         self.looked_at = set()          # hand slots the wrist camera has read since registering began
         self.reader = None if args.sim or args.no_name_check else name_check.load_reader()
         if not args.sim and self.reader is None:
@@ -135,6 +135,11 @@ class Player:
         """Where the latest scan saw the slot's tile, else where it belongs: for outlining it on screen."""
         return self.latest[slot]["xy"] if slot in self.latest else self.home(slot)
 
+    def box_at(self, slot):
+        """The latest scan's box around the slot's tile as (u, v, w, h) in pixels, or None."""
+        tile = self.latest.get(slot, {})
+        return (*tile["pixel"], *tile["box_px"]) if "pixel" in tile and "box_px" in tile else None
+
     def observe(self, tiles):
         """Add a scan's reads to each slot's vote: the detection nearest each slot's home, if close enough."""
         self.latest = {}
@@ -150,24 +155,45 @@ class Player:
 
     # --- the window, and asking ---
 
-    def show(self, caption, focus=None):
-        """Put a question on screen: the RealSense view, every slot named as the robot has it, `focus` picked out."""
+    def name_of(self, slot):
+        """The name the robot goes on at `slot`: settled, else what the votes lean to."""
+        settled = self.state["drawn"] if slot == ZONE else self.state["hand"].get(slot)
+        return settled or self.votes.leader(slot)[0]
+
+    def attention(self, slot, why=None, otherwise=None):
+        """What the window says about a tile being reviewed: {"why", "could_be"}, or {} if nothing stands out. `why`: this question's
+        reason, first if there is one. `otherwise`: said if nothing else is, for a tile being asked about regardless."""
+        name = self.name_of(slot)
+        said = self.placements.id_at(slot) in self.person_said and self.person_said[self.placements.id_at(slot)] == name
+        reasons, could_be = self.votes.worth_a_look(slot, name, vouched=said)
+        wrist = self.wrist_seen.get(slot)
+        if wrist and wrist["read"]["name"] != name:
+            could_be = [wrist["read"]["name"], *(other for other in could_be if other != wrist["read"]["name"])]
+            if not why:                 # a question about a disagreement already says this
+                reasons.insert(0, f"wrist camera reads {wrist['read']['name']} ({wrist['read']['confidence']:.2f})")
+        elif wrist and reasons:
+            reasons.append(f"wrist camera agrees ({wrist['read']['confidence']:.2f})")
+        if said and reasons:
+            reasons.insert(0, f"you said {name}")
+        reasons = ([why] if why else []) + (reasons or ([otherwise] if otherwise and not why else []))
+        return {"why": "; ".join(reasons), "could_be": could_be} if reasons else {}
+
+    def show(self, caption, focus=None, flagged=None):
+        """Put a question on screen: the RealSense view, every slot named as the robot has it, `focus` (the tile asked about now) and
+        `flagged` ({slot: attention}, every tile in this review) picked out."""
         if self.view is None:
             return
-        hand = self.state["hand"]
-        tiles = []
-        for s in self.slots:
-            slot = s["id"]
-            name = hand.get(slot) or self.votes.leader(slot)[0]
-            tiles.append({"id": slot, "xy": self.seen_at(slot), "name": name, "unsure": slot not in hand or name in ALWAYS_ASK_READS})
-        tiles.append({"id": ZONE, "xy": self.seen_at(ZONE), "name": self.state["drawn"] or self.votes.leader(ZONE)[0]})
+        flagged = flagged or {}
+        tiles = [{"id": slot, "xy": self.seen_at(slot), "name": self.name_of(slot), "box": self.box_at(slot), **flagged.get(slot, {})}
+                 for slot in [s["id"] for s in self.slots] + [ZONE]]
         realsense = self.bench.realsense
+        wrist = self.wrist_seen.get(focus)
         self.view.show(hand_view.compose(realsense.snapshot(), tiles, caption, realsense.intrinsics, realsense.T_cam_to_base,
-                                         focus=focus, wrist=self.wrist_seen.get(focus)))
+                                         focus=focus, wrist=wrist["frame"] if wrist else None))
 
-    def question(self, prompt, focus=None, caption=None):
+    def question(self, prompt, focus=None, caption=None, flagged=None):
         """Ask a person, with what it's about on screen."""
-        self.show((caption or prompt).strip(), focus)
+        self.show((caption or prompt).strip(), focus, flagged)
         drain_stdin()
         return self.ask(prompt)
 
@@ -200,7 +226,7 @@ class Player:
         leader = self.votes.leader(slot)[0]
         while True:
             answer = self.question(f"{why}. What is the tile at {slot} (reads: {self.votes.describe(slot)})? "
-                                   f"[Enter: {leader}] ", focus=slot).strip().upper()
+                                   f"[Enter: {leader}] ", focus=slot, flagged={slot: self.attention(slot, otherwise=why)}).strip().upper()
             name = answer or leader
             if name and game.is_playable(name):
                 break
@@ -224,7 +250,7 @@ class Player:
             self.session.event("name_check", slot=slot, placement=self.placement_id(slot), name=name, read=None)
             return None
         read = self.reader.read(frames[0])
-        self.wrist_seen[slot] = frames[0]
+        self.wrist_seen[slot] = {"frame": frames[0], "read": read}
         if slot != ZONE:
             self.looked_at.add(slot)
         for file in filter(None, ("name_check.jpg", keep_as)):
@@ -407,19 +433,20 @@ class Player:
             ([self.state["drawn"]] if self.state["drawn"] else [])
         while extra := game.too_many(names):
             print(f"More than 4 of {', '.join(extra)}: one is misread.")
-            self.recount([slot for slot, n in self.state["hand"].items() if n in extra])
+            self.recount([slot for slot, n in self.state["hand"].items() if n in extra], why=f"More than 4 of {', '.join(extra)}")
             names = list(self.state["hand"].values()) + self.state["discards"] + \
                 ([self.state["drawn"]] if self.state["drawn"] else [])
 
     def recount(self, slots, seen=None, why=None):
         """A person checks slots the table and the robot disagree on: Enter for each keeps the robot's
-        name, or types the right one."""
+        name, or types the right one. The window has them all picked out, so a person sees the whole request at the first."""
         for slot in slots:
+            flagged = {s: self.attention(s, why=why, otherwise="the scans don't match the hand") for s in slots}
             expected = self.state["hand"][slot]
             prompt = (f"  {slot}: the robot has {expected}"
                       + (f", the scans read {seen[slot]}" if seen and seen.get(slot) else "")
                       + f" (reads: {self.votes.describe(slot)}). The tile there is [Enter: {expected}]: ")
-            answer = self.question(prompt, focus=slot, caption=f"{why}. {prompt.strip()}" if why else None)
+            answer = self.question(prompt, focus=slot, caption=f"{why}. {prompt.strip()}" if why else None, flagged=flagged)
             name = answer.strip().upper() or expected
             while not game.is_playable(name):
                 name = self.ask(f"  {name!r} isn't a playable tile name. The tile at {slot} is: ").strip().upper() or expected
@@ -457,8 +484,9 @@ class Player:
         correction is a recount, so that hand isn't clean. Their word goes in the ledger as the truth for these placements."""
         while True:
             print("\nThe hand as the robot has it: " + self.hand_text())
+            flagged = {slot: self.attention(slot) for slot in self.state["hand"]}
             answer = self.question("Check it against the table. Enter if every tile matches, or the wrong ones as "
-                                   "SLOT=NAME (e.g. S9=5C): ").strip()
+                                   "SLOT=NAME (e.g. S9=5C): ", flagged=flagged).strip()
             if not answer:
                 break
             self.corrections(answer)
