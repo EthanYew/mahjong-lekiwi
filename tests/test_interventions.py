@@ -11,6 +11,14 @@ def tile(name, x, y, confidence=0.9):
 MAT = [tile("WW", 0.224, 0.021), tile("2D", 0.225, -0.035), tile("9D", 0.216, 0.080)]
 
 
+def test_a_tile_sitting_still_is_only_solved_for_once(monkeypatch):
+    solve, calls = iv.kinematics.hover_command, []
+    monkeypatch.setattr(iv.kinematics, "hover_command", lambda *a: calls.append(a) or solve(*a))
+    assert iv.on_mat(tile("WW", 0.17132, 0.05121)) and iv.on_mat(tile("WW", 0.17128, 0.05118))
+    assert len(calls) == 1
+    assert not iv.on_mat(tile("8D", 0.478, 0.232))      # the phantom that made it necessary
+
+
 def scan(label, tiles, **fields):
     return {"type": "detections", "label": label, "tiles": tiles, **fields}
 
