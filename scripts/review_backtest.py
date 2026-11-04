@@ -79,7 +79,7 @@ def add_reviewer(target):
     """Today's reviewer in the old code, and the arm gate whether or not the old code had one."""
     target = Path(target)
     repo = config.REPO
-    for relative in (".claude/agents/merge-reviewer.md", GATE, "ruff.toml"):
+    for relative in (".claude/agents/merge-reviewer.md", GATE):
         (target / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(repo / relative, target / relative)
     hook = {"type": "command", "command": DENY_GATE, "timeout": 10}
@@ -98,13 +98,14 @@ def run_case(name, runs_dir, source=None, sessions_from=None, budget=12, subscri
     sessions_from = sessions_from or _main_checkout_sessions()
     work = Path(tempfile.mkdtemp(prefix=f"bt-{name}-", dir=runs_dir))
     target = scratch_copy(case["head"], work / "repo", source, case.get("sessions_before"), sessions_from)
-    add_reviewer(target)
     bodies = {str(n): review_brief.pr_body(n) for n in case.get("prs", [])}     # fetched here: the scratch copy has no GitHub
     started = time.time()
+    shutil.copy(config.REPO / "ruff.toml", target / "ruff.toml")
     text = review_brief.brief(case["base"], case["head"], target, bodies, run=True)
     brief_path = target / ".review_brief.md"
     brief_path.write_text(text)
     print(f"brief: {len(text)} characters, {time.time() - started:.0f}s", flush=True)
+    add_reviewer(target)        # after the brief's tests: the stricter gate would fail the ones that expect it to ask
     command = ["claude", "-p", prompt_for(case, ".review_brief.md"), "--agent", "merge-reviewer", "--model", "opus", "--effort", "high",
                "--permission-mode", "auto", "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(FINDINGS_SCHEMA),
                "--max-budget-usd", str(budget)]

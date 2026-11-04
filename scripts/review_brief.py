@@ -23,6 +23,7 @@ from mahjong import checkout, code_health, config
 SIM_RUNS = {"bench": ["--sim", "--trials", "3", "--tile", "8D", "--unattended"],
             "play": ["--sim", "--layout", "even-hand13"]}
 SIM_TIMEOUT_S = 240
+ENTER_PRESSES = "\n" * 500      # the answer a person gives when all looks right (play's hand check needs one)
 TESTS_TIMEOUT_S = 400
 WANTED_SECTIONS = ("Overlaps", "Unverified on the arm")
 PR_NUMBER = re.compile(r"Merge pull request #(\d+)")
@@ -60,10 +61,10 @@ def pr_body(number, bodies=None, repo=None):
     return result.stdout if result.returncode == 0 else ""
 
 
-def run_quietly(command, cwd, timeout):
-    """(exit code, the last lines of its output). Standard input is closed: no one is there to answer."""
+def run_quietly(command, cwd, timeout, answers=""):
+    """(exit code, the last lines of its output). No one is there to answer, so past `answers` a question ends in EOFError."""
     try:
-        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=answers)
     except subprocess.TimeoutExpired:
         return "timed out", f"(no end after {timeout}s: a hang, or waiting for an answer)"
     return done.returncode, "\n".join((done.stdout + done.stderr).strip().splitlines()[-12:])
@@ -81,7 +82,7 @@ def checks_section(repo):
     for script, options in SIM_RUNS.items():
         if (Path(repo) / "scripts" / f"{script}.py").exists():
             command = [sys.executable, f"scripts/{script}.py", *options]
-            code, tail = run_quietly(command, repo, SIM_TIMEOUT_S)
+            code, tail = run_quietly(command, repo, SIM_TIMEOUT_S, answers=ENTER_PRESSES)
             lines += [f"\n`{' '.join(command[1:])}`: exit {code}", "```", tail, "```"]
     return lines
 
