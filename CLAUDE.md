@@ -76,6 +76,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/interventions.py` | what a person had to do: classes, questions, derived from session events |
 | `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |
 | `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
+| `mahjong/name_check.py`, `scripts/train_name_check.py`, `name_check_eval.py` | a second read of a tile's name from the wrist camera at the hover: in play, agreement changes nothing and disagreement asks; its exam is `data/name_check_exam.json` |
+| `scripts/label_sheets.py` | one picture per tile name of every box labelled with it, to check a labelled set by eye |
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `scripts/status.py`, `scripts/merge_pr.py`, `mahjong/checkout.py` | where things stand (from `data/`); approve + merge a PR and close its branch; the checkout vs origin/main, merged branches and worktrees |
@@ -197,6 +199,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **A stricter rule for a problem tile has to go on the name read, not the tile.** The robot never sees "8C", only the "7C"
   it reads, so real 7Cs pay too (`identity.ALWAYS_ASK_READS`, a stopgap in play). Confidence alone isn't enough: wrong EW and
   7C reads overlap real ones. Evidence: `docs/name_data.md`.
+- **A second read may only add questions until it passes its exam.** Agreement changes nothing and disagreement asks
+  (`name_check`, `play.py`): the two together can still agree on a wrong name, and the gate is 0 of those towards ~1000 reads.
+  Questions during a pickup need the key listener stopped first (`keys.stop()`): it holds the terminal in cbreak and eats the answer.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).

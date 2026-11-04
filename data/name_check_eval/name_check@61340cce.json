@@ -1,0 +1,23 @@
+{
+  "weights": "name_check@61340cce",
+  "time": "2026-11-04T16:07:32",
+  "exam_sessions": [
+    "20261104_150542_bench"
+  ],
+  "scores": {
+    "photos": 42,
+    "tiles": 14,
+    "names": 14,
+    "right": 42,
+    "right_rate": 1.0,
+    "yolo_right": 42,
+    "yolo_wrong": 0,
+    "yolo_wrong_caught": 0,
+    "accepted_wrong": 0,
+    "agreed": 42,
+    "accepted_wrong_bound": 0.06884260784039492,
+    "asks": 0,
+    "ask_rate": 0.0,
+    "misreads": []
+  }
+}

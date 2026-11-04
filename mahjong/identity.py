@@ -26,6 +26,7 @@ ALWAYS_ASK_READS = {
     "EW": "1B has been misread as it",
     "6C": "7C and 5C have been misread as it",
     "5C": "9C has been misread as it",
+    "2C": "3C has been misread as it, by detector v7x3 at up to 0.96",
 }
 CONFIDENCE_FLOOR = 0.80     # a name's mean best read per scan. On 42 mat placements in dim or no daylight, every 3-scan window:
                             # wrong names 5.3% -> 1.1%, questions 10.7% -> 21.9%. Lowers the risk, doesn't remove it

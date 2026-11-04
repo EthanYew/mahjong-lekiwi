@@ -1,0 +1,14 @@
+{
+  "sessions": {
+    "20261104_150542_bench": {
+      "added": "2026-11-04",
+      "conditions": {
+        "daylight": "dim",
+        "lamp": false,
+        "ceiling_lights": false,
+        "surface": "standard mat"
+      },
+      "note": "Listed before any reader was trained on or scored against it. 42 hover photos of 14 tiles, 14 names; a person confirmed the names before the trials. A first exam session, not the full exam: 20 names and every other lighting are still missing."
+    }
+  }
+}
