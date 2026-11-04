@@ -207,6 +207,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The votes can be sure of a wrong name, and nothing asks.** A 5C read as 9C at 0.91 of the votes (S9, `20261104_164541_play`), and
   the only way to say so was to stop the hand. So a person checks the hand before the first draw (`Player.confirm_hand`) and can
   correct a tile at any draw prompt. Enter isn't graded; a correction is a `recount`, and counts as a wrong name in the ledger.
+- **A read a person overruled is no news until the tile moves.** The detector's wrong reads are steady, not flicker: S9 read 9C in 201 of
+  202 scans, the name a person gave outvoted within 2-3 scans, and 53 re-asks in one hand changed no answer (`20261104_183142_play`). So a
+  person's word, the hand check's Enter too, holds against scans until the tile moves past `interventions.KNOCK_M` (`Player.word_holds`). The most
+  a re-asked tile had moved was 2.9mm. It doesn't hold against the wrist camera at the hover. Unconfirmed on the arm.
 - **Play's window has its own process** (`mahjong/hand_view.py`). The main thread sits in the policy loop and `input()`, and an OpenCV
   window nobody pumps gets marked "not responding". It draws on a zoom of the tiles: on the real layout a tile is ~30px of the frame, and
   labels on the whole frame overprint each other (only seen rendering a real frame; the tests pass either way).

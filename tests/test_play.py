@@ -103,16 +103,17 @@ def test_a_hand_tile_that_reads_differently_goes_to_a_recount(tmp_path, monkeypa
     def misread_after_registering(n_frames=None):
         calls["n"] += 1
         tiles = detect(n_frames)
-        if calls["n"] > 3:                  # after the 3 registration scans, NW reads as WW, sure of it
+        if calls["n"] > 3:                  # after the 3 registration scans, NW has moved and reads as WW, sure of it
             for t in tiles:
                 if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
                     t["tile_name"], t["votes"] = "WW", {"WW": 4.5}
+                    t["xy"] = [t["xy"][0], t["xy"][1] + 0.006]      # moved, or the hand check's word would hold
         return tiles
     monkeypatch.setattr(mat, "detect_tiles", misread_after_registering)
     p.draws = ["GD"]
-    assert run(p) == "attended"
+    assert run(p) == "rescued"              # a tile that moved with the arm away: the scans settle it as a person's touch
     recounts = [i for i in interventions_of(p) if i["kind"] == "recount"]
-    assert recounts and recounts[0]["slot"] == "H13" and recounts[0]["expected"] == "NW"
+    assert len(recounts) == 1 and recounts[0]["slot"] == "H13" and recounts[0]["expected"] == "NW"
     assert p.state["hand"]["H13"] == "NW"
 
 
@@ -294,6 +295,107 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
     assert chosen and "9C" in chosen[0] and "NW" not in chosen[0]
 
 
+# --- a person's word holds until the tile moves ---
+
+def reads_nw_as_ww(p, monkeypatch, moved_m=0.0, after_scans=3):
+    """After the registration scans, H13's NW reads as a sure WW, `moved_m` from where it was."""
+    detect, calls = p.mat.detect_tiles, {"n": 0}
+
+    def misread(n_frames=None):
+        calls["n"] += 1
+        tiles = [dict(t) for t in detect(n_frames)]
+        if calls["n"] > after_scans:
+            for t in tiles:
+                if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
+                    t.update(tile_name="WW", votes={"WW": 4.5}, xy=[t["xy"][0], t["xy"][1] + moved_m])
+        return tiles
+    monkeypatch.setattr(p.mat, "detect_tiles", misread)
+
+
+def recounts_of(p):
+    return [i for i in interventions_of(p) if i["kind"] == "recount"]
+
+
+def test_the_hand_checks_enter_holds_against_a_steady_misread(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch)
+    p.draws = ["GD", "9B"]                  # both leave H13 in the hand
+    run(p)
+    held = [e for e in events_of(p) if e["type"] == "name_held"]
+    assert not recounts_of(p) and held and all(e["slot"] == "H13" and e["name"] == "NW" for e in held)
+    assert p.state["hand"]["H13"] == "NW"
+
+
+def test_a_typed_correction_holds_every_turn(tmp_path, monkeypatch):
+    ask = Answers("H13=8D")     # registered as NW; it's really an 8D the scans keep reading as NW
+    p = player(tmp_path, monkeypatch, ask)
+    p.draws = ["GD", "9B", "1D"]
+    run(p)
+    fixed = recounts_of(p)
+    assert [(i["slot"], i["answer"]) for i in fixed] == [("H13", "8D")]        # the correction itself, and nothing after it
+
+
+def test_a_misread_tile_that_moved_is_asked_about_once(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch, moved_m=0.006)
+    p.draws = ["GD", "9B", "1D"]
+    run(p)
+    assert [(i["slot"], i["expected"], i["answer"]) for i in recounts_of(p)] == [("H13", "NW", "NW")]
+
+
+def test_a_tile_that_moved_under_the_knock_distance_still_holds(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    reads_nw_as_ww(p, monkeypatch, moved_m=0.004)
+    p.draws = ["GD"]
+    run(p)
+    assert not recounts_of(p)
+
+
+def test_a_tile_gone_from_its_slot_is_asked_about_even_with_a_word_on_it(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.latest.pop("H13")
+    assert p.word_holds("H13", "NW") is False
+
+
+def test_a_word_doesn_t_cover_a_different_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    assert p.word_holds("H13", "NW") is True and p.word_holds("H13", "WW") is False
+
+
+def test_a_word_ends_with_its_placement(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.placements.end("H13", "discarded")
+    p.placements.start("H13", p.home("H13"), truth_source="game", read="NW")
+    assert p.word_holds("H13", "NW") is False
+
+
+def test_a_word_on_the_drawn_tile_goes_with_it_to_its_slot(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+    p.draws = ["9B"]
+    p.state["drawn"] = p.wait_for_draw()
+    p.give_word("zone", "9B")
+    p.placements.end("H12", "discarded")
+    p.mat.tiles = [t for t in p.mat.tiles if t["tile_name"] != "RD"]
+    assert p.place_drawn("H12", "9B") is True
+    word = p.words[p.placements.id_at("H12")]
+    assert word == {"name": "9B", "xy": None}
+    p.scan("after")
+    assert p.word_holds("H12", "9B") is True and word["xy"] is not None
+    p.close()
+
+
 def test_a_recount_during_the_turn_changes_the_hand_the_discard_is_chosen_from(tmp_path, monkeypatch):
     """hand13 used to be taken before check_hand, so a person's answer there didn't reach the discard or the win check."""
     ask = Answers("", "9C")
@@ -308,6 +410,7 @@ def test_a_recount_during_the_turn_changes_the_hand_the_discard_is_chosen_from(t
             for t in tiles:
                 if t["tile_name"] == "NW" and abs(t["xy"][0] - 0.21) < 0.01:
                     t["tile_name"], t["votes"] = "WW", {"WW": 4.5}
+                    t["xy"] = [t["xy"][0], t["xy"][1] + 0.006]      # moved, or the hand check's word would hold
         return tiles
     monkeypatch.setattr(p.mat, "detect_tiles", misread_after_registering)
     p.draws = ["GD"]

@@ -22,6 +22,7 @@ Placement → reads → decision → outcome, each a session event; everything e
 | `attempt.placement`, `attempt.name_source` | which tile this was, and whether its name is a `read`, or how it was found without one (`faint`, `wrist_seen`) | bench |
 | `name_decided` | every name play went on: `vote` or `person`, with the votes | play |
 | `name_asked`, `recount`, `silent_error`, `hand_audit` | a person's word on a placement during or after a hand | play |
+| `name_held` | the scans disagreed with a person's word and the tile hadn't moved, so nothing was asked (`Player.word_holds`) | play |
 
 Not written, on purpose: a knock ending a placement, and what the votes would have done at the bench. The ledger works those
 out, because a person's later verdict (`scan_verdict`) can overrule a knock, and a change to the vote bars should re-score
