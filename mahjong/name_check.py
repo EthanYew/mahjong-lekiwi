@@ -7,7 +7,9 @@ never told what the detector said. The rule play applies (scripts/play.py) until
     agreement changes nothing; disagreement asks a person. A read never names a tile on its own.
 
 So a poor reader costs questions, not wrong tiles. Removing a question because the two agree is a decision for after the
-exam (the plan's gate: 0 wrong names accepted, towards ~1000 reads), not something this code does.
+exam (the plan's gate: 0 wrong names accepted, towards ~1000 reads), not something this code does. The one exception the owner
+asked for: registering the hand, agreement on a read from identity.ALWAYS_ASK_READS moves its question into the hand check that
+a person does on all 13 before the first draw, so a person's word still comes before anything moves.
 
 Trains on the wrist photos (mahjong/wrist_photos.py) whose names a person gave: wrist_capture.py views and reviewed photos.
 A bench photo no one reviewed is named by the detector, and on the mat those were often wrong, so it's left out. Exam

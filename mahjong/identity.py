@@ -15,10 +15,12 @@ MIN_SHARE = 0.8             # the leading name's share of all the votes a slot h
 MIN_SCANS = 2               # scans a slot needs to have been seen in before its name counts
 DRAWN_MIN_SHARE = 0.9       # the drawn tile's name is new information: a stricter bar
 
-# A stopgap until a second read from the wrist camera passes its exam (docs/name_check_plan.md): play asks about these
-# even when the votes are sure. Keyed on the name READ, because that's all the robot knows: an 8C reads "7C", so no rule on
-# "8C" could ever fire. So real 7Cs get asked about too. Each is a name another tile was misread as, at a confidence
-# overlapping or close to real ones (scripts/name_report.py, docs/name_data.md). Delete an entry once its evidence says so.
+# A stopgap until a second read from the wrist camera passes its exam (docs/name_check_plan.md): play doesn't go on these
+# alone even when the votes are sure. Registering the hand, the wrist camera looks first, and agreement leaves the tile to the
+# hand check a person does before the first draw; a drawn tile, with no such check to come, is always asked about.
+# Keyed on the name READ, because that's all the robot knows: an 8C reads "7C", so no rule on "8C" could ever fire. So real
+# 7Cs get asked about too. Each is a name another tile was misread as, at a confidence overlapping or close to real ones
+# (scripts/name_report.py, docs/name_data.md). Delete an entry once its evidence says so.
 ALWAYS_ASK_READS = {
     "7C": "8C, 6C and 3C have been misread as it",
     "4B": "2B has been misread as it",
@@ -27,6 +29,7 @@ ALWAYS_ASK_READS = {
     "6C": "7C and 5C have been misread as it",
     "5C": "9C has been misread as it",
     "2C": "3C has been misread as it, by detector v7x3 at up to 0.96",
+    "9C": "5C has been misread as it",     # the owner saw it on the mat, unasked: S9 in 20261104_164541_play
 }
 CONFIDENCE_FLOOR = 0.80     # a name's mean best read per scan. On 42 mat placements in dim or no daylight, every 3-scan window:
                             # wrong names 5.3% -> 1.1%, questions 10.7% -> 21.9%. Lowers the risk, doesn't remove it

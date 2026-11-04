@@ -55,6 +55,10 @@ show no wrong name in any 3-scan window, at 30.5% questions, about 8 in a 27-rea
 checked on, so it will miss a mix-up nobody has seen yet. `name_report.py` prints what the guard would have done beside what the votes alone
 would, and the bands stay on the votes alone, so the guard can't hide a bad tile.
 
+The list did miss one the same day: a 5C read as 9C, accepted on the votes at 0.91 (S9, `20261104_164541_play`; the frame shows the 5C).
+9C is on the list now, and play has a hand check before the first draw for the next one nobody has seen. What's said there is truth for
+those placements (`hand_confirmed` events), so every hand now scores all 13 of its starting tiles.
+
 ## What the report can't say yet
 
 - **Play:** no real hand has run, so all of it is backfilled bench data. Votes are replayed over a placement's whole session,

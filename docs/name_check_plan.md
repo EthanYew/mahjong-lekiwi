@@ -177,6 +177,12 @@ Evidence (`docs/retrospectives/evidence/2026-11-04_name_check_build/`):
 
 Not shown: a real hand on the arm, `--read-hand`'s time, the ~1000-read gate, or other lighting beyond these sessions.
 
+**Changed the same day, at the owner's request:** a read on `identity.ALWAYS_ASK_READS` gets the wrist camera's look before a person
+is asked. Registering the hand, agreement drops that one question, which is safe only because a person now checks all 13 before the
+first draw (`Player.confirm_hand`): the question moved, it didn't go. A drawn tile has no such check, so it's still always asked, with
+the read shown. Agreement never replaces a person's word here, so this isn't the gate's decision being taken early. Those tiles log
+`name_decided` with `how: "wrist"`, and a wrong one found at the check counts against the name in `name_report.py`.
+
 ## The plan
 
 Training happens on the RTX 5080 machine. Inference happens there now, and on a Raspberry Pi 5 (8 GB) later, for play
