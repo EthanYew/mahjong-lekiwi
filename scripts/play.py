@@ -23,6 +23,9 @@ Before a pickup, at the hover, the wrist camera reads the tile too (mahjong/name
 disagreement asks you, and if your answer changes the name the discard is chosen again. It never names a tile by itself.
 --read-hand does the same for all 13 tiles after registering them, since a tile that's never discarded is otherwise never read.
 
+A person's word on a tile, the hand check's Enter included, holds against later scans until the tile moves more than 5mm (word_holds):
+a detector that keeps misreading a tile sitting still is no news. A recount gets the wrist camera's look first.
+
 A read that other tiles get misread as (identity.ALWAYS_ASK_READS) gets the wrist camera's look before you're asked. Registering
 the hand, agreement drops that question, because of the next step: before the first draw you check all 13 against the table, and
 can correct any of them (S9=5C), then or at any draw prompt. A drawn tile has no such check to come, so it's always asked about.
@@ -98,6 +101,7 @@ class Player:
         self.picking = None             # the name the pickup under way goes on
         self.name_changed = False       # a person's answer at the hover changed it: the pickup was called off
         self.person_said = {}           # placement -> the name a person gave it: no need to ask about it again
+        self.words = {}                 # placement -> {"name", "xy"}: a person's word (the hand check's Enter too), and where the tile was
         self.wrist_seen = {}            # slot -> the wrist camera's latest {"frame", "read"} of its tile, for the window
         self.looked_at = set()          # hand slots the wrist camera has read since registering began
         self.reader = None if args.sim or args.no_name_check else name_check.load_reader()
@@ -165,7 +169,7 @@ class Player:
         """What the window says about a tile being reviewed: {"why", "could_be"}, or {} if nothing stands out. `why`: this question's
         reason, first if there is one. `otherwise`: said if nothing else is, for a tile being asked about regardless."""
         name = self.name_of(slot)
-        said = self.placements.id_at(slot) in self.person_said and self.person_said[self.placements.id_at(slot)] == name
+        said = self.words.get(self.placements.id_at(slot), {}).get("name") == name
         reasons, could_be = self.votes.worth_a_look(slot, name, vouched=said)
         wrist = self.wrist_seen.get(slot)
         if wrist and wrist["read"]["name"] != name:
@@ -238,7 +242,28 @@ class Player:
                                   typed=bool(answer), leading_read=leader, why=why)
         self.votes.known(slot, name)
         self.person_said[self.placement_id(slot)] = name
+        self.give_word(slot, name)
         return name
+
+    def give_word(self, slot, name):
+        """A person has said what the tile at `slot` is: it holds, whatever the scans read, until the tile moves (word_holds)."""
+        self.words[self.placement_id(slot)] = {"name": name, "xy": list(self.seen_at(slot))}
+
+    def word_holds(self, slot, name):
+        """The scans disagree with `name`: True if a person's word on this tile says to ignore them. A read a person overruled is
+        no news while the tile sits where it did (S9 read 9C in 201 of 202 scans, and 53 questions in 20261104_183142_play changed
+        no answer); what could change its name is the tile moving, past interventions.KNOCK_M. A tile not seen doesn't hold."""
+        word, tile = self.words.get(self.placements.id_at(slot)), self.latest.get(slot)
+        if word is None or word["name"] != name or tile is None:
+            return False
+        if word["xy"] is None:          # the word came with a tile the robot has since set down here: this is where it landed
+            word["xy"] = list(tile["xy"])
+        moved = math.dist(tile["xy"], word["xy"])
+        if moved > interventions.KNOCK_M:
+            return False
+        self.session.event("name_held", slot=slot, placement=self.placements.id_at(slot), name=name, moved_m=round(moved, 4),
+                           reads=self.votes.describe(slot), votes=self.votes_at(slot))
+        return True
 
     # --- the second read, from the wrist camera at the hover (mahjong/name_check.py) ---
 
@@ -474,6 +499,7 @@ class Player:
         self.state["hand"][slot] = name
         self.votes.known(slot, name)
         self.person_said[self.placement_id(slot)] = name
+        self.give_word(slot, name)
 
     def hand_text(self):
         return "  ".join(f"{s['id']}={self.state['hand'][s['id']]}" for s in self.slots)
@@ -496,7 +522,8 @@ class Player:
     def confirm_hand(self):
         """A person checks all 13 against the table before the first draw: the votes can be sure of a wrong name (a 5C read as 9C,
         20261104_164541_play), and nothing else would ask. Enter isn't graded as a question (a hand has this every time); a
-        correction is a recount, so that hand isn't clean. Their word goes in the ledger as the truth for these placements."""
+        correction is a recount, so that hand isn't clean. Their word goes in the ledger as the truth for these placements, and
+        holds against later scans (word_holds). Not against the wrist camera at the hover: that's a new read, before a tile is binned."""
         while True:
             print("\nThe hand as the robot has it: " + self.hand_text())
             flagged = {slot: self.attention(slot) for slot in self.state["hand"]}
@@ -507,23 +534,31 @@ class Player:
             self.corrections(answer)
         self.check_counts()
         s = self.state
+        for slot, name in s["hand"].items():
+            self.give_word(slot, name)
         s["hand_confirmed"] = True
         self.session.event("hand_confirmed", confirmed={self.placement_id(slot): name for slot, name in s["hand"].items()})
         self.save()
 
     def check_hand(self):
-        """Before a discard: every slot still shows its tile. A slot whose votes now lean to another name,
-        or with no tile in the latest scan, goes to a recount."""
+        """Before a discard: every slot still shows its tile. A slot whose votes now lean to another name, unless a person's word
+        on it holds, or with no tile in the latest scan, goes to a recount, with the wrist camera's look first."""
         seen = {}
         for slot in self.state["hand"]:
             leader, share, _ = self.votes.leader(slot)
             if slot in self.latest and leader is not None:
                 seen[slot] = leader if share >= 0.5 else None
-        bad = game.hand_mismatches(self.state["hand"], seen)
+        bad = {slot: mismatch for slot, mismatch in game.hand_mismatches(self.state["hand"], seen).items()
+               if not self.word_holds(slot, mismatch[0])}
         if bad:
             print("The table doesn't match the hand: " + ", ".join(
                 f"{slot} {want} (seen {got or 'nothing sure'})" for slot, (want, got) in bad.items()))
-            self.recount(list(bad), {slot: got for slot, (_, got) in bad.items()})
+            for slot, (want, got) in bad.items():
+                note = self.look_note(slot, want)
+                if note:
+                    print(f"  {note}")
+                self.recount([slot], {slot: got}, why=note)
+            self.rest_after_looking()
 
     def read_drawn(self):
         """The drawn tile: up to DRAWN_SCANS scans until the vote clears the stricter bar, else ask."""
@@ -540,14 +575,19 @@ class Player:
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
         return self.ask_drawn(self.why_ask(ZONE, name, "Not sure of the drawn tile"))
 
+    def look_note(self, slot, name):
+        """Look at the tile at `slot`, for a question about it: what the wrist camera read, or None with no reader. Leaves the arm there."""
+        if self.reader is None:
+            return None
+        read = self.look(slot, name)
+        return f"The wrist camera reads {read['name']} ({read['confidence']:.2f})" if read else "No read from the wrist camera"
+
     def ask_drawn(self, why):
         """A person names the drawn tile, with the wrist camera's read of it whatever made it uncertain. `votes.sure` is None when the
         votes split, so a look that depends on the name it returns skips the least certain tiles. No hand check is to come, so agreement
         doesn't drop the question: the read only informs (a read never names a tile, mahjong/name_check.py)."""
-        if self.reader is not None:
-            read = self.look(ZONE, self.votes.leader(ZONE)[0])
-            why += f". The wrist camera reads {read['name']} ({read['confidence']:.2f})" if read else ". No read from the wrist camera"
-        name = self.ask_name(ZONE, why)
+        note = self.look_note(ZONE, self.votes.leader(ZONE)[0])
+        name = self.ask_name(ZONE, f"{why}. {note}" if note else why)
         self.rest_after_looking()
         return name
 
@@ -586,7 +626,7 @@ class Player:
         (the bench's pickup does), so a tile nudged by a miss is aimed at where it is now."""
         for attempt in range(1 + RETRIES):
             # the last check before a tile goes in the bin: the votes there must still be for it
-            if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None):
+            if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None) and not self.word_holds(slot, name):
                 if slot == ZONE:
                     now = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
                 else:
@@ -629,6 +669,8 @@ class Player:
         self.wrist_seen.pop(slot, None)
         moved = self.placements.end(ZONE, "moved")
         self.placements.start(slot, self.home(slot), truth_source="game", read=name, from_placement=moved)
+        if self.words.get(moved, {}).get("name") == name:       # the same tile: the word comes with it, from where it lands
+            self.words[self.placements.id_at(slot)] = {"name": name, "xy": None}
         return True
 
     # --- a turn ---

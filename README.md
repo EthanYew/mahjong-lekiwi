@@ -397,6 +397,11 @@ question is logged, and the hand is graded **clean** (nothing asked; pressing En
 a tile there does), **attended** (questions only), **rescued** (you touched something) or **silent error** (the end check found a
 tile it had wrong).
 
+Your word on a tile holds: once you've named it, or pressed Enter at the hand check, later scans that read it differently are ignored
+(and logged) until the tile moves more than 5mm. Then you're asked once, after the wrist camera's look, and your answer holds from
+there. The tile's word ends when it leaves the slot. The wrist camera disagreeing at a pickup still asks about a tile you only passed
+with Enter, since that's a new read. `--resume` starts without these words, so a tile that reads differently is asked about once again.
+
 A read on that list gets the wrist camera's look first: the arm hovers over the tile before you're asked. While registering the
 hand, if the camera agrees you aren't asked about that tile (you still check it with the rest of the hand); if it disagrees you
 are, with both reads. A drawn tile on the list is always asked about, since no hand check follows it. Any question about a drawn

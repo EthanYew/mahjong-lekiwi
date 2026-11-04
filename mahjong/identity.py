@@ -65,8 +65,8 @@ class Votes:
             self.confidences[slot][tile["tile_name"]].append(tile["confidence"])
 
     def known(self, slot, name, weight=10.0):
-        """A name a person (or the game) vouches for: a strong vote, so later flicker can't outvote it,
-        while a tile that really changed still shows as a split."""
+        """A name a person (or the game) vouches for: a head start for flicker, not a lock. A steady misread passes it within 2-3
+        scans (9C 20 to 5C 10, 20261104_183142_play), so play keeps a person's word separately (Player.word_holds)."""
         self.reset(slot)
         self.totals[slot][name] = weight
         self.scans[slot] = MIN_SCANS
