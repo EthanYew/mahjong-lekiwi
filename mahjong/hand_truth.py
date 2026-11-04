@@ -18,7 +18,6 @@ Order in the log, which each cost a wrong label here: a drawn tile's scans come 
 Scans during a pickup (the tile's in the jaws) aren't used, as in name_ledger.SCORED_SCANS.
 """
 import csv
-import json
 import math
 import shutil
 from collections import Counter, defaultdict
@@ -32,7 +31,7 @@ from .session import read_events
 USED_SCANS = ("register", "drawn", "choose", "after_discard", "after_return", "name_check", "final")
 FOLLOW_M = 0.018            # a read this close to a tile's last place is that tile (rows are ~50mm apart)
 ON_MAT_M = 0.06             # a box this close to a tile, on no tile, is something on the mat nobody named
-SAME_PLACE_PX = 5           # a tile's box may be borrowed from another scan only if the tile hasn't moved more than this
+SAME_PLACE_M = 0.002        # a tile's box may be borrowed from another scan only if the tile hasn't moved more than this
 
 
 def stated_names(events, audited=None):
@@ -185,7 +184,7 @@ def _box_of(scan_list, n, pid):
     here = scan_list[n]["where"][pid]
     for k in sorted(range(len(scan_list)), key=lambda k: abs(k - n)):
         other = scan_list[k]
-        if pid not in other["where"] or math.dist(other["where"][pid], here) > 0.002:
+        if pid not in other["where"] or math.dist(other["where"][pid], here) > SAME_PLACE_M:
             continue
         seen = [f["tiles"][pid] for f in other["frames"] if f["tiles"].get(pid)]
         if seen:
@@ -304,7 +303,7 @@ def export(frames, out_dir):
     return len(frames)
 
 
-def score(frames, predict=None, confident=config.DETECTION_CONFIDENCE, by_scan_frame=None):
+def score(frames, predict=None, confident=config.DETECTION_CONFIDENCE):
     """detector.score over these frames: `predict` (BGR image -> boxes) re-reads them with another detector, or None scores the
     reads the session saved. Returns (tally of all frames, {true name: Counter(right, wrong, missed)})."""
     import cv2
@@ -325,10 +324,3 @@ def score(frames, predict=None, confident=config.DETECTION_CONFIDENCE, by_scan_f
         for t in missed:
             per_name[t["tile_name"]]["missed"] += 1
     return detector.score(images)["all"] if images else None, per_name
-
-
-def save_labels(frames, path):
-    """The labels as data, to check by eye or read back without the session folder."""
-    Path(path).write_text("".join(json.dumps({"file": detector.frame_stem(f["session"], f["scan"], f["index"]),
-                                              "truth": [{k: t[k] for k in ("tile_name", "xyxy", "placement")} for t in f["truth"]]}) + "\n"
-                                  for f in frames))

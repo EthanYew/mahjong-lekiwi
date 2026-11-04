@@ -74,6 +74,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
+| Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v6`, v3c's hover-jittered demos,
@@ -812,7 +813,11 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
-v7x3 (2026-11-04, live since: `tile_detector@24a163b4`): v6's frames + 61 of the standard mat (Roboflow training v7, split by
+v8 (2026-11-04, live since: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
+repeats: they're near copies already). On the exam, without flowers: **98.8% right overall** (v7x3: 97.6%), **98.3% on the standard
+mat** (v7x3: 96.8%). Box centres moved a median 0.16 px, at most 0.76. Not yet run on the arm.
+
+v7x3 (2026-11-04, live until v8: `tile_detector@24a163b4`): v6's frames + 61 of the standard mat (Roboflow training v7, split by
 scene, session frames repeated 3× in train). On the current exam, without flowers: **97.6% right overall** (v6x3: 86.2%), and
 **96.8% on the standard mat** (v6x3: 80.9%). Box centres moved a median 0.1-0.15 px. Not yet run on the arm.
 
