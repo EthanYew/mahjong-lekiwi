@@ -833,6 +833,16 @@ weights only if they beat the old ones on the exam: copy `best.pt` to `assets/ti
 commit it with the scores. Exports and downloads under `data/detector/` aren't in git; Roboflow keeps
 the labels.
 
+**Frames a person already named.** `scripts/hand_frames.py` labels a played hand's or a bench's frames from a person's answers
+(names) and the detector's boxes, so they don't need correcting in Roboflow (`mahjong/hand_truth.py`):
+
+```
+python scripts/hand_frames.py 20261104_183142_play                                     # per tile: right, wrong, missed
+python scripts/hand_frames.py 20261104_183142_play --out data/detector/train_v8 --onto data/detector/train_v7x3
+python scripts/hand_frames.py 20261104_150542_bench --weights NEW.pt --against assets/tile_detector.pt
+# --sessions-dir DIR (from a worktree), --per-arrangement N (default 2), --per-hard-name N (default 40)
+```
+
 **4. Wrist-camera photos (for a name check at the hover).** The wrist camera sees a tile from ~4 cm at
 the hover, far sharper than the RealSense. `wrist_capture.py` collects photos to train a check there:
 it scans the mat, lists the tiles left to right with the detector's names (numbered on the RealSense
