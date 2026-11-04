@@ -1,0 +1,1 @@
+{"reviewed_from": "4196743", "reviewed_to": "d5bef94", "at": "2026-11-04T21:15:00+11:00", "findings": 8, "fixed": 8, "kinds": {"bug": 8, "tidy": 3}, "note": "by hand: PR #76, before this log existed"}

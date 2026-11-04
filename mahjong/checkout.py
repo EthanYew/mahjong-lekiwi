@@ -6,6 +6,7 @@ warn when it's behind origin/main (as of the last fetch: no network here), has u
 worktree. scripts/merge_pr.py and scripts/status.py use the rest: which branches are merged and which
 worktrees are left to close.
 """
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 from . import config
 
 BASE = "origin/main"
+REVIEW_LOG = "data/post_merge_reviews.jsonl"     # one line per review, written by its PR (.claude/agents/merge-reviewer.md)
 # Inside a git hook (the pre-commit tests), git sets these for the repo being committed to, and a `git -C other`
 # would follow them there instead
 ENV = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX")}
@@ -67,9 +69,32 @@ def is_worktree(repo=None):
     return bool(git_dir) and Path(git_dir) != (Path(repo or config.REPO) / common).resolve()
 
 
+def last_reviewed(repo=None, base=BASE):
+    """The newest commit a post-merge review covered that's on base, or None. A review's PR writes it, so a review only counts
+    once it has merged."""
+    path = Path(repo or config.REPO) / REVIEW_LOG
+    if not path.exists():
+        return None
+    reviewed = [json.loads(line)["reviewed_to"] for line in path.read_text().splitlines() if line.strip()]
+    on_base = [sha for sha in reviewed if git("rev-list", "--count", f"{base}..{sha}", repo=repo) == "0"]
+    return min(on_base, key=lambda sha: int(git("rev-list", "--count", f"{sha}..{base}", repo=repo)), default=None)
+
+
+def unreviewed_merges(repo=None, base=BASE):
+    """Merged PRs on base since the last post-merge review, "<hash> <subject>" each. A review's own PR doesn't count, or
+    each review would ask for another. [] if no review has been logged yet."""
+    start = last_reviewed(repo, base)
+    if not start:
+        return []
+    return [line for line in git("log", "--first-parent", "--merges", "--format=%h %s", f"{start}..{base}", repo=repo).splitlines()
+            if "Merge pull request" in line and "post-merge-review" not in line]
+
+
 def warnings(repo=None):
     """What's off about running hardware from this checkout, one line each."""
     out = []
+    if (merges := unreviewed_merges(repo)):
+        out.append(f"{len(merges)} merged PR(s) with no post-merge review yet: python scripts/merge_pr.py --review")
     if (n := behind(repo)):
         out.append(f"this checkout is {n} commit(s) behind {BASE} (as last fetched): git pull first, or the "
                    f"session runs older code")

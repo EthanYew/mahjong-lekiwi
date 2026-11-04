@@ -83,6 +83,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `scripts/play.py`, `mahjong/game.py`, `identity.py`, `markers.py` | autonomous play (`docs/autonomy_plan.md`): the turn loop on the bench's pieces; shanten and the discard choice; name votes per hand slot; the ArUco drop zone (`data/drop_zone.json`) |
 | `scripts/` | `record`, `collect_corrections`, `hover_samples`, `bench`, `session_report`, `quality_report`, `make_policy` |
 | `scripts/status.py`, `scripts/merge_pr.py`, `mahjong/checkout.py` | where things stand (from `data/`); approve + merge a PR and close its branch; the checkout vs origin/main, merged branches and worktrees |
+| `.claude/agents/merge-reviewer.md`, `scripts/review_brief.py`, `review_backtest.py`, `mahjong/code_health.py` | the post-merge review (`/post-merge-review`, `merge_pr.py --review`): the method, what it starts from, its score on past merges with known bugs (`data/review_backtest/`); ruff and copied functions, in the fast tests |
 | `mahjong/layout.py`, `scripts/layout.py`, `spot_novelty.py` | tile layouts (`data/layouts.json`, committed once a recording uses one; ghost photos and captures in `data/layouts/` stay local) drawn on the RealSense view; place tiles to green; how far each spot is from a training recording's tiles |
 | `mahjong/offline_eval.py`, `scripts/offline_eval.py` | scores per slice on episodes never trained on (`data/eval_split.json`) |
 | `mahjong/detector.py`, `scripts/capture_frames.py`, `mine_frames.py`, `detector_eval.py`, `split_by_scene.py`, `train_detector.py`, `wrist_capture.py`, `wrist_review.py`, `mahjong/wrist_photos.py` | the tile detector's loop: scan frames saved in `sessions/*/scans/`, frames it struggled with exported pre-labelled for Roboflow, downloads re-split by scene, wrist-camera photos of each tile from jittered hovers (gathered from the sessions, reviewed in `data/wrist_review.jsonl`), the exam (`data/detector_exam.json`), fine-tuning (ROADMAP 10) |
@@ -314,8 +315,9 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   then the worktree, local branch and GitHub branch are removed. `python scripts/merge_pr.py` lists anything
   merged but not closed; `--close` closes it (35 branches had piled up by 2026-10-29). A Claude session can't
   delete worktrees or branches on its own: it says to run this.
-- **After a batch of merges**: one review pass over the merged range (duplicates) before the next hardware
-  session. `tests/test_docs.py` checks the docs against `data/` and the scripts' options on every commit.
+- **After a batch of merges**: a review in a fresh context before the next hardware session (`merge_pr.py --review`, or
+  `/post-merge-review`). It marks the range reviewed when its PR merges (`data/post_merge_reviews.jsonl`); until then `status.py` and hardware
+  sessions count what it hasn't seen. `tests/test_docs.py` checks the docs against `data/` and the scripts' options on every commit.
 - **Tests that catch a clean-but-broken merge** are end-to-end sim runs of a script's main path
   (`tests/test_bench.py`, `tests/test_record.py`). A new user-run script gets one.
 - `data/hover_corrections.jsonl`, `data/return_corrections.jsonl` and `data/wrist_review.jsonl` merge by union
