@@ -225,6 +225,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   window nobody pumps gets marked "not responding". It draws on a zoom of the tiles: on the real layout a tile is ~30px of the frame, and
   labels on the whole frame overprint each other (only seen rendering a real frame; the tests pass either way).
   Questions during a pickup need the key listener stopped first (`keys.stop()`): it holds the terminal in cbreak and eats the answer.
+- **The drop zone is a saved position; the marker only teaches it.** Once taught, hands carry `data/drop_zone.json` over and nothing
+  reads the marker, unless `play.py --teach-zone` or a recalibrated RealSense asks. Reading it every turn stopped `20261104_220329_play` when
+  the marker itself was moved 6mm (it had read 0.4-2.1mm off in 37 checks), and a marker can't tell that from a moved camera. So a moved
+  camera or base no longer stops a hand: that's `setup_check.py`, before it. A turn goes on only once a scan sees a tile on the zone,
+  a faint box included, and a box proves a tile, never its name. Unconfirmed on the arm.
 - **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
   the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).
