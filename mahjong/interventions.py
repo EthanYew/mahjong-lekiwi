@@ -230,6 +230,14 @@ def _to_points(diff):
 ATTEMPT_SCANS = ("after_pickup", "after_return")      # the arm handled tiles on the mat since the last scan
 
 
+def handled_points(scan):
+    """Where the arm handled tiles since the previous scan: this scan's target, and any pickups that had no scan of their
+    own (`handled_xy`: play goes straight from a pickup to the discard or the next pickup)."""
+    if scan["label"] not in ATTEMPT_SCANS:
+        return []
+    return ([scan["target_xy"]] if scan.get("target_xy") else []) + list(scan.get("handled_xy", ()))
+
+
 class MatWatch:
     """What the scans say changed on the mat, scan by scan. derive() replays a session through it; the
     bench feeds it live, so a person can confirm or correct a change (ask_scan) while it's in front of them."""
@@ -244,8 +252,7 @@ class MatWatch:
         if self.previous is None:
             return None
         if scan["label"] in ATTEMPT_SCANS:
-            ignore = [scan["target_xy"]] if scan.get("target_xy") else []
-            diff = scene_diff(self.previous["tiles"], scan["tiles"], ignore)
+            diff = scene_diff(self.previous["tiles"], scan["tiles"], handled_points(scan))
             return ("knocked", diff) if changed(diff) else None
         diff = scene_diff(self.previous["tiles"], scan["tiles"])
         if not changed(diff):

@@ -117,6 +117,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   purpose less than `HOME_RADIUS_M` (40mm) is put back at its old home. The fit pools every policy.
   Evidence: `docs/invariant_notes.md`.
 - **Moves between rest and the table go via `RAISED_REST`** so the gripper clears the LeKiwi base.
+- **Play doesn't go to rest between moves; the bench does** (`Bench.direct`, `Arm.travel`; `play.py --via-rest` for the old way). The
+  RealSense can't scan with the arm out: at the discard pose it covers S7-S9. So a pickup that held its tile has no scan of its own, and
+  the next scan at rest (end of turn, a miss, a key pressed, the next tile within `NEIGHBOUR_M`) carries `handled_xy`, so tiles it handled
+  aren't taken for a person's doing (`interventions.handled_points`). A knock is filed under the turn's last attempt (`handled_attempts`
+  lists them all). The hover correction and return model were measured arriving from rest, so a direct move turns the pan past and comes
+  back the same way (`TRAVEL_PAN_BACK_DEG`, reasoned from the height invariant, not measured). Unconfirmed on the arm.
 - **Every move off the table rises straight up first** (`Arm.lift`, called by `rest`, `hover` and `place`, so
   bench, record and every other script share it): 5mm steps keeping the jaws' tilt and roll
   (`kinematics.straight_up`), up to 80mm. The old lift was one joint-space move to the IK's pose, which curved

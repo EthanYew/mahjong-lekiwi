@@ -402,7 +402,14 @@ looked. You still answer in the terminal, so click back on it if the window take
 
 Before each pickup, at the hover, the wrist camera reads the tile too (`assets/name_check.pt`). If it agrees nothing changes. If
 it disagrees you're asked, with the arm waiting over the tile, and if your answer changes the name of the tile about to be
-discarded, the arm rests and the discard is chosen again. It never names a tile on its own.
+discarded, the discard is chosen again and the arm goes straight to it. It never names a tile on its own.
+
+The arm doesn't go back to rest between moves in a turn: pickup straight to the container or the slot, container straight to the
+drawn tile, a wrist look straight to the tile to discard. The RealSense can't see past the arm, so the mat is scanned once, at the
+end of the turn, and that scan answers for every tile handled. It goes to rest and scans sooner after a miss, a key you pressed
+during a pickup, or when the next tile is within 85mm of the one just picked up (it may have been knocked, and the hover aims from
+the scan). `--via-rest` goes to rest and scans after every move, as the bench does.
+
 Every step is checkpointed: after Ctrl-C or a stop, `--resume` carries on (it refuses while the arm
 holds a tile).
 
@@ -415,6 +422,7 @@ holds a tile).
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--no-name-check` | play without the wrist camera's second read |
 | `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
+| `--via-rest` | go to rest and scan after every pickup and discard, as the bench does (slower; a scan per move) |
 | `--no-view` | no window showing what each question is about; the terminal only |
 | `--sim` | simulated arm, cameras, mat and policy (no second read) |
 

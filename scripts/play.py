@@ -13,6 +13,11 @@ into the slot it left, aimed with the return correction so it lands on the slot'
 when you type `end` at the draw prompt (the wall is empty). Then you check the robot's hand against the
 table: anything it had wrong without noticing is a silent error.
 
+The arm doesn't go to rest between those moves: from a pickup straight to the container or the slot, from the container
+straight to the drawn tile, and from a look with the wrist camera straight to the tile to discard. The RealSense can't see
+past the arm, so the mat is scanned at the end of the turn (and after anything odd: a miss, a key pressed, a next tile
+within 85mm of the last one). --via-rest goes to rest and scans after every move.
+
 It asks instead of guessing (docs/autonomy_plan.md, sections 3-4): a tile name the votes aren't clearly
 for (mahjong/identity.py), a slot that doesn't match the hand, a fifth copy of a tile, a pickup that
 failed after RETRIES re-scanned retries. Every question is logged as an intervention (class "ask"), so a
@@ -106,6 +111,7 @@ class Player:
         self.session = self.bench.session
         self.placements = self.bench.placements
         self.bench.batch = self.bench.defer = True      # questions wait for the end of the step
+        self.bench.direct = not args.via_rest
         self.hovering = False           # a look before asking left the arm over the mat
         if args.sim:
             self.mat = self.bench.realsense
@@ -117,7 +123,7 @@ class Player:
         self.state = {"phase": "register", "turn": 0, "hand": {}, "discards": [], "discard_placements": [], "drawn": None, "history": [],
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
-                           policy=self.bench.policy.id)
+                           policy=self.bench.policy.id, direct=self.bench.direct)
 
     # --- what the scans see ---
 
@@ -499,7 +505,8 @@ class Player:
         if name in ALWAYS_ASK_READS and (read := self.look(ZONE, name)):    # no hand check to come: the read only informs
             why += f". The wrist camera reads {read['name']} ({read['confidence']:.2f})"
         name = self.ask_name(ZONE, why)
-        self.rest_after_looking()
+        if not self.bench.direct:       # direct: on to the discard from here
+            self.rest_after_looking()
         return name
 
     def wait_for_draw(self):
@@ -619,7 +626,7 @@ class Player:
                 s["phase"] = "draw_known"
                 return self.decide_again()
             if picked:
-                self.bench.discard(ask=False)
+                self.bench.discard(ask=False, going_to=None if slot == ZONE else self.home(ZONE))
             self.votes.reset(slot)
             s["discards"].append(name)
             s.setdefault("discard_placements", []).append(self.placements.end(slot, "discarded"))
@@ -739,6 +746,7 @@ class Player:
         if result == "end":
             self.state["phase"] = "end"
             self.save()
+        self.bench.arm.rest()           # a look at the winning tile leaves the arm over the mat
         return self.audit(result)
 
     def close(self):
@@ -778,6 +786,8 @@ def parse_args(argv=None):
                    help="play without the wrist camera's second read of a tile before it's picked up (logged reads and questions stop)")
     p.add_argument("--read-hand", action="store_true",
                    help="also hover over all 13 hand tiles after registering them and read each with the wrist camera")
+    p.add_argument("--via-rest", action="store_true",
+                   help="go to rest and scan after every pickup and discard, as the bench does (slower; a scan per move)")
     p.add_argument("--no-view", action="store_true", help="no window showing what each question is about; the terminal only")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)

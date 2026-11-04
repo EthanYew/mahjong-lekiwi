@@ -206,6 +206,11 @@ class Bench:
         self.ask_names = None if args.sim else input            # a simulated mat's reads stand as what's there
         self.batch = False          # during trials: a tile not found is put back by a person, not skipped
         self.defer = False          # questions wait for the caller (play: the end of the step)
+        self.direct = False         # play: from a pickup straight to the discard or the return, and on to the next tile,
+                                    # with no trip to rest or scan between. Off here: counted bench results keep one motion
+        self.handled = []           # {xy, attempt_dir} picked up since the last scan: the next scan answers for them
+        self.last_tiles = None      # the latest scan's tiles: where a direct move aims
+        self.last_hover = None      # the latest hover: a look at a tile can be where its pickup starts
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
@@ -246,6 +251,14 @@ class Bench:
         (`confirmed`: its kinds, e.g. ["tile_reset"]). A person who moved tiles since the last scan (r pressed
         during the pickup or return it follows, `hands_on`, or `confirmed`) makes a watched knock that went back
         theirs: put back, not a glitch."""
+        if self.direct:             # the arm over the mat hides tiles from the RealSense
+            self.arm.rest()
+        if self.handled:            # what happened to them is only seen now: an attempt's scan, whatever it was taken for
+            if label not in interventions.ATTEMPT_SCANS:
+                label = "after_pickup"
+                fields.update(attempt_dir=self.handled[-1]["attempt_dir"], target_xy=self.handled[-1]["xy"])
+            fields.update(handled_xy=[h["xy"] for h in self.handled], handled_attempts=[h["attempt_dir"] for h in self.handled])
+            self.handled = []
         self.scan_n += 1
         tiles, scan = detector.log_scan(self.realsense, self.session, self.scan_n, label, **fields)
         hand, self.hands_on = self.hands_on, None
@@ -275,8 +288,9 @@ class Bench:
         self.mat.advance(scan, knocked)
         for tile in seen:
             self.mat.restore(tile)
-        return tiles + [{"tile_name": t["tile_name"], "xy": tuple(t["xy"]), "confidence": 0.0, "wrist_seen": True}
-                        for t in seen]
+        self.last_tiles = tiles + [{"tile_name": t["tile_name"], "xy": tuple(t["xy"]), "confidence": 0.0, "wrist_seen": True}
+                                   for t in seen]
+        return self.last_tiles
 
     def look_again(self, scan, proposal, look):
         """The tiles this scan says went (and ones an earlier scan did while the arm held a tile), looked at again
@@ -286,9 +300,8 @@ class Bench:
         "scan_glitch". Returns (the proposal left or None, the tiles the wrist camera saw: put back in this scan)."""
         kind, diff = proposal or (None, None)
         lost = [(scan["scan"], t) for t in (diff["gone"] if diff else [])]
-        target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
-        if target is not None:      # the arm handled this one: it's not where it was
-            self.views.forget(target)
+        for point in interventions.handled_points(scan):    # the arm handled this one: it's not where it was
+            self.views.forget(point)
         todo, self.unlooked, seen = self.unlooked + lost, [], []
         for scan_n, tile in list(todo):         # a faint box needs no arm, so a held tile doesn't get in the way
             if self.faint_at(tile, scan_n, interventions.FAINT_SAME_M):
@@ -336,11 +349,11 @@ class Bench:
         the wrist camera saw gone is real already. Returns the changes standing as a knock for now."""
         kind, diff = proposal
         empty = {k: [] for k in diff}
-        target = scan.get("target_xy") if scan["label"] in interventions.ATTEMPT_SCANS else None
-        if target is None and self.args.unattended:     # no one here to have straightened or put back anything
+        handled = interventions.handled_points(scan)
+        if not handled and self.args.unattended:        # no one here to have straightened or put back anything
             self.watch_changes(scan, diff, "moved_elsewhere")
             return None
-        if target is None:
+        if not handled:
             straightened, rest = self.mat.by_hand(diff)
             self.watch_changes(scan, straightened, "straightened")
             self.watch_changes(scan, rest, "tile_reset")
@@ -350,7 +363,7 @@ class Bench:
         if hand and not bumped:         # r: what changed was the person
             self.log_by_hand(scan, kind, diff, "key", f"r pressed during the {during}")
             return None
-        near, far = interventions.split(diff, lambda k, c: interventions.near_any(c, [target], interventions.NEIGHBOUR_M))
+        near, far = interventions.split(diff, lambda k, c: interventions.near_any(c, handled, interventions.NEIGHBOUR_M))
         looked = [xy for n, xy in self.looked_empty if n == self.scan_n]
         absent, near = interventions.split(near, lambda k, c: k == "gone" and interventions.near_any(
             c, looked, config.TILE_MERGE_RADIUS_M))
@@ -567,7 +580,12 @@ class Bench:
     def choose(self, tile_name=None, spot=None):
         """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick. In trials, a tile
         that isn't found is repositioned by a person and the mat rescanned (s skips it): a flickering
-        detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run."""
+        detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run. An arm left over the mat
+        on purpose (direct) aims from the latest scan: nothing near this tile has been touched since (discard's `going_to`)."""
+        if self.direct and spot and self.last_tiles and not self.arm.is_at_rest():
+            tile = layout.nearest_tile(self.last_tiles, spot["xy"])
+            if tile is not None:
+                return tile
         confirmed = None
         while True:
             if not self.arm.is_at_rest():
@@ -633,7 +651,11 @@ class Bench:
             hx, hy = hx + perturb[0], hy + perturb[1]
             print(f"  hover perturbed by ({perturb[0] * 1000:+.0f}, {perturb[1] * 1000:+.0f})mm on purpose")
         h = self.hover_of(self.policy)
-        result = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
+        was = self.last_hover
+        if self.direct and was and was["hover_xy"] == [hx, hy] and all(
+                abs(v - was["command"][j]) < 0.01 for j, v in self.arm.commanded().items()):
+            return was              # a look just settled here: this tile's pickup starts from it
+        result = self.last_hover = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"], direct=self.direct)
         if result is None:
             print("Unreachable from the closed-loop hover.")
             self.session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"], hover_xy=[hx, hy])
@@ -689,17 +711,22 @@ class Bench:
         hover = self.hover_over(tile, perturb)
         if hover is None:
             self.keys.stop()
+            self.arm.rest()         # the next try scans again
             return None
         if not self.at_hover(spot, attempt):
             self.keys.stop()
-            self.arm.rest()
+            if not self.direct:     # direct: the discard chosen again is the next hover
+                self.arm.rest()
             return None
         self.abort.clear()
         run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
         squeezed_from = self.arm.squeeze()     # a policy that stopped closing short of 0 on the tile
-        self.arm.rest()
+        if not (self.direct and not run["aborted"] and not run["marks_s"] and self.arm.holding()[0] and self.arm.lift_clear()):
+            self.arm.rest()
         presses = self.keys.stop()
         holding, command, measured = self.arm.holding()
+        if presses or not holding:      # something happened, or a miss to aim at again: look at the mat now
+            self.arm.rest()
         if run["stop_reason"] == "camera" and not holding:
             self.session.event("attempt_void", reason="wrist camera stopped giving frames", tile=tile["tile_name"],
                                policy=self.policy.id, attempt_dir=attempt.name, hover_perturb_xy=list(perturb),
@@ -713,7 +740,10 @@ class Bench:
         self.snapshot(attempt / "overview_after.jpg")
         self.names[spot["id"] if spot else tile["tile_name"]] = tile["tile_name"]
         self.log_keys(attempt.name, "pickup", presses)
-        self.scan("after_pickup", look=not holding, attempt_dir=attempt.name, target_xy=list(tile["xy"]))
+        if self.arm.is_at_rest():
+            self.scan("after_pickup", look=not holding, attempt_dir=attempt.name, target_xy=list(tile["xy"]))
+        else:
+            self.handled.append({"xy": list(tile["xy"]), "attempt_dir": attempt.name})
         success, review = holding, {}
         if ask:
             drain_stdin()
@@ -798,7 +828,8 @@ class Bench:
         x, y = self.returns.target(home, held["detection_xy"], held["grasp_xy"])
         self.keys.start("return")
         try:
-            placed = self.arm.place(x, y, held["approach_offset_m"], grasp_clearance_m=held.get("grasp_clearance_m"))
+            placed = self.arm.place(x, y, held["approach_offset_m"], grasp_clearance_m=held.get("grasp_clearance_m"),
+                                    direct=self.direct)
         finally:
             presses = self.keys.stop()
         self.log_keys(held["attempt_dir"], "return", presses)
@@ -842,22 +873,30 @@ class Bench:
         # what the next scan sees move was a person putting it back: say so instead of asking again
         self.scan("after_reset", confirmed=["tile_reset"], attempt_dir=held["attempt_dir"])
 
-    def discard(self, ask=True):
+    def discard(self, ask=True, going_to=None):
+        """Drop the held tile in the container, then rest and scan. `going_to`: the next pickup's spot, to go straight
+        there (direct) unless the scan matters first: the tile fell on the way, or the one picked up was close enough
+        to have knocked the next tile off its aim."""
         if not config.DISCARD_POSE.exists():
             return print("No discard pose yet — use teach-discard first.")
         pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
         held = self.held or {}
-        self.arm.go_to_pose(pose)
+        self.arm.go_to_pose(pose, direct=self.direct)
+        still_held = self.arm.holding()[0]
         self.arm.set_gripper(config.GRIPPER_RELEASE)
-        self.arm.rest()
-        self.session.event("discard", tile=held.get("tile_name"), attempt_dir=held.get("attempt_dir"))
+        stay = going_to is not None and still_held and self.handled and all(
+            math.dist(h["xy"], going_to) > interventions.NEIGHBOUR_M for h in self.handled)
+        if not stay:
+            self.arm.rest()
+        self.session.event("discard", tile=held.get("tile_name"), attempt_dir=held.get("attempt_dir"), held_on_arrival=still_held)
         if held and ask:
             drain_stdin()
             if input("In the container? [Y/n]: ").strip().lower().startswith("n"):
                 self.session.intervention("discard_missed", attempt_dir=held["attempt_dir"])
                 self.hands_on = "the discard missed the container"
         self.held = None
-        self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
+        if not stay:
+            self.scan("after_discard", attempt_dir=held.get("attempt_dir"))
 
     def teach_discard(self):
         from mahjong import hardware
