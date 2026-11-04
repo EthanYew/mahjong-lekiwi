@@ -105,6 +105,9 @@ class SimPerception:
         self.T_render = self.T_cam_to_base      # where the camera really is: a test moves it to fake a knocked tripod
         self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
         self.faint = []             # like RealSense's: tiles too unsure to name (a test sets them)
+        # xy -> (dx, dy): where the arm must go to reach what the camera sees at xy, as on the real mat (it varies with
+        # position, which is what a carried tile's aim has to get right). None: the two agree.
+        self.arm_offset = None
         from .detector import TILE_NAMES
         self.names = TILE_NAMES
 
@@ -123,9 +126,22 @@ class SimPerception:
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
                  "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
 
+    def in_arm_frame(self, xy):
+        """Where the arm must go to reach what the camera sees at xy (tiles and detections are the camera's)."""
+        return list(xy) if self.arm_offset is None else [a + b for a, b in zip(xy, self.arm_offset(xy))]
+
+    def in_camera_frame(self, tool_xy):
+        """What the camera sees under the tool point: in_arm_frame's inverse."""
+        xy = list(tool_xy)
+        for _ in range(5 if self.arm_offset else 0):
+            xy = [t - o for t, o in zip(tool_xy, self.arm_offset(xy))]
+        return xy
+
     def nearest(self, x, y, within_m=GRASP_REACH_M):
+        """The tile nearest the tool point (x, y)."""
         def distance(t):
-            return np.hypot(t["xy"][0] - x, t["xy"][1] - y)
+            ax, ay = self.in_arm_frame(t["xy"])
+            return np.hypot(ax - x, ay - y)
         return min((t for t in self.tiles if distance(t) <= within_m), key=distance, default=None)
 
     def grasp(self, tile):
@@ -134,7 +150,7 @@ class SimPerception:
 
     def release(self, xy, clearance_m):
         if self.held is not None and clearance_m < LANDS_ON_MAT_BELOW_M:
-            self.tiles.append({**self.held, "xy": list(xy)})
+            self.tiles.append({**self.held, "xy": self.in_camera_frame(xy)})
         self.held = None
 
     def flicker(self, name, scans=1):
@@ -208,8 +224,9 @@ class SimWristCamera:
         if tile is not None:
             scale = self.PX_PER_MM_AT_HOVER * config.HOVER_CLEARANCE_M * 1000 / max(self.arm.robot.measured_clearance_mm(), 5.0)
             u, v = EXPECTED_PX
-            centre = (u - (tile["xy"][1] - y) * 1000 * scale,     # left in the image = +y
-                      v - (tile["xy"][0] - x) * 1000 * scale)     # up = +x (away)
+            ax, ay = self.mat.in_arm_frame(tile["xy"])
+            centre = (u - (ay - y) * 1000 * scale,     # left in the image = +y
+                      v - (ax - x) * 1000 * scale)     # up = +x (away)
             size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
             box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
             cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
@@ -265,7 +282,7 @@ class SimPolicy:
         x, y, _ = kinematics.tool_point(arm.commanded())
         tile = self.mat.nearest(x, y) if self.mat is not None else None
         if tile is not None:
-            x, y = tile["xy"]
+            x, y = self.mat.in_arm_frame(tile["xy"])
         down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
         arm.move_to(down, 2.0)
         marks = []

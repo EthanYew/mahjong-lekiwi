@@ -48,7 +48,7 @@ not a worktree, or the sessions go when the worktree does.
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
-| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot) |
+| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot), then `--carry S13,S1` added (a tile on S13, S1 empty) |
 | Check a new policy iteration against the default (`docs/scorecard.md`) | `python scripts/bench.py --policy BASELINE,CANDIDATE --layout even-hand14 --trials 1`, then `session_report.py` |
 | Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout even-hand13` |
@@ -170,6 +170,7 @@ python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated 
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
+python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
 ```
 
 | Option | What it does |
@@ -182,6 +183,7 @@ python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no on
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
+| `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
 | `--device PATH` | gamepad device path (only for teach-discard) |
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,
@@ -370,8 +372,9 @@ Before the first hand:
 4. **The discard pose**: `bench.py`, `teach-discard`, over the container.
 
 Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
-checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and some
-bench session must have picked up and returned a tile there. If not, it prints the commands that fix it
+checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and bench
+sessions must have picked up and returned a tile there, and carried at least 2 from there to a slot
+(`bench.py --layout even-hand14 --trials 2 --carry S13,S1`) landing a median of 12mm or less from home. If not, it prints the commands that fix it
 (e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
 

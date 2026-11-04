@@ -21,6 +21,15 @@ Each record is one return:
     landed_xy     the tile after the return (RealSense)
 The baseline assumes the tile keeps its offset in the jaws: landed = target + (detection - grasp). The
 model fits what the baseline misses, from (detection - grasp) and, with enough positions, detection.
+
+That only works for a tile going back where it came from: detection - grasp is mostly the gap between what the
+RealSense sees and where the arm has to go, and that gap changes across the mat (y: +31mm at the drop zone, +4mm
+at S1). A tile carried across the mat (play: zone to slot) took the zone's gap to the slot and landed 15-18mm off,
+with the aim 22mm off at S4, into the neighbours (20261104_183142_play). So a carried tile is aimed from what returns
+measured about the destination (`fit_across`): home + the aim that lands a tile at home + the share of this grasp's
+stray that stays with the tile. The stray is how far the jaws closed from where they usually close at that place:
+a steady margin left at the close (demos leave one on purpose) is part of "usually" and moves nothing. Over 738
+returns 70% of the stray stays in x and 52% in y; `python -m mahjong.return_correction` prints the fit's own numbers.
 Like the hover correction (mahjong/hover_correction.py, whose setup fingerprint and file handling it
 reuses): kinds chosen by leave-one-position-out error, each must beat the simpler by MIN_GAIN, the
 correction is capped and held at its edge value past the measured tiles, records from another setup
@@ -44,6 +53,15 @@ MIN_RECORDS = {"grip": 8, "grip+position": 20}
 MIN_POSITIONS = {"grip": 3, "grip+position": 5}
 MAX_CORRECTION_M = 0.02         # from the baseline target
 LANDED_WITHIN_M = 0.05          # the returned tile is the same-name detection nearest its home, this close
+# Samples whose landing a person's hands may be in: `r` was pressed during the return. New ones aren't recorded.
+HAND_MOVED = {("20261030_163108_bench", "015_164126_2B"), ("20261030_163108_bench", "016_164209_2B"),
+              ("20261030_163108_bench", "017_164250_NW"), ("20261030_163108_bench", "018_164334_NW"),
+              ("20261104_183142_play", "007_183441_1B")}
+
+
+def carried(detection_xy, home_xy):
+    """Is this tile going somewhere else, not back where it came from? (The radius past which Homes calls it moved.)"""
+    return math.dist(detection_xy, home_xy) > config.HOME_RADIUS_M
 
 
 def return_record(detection_xy, grasp_xy, target_xy, landed_xy, **provenance):
@@ -60,12 +78,14 @@ def landed_tile(tiles, tile_name, home_xy):
 
 def landings(events):
     """Every return in a session's events with where its tile landed: [{tile, attempt_dir, detection_xy,
-    grasp_xy, target_xy, home_xy, landed_xy (None if not found), error_m (landed - home)}]. Sessions from
-    before homes: the home is the detection before the pickup."""
-    out, attempt, ret = [], None, None
+    grasp_xy, target_xy, home_xy, landed_xy (None if not found), error_m (landed - home), by_hand (`r` was pressed
+    during the return)}]. Sessions from before homes: the home is the detection before the pickup."""
+    out, attempt, ret, by_hand = [], None, None, False
     for e in events:
         if e["type"] == "attempt":
-            attempt, ret = e, None
+            attempt, ret, by_hand = e, None, False
+        elif e["type"] == "keys" and e.get("during") == "return":
+            by_hand = any(p.get("kind") == "by_hand" for p in e.get("presses", []))
         elif e["type"] == "return":
             ret = e
         elif e["type"] == "detections" and e.get("label") == "after_return" and attempt and ret:
@@ -75,7 +95,8 @@ def landings(events):
             out.append({"tile": attempt["tile"], "attempt_dir": attempt["attempt_dir"], "policy": attempt.get("policy"),
                         "spot": attempt.get("spot"), "detection_xy": attempt["detection_xy"],
                         "grasp_xy": attempt.get("grasp_xy") or attempt["hover_xy"], "target_xy": ret["xy"],
-                        "home_xy": home, "landed_xy": landed, "error_m": math.dist(landed, home) if landed else None})
+                        "home_xy": home, "landed_xy": landed, "error_m": math.dist(landed, home) if landed else None,
+                        "by_hand": by_hand})
             attempt = ret = None
     return out
 
@@ -105,20 +126,24 @@ def check_landing(held, placed_xy, tiles, session, path, correction, hover, **pr
     the return model in `path`, and a print past RETURN_DRIFT_WARN_M from home. held: {tile_name,
     detection_xy, grasp_xy, home_xy, attempt_dir, spot}; hover: the policy's (whether the next hover can
     reach the tile). Returns the landed detection (None if not seen) and whether a person should put it
-    back home (past RETURN_DRIFT_RESET_M, or out of the hover's reach: the next pickup would start there)."""
+    back home (past RETURN_DRIFT_RESET_M, or out of the hover's reach: the next pickup would start there).
+    Where a person's hands may be in the landing (held["by_hand"]: `r` during the return) it's no sample."""
     home, name = held["home_xy"], held["tile_name"]
+    flags = {**({"carried": True, "from_xy": held["detection_xy"]} if carried(held["detection_xy"], home) else {}),
+             **({"by_hand": True} if held.get("by_hand") else {})}
     tile = landed_tile(tiles, name, home)
     if tile is None:
         print(f"  {name} not seen within {LANDED_WITHIN_M * 1000:.0f}mm of its home after the return")
-        session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home, landed_xy=None)
+        session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home, landed_xy=None, **flags)
         return None, False
     landed = list(tile["xy"])
     error = math.dist(landed, home)
     session.event("return_landed", tile=name, attempt_dir=held["attempt_dir"], home_xy=home,
-                  landed_xy=landed, error_m=error)
-    append_record(return_record(held["detection_xy"], held["grasp_xy"], placed_xy, landed, tile_name=name,
-                                spot=held["spot"], home_xy=home, session=session.dir.name,
-                                attempt_dir=held["attempt_dir"], **provenance), path)
+                  landed_xy=landed, error_m=error, **flags)
+    if not held.get("by_hand"):
+        append_record(return_record(held["detection_xy"], held["grasp_xy"], placed_xy, landed, tile_name=name,
+                                    spot=held["spot"], home_xy=home, session=session.dir.name,
+                                    attempt_dir=held["attempt_dir"], **provenance), path)
     hx, hy = correction.apply(*landed, log=lambda *a: None) if correction else landed
     reachable = kinematics.hover_command(hx, hy, hover["offset_m"], hover["gripper"])[0] is not None
     if error <= config.RETURN_DRIFT_WARN_M and reachable:
@@ -161,14 +186,34 @@ def _loo_rms(det, grip, miss, kind):
     return float(np.sqrt(np.mean(errors ** 2)))
 
 
+def _affine(xy):
+    xy = np.atleast_2d(xy)
+    return np.hstack([np.ones((len(xy), 1)), xy])
+
+
+def fit_across(records):
+    """What a tile carried across the mat needs, from returns that went back where they came from:
+    usual: where the jaws close relative to the tile's detection, by position (detection -> grasp - detection);
+    aim: where to set down relative to where a tile should land, by position (landed -> target - landed);
+    kept: how much of a grasp's stray from `usual` stays with the tile (stray @ kept: x, y)."""
+    det, grasp, target, landed = (np.array([r[k] for r in records], dtype=float)
+                                  for k in ("detection_xy", "grasp_xy", "target_xy", "landed_xy"))
+    usual = np.linalg.lstsq(_affine(det), grasp - det, rcond=None)[0]
+    stray = grasp - det - _affine(det) @ usual
+    coef = np.linalg.lstsq(np.hstack([_affine(landed), stray]), target - landed, rcond=None)[0]
+    return {"usual": usual, "aim": coef[:3], "kept": coef[3:], "bounds": (landed.min(axis=0), landed.max(axis=0))}
+
+
 def load_records(path=None):
-    """(fitted, set_aside, excluded) records for the current setup."""
+    """(fitted, set_aside, excluded) records for the current setup. Excluded: marked so, a person's hands may be
+    in the landing, or carried across the mat (their detection - grasp is another place's: see fit_across)."""
     fingerprint = setup_fingerprint()
     fitted, set_aside, excluded = [], [], []
     for record in read_all(path or config.RETURN_CORRECTIONS):
         if any(record.get(k) != v for k, v in fingerprint.items()):
             set_aside.append(record)
-        elif record.get("excluded"):
+        elif (record.get("excluded") or (record.get("session"), record.get("attempt_dir")) in HAND_MOVED
+              or carried(record["detection_xy"], record.get("home_xy") or record["detection_xy"])):
             excluded.append(record)
         else:
             fitted.append(record)
@@ -180,12 +225,15 @@ class ReturnCorrection:
         self.records, self.set_aside, self.excluded = list(records), list(set_aside), list(excluded)
         self.n = len(self.records)
         self.kind, self.coef, self.loo_rms = "none", None, {}
+        self.across = None
         if not self.records:
             return
         self.det, self.grip, self.miss = _arrays(self.records)
         positions = len(set(position_cells(self.det)))
         if positions < 2:
             return
+        if self.n >= MIN_RECORDS["grip+position"] and positions >= MIN_POSITIONS["grip+position"]:
+            self.across = fit_across(self.records)
         self.loo_rms["none"] = _loo_rms(self.det, self.grip, self.miss, "none")
         for kind in ("grip", "grip+position"):
             if self.n >= MIN_RECORDS[kind] and positions >= MIN_POSITIONS[kind]:
@@ -218,9 +266,32 @@ class ReturnCorrection:
             d = d * MAX_CORRECTION_M / size
         return float(d[0]), float(d[1])
 
+    def target_across(self, home_xy, detection_xy, grasp_xy, log=print):
+        """Where to set down a tile carried across the mat so it lands at home_xy (fit_across). The stray's share is
+        capped like the correction, and positions are held at the edge of what was measured."""
+        fit, margin = self.across, EXTRAPOLATION_MARGIN_M
+        lo, hi = fit["bounds"]
+        home = np.clip(np.asarray(home_xy, dtype=float), lo - margin, hi + margin)
+        pickup = np.clip(np.asarray(detection_xy, dtype=float), lo - margin, hi + margin)
+        stray = np.subtract(grasp_xy, detection_xy) - (_affine(pickup) @ fit["usual"])[0]
+        kept = stray @ fit["kept"]
+        size = math.hypot(*kept)
+        if size > MAX_CORRECTION_M:
+            kept = kept * MAX_CORRECTION_M / size
+        aim = (_affine(home) @ fit["aim"])[0]
+        log(f"  carried across the mat: aiming ({aim[0] * 1000:+.1f}, {aim[1] * 1000:+.1f})mm from its home, plus "
+            f"({kept[0] * 1000:+.1f}, {kept[1] * 1000:+.1f})mm for a close {math.hypot(*stray) * 1000:.0f}mm off the usual")
+        return float(home_xy[0] + aim[0] + kept[0]), float(home_xy[1] + aim[1] + kept[1])
+
     def target(self, home_xy, detection_xy, grasp_xy, log=print):
-        """Where to set the tile down so it lands at home_xy: the baseline (home + grasp - detection: the
-        tile keeps its offset in the jaws), moved by what the model says the baseline misses."""
+        """Where to set the tile down so it lands at home_xy. Back where it came from: the baseline (home + grasp -
+        detection: the tile keeps its offset in the jaws), moved by what the model says the baseline misses. Carried
+        across the mat: target_across, as the baseline would bring the pickup spot's offset with it."""
+        if carried(detection_xy, home_xy):
+            if self.across is not None:
+                return self.target_across(home_xy, detection_xy, grasp_xy, log)
+            log("  carried across the mat with too few returns measured for this setup to aim it: "
+                "it may land 20mm+ off, into its neighbours")
         bx, by = (home_xy[0] + grasp_xy[0] - detection_xy[0], home_xy[1] + grasp_xy[1] - detection_xy[1])
         dx, dy = self.correction_at(detection_xy, grasp_xy)
         if self.kind != "none":
@@ -255,9 +326,10 @@ def report():
         after = np.sqrt(np.mean(np.sum(miss_after[rows] ** 2, axis=1))) * 1000
         print(f"  ({cell[0] * POSITION_CELL_M:.2f},{cell[1] * POSITION_CELL_M:+.2f}) {rows.sum():>7} "
               f"{f'({mean[0]:+5.1f},{mean[1]:+5.1f})':>26} {after:>16.1f}")
-    k = model.coef[1:3].T
-    print(f"\nthe tile's offset in the jaws that stays with it at the landing: x {1 + k[0, 0]:.2f}, y {1 + k[1, 1]:.2f} "
-          f"(1: the jaws don't move it; 0: they centre it)")
+    if model.across is not None:
+        kept = model.across["kept"]
+        print(f"\nhow far the jaws closed from their usual place, the share that stays with the tile: x {kept[0, 0]:.2f}, "
+              f"y {kept[1, 1]:.2f} (1: the jaws don't move it; 0: they centre it). A steady margin at the close isn't a stray.")
 
 
 if __name__ == "__main__":

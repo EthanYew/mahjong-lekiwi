@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from mahjong.return_correction import (MAX_CORRECTION_M, ReturnCorrection, landed_tile, landings, return_record)
+from mahjong.return_correction import (HAND_MOVED, MAX_CORRECTION_M, ReturnCorrection, landed_tile, landings, load_records,
+                                       return_record)
 
 FRAME = np.array([0.035, 0.015])      # the arm's tool point sits this far from the RealSense's view of the tile
 KEPT = np.array([0.6, 0.6])           # of the tile's offset in the jaws, what stays with it when set down
@@ -81,3 +82,90 @@ def test_landings_pair_each_return_with_its_after_return_scan():
     assert first["home_xy"] == [0.2, 0.0] and first["landed_xy"] == [0.203, 0.004]
     assert first["error_m"] == pytest.approx(0.005)
     assert second["home_xy"] == [0.199, 0.0] and second["landed_xy"] is None
+
+
+# The real mat: what the RealSense sees and where the arm must go differ by an amount that changes with position.
+def gap(xy):
+    return np.array([0.040, 0.014 - 0.09 * xy[1]])
+
+
+STAYS = np.array([0.7, 0.5])          # of how far a close strayed from the usual, what stays with the tile
+MARGIN = np.array([0.0, 0.004])       # every close leaves this margin, on purpose
+
+
+def lands_on_mat(target, det, grasp):
+    stray = np.subtract(grasp, det) - gap(det) - MARGIN
+    landed = np.asarray(target, dtype=float) - gap(target)      # near enough: the gap barely changes over a few mm
+    return landed - STAYS * stray
+
+
+def same_place_returns(n=200, seed=1, noise=0.0005):
+    rng = np.random.default_rng(seed)
+    out = []
+    for _ in range(n):
+        det = np.array([rng.uniform(0.14, 0.27), rng.uniform(-0.18, 0.18)])
+        grasp = det + gap(det) + MARGIN + rng.normal(0, 0.006, 2)
+        target = det + gap(det)
+        out.append(return_record(det, grasp, target, lands_on_mat(target, det, grasp) + rng.normal(0, noise, 2),
+                                 home_xy=list(det)))
+    return out
+
+
+ZONE, S4 = np.array([0.203, -0.172]), np.array([0.140, 0.091])
+
+
+def test_a_tile_carried_across_the_mat_lands_at_its_new_home_where_the_old_aim_did_not():
+    model = ReturnCorrection(same_place_returns())
+    assert model.across is not None
+    grasp = ZONE + gap(ZONE) + MARGIN
+    assert np.linalg.norm(lands_on_mat(model.target(S4, ZONE, grasp, log=lambda *a: None), ZONE, grasp) - S4) < 0.003
+    old = ReturnCorrection([]).target(S4, ZONE, grasp, log=lambda *a: None)      # the pickup spot's gap, carried along
+    assert np.linalg.norm(lands_on_mat(old, ZONE, grasp) - S4) > 0.015
+
+
+def test_a_steady_margin_at_the_close_changes_nothing_and_a_stray_moves_the_aim_by_the_share_that_stays():
+    model = ReturnCorrection(same_place_returns())
+    usual = ZONE + gap(ZONE) + MARGIN
+    at_usual = np.array(model.target(S4, ZONE, usual, log=lambda *a: None))
+    assert np.linalg.norm(at_usual - (S4 + gap(S4))) < 0.002        # the margin isn't aimed for
+    strayed = np.array(model.target(S4, ZONE, usual + [0.0, 0.010], log=lambda *a: None))
+    assert (strayed - at_usual)[1] == pytest.approx(0.010 * STAYS[1], abs=0.001)
+
+
+def test_a_return_to_the_same_place_is_aimed_as_before():
+    model = ReturnCorrection(same_place_returns())
+    det, grasp = np.array([0.2, 0.05]), np.array([0.245, 0.06])
+    bx, by = det + grasp - det
+    dx, dy = model.correction_at(det, grasp)
+    assert model.target(det, det, grasp, log=lambda *a: None) == pytest.approx((bx - dx, by - dy))
+
+
+def test_too_few_returns_to_aim_a_carried_tile_says_so(capsys):
+    model = ReturnCorrection(same_place_returns(n=5))
+    assert model.across is None
+    model.target(S4, ZONE, ZONE + gap(ZONE))
+    assert "too few returns" in capsys.readouterr().out
+
+
+def test_carried_returns_and_a_persons_hands_stay_out_of_the_fit(tmp_path, monkeypatch):
+    import json
+    from mahjong import return_correction
+    fingerprint = {"follower_id": "arm", "t_cam_to_base_sha": "abc"}
+    monkeypatch.setattr(return_correction, "setup_fingerprint", lambda: fingerprint)
+    keep = {**return_record([0.2, 0.0], [0.24, 0.01], [0.24, 0.01], [0.2, 0.0], home_xy=[0.2, 0.0]), **fingerprint}
+    across = {**keep, "home_xy": [0.14, 0.09]}
+    (session, attempt) = sorted(HAND_MOVED)[0]
+    by_hand = {**keep, "session": session, "attempt_dir": attempt}
+    path = tmp_path / "returns.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand)))
+    fitted, _, excluded = load_records(path)
+    assert fitted == [keep] and excluded == [across, by_hand]
+
+
+def test_landings_say_when_r_was_pressed_during_the_return():
+    attempt = {"type": "attempt", "tile": "8D", "attempt_dir": "001", "detection_xy": [0.2, 0.0], "hover_xy": [0.23, 0.01]}
+    scan = {"type": "detections", "label": "after_return", "tiles": [{"tile_name": "8D", "xy": [0.2, 0.0]}]}
+    keys = {"type": "keys", "during": "return", "presses": [{"key": "r", "kind": "by_hand", "t_s": 1.0}]}
+    pressed, clean = landings([attempt, keys, {"type": "return", "xy": [0.23, 0.01]}, scan,
+                               attempt, {"type": "return", "xy": [0.23, 0.01]}, scan])
+    assert pressed["by_hand"] and not clean["by_hand"]

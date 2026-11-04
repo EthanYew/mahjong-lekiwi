@@ -20,6 +20,14 @@ back at its old home. The fit pools every policy; one that grips differently may
 landing check (`return_correction.Homes`, `check_landing`), and its teleop returns are logged as `policy`
 "teleop", `source` "record".
 
+## A tile carried across the mat is aimed from its destination
+
+Full account: `docs/retrospectives/2026-11-04_first_play_return.md`. All 5 tiles placed in `20261104_183142_play` aimed 12-22mm
+too far in +y against bench returns at the same spots; the 4 measured landed 15-18mm off in y. With the destination's aim and
+the stray's share, those landings are predicted at 6.1mm RMS (from 16.9mm), not yet measured on the arm. The "55-65% stays"
+above, and a later "x 0.69, y 0.85", mixed a close's stray with the mat-wide gap; with the position trend removed it's 70% in
+x, 52% in y (738 returns).
+
 ## Hand corrections record the commanded tool point, not where the jaws were — and that's fine
 
 In the 23 gamepad corrections of 2026-10-22 the measured tool point at → sat ~11mm short in reach (median; up
