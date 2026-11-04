@@ -183,6 +183,12 @@ first draw (`Player.confirm_hand`): the question moved, it didn't go. A drawn ti
 the read shown. Agreement never replaces a person's word here, so this isn't the gate's decision being taken early. Those tiles log
 `name_decided` with `how: "wrist"`, and a wrong one found at the check counts against the name in `name_report.py`.
 
+**Changed 2026-11-04, at the owner's request:** every question about a drawn tile gets that look, not only a read on the ask list. In
+`20261104_183142_play`, 7 drawn tiles were asked about and 4 got a read: split votes (P32, P51) have no sure name, so the list test
+skipped the look, and the camera was lost for P53, the one tile the scans had wrong (a person said 3C, the scans 2C). The read still
+only informs. A read that finds the camera lost now reopens it and reads again, which should also spare the voided pickups that
+followed 3 of those 5 empty reads.
+
 ## The plan
 
 Training happens on the RTX 5080 machine. Inference happens there now, and on a Raspberry Pi 5 (8 GB) later, for play

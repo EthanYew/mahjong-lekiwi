@@ -394,7 +394,9 @@ tile it had wrong).
 
 A read on that list gets the wrist camera's look first: the arm hovers over the tile before you're asked. While registering the
 hand, if the camera agrees you aren't asked about that tile (you still check it with the rest of the hand); if it disagrees you
-are, with both reads. A drawn tile is always asked about, since no hand check follows it, with the camera's read in the question.
+are, with both reads. A drawn tile on the list is always asked about, since no hand check follows it. Any question about a drawn
+tile gets the look first, whatever made it uncertain (split votes, a low-confidence read, the list), with the camera's read in the
+question or a note that it got none. A camera found lost at a read is reopened and read again.
 
 A window shows what each question is about: the mat zoomed in on the tiles, every slot labelled with the robot's name for it, the
 tile in question in thick yellow (orange: on the list or not settled yet), and the wrist camera's view beside it once the arm has
