@@ -115,7 +115,8 @@ def report(sessions_dir=None):
                                  layout.load(markers.ZONE_TEST_LAYOUT)["spots"], sessions_dir=sessions_dir)
         lines.append(f"\nDrop zone at ({zone['xy'][0]:.3f}, {zone['xy'][1]:+.3f}): "
                      + (f"benched at {markers.ZONE_TEST_LAYOUT} {test['spot']}, {test['picked']} picked up, "
-                        f"{test['returned']} returned" if test["ok"] else "; ".join(test["problems"])))
+                        f"{test['returned']} returned, {test['carried']} carried to a slot (median "
+                           f"{test['carried_median_mm']:.0f}mm from home)" if test["ok"] else "; ".join(test["problems"])))
 
     left = checkout.leftovers()
     lines.append(f"\nMerged branches not closed: {len(left)}" + (" (python scripts/merge_pr.py --close)" if left else ""))

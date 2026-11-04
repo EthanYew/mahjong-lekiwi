@@ -167,6 +167,9 @@ class Bench:
         ids = parse_policies(args.policy)
         # before connecting anything, so a typo fails fast
         self.spots = layout.load(args.layout)["spots"] if args.layout else None
+        unknown = [c for c in args.carry or [] if c not in {s["id"] for s in self.spots}]
+        if unknown:
+            raise SystemExit(f"--carry: {args.layout} has no spot {', '.join(unknown)}")
         if args.sim:
             from mahjong import sim
             devices = sim.connect(wrist_view=True)
@@ -224,7 +227,7 @@ class Bench:
             print(f"Layout {args.layout}: " + ", ".join(s["id"] for s in self.spots))
         self.session.event("bench_setup", policy=self.policy.id, hover=self.hover_of(self.policy),
                            policies=[{"id": p.id, "hover": self.hover_of(p)} for p in self.policies],
-                           layout=args.layout, spots=self.spots, unattended=args.unattended,
+                           layout=args.layout, spots=self.spots, unattended=args.unattended, carry=args.carry,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
                            hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper)
 
@@ -802,6 +805,7 @@ class Bench:
         finally:
             presses = self.keys.stop()
         self.log_keys(held["attempt_dir"], "return", presses)
+        held["by_hand"] = any(p["kind"] == "by_hand" for p in presses)
         if placed is None:
             print("Still holding it — discard it instead.")
             self.session.event("return_skipped", reason="unreachable", tile=held["tile_name"], xy=[x, y],
@@ -886,11 +890,11 @@ class Bench:
             print(f"Saved {config.DISCARD_POSE}")
         self.arm.rest()
 
-    def name_the_mat(self):
+    def name_the_mat(self, spots=None):
         """Before trials on a layout, once: a person checks what the scan reads at each spot, so every read after this
         can be scored against what's really there (mahjong/placements.py, scripts/name_report.py). An unattended run asks
         this too, like the setup questions: nothing is asked once the trials start."""
-        todo = [s for s in self.spots or [] if not self.placements.id_at(s["id"])]
+        todo = [s for s in spots or self.spots or [] if not self.placements.id_at(s["id"])]
         if not todo:
             return
         if not self.arm.is_at_rest():
@@ -917,6 +921,8 @@ class Bench:
             n = int(input(f"How many rounds{' per spot' if self.spots else ''}? ").strip() or 0)
             if not self.spots:
                 tile_name = input("Which tile (name)? ").strip() or None
+        if self.args.carry:
+            return self.carry(n)
         self.name_the_mat()
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
         plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
@@ -959,6 +965,40 @@ class Bench:
                               f"{sum(got)}/{len(got)} picked up")
             if skipped:
                 print(f"skipped spots: {', '.join(sorted(skipped))}")
+            self.batch = False
+            self.review_queued()
+            self.check_scans()
+            self.print_flaky()
+
+    def carry(self, n):
+        """n rounds of what a hand's turn does and a walk of the layout doesn't: carry one tile from a spot to another,
+        across the mat, and back. Each carry is aimed and its landing checked as a return (return_tile); TO starts empty."""
+        start, end = (next(s for s in self.spots if s["id"] == c) for c in self.args.carry)
+        self.name_the_mat([start])
+        self.homes.homes[end["id"]] = [float(v) for v in end["xy"]]
+        done = []
+        self.batch = True
+        try:
+            for i in range(n):
+                for frm, to in ((start, end), (end, start)):
+                    print(f"\n=== round {i + 1}/{n}: {frm['id']} to {to['id']} ===")
+                    success = self.pickup(ask=False, spot=frm)
+                    if success is not None:
+                        done.append((frm["id"], self.policy.id, success))
+                    if not success or not self.held:
+                        return print(f"Nothing picked up at {frm['id']} — stopping the carries.")
+                    self.held.update(home_xy=self.homes.get(to["id"]), spot=to["id"])
+                    name = self.held["tile_name"]
+                    self.return_tile()
+                    if self.held:
+                        return print("Couldn't set it down — stopping the carries.")
+                    moved = self.placements.end(frm["id"], "moved")
+                    self.placements.start(to["id"], self.homes.get(to["id"]), truth_source="game", read=name,
+                                          from_placement=moved)
+        finally:
+            self.session.event("trials_done", tile=None, policy=self.policy.id, results=[d[2] for d in done],
+                               policies=[d[1] for d in done], spots=[d[0] for d in done], layout=self.args.layout,
+                               skipped_spots=[], carry=self.args.carry)
             self.batch = False
             self.review_queued()
             self.check_scans()
@@ -1056,12 +1096,19 @@ def parse_args(argv=None):
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
     p.add_argument("--hover-perturb-mm", type=parse_offsets, default=None,
                    help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
+    p.add_argument("--carry", type=lambda text: text.split(","), default=None, metavar="FROM,TO",
+                   help="trials carry one tile between these two spots of --layout, as a hand does, instead of returning it "
+                        "where it came from: a tile on FROM, TO empty. --trials 2 from the drop zone's spot to a slot "
+                        "is what play.py needs before a hand")
     p.add_argument("--hover-gripper", type=float, default=None,
                    help="gripper opening at the hover (%%) for every policy, instead of the one its episodes started "
                         "at (data/policies.json; v6 26.7). Its narrowing on the way down shifts by the same amount")
     args = p.parse_args(argv)
     if args.unattended and not (args.trials and (args.tile or args.layout)):
         p.error("--unattended needs --trials and --tile or --layout: at the menu, or asked which tile, it would wait for you")
+    if args.carry and (len(args.carry) != 2 or len(set(args.carry)) != 2 or not args.layout or args.unattended
+                       or "," in (args.policy or "") or args.hover_perturb_mm):
+        p.error("--carry takes FROM,TO, two spots of --layout, with one policy, no --hover-perturb-mm, and someone watching")
     return args
 
 

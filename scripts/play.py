@@ -378,13 +378,14 @@ class Player:
 
     def check_zone_benched(self):
         """The zone is only reached mid-hand: refuse to start unless the bench has checked a tile there
-        (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
+        and carried tiles from it (markers.zone_test), or --skip-zone-test says to go on anyway (logged)."""
         test = markers.zone_test(self.zone["xy"], self.slots, layout.load(markers.ZONE_TEST_LAYOUT)["spots"],
                                  play_layout=self.args.layout)
         self.session.event("zone_test", **test)
         if test["ok"]:
             print(f"Drop zone checked on the bench: {markers.ZONE_TEST_LAYOUT} {test['spot']}, "
-                  f"{test['picked']} picked up, {test['returned']} returned")
+                  f"{test['picked']} picked up, {test['returned']} returned, {test['carried']} carried to a slot "
+                  f"(median {test['carried_median_mm']:.0f}mm from home)")
             return
         print("\nThe drop zone isn't checked on the bench yet:\n  " + "\n  ".join(test["problems"])
               + "\nTo check it:\n  " + "\n  ".join(test["fix"]))

@@ -16,6 +16,7 @@ start until the bench has picked a tile up there and set it back down (`zone_tes
 """
 import json
 import math
+import statistics
 from datetime import datetime
 
 import cv2
@@ -35,6 +36,7 @@ LOCATE_FRAMES = 10
 PLAY_LAYOUT = "even-hand13"             # the hand's slots on the standard layout (data/standard_setup.json)
 ZONE_TEST_LAYOUT = "even-hand14"        # the play layout's slots + one spot on the zone, walked by the bench
 SLOT_MATCH_M = 0.005                    # a test-layout spot this close to a play slot is that slot
+CARRY_MIN_LANDINGS = 2                  # carried from the zone on the bench before play starts (--trials 2 of --carry)
 
 
 def find(image_bgr, marker_id=DRAWN_TILE_MARKER_ID):
@@ -100,11 +102,26 @@ def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     return attempts, picked, returned
 
 
+def carried_from(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
+    """How far from home each tile carried from xy landed, in real bench sessions (bench.py --carry): metres, inf where
+    the scan didn't find it. Landings from before carried tiles had their own aim, or a person's hands in, don't count."""
+    errors = []
+    for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
+        events = read_events(events_file.parent)
+        if any(e["type"] == "session_start" and e.get("sim") for e in events):
+            continue
+        errors += [e["error_m"] if e.get("error_m") is not None else math.inf for e in events
+                   if e["type"] == "return_landed" and e.get("carried") and not e.get("by_hand")
+                   and math.dist(e["from_xy"], xy) <= radius_m]
+    return errors
+
+
 def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PLAY_LAYOUT,
               test_layout=ZONE_TEST_LAYOUT):
     """Is the spot a drawn tile goes on checked on the bench? The test layout should hold every play slot plus
-    one spot on the zone, and the bench should have picked a tile up there and returned it. Returns
-    {"ok", "spot", "attempts", "picked", "returned", "problems": [...], "fix": [commands]}."""
+    one spot on the zone, the bench should have picked a tile up there and returned it, and carried tiles from there
+    to a slot and seen them land near it: no other bench walk does what a hand's first turn does. Returns {"ok", "spot",
+    "attempts", "picked", "returned", "carried", "carried_median_mm", "problems": [...], "fix": [commands]}."""
     problems, fix = [], []
     missing = [s["id"] for s in play_spots
                if not any(math.dist(s["xy"], t["xy"]) <= SLOT_MATCH_M for t in test_spots)]
@@ -113,6 +130,7 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
         fix.append(f"python scripts/layout.py --name {test_layout} --teach   # {play_layout}'s slots + a tile on the zone")
     extra = [t for t in test_spots if not any(math.dist(t["xy"], s["xy"]) <= SLOT_MATCH_M for s in play_spots)]
     spot = next((t for t in extra if math.dist(t["xy"], zone_xy) <= ZONE_RADIUS_M), None)
+    closest = None
     if spot is None:
         closest = min(extra, key=lambda t: math.dist(t["xy"], zone_xy), default=None)
         problems.append(f"no {test_layout} spot on the drop zone at ({zone_xy[0]:.3f}, {zone_xy[1]:+.3f})"
@@ -127,5 +145,16 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
         problems.append(f"the bench hasn't picked up and returned a tile on the drop zone ({attempts} attempt(s), "
                         f"{picked} picked up, {returned} returned)")
         fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2   # a tile on every spot, the zone's too")
+    landed = carried_from(zone_xy, sessions_dir)
+    median_mm = statistics.median(landed) * 1000 if landed else None
+    if len(landed) < CARRY_MIN_LANDINGS or median_mm > config.RETURN_DRIFT_WARN_M * 1000:
+        problems.append(f"tiles carried from the drop zone to a slot on the bench: {len(landed)} landed"
+                        + (f", median {median_mm:.0f}mm from home" if landed else "")
+                        + f" (needs {CARRY_MIN_LANDINGS}+, median {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm or less)")
+        from_id = (spot or closest or {"id": "S13"})["id"]
+        fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2 --carry {from_id},{play_spots[0]['id']}"
+                   f"   # a tile on {from_id}, {play_spots[0]['id']} empty")
     return {"ok": not problems, "spot": spot["id"] if spot else None, "attempts": attempts, "picked": picked,
-            "returned": returned, "problems": problems, "fix": fix}
+            "returned": returned, "carried": len(landed),
+            "carried_median_mm": None if median_mm is None or math.isinf(median_mm) else median_mm,
+            "problems": problems, "fix": fix}

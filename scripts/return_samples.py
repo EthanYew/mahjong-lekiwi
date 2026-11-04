@@ -1,8 +1,8 @@
 """Import return-correction samples from bench sessions: each return, with the tile before the pickup,
 where the jaws closed, where the arm set it down and where the after-return scan saw it land.
 
-bench.py records new returns itself; this backfills older sessions. Simulated sessions and returns whose
-tile the scan didn't find are skipped. Sessions don't store the RealSense calibration, so only returns
+bench.py records new returns itself; this backfills older sessions. Simulated sessions, returns whose tile the
+scan didn't find and returns where `r` was pressed are skipped. Sessions don't store the RealSense calibration, so only returns
 from after the current setup's first gamepad correction are imported (as scripts/hover_samples.py).
 
     python scripts/return_samples.py                  # every bench session
@@ -30,7 +30,7 @@ def session_records(session_dir):
     return [return_record(r["detection_xy"], r["grasp_xy"], r["target_xy"], r["landed_xy"], timestamp=times[r["attempt_dir"]],
                           tile_name=r["tile"], policy=r["policy"], spot=r["spot"], home_xy=r["home_xy"],
                           session=session_dir.name, attempt_dir=r["attempt_dir"])
-            for r in landings(events) if r["landed_xy"]]
+            for r in landings(events) if r["landed_xy"] and not r["by_hand"]]
 
 
 def import_records(records, path=None, since=None):
