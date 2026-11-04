@@ -1,0 +1,183 @@
+{
+  "weights": "best@47bbd02d",
+  "time": "2026-11-04T19:47:58",
+  "exam_sessions": [
+    "20261027_172928_capture",
+    "20261028_162624_capture",
+    "20261104_092917_capture",
+    "20261104_101205_capture"
+  ],
+  "exam_dir": "/home/ethanYew/Projects/mahjong-lekiwi/data/detector/exam_v7",
+  "ignored_names": [
+    "1F",
+    "2F",
+    "3F",
+    "4F"
+  ],
+  "scores": {
+    "all": {
+      "frames": 103,
+      "tiles": 961,
+      "found": 958,
+      "named_right": 949,
+      "missed": 3,
+      "extra": 9,
+      "found_rate": 0.9968782518210197,
+      "named_right_rate": 0.9906054279749478,
+      "right_rate": 0.9875130072840791,
+      "mixups": [
+        [
+          "3D",
+          "5D",
+          2
+        ],
+        [
+          "7C",
+          "6C",
+          1
+        ],
+        [
+          "6B",
+          "7B",
+          1
+        ],
+        [
+          "GD",
+          "1B",
+          1
+        ],
+        [
+          "6D",
+          "7D",
+          1
+        ],
+        [
+          "3C",
+          "2C",
+          1
+        ],
+        [
+          "5C",
+          "6C",
+          1
+        ],
+        [
+          "SW",
+          "WW",
+          1
+        ]
+      ],
+      "missed_names": {
+        "RD": 1,
+        "7C": 1,
+        "6B": 1
+      }
+    },
+    "20261027_172928_capture": {
+      "frames": 15,
+      "tiles": 102,
+      "found": 102,
+      "named_right": 101,
+      "missed": 0,
+      "extra": 3,
+      "found_rate": 1.0,
+      "named_right_rate": 0.9901960784313726,
+      "right_rate": 0.9901960784313726,
+      "mixups": [
+        [
+          "3D",
+          "5D",
+          1
+        ]
+      ],
+      "missed_names": {}
+    },
+    "20261028_162624_capture": {
+      "frames": 40,
+      "tiles": 272,
+      "found": 272,
+      "named_right": 271,
+      "missed": 0,
+      "extra": 1,
+      "found_rate": 1.0,
+      "named_right_rate": 0.9963235294117647,
+      "right_rate": 0.9963235294117647,
+      "mixups": [
+        [
+          "7C",
+          "6C",
+          1
+        ]
+      ],
+      "missed_names": {}
+    },
+    "20261104_092917_capture": {
+      "frames": 7,
+      "tiles": 238,
+      "found": 237,
+      "named_right": 234,
+      "missed": 1,
+      "extra": 3,
+      "found_rate": 0.9957983193277311,
+      "named_right_rate": 0.9873417721518988,
+      "right_rate": 0.9831932773109243,
+      "mixups": [
+        [
+          "6B",
+          "7B",
+          1
+        ],
+        [
+          "GD",
+          "1B",
+          1
+        ],
+        [
+          "6D",
+          "7D",
+          1
+        ]
+      ],
+      "missed_names": {
+        "RD": 1
+      }
+    },
+    "20261104_101205_capture": {
+      "frames": 41,
+      "tiles": 349,
+      "found": 347,
+      "named_right": 343,
+      "missed": 2,
+      "extra": 2,
+      "found_rate": 0.994269340974212,
+      "named_right_rate": 0.9884726224783862,
+      "right_rate": 0.9828080229226361,
+      "mixups": [
+        [
+          "3C",
+          "2C",
+          1
+        ],
+        [
+          "5C",
+          "6C",
+          1
+        ],
+        [
+          "SW",
+          "WW",
+          1
+        ],
+        [
+          "3D",
+          "5D",
+          1
+        ]
+      ],
+      "missed_names": {
+        "7C": 1,
+        "6B": 1
+      }
+    }
+  }
+}

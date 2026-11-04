@@ -62,6 +62,9 @@ those placements (`hand_confirmed` events), so every hand now scores all 13 of i
 
 ## What the report can't say yet
 
+- **After a knock:** a change at a spot ends what's scored there, even when the tile only shifted and a person still names it. In
+  `20261104_183142_play` this shows 3C at 100%, while it read as 2C in 604 of 835 frames, nearly all after a knock.
+  `scripts/hand_frames.py` follows the tile by position and scores those frames.
 - **Play:** no real hand has run, so all of it is backfilled bench data. Votes are replayed over a placement's whole session,
   while play decides from about 3 scans, and older scans hold only each tile's best read.
 - **Which physical tile:** copies of a name aren't told apart, so 2C reading right in `20261103_214640_bench` and as 3C in
