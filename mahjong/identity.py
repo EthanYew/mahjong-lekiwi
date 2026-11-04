@@ -9,6 +9,7 @@ confidence}). Either way the slot's total adds every scan's votes.
 The bars below are first guesses, not measured: set them from the detector exam (agree-and-wrong must
 stay 0, the ask rate as low as that allows) and say so here.
 """
+import re
 from collections import defaultdict
 
 MIN_SHARE = 0.8             # the leading name's share of all the votes a slot has collected
@@ -33,11 +34,19 @@ ALWAYS_ASK_READS = {
 }
 CONFIDENCE_FLOOR = 0.80     # a name's mean best read per scan. On 42 mat placements in dim or no daylight, every 3-scan window:
                             # wrong names 5.3% -> 1.1%, questions 10.7% -> 21.9%. Lowers the risk, doesn't remove it
+RIVAL_MIN_SHARE = 0.05      # another name with this share of the votes is worth pointing out to a person: S9's real 5C had 9%
+                            # (20261104_164541_play). A first guess, and it only decides what the window marks: it never asks
+TILE_NAME = re.compile(r"\b(?:[1-9][BCD]|[ESWN]W|[RGW]D)\b")
 
 
 def scan_votes(tile):
     """{name: weight} that one scan's detection of a tile gives."""
     return dict(tile.get("votes") or {tile["tile_name"]: tile["confidence"]})
+
+
+def misread_from(read):
+    """The tiles that have been misread as `read`, from its entry in ALWAYS_ASK_READS."""
+    return TILE_NAME.findall(ALWAYS_ASK_READS.get(read, ""))
 
 
 class Votes:
@@ -88,6 +97,30 @@ class Votes:
         reads = self.confidences.get(slot, {}).get(name)
         mean = sum(reads) / len(reads) if reads else 0.0
         return None if mean >= floor else f"It reads {name} at only {mean:.2f} confidence"
+
+    def rivals(self, slot, name):
+        """[(another name, its share of the slot's votes)], largest first, for the names with enough of them to mention."""
+        votes = self.totals.get(slot) or {}
+        total = sum(votes.values())
+        found = [(other, weight / total) for other, weight in votes.items() if other != name and weight >= RIVAL_MIN_SHARE * total]
+        return sorted(found, key=lambda rival: -rival[1])
+
+    def worth_a_look(self, slot, name, vouched=False):
+        """What a person checking this tile should know: (reasons, other names it could be). Both empty if nothing stands out. For
+        the window only: unlike doubt(), this asks nothing, and it also speaks up when a rival is too small to stop the votes being
+        sure. A name a person vouched for has been checked, so only scans now reading something else count against it."""
+        rivals = self.rivals(slot, name)
+        reasons = [f"scans also read {other} ({share:.0%})" for other, share in rivals]
+        could_be = [other for other, _ in rivals]
+        if vouched:
+            return reasons, could_be
+        reads = self.confidences.get(slot, {}).get(name)
+        if name in ALWAYS_ASK_READS:
+            reasons.append(ALWAYS_ASK_READS[name])
+            could_be += [other for other in misread_from(name) if other not in could_be]
+        elif reads and sum(reads) / len(reads) < CONFIDENCE_FLOOR:
+            reasons.append(f"read at only {sum(reads) / len(reads):.2f} confidence")
+        return reasons, could_be
 
     def describe(self, slot):
         votes = self.totals.get(slot) or {}
