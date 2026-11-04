@@ -1,14 +1,14 @@
 """The drop zone for drawn tiles, taught by an ArUco marker (docs/autonomy_plan.md, section 2).
 
-The marker lies flat on the mat and the drawn tile goes on top of it, as in MahjongBot's autonomous play
-(marker id 3, DICT_6X6_250). A tile on it hides it, so its position is found while it's uncovered and
-saved (data/drop_zone.json) with the calibration fingerprint it was found under: a recalibrated RealSense
-makes the saved position mean nothing. scripts/play.py looks again each time the zone is empty, and a
-marker that moved more than ZONE_MOVED_M means the camera or the LeKiwi base moved: it stops.
+Teaching (scripts/play.py --teach-zone, or the first run) reads the uncovered marker (id 3, DICT_6X6_250, flat
+on the mat) and saves its position (data/drop_zone.json) with the calibration fingerprint it was found under: a
+recalibrated RealSense makes the saved position mean nothing. Every hand after that goes on the saved position, and
+nothing reads the marker: it can move or come off the mat without play noticing. A moved marker used to stop play as
+if the camera had moved (20261104_220329_play), which is setup_check.py's question.
 
-Under the tile was chosen to match MahjongBot, with two things to watch that would move it beside the
-zone instead: first-try pickups at the zone below the ~95% seen on the mat (no policy has seen a tile on
-a black-and-white pattern), and the detector (no marker class) reading the marker's edge as a tile.
+A marker left in place can have the drawn tile on top of it, with two things to watch that would mean taking it away:
+first-try pickups at the zone below the ~95% seen on the mat (no policy has seen a tile on a black-and-white
+pattern), and the detector (no marker class) reading the marker's edge as a tile.
 
 Play reaches the zone only once a hand is under way, so it's checked on the bench beforehand: the test
 layout ZONE_TEST_LAYOUT (even-hand14) is the play layout's slots plus one spot on the zone, and play.py won't
@@ -32,7 +32,6 @@ DRAWN_TILE_MARKER_ID = 3
 DICTIONARY = cv2.aruco.DICT_6X6_250
 ZONE_FILE = config.DATA / "drop_zone.json"
 ZONE_RADIUS_M = config.TILE_MERGE_RADIUS_M   # a drawn tile this close to the zone is on it (and pickable by spot)
-ZONE_MOVED_M = 0.005                    # the uncovered marker read this far from where it was taught: the camera moved
 LOCATE_FRAMES = 10
 PLAY_LAYOUT = "even-hand13"             # the hand's slots on the standard layout (data/standard_setup.json)
 ZONE_TEST_LAYOUT = "even-hand14"        # the play layout's slots + one spot on the zone, walked by the bench
@@ -82,10 +81,6 @@ def load_zone(path=None):
         return None
     zone = json.loads(path.read_text())
     return zone if zone.get("setup") == setup_fingerprint() else None
-
-
-def moved(zone, xy, limit_m=ZONE_MOVED_M):
-    return math.dist(zone["xy"], xy) > limit_m
 
 
 def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):

@@ -310,7 +310,7 @@ over every scan, reset when a tile moves; reads the scans' per-frame `votes`);
 Next, on the arm:
 1. ~~Teach `hand13`~~ (done) and the drop zone. `hand14` is the bench's version of the hand: hand13's slots
    plus S13 (WW, (0.223, −0.158), at the edge of the reach), where the drawn tile goes. Benched 2026-10-29
-   (`20261029_094543_bench`, 73/75; S13 6/6). Lay the marker on S13: `play.py` won't start until a bench
+   (`20261029_094543_bench`, 73/75; S13 6/6). Lay the marker on S13 to teach the zone (only teaching reads it): `play.py` won't start until a bench
    session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`). Then
    paired pickups on the marker vs a mat spot (the marker's pivot trigger).
 2. A scripted hand: a fixed wall set out by hand, so it can be played again identically.

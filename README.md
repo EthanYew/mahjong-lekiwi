@@ -357,7 +357,7 @@ drop zone and press Enter. Why it works the way it does, and the targets it's me
 
 ```
 python scripts/play.py --layout even-hand13                 # play a hand
-python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+python scripts/play.py --layout even-hand13 --teach-zone    # move the drop zone: read the marker for its new position
 python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
 python scripts/play.py --sim                           # no hardware: a fixed hand that wins in 3 draws
 ```
@@ -370,7 +370,9 @@ Before the first hand:
    every spot: pickups and returns at every slot *and* at the drop zone.
 3. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered, on
    even-hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
-   RealSense calibration). The drawn tile goes on top of it.
+   RealSense calibration). Every hand after that uses the saved position and never reads the marker, so you can move it or
+   take it off the mat; the window outlines the zone, and the startup line gives its position. Only `--teach-zone` reads
+   the marker again (a recalibrated RealSense asks for it too).
 4. **The discard pose**: `bench.py`, `teach-discard`, over the container.
 
 Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
@@ -379,6 +381,9 @@ sessions must have picked up and returned a tile there, and carried at least 2 f
 (`bench.py --layout even-hand14 --trials 2 --carry S13,S1`) landing a median of 12mm or less from home. If not, it prints the commands that fix it
 (e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
+
+Each turn waits for a tile on the drop zone: after you press Enter, a scan has to see one within 25mm of the zone, or it asks again
+and says where the zone is. A tile it can only box, not name, counts as there, and it asks you the name.
 
 A hand: it reads the 13 tiles (asking about any it isn't sure of), then **shows you the whole hand to check against the table**:
 Enter if it's right, or the wrong ones as `S9=5C`. It won't ask for a drawn tile until you've done this (`--resume` asks too, if
@@ -428,7 +433,7 @@ holds a tile).
 |---|---|
 | `--layout NAME` | **required** (except `--sim`): the 13 hand slots |
 | `--policy ID` | policy from `data/policies.json` (default: the registry's default) |
-| `--teach-zone` | find the drop-zone marker again (after moving it or the camera); it must be uncovered |
+| `--teach-zone` | move the drop zone: read the marker for its new position, which later hands carry over; it must be uncovered |
 | `--resume [FOLDER]` | carry on a play session's hand (default: the latest) |
 | `--skip-zone-test` | play even if the bench hasn't picked up and returned a tile on the drop zone (logged) |
 | `--no-name-check` | play without the wrist camera's second read |

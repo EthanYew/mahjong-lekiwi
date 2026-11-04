@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mahjong import config
+from mahjong import config, markers
 from mahjong.session import read_events
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -282,8 +282,7 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
             return super().__call__(prompt)
     ask = AtDraw("", "h13=9C", "", "end")
     p = player(tmp_path, monkeypatch, ask)
-    p.args.sim = False                          # the real draw prompt; the zone check needs no marker in this test
-    monkeypatch.setattr(p, "check_zone", lambda: None)
+    p.args.sim = False                          # the real draw prompt
     p.bench.arm.rest()
     p.register()
     p.confirm_hand()
@@ -295,8 +294,8 @@ def test_a_hand_tile_can_be_corrected_at_the_draw_prompt_and_the_discard_uses_it
     assert chosen and "9C" in chosen[0] and "NW" not in chosen[0]
 
 
-def test_a_marker_that_moved_stops_play_with_the_turn_already_saved(tmp_path, monkeypatch):
-    """Its message says --resume, which reads the checkpoint: a turn not saved would be played again on a tile already moved."""
+def test_a_stop_after_a_turn_finds_the_turn_already_saved(tmp_path, monkeypatch):
+    """--resume reads the checkpoint: a turn not saved would be played again on a tile already moved."""
     p = player(tmp_path, monkeypatch, Answers())
     p.bench.arm.rest()
     p.register()
@@ -304,14 +303,110 @@ def test_a_marker_that_moved_stops_play_with_the_turn_already_saved(tmp_path, mo
     p.state["discards"].append("RD")
     p.save()
 
-    def marker_moved():
-        raise SystemExit("The drop-zone marker moved")
-    monkeypatch.setattr(p, "check_zone", marker_moved)
-    with pytest.raises(SystemExit):
+    def stopped():
+        raise KeyboardInterrupt
+    monkeypatch.setattr(p, "end_step", stopped)
+    with pytest.raises(KeyboardInterrupt):
         p.finish_turn("RD", "H12")
     p.close()
     saved = json.loads((p.session.dir / "checkpoint.json").read_text())
     assert (saved["phase"], saved["turn"]) == ("draw", 1) and "vacated" not in saved
+
+
+# --- the drop zone: a saved position, and a tile on it before the turn goes on ---
+
+def no_marker(monkeypatch):
+    """Anything that reads the marker fails the test."""
+    def read(*_, **__):
+        raise AssertionError("read the marker")
+    monkeypatch.setattr(markers, "locate", read)
+    monkeypatch.setattr(markers, "find", read)
+
+
+def test_the_last_zone_carries_over_without_reading_the_marker(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    monkeypatch.setattr(markers, "ZONE_FILE", tmp_path / "drop_zone.json")
+    saved = markers.save_zone([0.2, -0.17], session="last")
+    no_marker(monkeypatch)
+    assert p.load_zone(teach=False) == saved
+    p.close()
+
+
+def test_teach_zone_reads_the_marker_and_the_next_hand_gets_the_new_position(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers())
+    monkeypatch.setattr(markers, "ZONE_FILE", tmp_path / "drop_zone.json")
+    markers.save_zone([0.2, -0.17], session="last")
+    monkeypatch.setattr(markers, "locate", lambda realsense: [0.21, -0.15])
+    assert p.load_zone(teach=True)["xy"] == [0.21, -0.15]
+    no_marker(monkeypatch)
+    assert p.load_zone(teach=False)["xy"] == [0.21, -0.15]
+    p.close()
+
+
+def at_the_real_draw_prompt(p):
+    """The hand registered and checked, with a person putting each drawn tile on the zone rather than the sim."""
+    p.args.sim = False
+    p.bench.arm.rest()
+    p.register()
+    p.confirm_hand()
+
+
+def test_a_turn_waits_for_a_tile_on_the_zone_and_never_reads_the_marker(tmp_path, monkeypatch):
+    class PutsItOnTheSecondAsk(Answers):
+        def __call__(self, prompt):
+            if "No tile seen" in prompt:
+                p.mat.tiles.append({"tile_name": "GD", "xy": list(p.zone["xy"])})
+            return super().__call__(prompt)
+    ask = PutsItOnTheSecondAsk()
+    p = player(tmp_path, monkeypatch, ask)
+    no_marker(monkeypatch)
+    at_the_real_draw_prompt(p)
+    assert p.turn() is None                     # the whole turn, finish_turn included
+    p.close()
+    asked = [prompt for prompt in ask.prompts if "drop zone" in prompt]
+    assert "Put the drawn tile on the drop zone" in asked[0] and "No tile seen on the drop zone" in asked[1]
+    assert f"{p.zone['xy'][0]:.3f}" in asked[1] and "marker" not in asked[1]
+    assert p.state["discards"] == ["GD"] and sum(e.get("kind") == "zone_asked" for e in events_of(p)) == 1
+
+
+def test_a_tile_too_far_from_the_zone_is_not_on_it(tmp_path, monkeypatch):
+    class Misplaces(Answers):
+        def __call__(self, prompt):
+            x, y = p.zone["xy"]
+            if "Put the drawn tile" in prompt:
+                p.mat.tiles.append({"tile_name": "GD", "xy": [x, y + 0.03]})    # 30mm off
+            elif "No tile seen" in prompt:
+                p.mat.tiles[-1]["xy"] = [x, y]
+            return super().__call__(prompt)
+    ask = Misplaces()
+    p = player(tmp_path, monkeypatch, ask)
+    at_the_real_draw_prompt(p)
+    assert p.turn() is None
+    p.close()
+    assert any("No tile seen" in prompt for prompt in ask.prompts) and p.state["discards"] == ["GD"]
+
+
+def test_a_tile_the_detector_can_only_box_is_there_and_is_asked_about_never_named_from_the_box(tmp_path, monkeypatch):
+    """3C reads at a median 0.18: "no tile seen" would never end, and the box's guess isn't a name to go on."""
+    class FaintDraw(Answers):
+        def __call__(self, prompt):
+            assert "No tile seen" not in prompt     # asked again, it would ask for ever
+            if "Put the drawn tile" in prompt:
+                p.mat.faint = [{"tile_name": "9B", "confidence": 0.18, "xy": tuple(p.zone["xy"])}]
+            return super().__call__(prompt)
+    ask = FaintDraw("", "", "3C")               # the hand check, the draw prompt, then the question about the tile
+    p = player(tmp_path, monkeypatch, ask)
+    at_the_real_draw_prompt(p)
+    assert p.wait_for_draw() == "3C"
+    question = ask.prompts[-1]
+    assert "can't name it" in question and "[Enter" not in question
+    named = next(e for e in events_of(p) if e["type"] == "name_decided" and e["slot"] == "zone")
+    assert (named["name"], named["how"]) == ("3C", "person")
+    p.state.update(phase="place", vacated="H12", drawn="3C")    # and it can be picked up from the box
+    assert p.pick("zone", "3C") is True
+    p.close()
+    attempt = next(e for e in events_of(p) if e["type"] == "attempt")
+    assert (attempt["tile"], attempt["name_source"]) == ("3C", "faint")
 
 
 def drawn_reading_differently(p, phase, drawn="GD", now_reads="9B"):

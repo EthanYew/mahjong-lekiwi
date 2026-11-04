@@ -1,12 +1,12 @@
 """Autonomous play: the robot plays one closed hand of mahjong. A person only puts each drawn tile on the
-drop zone (an ArUco marker, mahjong/markers.py) and presses Enter.
+drop zone (a saved position, taught once from an ArUco marker, mahjong/markers.py) and presses Enter.
 
     python scripts/play.py --layout even-hand13                 # the 13 hand slots (data/layouts.json)
-    python scripts/play.py --layout even-hand13 --teach-zone    # find the drop-zone marker again first
+    python scripts/play.py --layout even-hand13 --teach-zone    # move the drop zone: read the marker for its new position
     python scripts/play.py --layout even-hand13 --resume        # carry on the latest play session's hand
     python scripts/play.py --sim                           # simulated arm and mat, a fixed hand and wall
 
-A turn: read the drawn tile, check the table still matches the hand, choose the discard (lowest shanten,
+A turn: check a tile is on the drop zone, read it, check the table still matches the hand, choose the discard (lowest shanten,
 then the most improving tiles still left, mahjong/game.py), pick it up with the policy and drop it in the
 discard container (the bench's taught discard pose), and if it came from the hand, move the drawn tile
 into the slot it left, aimed with the return correction so it lands on the slot's home. Ends on a win, or
@@ -154,6 +154,10 @@ class Player:
             if tile is not None:
                 self.latest[slot] = tile
                 self.votes.add(slot, tile)
+        if ZONE not in self.latest:     # a box it can't name still proves a tile is there, and gives it no votes (perception.faint_tiles)
+            box = layout.nearest_tile(self.bench.realsense.faint, self.home(ZONE), markers.ZONE_RADIUS_M)
+            if box is not None:
+                self.latest[ZONE] = {**box, "faint": True}
 
     def scan(self, label, **fields):
         return self.bench.scan(label, **fields)
@@ -231,7 +235,7 @@ class Player:
         leader = self.votes.leader(slot)[0]
         while True:
             answer = self.question(f"{why}. What is the tile at {slot} (reads: {self.votes.describe(slot)})? "
-                                   f"[Enter: {leader}] ", focus=slot, flagged={slot: self.attention(slot, otherwise=why)}).strip().upper()
+                                   + (f"[Enter: {leader}] " if leader else ""), focus=slot, flagged={slot: self.attention(slot, otherwise=why)}).strip().upper()
             name = answer or leader
             if name and game.is_playable(name):
                 break
@@ -339,7 +343,7 @@ class Player:
         if self.reader is None or tile is None or self.bench.hover_over(tile) is None:
             return None
         self.hovering = True
-        return self.read_wrist(slot, name, self.session.attempt_dir(name), keep_as="wrist_0000.jpg")
+        return self.read_wrist(slot, name, self.session.attempt_dir(name or config.UNNAMED), keep_as="wrist_0000.jpg")
 
     def rest_after_looking(self):
         """Back to rest if a look left the arm over the mat: the next scan needs a clear view."""
@@ -390,15 +394,21 @@ class Player:
     # --- the zone ---
 
     def load_zone(self, teach):
+        """The zone the last hand used, unless this is --teach-zone or the RealSense has been recalibrated since. Only teaching
+        reads the marker: once taught, the position is what play goes on, and the marker can move or come off the mat."""
         zone = None if teach else markers.load_zone()
-        if zone is None:
-            self.bench.arm.rest()
-            print("Finding the drop-zone marker (it must be uncovered)...")
-            while (xy := markers.locate(self.bench.realsense)) is None:
-                drain_stdin()
-                self.ask(f"Marker {markers.DRAWN_TILE_MARKER_ID} not seen: uncover it or put it in view, then Enter: ")
-            zone = markers.save_zone(xy, session=self.session.dir.name)
-            print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}")
+        if zone is not None:
+            x, y = zone["xy"]
+            print(f"Drop zone at ({x:.3f}, {y:+.3f}), taught {zone.get('taught', '?')} (--teach-zone to move it)")
+            return zone
+        self.bench.arm.rest()
+        print(("" if teach else "No drop zone saved for this RealSense calibration. ")
+              + "Finding the drop-zone marker (it must be uncovered)...")
+        while (xy := markers.locate(self.bench.realsense)) is None:
+            drain_stdin()
+            self.ask(f"Marker {markers.DRAWN_TILE_MARKER_ID} not seen: uncover it or put it in view, then Enter: ")
+        zone = markers.save_zone(xy, session=self.session.dir.name)
+        print(f"Drop zone at ({xy[0]:.3f}, {xy[1]:+.3f}), saved to {markers.ZONE_FILE}. Play doesn't need the marker from here on.")
         return zone
 
     def check_zone_benched(self):
@@ -418,17 +428,6 @@ class Player:
             self.bench.close()
             raise SystemExit("not starting the hand (--skip-zone-test plays anyway)")
         self.session.intervention("zone_unchecked", problems=test["problems"])
-
-    def check_zone(self):
-        """With the zone empty, the marker should be where it was taught: if it moved, so did the camera or
-        the base, and every position on the mat is off. Not checked in --sim (no marker drawn)."""
-        if self.args.sim:
-            return
-        xy = markers.locate(self.bench.realsense)
-        self.session.event("zone_check", xy=xy, taught_xy=self.zone["xy"])
-        if xy is not None and markers.moved(self.zone, xy):
-            raise SystemExit(f"The drop-zone marker moved {math.dist(xy, self.zone['xy']) * 1000:.0f}mm: the camera or "
-                             f"the base moved. Check the setup, teach the zone again (--teach-zone) and --resume.")
 
     # --- the hand ---
 
@@ -581,7 +580,9 @@ class Player:
                 self.decided(ZONE, name, "vote")
                 return name
         name = self.votes.sure(ZONE, min_share=DRAWN_MIN_SHARE)
-        return self.ask_drawn(self.why_ask(ZONE, name, "Not sure of the drawn tile"))
+        unnamed = self.votes.leader(ZONE)[0] is None
+        return self.ask_drawn(self.why_ask(ZONE, name, "There's a tile on the drop zone, but the scans can't name it" if unnamed
+                                           else "Not sure of the drawn tile"))
 
     def look_note(self, slot, name):
         """Look at the tile at `slot`, for a question about it: what the wrist camera read, or None with no reader. Leaves the arm there."""
@@ -600,7 +601,7 @@ class Player:
         return name
 
     def wait_for_draw(self):
-        """The drawn tile's name, or None when the wall is empty."""
+        """The drawn tile's name, or None when the wall is empty. The turn doesn't go on until a scan sees a tile on the zone."""
         self.wrist_seen.pop(ZONE, None)
         if self.args.sim:
             if not self.draws:
@@ -610,7 +611,9 @@ class Player:
             return None
         self.votes.reset(ZONE)
         while (name := self.read_drawn()) is None:
-            if self.ask_for_draw("No tile seen on the drop zone: put it on the marker") == "end":
+            x, y = self.zone["xy"]
+            if self.ask_for_draw(f"No tile seen on the drop zone: put it at ({x:.3f}, {y:+.3f}), "
+                                 f"within {markers.ZONE_RADIUS_M * 1000:.0f}mm") == "end":
                 return None
             self.session.intervention("zone_asked")
             self.votes.reset(ZONE)
@@ -645,6 +648,7 @@ class Player:
                 if now != name:
                     return False            # it's another tile: the caller decides again
             self.picking = name
+            self.bench.names[slot] = name       # what a tile it can only box goes down as (look_at_home), rather than unnamed
             success = self.bench.pickup(ask=False, spot=self.spot(slot))
             name, self.picking = self.picking, None
             if self.name_changed:           # a person's answer at the hover: it's another tile
@@ -762,7 +766,6 @@ class Player:
             s.pop(key, None)
         self.save()                     # before anything that can stop play: --resume starts from this
         self.end_step()
-        self.check_zone()
         return None
 
     # --- the end of the hand ---
@@ -871,7 +874,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--layout", default=None, help="the 13 hand slots (a layout taught with scripts/layout.py)")
     p.add_argument("--policy", default=None, help="policy id from data/policies.json (default: its 'default')")
-    p.add_argument("--teach-zone", action="store_true", help="find the drop-zone marker again (it must be uncovered)")
+    p.add_argument("--teach-zone", action="store_true", help="move the drop zone: read the marker for its new position (it must be uncovered); otherwise the last zone carries over")
     p.add_argument("--resume", nargs="?", const="latest", default=None,
                    help="carry on a play session's hand from its checkpoint (default: the latest)")
     p.add_argument("--skip-zone-test", action="store_true",

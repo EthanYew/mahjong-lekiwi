@@ -47,7 +47,6 @@ def test_a_zone_from_another_calibration_is_ignored(tmp_path, monkeypatch):
     assert markers.load_zone(path)["xy"] == [0.17, -0.05]
     monkeypatch.setattr(markers, "setup_fingerprint", lambda: {"t_cam_to_base_sha": "other"})
     assert markers.load_zone(path) is None
-    assert markers.moved({"xy": [0.17, -0.05]}, [0.176, -0.05]) and not markers.moved({"xy": [0.17, -0.05]}, [0.172, -0.05])
 
 
 HAND = [{"id": f"S{i + 1}", "xy": [0.15 + 0.06 * (i % 2), 0.17 - 0.057 * (i // 2)]} for i in range(13)]
