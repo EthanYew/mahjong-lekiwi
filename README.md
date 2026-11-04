@@ -765,7 +765,11 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
-v6x3 (2026-10-28, live since: `tile_detector@0c4b15eb`): v6 = the July frames + 190 session frames
+v7x3 (2026-11-04, live since: `tile_detector@24a163b4`): v6's frames + 61 of the standard mat (Roboflow training v7, split by
+scene, session frames repeated 3× in train). On the current exam, without flowers: **97.6% right overall** (v6x3: 86.2%), and
+**96.8% on the standard mat** (v6x3: 80.9%). Box centres moved a median 0.1-0.15 px. Not yet run on the arm.
+
+v6x3 (2026-10-28, live until v7x3: `tile_detector@0c4b15eb`): v6 = the July frames + 190 session frames
 (capture and bench scans), split by scene, with the session frames repeated 3× in train. Without
 flowers 97.1% found, 100% named right, **97.1% right overall** (was 68.6%); with flowers 94.4% (was
 66.7%). v6 without the repeats: 95.1% / 90.5% (its misses were 1F/3F). No training frame shares more

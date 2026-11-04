@@ -1,0 +1,241 @@
+{
+  "weights": "best@24a163b4",
+  "time": "2026-11-04T11:42:16",
+  "exam_sessions": [
+    "20261027_172928_capture",
+    "20261028_162624_capture",
+    "20261104_092917_capture",
+    "20261104_101205_capture"
+  ],
+  "exam_dir": "data/detector/exam_v7",
+  "ignored_names": [],
+  "scores": {
+    "all": {
+      "frames": 103,
+      "tiles": 1049,
+      "found": 1039,
+      "named_right": 1014,
+      "missed": 10,
+      "extra": 17,
+      "found_rate": 0.990467111534795,
+      "named_right_rate": 0.9759384023099134,
+      "right_rate": 0.9666348903717826,
+      "mixups": [
+        [
+          "3C",
+          "2C",
+          6
+        ],
+        [
+          "1F",
+          "3F",
+          4
+        ],
+        [
+          "3D",
+          "5D",
+          3
+        ],
+        [
+          "SW",
+          "WW",
+          2
+        ],
+        [
+          "2F",
+          "4F",
+          1
+        ],
+        [
+          "3F",
+          "1F",
+          1
+        ],
+        [
+          "4F",
+          "2F",
+          1
+        ],
+        [
+          "1F",
+          "2F",
+          1
+        ],
+        [
+          "7C",
+          "6C",
+          1
+        ],
+        [
+          "7D",
+          "6D",
+          1
+        ],
+        [
+          "5C",
+          "6C",
+          1
+        ],
+        [
+          "RD",
+          "1F",
+          1
+        ],
+        [
+          "NW",
+          "EW",
+          1
+        ],
+        [
+          "9D",
+          "9B",
+          1
+        ]
+      ],
+      "missed_names": {
+        "1F": 2,
+        "3F": 1,
+        "4F": 1,
+        "6B": 1,
+        "NW": 1,
+        "7C": 1,
+        "GD": 1,
+        "3D": 1,
+        "2B": 1
+      }
+    },
+    "daylight dim, lamp on, ceiling on": {
+      "frames": 15,
+      "tiles": 126,
+      "found": 126,
+      "named_right": 121,
+      "missed": 0,
+      "extra": 3,
+      "found_rate": 1.0,
+      "named_right_rate": 0.9603174603174603,
+      "right_rate": 0.9603174603174603,
+      "mixups": [
+        [
+          "1F",
+          "3F",
+          2
+        ],
+        [
+          "2F",
+          "4F",
+          1
+        ],
+        [
+          "3F",
+          "1F",
+          1
+        ],
+        [
+          "4F",
+          "2F",
+          1
+        ]
+      ],
+      "missed_names": {}
+    },
+    "daylight bright, lamp off, ceiling on": {
+      "frames": 47,
+      "tiles": 574,
+      "found": 565,
+      "named_right": 557,
+      "missed": 9,
+      "extra": 10,
+      "found_rate": 0.9843205574912892,
+      "named_right_rate": 0.9858407079646018,
+      "right_rate": 0.9703832752613241,
+      "mixups": [
+        [
+          "3C",
+          "2C",
+          3
+        ],
+        [
+          "1F",
+          "3F",
+          2
+        ],
+        [
+          "1F",
+          "2F",
+          1
+        ],
+        [
+          "7C",
+          "6C",
+          1
+        ],
+        [
+          "7D",
+          "6D",
+          1
+        ]
+      ],
+      "missed_names": {
+        "1F": 2,
+        "3F": 1,
+        "4F": 1,
+        "6B": 1,
+        "NW": 1,
+        "7C": 1,
+        "GD": 1,
+        "3D": 1
+      }
+    },
+    "daylight bright, lamp on, ceiling on": {
+      "frames": 41,
+      "tiles": 349,
+      "found": 348,
+      "named_right": 336,
+      "missed": 1,
+      "extra": 4,
+      "found_rate": 0.997134670487106,
+      "named_right_rate": 0.9655172413793104,
+      "right_rate": 0.9627507163323782,
+      "mixups": [
+        [
+          "3C",
+          "2C",
+          3
+        ],
+        [
+          "3D",
+          "5D",
+          3
+        ],
+        [
+          "SW",
+          "WW",
+          2
+        ],
+        [
+          "5C",
+          "6C",
+          1
+        ],
+        [
+          "RD",
+          "1F",
+          1
+        ],
+        [
+          "NW",
+          "EW",
+          1
+        ],
+        [
+          "9D",
+          "9B",
+          1
+        ]
+      ],
+      "missed_names": {
+        "2B": 1
+      }
+    }
+  }
+}
