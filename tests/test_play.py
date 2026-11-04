@@ -314,6 +314,31 @@ def test_a_marker_that_moved_stops_play_with_the_turn_already_saved(tmp_path, mo
     assert (saved["phase"], saved["turn"]) == ("draw", 1) and "vacated" not in saved
 
 
+def drawn_reading_differently(p, phase, drawn="GD", now_reads="9B"):
+    """A settled drawn tile, on the zone, whose votes have since moved to another name."""
+    p.bench.arm.rest()
+    p.register()
+    p.mat.tiles.append({"tile_name": now_reads, "xy": list(p.zone["xy"])})
+    p.state.update(phase=phase, drawn=drawn, vacated="H12")
+    p.votes.known("zone", now_reads)
+
+
+def test_a_drawn_tile_corrected_before_its_discard_is_chosen_from_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "discard")
+    assert p.pick("zone", "GD") is False                # it's another tile: the caller chooses again
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
+def test_a_drawn_tile_corrected_on_its_way_to_a_slot_carries_on_under_its_new_name(tmp_path, monkeypatch):
+    p = player(tmp_path, monkeypatch, Answers("9B"))
+    drawn_reading_differently(p, "place")
+    assert p.pick("zone", "GD") is True
+    p.close()
+    assert p.state["drawn"] == "9B"
+
+
 # --- a person's word holds until the tile moves ---
 
 def reads_nw_as_ww(p, monkeypatch, moved_m=0.0, after_scans=3):

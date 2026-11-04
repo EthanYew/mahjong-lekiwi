@@ -628,7 +628,9 @@ class Player:
             # the last check before a tile goes in the bin: the votes there must still be for it
             if self.votes.sure(slot, min_share=0.5, min_scans=1) not in (name, None) and not self.word_holds(slot, name):
                 if slot == ZONE:
-                    now = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
+                    now = self.state["drawn"] = self.ask_drawn(f"The drawn tile ({name}) reads differently now")
+                    if self.state["phase"] != "discard":
+                        name = now      # going to a slot, not the bin: it carries on under its new name (as second_read)
                 else:
                     self.recount([slot])
                     now = self.state["hand"][slot]
