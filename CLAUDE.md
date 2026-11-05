@@ -78,6 +78,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/scorecard.py`, `docs/scorecard.md` | clean attempts (picked, nothing bumped, no one helped); the iteration check, the play-ready check and the strict paired rule |
 | `mahjong/hand_truth.py`, `scripts/hand_frames.py` | detector frames labelled from a person's names in a session: scores per tile, an export to train on |
 | `mahjong/wrist_check.py` | is a tile the scans lost still there: a face between the jaw tips at the hover (the bench looks before asking) |
+| `mahjong/holdup.py`, `scripts/holdup_capture.py`, `holdup_score.py` | face-down plan test 1, no arm: tiles held up to the base camera (`config.BASE_CAM`), scored with the name classifier and the detector (`docs/face_down_plan.md`) |
 | `mahjong/name_check.py`, `scripts/train_name_check.py`, `name_check_eval.py` | a second read of a tile's name from the wrist camera at the hover: in play, agreement changes nothing and disagreement asks; its exam is `data/name_check_exam.json` |
 | `scripts/label_sheets.py` | one picture per tile name of every box labelled with it, to check a labelled set by eye |
 | `mahjong/hand_view.py` | play's window: the mat zoomed on the tiles, every slot named, the tiles under review picked out with what they could be (`identity.Votes.worth_a_look`; it only marks, never asks), the wrist view of the tile asked about |

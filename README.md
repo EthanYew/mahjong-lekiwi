@@ -74,6 +74,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
+| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
@@ -767,6 +768,30 @@ python scripts/name_check_eval.py --list              # what the exam holds
 weights that trained on an exam session, and scores go in `data/name_check_eval/`. The score that matters is **accepted and wrong**:
 the two agree on a wrong name, so nothing catches it. To install new weights, copy them to `assets/name_check.pt` and commit them
 with the score.
+
+## Holding tiles up to the base camera (face-down plan, test 1)
+
+`docs/face_down_plan.md`'s first test: no arm, just the LeKiwi base's front camera (`/dev/basecam`, its own USB port: check
+`ls -l /dev/basecam /dev/wristcam` first). You hold each tile up at a few distances, right way up and turned 180°, by day and
+again in the evening; then the name classifier and the detector are scored on the photos.
+
+```
+python scripts/holdup_capture.py                                  # 7 tiles x 3 distances x 2 ways up, lighting asked first
+python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --distances-cm 15,30 --frames 4
+python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
+python scripts/holdup_score.py                                    # the latest holdup session
+python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_check/name_check.pt
+```
+
+`holdup_capture.py`: `--tiles A,B` (default 5C,3C,2C,9C,7C,1B,EW), `--distances-cm` (default 15,25,40), `--frames N` per shot
+(3), `--gap-s` between a shot's frames, `--no-view` (Enter in the terminal instead of the preview window's space), `--sim`. Keys
+in the window: space takes the shot, `s` skips, `b` redoes the last, `q` quits. Photos go to
+`sessions/<time>_holdup/photos/<NAME>/`; the name you hold is the truth.
+`holdup_score.py`: `SESSION` (default: the latest), `--weights` (the classifier), `--detector`. It prints rates per slice (all,
+each distance, each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
+crop, a square round the detector's best box, the whole frame, each read both ways up) and for the detector, then writes
+`holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look through it). The plan's
+stop is "nothing reads at any distance": the last line says if anything did.
 
 ## The tile detector: photos, labels, exam, retraining
 
