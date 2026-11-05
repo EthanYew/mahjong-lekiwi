@@ -65,6 +65,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
+| `mahjong/wrist_usb.py`, `scripts/wrist_usb_watch.py`, `scripts/wrist_usb/` | a wrist camera that fell off USB: wait, port power cycle (root helper, installed once), then a person; a watch of the link to find which part fails |
 | `mahjong/handoff_trace.py`, `scripts/handoff_report.py` | what the arm does once the gamepad has it (collect_corrections' `handoff/` traces): sag, drift, command moves |
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
@@ -199,8 +200,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
-  `hardware.reopen_wrist_camera` in any new script. If `/dev/wristcam` is gone, only a replug helps. Evidence:
-  `docs/invariant_notes.md`.
+  `hardware.reopen_wrist_camera` in any new script: it waits, cuts the port's power once, and only then asks a person, and each
+  one logs how it ended (`wrist_camera_recovery`; `session_report.py`). The cause is the USB link, not the driver (`error -71`,
+  `disabled by hub (EMI?)`; 0 disconnects in 446 picks to 2026-10-27, 89 since): no driver or `uvcvideo` option can fix it, and
+  the kernel's own port power cycles haven't. Which part: `scripts/wrist_usb_watch.py`. Whether the wait and our power
+  cycle work is unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a

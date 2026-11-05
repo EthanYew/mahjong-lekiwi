@@ -103,6 +103,8 @@ def conditions_text(conditions, notes=""):
 
 
 class Session:
+    current = None      # the open session, for code that logs without being handed one (hardware's camera recovery)
+
     def __init__(self, kind, ask_setup=True, **setup):
         conditions, notes = {}, ""
         if ask_setup:          # before the folder exists, so quitting here leaves nothing behind
@@ -112,6 +114,7 @@ class Session:
         self.dir = config.SESSIONS / f"{datetime.now():%Y%m%d_%H%M%S}_{kind}"
         self.dir.mkdir(parents=True)
         self._log = open(self.dir / "session.log", "a")
+        self._outer, Session.current = Session.current, self
         self._stdout, self._stderr = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
         self.event("session_start", kind=kind, commit=git_commit(), checkout=checkout.state(), conditions=conditions,
@@ -147,6 +150,8 @@ class Session:
         self.event("session_end", reason=reason, **({"error": str(error)} if error is not None else {}))
         sys.stdout, sys.stderr = self._stdout, self._stderr
         self._log.close()
+        if Session.current is self:
+            Session.current = self._outer
 
 
 def _jsonable(value):

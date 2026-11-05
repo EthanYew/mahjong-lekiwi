@@ -151,6 +151,7 @@ def test_no_view_needs_no_wrist_camera(tmp_path, monkeypatch):
 
 def test_a_lost_wrist_camera_is_reopened_and_lining_up_goes_on(tmp_path, monkeypatch):
     camera = DroppingCamera()      # lining up lasts long enough for its failed reads to count as lost
+    monkeypatch.setattr(hardware.wrist_usb, "recover", lambda opener: (None, {"outcome": "not_back", "seconds": 0.0}))
     session, shown, gamepad, connects = run(tmp_path, monkeypatch, camera=camera, steps=int(config.FPS * 1.5))
     assert camera.released and connects.count(["wrist_camera"]) == 1
     recorded = [e for e in read_events(session) if e["type"] == "correction_recorded"]

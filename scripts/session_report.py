@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import bump_report, config, interventions, name_ledger, scorecard
+from mahjong import bump_report, config, interventions, name_ledger, scorecard, wrist_usb
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
@@ -250,6 +250,9 @@ def main():
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "
               f"Unchecked ones count as knocks below: python scripts/bump_report.py {session_dir}")
+    recoveries = wrist_usb.recovery_summary(events)
+    if recoveries:
+        print(f"  wrist camera: {recoveries}")
     attempts =[e for e in events if e["type"] == "attempt"]
     if attempts:
         print(f"\n{len(attempts)} pickup attempt(s), {sum(a['success'] for a in attempts)} picked up")
