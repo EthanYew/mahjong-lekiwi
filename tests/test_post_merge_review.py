@@ -142,10 +142,23 @@ def test_a_backtest_refuses_an_arm_script_where_the_real_gate_would_ask(tmp_path
     assert subprocess.run(["sh", "-c", command], cwd=tmp_path, input=payload, capture_output=True, text=True).stdout.strip() == ""
 
 
-def test_only_the_subscription_option_drops_the_api_key(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
-    assert "ANTHROPIC_API_KEY" in review_backtest.account_env()
-    assert "ANTHROPIC_API_KEY" not in review_backtest.account_env(subscription=True)
+def test_no_claude_these_scripts_start_can_bill_an_api_key(monkeypatch):
+    """A key in the shell wins over the login in a headless run: three backtests spent $4.57 of it, unasked."""
+    monkeypatch.setitem(checkout.ENV, "ANTHROPIC_API_KEY", "x")
+    assert "ANTHROPIC_API_KEY" not in checkout.claude_env()
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen[cmd[0]] = kwargs["env"]
+
+    monkeypatch.setattr(merge_pr.shutil, "which", lambda name: "/bin/claude")
+    monkeypatch.setattr(merge_pr.subprocess, "run", fake_run)
+    merge_pr.start_review()
+    assert "ANTHROPIC_API_KEY" not in seen["claude"]
+    for name in ("review_backtest.py", "merge_pr.py"):
+        source = (Path(__file__).resolve().parents[1] / "scripts" / name).read_text()
+        for call in source.split('["claude"')[1:]:
+            assert "env=checkout.claude_env()" in call[:1000], f"{name} starts a claude that could bill a key"
 
 
 def test_a_stopped_run_says_why():

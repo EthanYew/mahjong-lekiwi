@@ -1,6 +1,6 @@
 """Is the post-merge reviewer any good? Run it on past merges whose real bugs are known, and count what it finds.
 
-    python scripts/review_backtest.py run evening-11-04             # one run on one case (data/review_backtest/cases.json)
+    python scripts/review_backtest.py run consolidation-10-28       # one run on one case (data/review_backtest/cases.json)
     python scripts/review_backtest.py score                         # score the runs that aren't scored yet
     python scripts/review_backtest.py table                         # every scored run
 
@@ -10,10 +10,12 @@ excepted). The reviewer and its brief are added from today, so it's the current 
 
 Whoever edits the reviewer has seen these answers, so a good score on a case the method was written around proves less than one on
 a case it wasn't: cases.json says which. A new real bug found by a later review goes in as a new case, not a change to an old one.
+
+A run is as big as a real review (~150 calls) and uses the Claude plan's limits, never an API key (checkout.claude_env). So it's run by hand,
+one case, when the writeup needs the number: consolidation-10-28 is the case the method was written without.
 """
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -93,7 +95,7 @@ def prompt_for(case, brief_path):
             f"read-only links under sessions/. Return the findings as the structured output.")
 
 
-def run_case(name, runs_dir, source=None, sessions_from=None, budget=12, subscription=False):
+def run_case(name, runs_dir, source=None, sessions_from=None, model="opus"):
     case = load_cases()["cases"][name]
     sessions_from = sessions_from or _main_checkout_sessions()
     work = Path(tempfile.mkdtemp(prefix=f"bt-{name}-", dir=runs_dir))
@@ -106,11 +108,10 @@ def run_case(name, runs_dir, source=None, sessions_from=None, budget=12, subscri
     brief_path.write_text(text)
     print(f"brief: {len(text)} characters, {time.time() - started:.0f}s", flush=True)
     add_reviewer(target)        # after the brief's tests: the stricter gate would fail the ones that expect it to ask
-    command = ["claude", "-p", prompt_for(case, ".review_brief.md"), "--agent", "merge-reviewer", "--model", "opus", "--effort", "high",
-               "--permission-mode", "auto", "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(FINDINGS_SCHEMA),
-               "--max-budget-usd", str(budget)]
+    command = ["claude", "-p", prompt_for(case, ".review_brief.md"), "--agent", "merge-reviewer", "--model", model, "--effort", "high",
+               "--permission-mode", "auto", "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(FINDINGS_SCHEMA)]
     started = time.time()
-    done = subprocess.run(command, cwd=target, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=account_env(subscription))
+    done = subprocess.run(command, cwd=target, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=checkout.claude_env())
     raw = work / "output.json"
     raw.write_text(done.stdout or done.stderr)
     if done.returncode:
@@ -118,16 +119,8 @@ def run_case(name, runs_dir, source=None, sessions_from=None, budget=12, subscri
     return save_run(name, json.loads(done.stdout), time.time() - started, str(work))
 
 
-def account_env(subscription=False):
-    """Which account pays. An ANTHROPIC_API_KEY in the shell wins over a claude.ai login, so a run bills it unless told otherwise:
-    on 2026-11-05 three runs used up a key's credit five minutes in, while the session that started them ran on regardless."""
-    if not subscription:
-        return dict(os.environ)
-    return {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-
-
 def stopped_because(output):
-    """The reason in a failed run's output, so "Credit balance is too low" doesn't read as a bad review."""
+    """The reason in a failed run's output, so a plan's usage limit doesn't read as a bad review."""
     try:
         return str(json.loads(output).get("result"))[:200]
     except ValueError:
@@ -141,7 +134,7 @@ def save_run(name, output, seconds, work):
            "tokens": {k: usage.get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")},
            "report": output.get("structured_output") or {"findings": [], "summary": output.get("result", "")}}
     append_result(row)
-    print(f"{name}: {len(row['report'].get('findings', []))} findings, {row['minutes']} min, ${row['cost_usd']}")
+    print(f"{name}: {len(row['report'].get('findings', []))} findings, {row['minutes']} min, {row['calls']} calls")
     return row
 
 
@@ -172,7 +165,7 @@ def score_run(row, cases):
     case = cases["cases"][row["case"]]
     done = subprocess.run(["claude", "-p", score_prompt(case, row["report"], cases["scoring"]), "--model", "sonnet", "--tools", "",
                            "--strict-mcp-config", "--output-format", "json", "--json-schema", json.dumps(SCORE_SCHEMA)],
-                          capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=tempfile.gettempdir())
+                          capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=tempfile.gettempdir(), env=checkout.claude_env())
     if done.returncode:
         raise SystemExit(f"the scorer stopped with exit {done.returncode}: {done.stdout[:400]}")
     return json.loads(done.stdout)["structured_output"]
@@ -200,7 +193,7 @@ def print_table(rows):
         found = f"{t['hit']} hit, {t['partial']} partial, of {t['of']}" if t else "not scored"
         extras = len(row["score"]["extras"]) if "score" in row else "?"
         print(f"{row['case']:<20} {row['at']}  {found:<28} extras {extras}  findings {len(row['report'].get('findings', []))}"
-              f"  {row['minutes']} min  ${row.get('cost_usd')}")
+              f"  {row['minutes']} min  {row.get('calls')} calls")
 
 
 def parse_args(argv=None):
@@ -209,8 +202,7 @@ def parse_args(argv=None):
     run = sub.add_parser("run", help="review one case in a scratch copy")
     run.add_argument("case")
     run.add_argument("--runs-dir", default=tempfile.gettempdir(), help="where the scratch copies go")
-    run.add_argument("--budget", type=float, default=12, help="stop the run past this many US dollars (a stopped run scores nothing)")
-    run.add_argument("--subscription", action="store_true", help="use the claude.ai login, not an ANTHROPIC_API_KEY set in the shell")
+    run.add_argument("--model", default="opus", help="the reviewer's model (default %(default)s; sonnet uses far less of a plan's limits, and scores a cheaper reviewer)")
     sub.add_parser("score", help="grade the runs not graded yet")
     sub.add_parser("table", help="every run so far")
     return p.parse_args(argv)
@@ -219,7 +211,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     if args.command == "run":
-        run_case(args.case, args.runs_dir, budget=args.budget, subscription=args.subscription)
+        run_case(args.case, args.runs_dir, model=args.model)
     elif args.command == "score":
         score_all()
     else:

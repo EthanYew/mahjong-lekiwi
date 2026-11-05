@@ -267,7 +267,7 @@ def start_review():
     own worktree, so this checkout isn't touched."""
     if not shutil.which("claude"):
         raise SystemExit("claude isn't on the PATH: open Claude Code here and run /post-merge-review")
-    run(["claude", "--bg", "--agent", "merge-reviewer", REVIEW_PROMPT])
+    subprocess.run(["claude", "--bg", "--agent", "merge-reviewer", REVIEW_PROMPT], cwd=config.REPO, env=checkout.claude_env(), check=True)
 
 
 def offer_review(ask=input):
@@ -279,7 +279,7 @@ def offer_review(ask=input):
     if [pr for pr in waiting if not pr["isDraft"]] or waiting:
         print(f"\n{len(merges)} merged PR(s) since the last review, {len(waiting)} still open. When the batch is done: "
               "python scripts/merge_pr.py --review")
-    elif confirm(f"\n{len(merges)} merged PR(s) since the last review, none left open. Start the review in the background?", ask):
+    elif confirm(f"\n{len(merges)} merged PR(s) since the last review, none left open. Start the review in the background (uses your Claude plan's limits: past reviews took ~150 calls)?", ask):
         start_review()
 
 

@@ -18,6 +18,12 @@ REVIEW_LOG = "data/post_merge_reviews.jsonl"     # one line per review, written 
 # Inside a git hook (the pre-commit tests), git sets these for the repo being committed to, and a `git -C other`
 # would follow them there instead
 ENV = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX")}
+
+
+def claude_env():
+    """For any `claude` these scripts start: the claude.ai login, never an ANTHROPIC_API_KEY in the shell. A headless run takes that key
+    over the login, which billed the owner $4.57 unasked on 2026-11-05, though their interactive sessions had rejected the key."""
+    return {k: v for k, v in ENV.items() if k != "ANTHROPIC_API_KEY"}
 # Written by the scripts as they run (corrections, reviews, layouts...), not code: uncommitted is normal
 DATA_PREFIXES = ("data/", "sessions/")
 
