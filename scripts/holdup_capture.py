@@ -1,16 +1,16 @@
 """Test 1 of docs/face_down_plan.md: hold tiles up to the LeKiwi base camera by hand and save what it sees. No arm.
 
-    python scripts/holdup_capture.py                                   # 7 tiles x 3 distances x 2 ways up
-    python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --distances-cm 15,30 --frames 4
+    python scripts/holdup_capture.py                                   # 7 tiles x 2 ways up x 4 holds
+    python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
     python scripts/holdup_capture.py --sim                             # a synthetic camera, to try the flow
 
 Run it once by day and once in the evening: the lighting questions are asked first and saved with the session. For each
-tile, distance and way up (right way up, then turned 180 degrees) it names the shot; hold the tile face to the camera at
-that distance, then press space (or Enter in the terminal with --no-view). `s` skips the shot, `b` takes the last one
+tile and way up (right way up, then turned 180 degrees) it names the shot; hold the tile with its face to the camera
+where the arm can actually hold it (close, at an angle), a different place and angle each hold, then press space (or Enter in the terminal with --no-view). `s` skips the shot, `b` takes the last one
 again, `q` quits. The tile faces are checked by you: the name you hold is the truth. Score the session after with
 `python scripts/holdup_score.py`.
 
-Saved to sessions/<time>_holdup/photos/<NAME>/<distance>cm_<upright|turned>_<n>.jpg with a `holdup_shot` event per shot.
+Saved to sessions/<time>_holdup/photos/<NAME>/<upright|turned>_h<hold>_<n>.jpg with a `holdup_shot` event per shot.
 """
 import argparse
 import sys
@@ -34,8 +34,8 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--tiles", default=",".join(holdup.DEFAULT_TILES),
                    help="the tiles you will hold, comma separated (default: %(default)s)")
-    p.add_argument("--distances-cm", default=",".join(str(d) for d in holdup.DEFAULT_DISTANCES_CM),
-                   help="distances from the camera to the tile (default: %(default)s)")
+    p.add_argument("--holds", type=int, default=holdup.DEFAULT_HOLDS,
+                   help="holds per tile and way up; move the tile to a new place and angle each time (default: %(default)s)")
     p.add_argument("--frames", type=int, default=3, help="frames saved per shot (default 3)")
     p.add_argument("--gap-s", type=float, default=0.25, help="seconds between a shot's frames (default 0.25)")
     p.add_argument("--no-view", action="store_true", help="no preview window: Enter in the terminal takes the shot")
@@ -83,7 +83,7 @@ def ask_lighting(ask=input):
 
 def instruction(shot, n, total):
     way = "right way up" if shot["kind"] == "upright" else "turned 180"
-    return f"[{n}/{total}] hold {shot['tile']} {way}, face to the camera, {shot['distance_cm']} cm away"
+    return f"[{n}/{total}] hold {shot['tile']} {way}, face to the camera, hold {shot['hold']}: somewhere new within the arm's reach"
 
 
 def next_action(camera, text, view, ask):
@@ -122,7 +122,7 @@ def take_frames(camera, n, gap_s, sleep=time.sleep):
 def main(argv=None, ask=input, camera=None):
     args = parse_args(argv)
     shots = holdup.plan([t.strip().upper() for t in args.tiles.split(",") if t.strip()],
-                        [int(d) for d in args.distances_cm.split(",")])
+                        args.holds)
     camera = camera or open_camera(args.sim)
     view = not (args.no_view or args.sim)
     conditions = ask_lighting(ask)

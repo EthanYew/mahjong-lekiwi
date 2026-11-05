@@ -772,26 +772,26 @@ with the score.
 ## Holding tiles up to the base camera (face-down plan, test 1)
 
 `docs/face_down_plan.md`'s first test: no arm, just the LeKiwi base's front camera (`/dev/basecam`, its own USB port: check
-`ls -l /dev/basecam /dev/wristcam` first). You hold each tile up at a few distances, right way up and turned 180°, by day and
+`ls -l /dev/basecam /dev/wristcam` first). You hold each tile up wherever the arm can actually hold it (close, at an angle; no fixed distances), right way up and turned 180°, by day and
 again in the evening; then the name classifier and the detector are scored on the photos.
 
 ```
-python scripts/holdup_capture.py                                  # 7 tiles x 3 distances x 2 ways up, lighting asked first
-python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --distances-cm 15,30 --frames 4
+python scripts/holdup_capture.py                                  # 7 tiles x 2 ways up x 4 holds, lighting asked first
+python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
 python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
 python scripts/holdup_score.py                                    # the latest holdup session
 python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_check/name_check.pt
 ```
 
-`holdup_capture.py`: `--tiles A,B` (default 5C,3C,2C,9C,7C,1B,EW), `--distances-cm` (default 15,25,40), `--frames N` per shot
+`holdup_capture.py`: `--tiles A,B` (default 5C,3C,2C,9C,7C,1B,EW), `--holds N` per tile and way up (4; a new place and angle each), `--frames N` per shot
 (3), `--gap-s` between a shot's frames, `--no-view` (Enter in the terminal instead of the preview window's space), `--sim`. Keys
 in the window: space takes the shot, `s` skips, `b` redoes the last, `q` quits. Photos go to
 `sessions/<time>_holdup/photos/<NAME>/`; the name you hold is the truth.
 `holdup_score.py`: `SESSION` (default: the latest), `--weights` (the classifier), `--detector`. It prints rates per slice (all,
-each distance, each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
+each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
 crop, a square round the detector's best box, the whole frame, each read both ways up) and for the detector, then writes
 `holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look through it). The plan's
-stop is "nothing reads at any distance": the last line says if anything did.
+stop is "nothing reads anywhere the arm can hold a tile": the last line says if anything did.
 
 ## The tile detector: photos, labels, exam, retraining
 

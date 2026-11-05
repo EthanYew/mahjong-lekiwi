@@ -4,10 +4,10 @@
     python scripts/holdup_score.py sessions/20261105_150000_holdup
     python scripts/holdup_score.py --weights outputs/name_check/name_check.pt
 
-Prints rates per slice (all, each distance, each way up, each daylight setting), the right-name rate per tile, and every
+Prints rates per slice (all, each way up, each daylight setting), the right-name rate per tile, and every
 misread, and writes `holdup_scores.json` and `holdup_sheet.jpg` (every photo with the truth, the classifier's guess and the
 detector's, wrong reads in red) into the session folder: look through the sheet, it is the check of the exam. The plan's stop
-is "nothing reads at any distance": the last line says whether anything did. The detector (assets/tile_detector.pt) was
+is "nothing reads anywhere the arm can hold a tile": the last line says whether anything did. The detector (assets/tile_detector.pt) was
 trained on the RealSense looking down at the mat, and the classifier (assets/name_check.pt) on the wrist camera at the hover:
 a low score says the view is new to them. Needs the GPU only for speed.
 """

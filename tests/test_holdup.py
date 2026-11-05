@@ -24,18 +24,18 @@ def capture_module(monkeypatch, tmp_path):
     return holdup_capture
 
 
-def test_plan_goes_tile_by_tile_near_to_far_both_ways_up():
-    shots = holdup.plan(["5C", "3C"], [15, 30])
+def test_plan_goes_tile_by_tile_each_way_up_several_holds():
+    shots = holdup.plan(["5C", "3C"], 2)
     assert len(shots) == 8
-    assert [(s["tile"], s["distance_cm"], s["kind"]) for s in shots[:4]] == [
-        ("5C", 15, "upright"), ("5C", 15, "turned"), ("5C", 30, "upright"), ("5C", 30, "turned")]
+    assert [(s["tile"], s["kind"], s["hold"]) for s in shots[:5]] == [
+        ("5C", "upright", 1), ("5C", "upright", 2), ("5C", "turned", 1), ("5C", "turned", 2), ("3C", "upright", 1)]
 
 
 def test_capture_saves_frames_under_the_tile_and_skip_and_redo_work(tmp_path, monkeypatch):
     capture = capture_module(monkeypatch, tmp_path)
-    # 2 tiles x 1 distance x 2 ways = 4 shots: take, take, redo the second, take it, skip the third, quit
+    # 2 tiles x 2 ways x 1 hold = 4 shots: take, take, redo the second, take it, skip the third, quit
     answers = iter(["", "", "b", "", "s", "q"])
-    out = capture.main(["--sim", "--tiles", "5C,3C", "--distances-cm", "20", "--frames", "2", "--gap-s", "0"],
+    out = capture.main(["--sim", "--tiles", "5C,3C", "--holds", "1", "--frames", "2", "--gap-s", "0"],
                        ask=lambda prompt: next(answers, "q") if "hold " in prompt else "")     # setup questions: defaults
     shots = [e for e in read_events(out) if e["type"] == "holdup_shot"]
     assert [(e["tile"], e["kind"]) for e in shots] == [("5C", "upright"), ("5C", "turned"), ("5C", "turned")]
@@ -48,7 +48,7 @@ def test_capture_saves_frames_under_the_tile_and_skip_and_redo_work(tmp_path, mo
 def test_score_reads_each_photo_both_ways_and_says_if_anything_read(tmp_path, monkeypatch):
     import holdup_score
     capture = capture_module(monkeypatch, tmp_path)
-    out = capture.main(["--sim", "--tiles", "5C,3C", "--distances-cm", "20", "--frames", "1", "--gap-s", "0"],
+    out = capture.main(["--sim", "--tiles", "5C,3C", "--holds", "1", "--frames", "1", "--gap-s", "0"],
                        ask=lambda prompt: "")
     boxes = lambda image: [{"tile_name": "3C", "confidence": 0.3, "xyxy": [240.0, 160.0, 400.0, 320.0]}]
     s = holdup_score.main([str(out)], reader=FakeReader(), predict=boxes)
@@ -58,7 +58,7 @@ def test_score_reads_each_photo_both_ways_and_says_if_anything_read(tmp_path, mo
     assert s["per_tile"]["5C"]["whole frame/both"] == 1.0 and s["per_tile"]["3C"]["whole frame/both"] == 0.0
     assert s["readable_anywhere"]
     assert s["misreads"][0][0] == "3C->5C"
-    assert "kind=turned" in s["by"] and "distance_cm=20" in s["by"]
+    assert "kind=turned" in s["by"] and "daylight=bright" in s["by"]
     assert (out / "holdup_sheet.jpg").exists() and json.loads((out / "holdup_scores.json").read_text())["by"]
 
 
@@ -67,7 +67,7 @@ def test_nothing_readable_is_the_plans_stop():
         def read_many(self, images):
             return [{"name": "EW", "confidence": 0.9} for _ in images]
     image = np.zeros((480, 640, 3), np.uint8)
-    row = {"truth": "5C", "distance_cm": 15, "kind": "upright", "shot": 1, "daylight": "dim"}
+    row = {"truth": "5C", "kind": "upright", "hold": 1, "shot": 1, "daylight": "dim"}
     scored = holdup.score_photo(row, image, lambda im: [], Blind())
     assert scored["reads"]["detector box"] is None                           # no box, no box framing
     s = holdup.score([scored])
