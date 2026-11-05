@@ -1,6 +1,6 @@
 ---
 name: should-ship
-description: Decide whether a policy should become the default. Use when the user asks to ship, compare or make a policy the default, or asks which policy is better.
+description: Decide whether a policy should become the default. Use when the user asks to ship, compare or make a policy the default, which policy is better, or whether a policy is ready for a hand of play.
 ---
 
 Apply `docs/scorecard.md`; don't invent a new standard for this decision.
