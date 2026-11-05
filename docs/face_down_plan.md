@@ -98,7 +98,8 @@ reliability claim: 10/10 is still consistent with a true rate near 70%.
 |---|---|---|---|---|
 | 0 | Fix the camera names (below), then a photo from each with the arm parked | 30 min | A camera is dead or can't see in front of it | sudo |
 | 1 | **Hold tiles up by hand** wherever the arm can reach (close and at an angle, so no fixed distances), right way up and 180°, by day and evening, including 5C, 3C, 2C, 9C; score the classifier and the detector | 20 min | Nothing reads anywhere | capture script; no arm |
-| 2 | **Teach the camera pose by gamepad.** Put 5 tiles in the jaws; check swing, hidden faces, whether they set down flat | 30 min | Tiles swing or drop | saved pose |
+| 1b | **Can the view be learned?** Train a fresh small classifier on some holds, score it on others it never saw (`holdup_check.py`, 3 seeds) | 5 min | Under 40% right: look at the photos before capturing more. 70% or more on 3+ tiles and well above the best constant answer: capture at the real pose. In between: more holds, rerun | test 1's photos |
+| 2 | **Teach the camera pose by gamepad** (`teleop_view.py`: both cameras in one window, `s` saves the pose). Put 5 tiles in the jaws; check swing, hidden faces, whether they set down flat | 30 min | Tiles swing or drop | saved pose |
 | 3 | Run the detector at low confidence on a face-down tile | 5 min | If it boxes backs, targeting and the zone check may come free | one frame |
 | 4 | **Face-down vs face-up on the same slots**, alternating, 10 each, single tiles, logging close height. Also how much green stands out from the mat | 1 hr | The thresholds below | test script |
 | 4b | 3 flat tiles touching end to end, 5 tries | 15 min | Fails where 4 passed: the strip is the problem, not height | test script |

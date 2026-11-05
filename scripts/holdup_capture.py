@@ -126,7 +126,7 @@ def main(argv=None, ask=input, camera=None):
     camera = camera or open_camera(args.sim)
     view = not (args.no_view or args.sim)
     conditions = ask_lighting(ask)
-    session = Session("holdup", ask_setup=False)
+    session = Session("holdup", ask_setup=False, sim=args.sim)
     session.conditions = conditions
     session.event("holdup_conditions", conditions=conditions, shots=len(shots))
     taken, i, last = 0, 0, None

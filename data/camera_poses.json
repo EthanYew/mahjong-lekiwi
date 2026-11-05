@@ -1,0 +1,28 @@
+{
+  "poses": {
+    "manual_1": {
+      "pose": {
+        "shoulder_pan": -4.21978021978022,
+        "shoulder_lift": 47.91208791208791,
+        "elbow_flex": -8.395604395604396,
+        "wrist_flex": 98.46153846153847,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "hand-positioned by Ethan 2026-11-05 with the torque off: the measured pose, not a commanded one (a commanded pose sits a few mm lower)",
+      "saved": "2026-11-05T17:35:52",
+      "gripper": 12.89655172413793
+    },
+    "manual_2": {
+      "pose": {
+        "shoulder_pan": -3.340659340659341,
+        "shoulder_lift": 50.285714285714285,
+        "elbow_flex": -12.087912087912088,
+        "wrist_flex": 100.04395604395604,
+        "wrist_roll": -94.81318681318682
+      },
+      "source": "hand-positioned by Ethan 2026-11-05 with the torque off: the measured pose, not a commanded one (a commanded pose sits a few mm lower)",
+      "saved": "2026-11-05T17:35:52",
+      "gripper": 12.89655172413793
+    }
+  }
+}

@@ -105,6 +105,7 @@ DETECTOR_EVAL = DATA / "detector_eval"        # detector scores on the exam
 DETECTOR_DATA = DATA / "detector"             # exports for labelling and labelled exports (local; Roboflow keeps the labels)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
 DISCARD_POSE = DATA / "discard_pose.json"
+CAMERA_POSES = DATA / "camera_poses.json"       # arm poses that hold a tile up to the base camera (scripts/teleop_view.py)
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
 XLEROBOT_EXAMPLES = Path.home() / "Projects" / "XLeRobot" / "software" / "examples"

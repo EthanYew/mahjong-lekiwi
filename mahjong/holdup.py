@@ -1,14 +1,18 @@
 """Test 1 of docs/face_down_plan.md: tiles held up by hand to the LeKiwi base camera, and how well the two readers we
-already have name them. No arm. A person holds a tile up wherever the arm can reach (close, and at an angle: the camera's view of the arm's reach decides, so
-there is no fixed distance), right way up and turned 180 degrees, several holds each, and the
+already have name them. No arm. A person holds a tile up wherever the arm can reach (close, and at an angle: what the arm
+can reach decides, so there is no fixed distance), right way up and turned 180 degrees, several holds each, and the
 frames are saved under the tile's name; scoring then asks the classifier (name_check) and the detector what they see.
 
 Both readers were trained on other views (the wrist camera at the hover; the RealSense looking down at the mat), so a low
-score here says "these views are new", not that the idea fails. What stops the plan is *nothing reads anywhere the arm can hold a tile*
-(`readable_anywhere`). A held tile's position in the frame isn't known the way a hovered tile's is, so the classifier
-gets three framings and each is scored apart: the wrist camera's fixed crop, a square around the detector's best box
-(only where the detector boxes something), and the whole frame. Each photo is also read upside down, since a face-down tile
-can be held either way up; `Both ways` takes the more confident of the two.
+score here says "these views are new", not that the idea fails. What stops the plan is *nothing reads anywhere the arm can
+hold a tile* (`readable_anywhere`). A held tile's position in the frame isn't known the way a hovered tile's is, so the
+classifier gets three framings and each is scored apart: the wrist camera's fixed crop, a square around the detector's best
+box (only where the detector boxes something), and the whole frame. Each photo is read as it is and turned upside down, since
+a face-down tile can be held either way up; the two reads are reported apart, never merged (the more confident of the two was
+the wrong one more often than not on the first session, so confidence told nothing there).
+
+A reader only counts as reading if it is right on at least two different tiles (`reads_on_two_tiles`): one that answers "3C"
+to everything is right on every 3C photo and nothing else, and scored 24% on the first session while reading nothing.
 """
 import json
 from collections import Counter, defaultdict
@@ -23,8 +27,9 @@ KINDS = ("upright", "turned")            # a tile held right way up, and turned 
 DEFAULT_TILES = ("5C", "3C", "2C", "9C", "7C", "1B", "EW")      # the four the plan names, then a spread of suits
 DEFAULT_HOLDS = 4                        # holds per tile and way up, each in a different place and angle
 FRAMINGS = ("wrist crop", "detector box", "whole frame")
+WAYS = ("as_is", "turned")
 BOX_PAD = 1.3                            # the square around a detector box is this much wider than its longer side
-LOOK_CONFIDENCE = 0.1                    # the detector's floor for "boxed something" (the live cut is 0.5)
+MIN_TILE_SHARE = 1 / 3                   # right on at least this share of a tile's photos for that tile to count as read
 
 
 def plan(tiles, holds, kinds=KINDS):
@@ -50,18 +55,25 @@ def save_shot(folder, shot, frames):
     return files
 
 
+def is_sim(session_dir):
+    start = next((e for e in read_events(Path(session_dir)) if e["type"] == "session_start"), {})
+    return bool(start.get("sim"))
+
+
 def rows(session_dir):
-    """One row per saved photo: truth, kind, hold, conditions, path."""
+    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session."""
     session_dir = Path(session_dir)
     events = read_events(session_dir)
     conditions = next((e["conditions"] for e in events if e["type"] == "holdup_conditions"), {})
+    discarded = {e["shot"] for e in events if e["type"] == "holdup_shot_discarded"}     # a retake reuses the file names
     out = []
     for e in events:
-        if e["type"] != "holdup_shot":
+        if e["type"] != "holdup_shot" or e["shot"] in discarded:
             continue
         for f in e["files"]:
-            out.append({"truth": e["tile"], "kind": e["kind"], "hold": e["hold"], "path": session_dir / f,
-                        "daylight": conditions.get("daylight"), "shot": e["shot"]})
+            if (session_dir / f).exists():
+                out.append({"truth": e["tile"], "kind": e["kind"], "hold": e["hold"], "path": session_dir / f,
+                            "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name})
     return out
 
 
@@ -78,6 +90,7 @@ def square_around(image, xyxy, pad=BOX_PAD, size=name_check.INPUT_PX):
 
 
 def whole_frame(image, size=name_check.INPUT_PX):
+    """The centre square of the frame (the full height), resized."""
     h, w = image.shape[:2]
     side = min(h, w)
     x0, y0 = (w - side) // 2, (h - side) // 2
@@ -93,15 +106,15 @@ def framings(image, boxes):
 
 
 def read_frame(image, boxes, reader):
-    """For each framing, what the classifier says reading it as it is, reading it upside down, and the more confident of
-    the two: {framing: {"as_is": read, "turned": read, "both": read}} (None for a framing with no picture)."""
+    """For each framing, what the classifier says reading it as it is and reading it upside down:
+    {framing: {"as_is": read, "turned": read}} (None for a framing with no picture)."""
     out = {}
     for name, crop in framings(image, boxes).items():
         if crop is None:
             out[name] = None
             continue
         as_is, turned = reader.read_many([crop, cv2.rotate(crop, cv2.ROTATE_180)])
-        out[name] = {"as_is": as_is, "turned": turned, "both": max((as_is, turned), key=lambda r: r["confidence"])}
+        out[name] = {"as_is": as_is, "turned": turned}
     return out
 
 
@@ -120,13 +133,32 @@ def _rate(n, of):
     return n / of if of else 0.0
 
 
-def score(rows):
-    """Rates per slice from scored rows. `readable_anywhere` is the plan's stop: some reader named some tile at some
-    place. Photos of one hold aren't independent, so counts say how many holds (`shots`) stand behind them."""
-    def right(r, framing, way):
-        read = (r["reads"].get(framing) or {}).get(way)
-        return bool(read) and read["name"] == r["truth"]
+def _said(r, framing, way):
+    """What a reader said about a scored row: the classifier on a framing read one way up, or the detector (framing None)."""
+    if framing is None:
+        return r["detector"]
+    read = (r["reads"].get(framing) or {}).get(way)
+    return read["name"] if read else None
 
+
+def reads_on_two_tiles(rows, framing, way, min_tiles=2):
+    """A reader (`framing` and `way`, or the detector with framing None) reads only if it is right on at least `min_tiles`
+    tiles, each on MIN_TILE_SHARE or more of that tile's photos. Returns {"reads", "tiles_read", "answers", "top_answer",
+    "top_share"}: the last three show a reader that answers the same name to everything. A session with one tile can't
+    tell a reader from a constant answer, and only needs that one tile."""
+    per_tile = defaultdict(list)
+    for r in rows:
+        per_tile[r["truth"]].append(_said(r, framing, way) == r["truth"])
+    tiles_read = sorted(t for t, hits in per_tile.items() if sum(hits) / len(hits) >= MIN_TILE_SHARE)
+    answers = Counter(_said(r, framing, way) for r in rows)
+    top, top_n = answers.most_common(1)[0] if answers else (None, 0)
+    return {"reads": len(tiles_read) >= min(min_tiles, len(per_tile)) and bool(tiles_read), "tiles_read": tiles_read,
+            "answers": len(answers), "top_answer": top, "top_share": _rate(top_n, len(rows))}
+
+
+def score(rows):
+    """Rates per slice from scored rows. `readable_anywhere` is the plan's stop: some reader is right on two tiles
+    (`reads_on_two_tiles`). Photos of one hold aren't independent, so `shots` says how many holds stand behind them."""
     def slice_of(items):
         n = len(items)
         out = {"photos": n, "shots": len({(r["truth"], r["kind"], r["shot"]) for r in items}),
@@ -135,8 +167,8 @@ def score(rows):
                "detector_right_at_0.5": _rate(sum(r["detector"] == r["truth"] and r["detector_confidence"] >= 0.5
                                                   for r in items), n)}
         for framing in FRAMINGS:
-            for way in ("as_is", "both"):
-                out[f"{framing}/{way}"] = _rate(sum(right(r, framing, way) for r in items), n)
+            for way in WAYS:
+                out[f"{framing}/{way}"] = _rate(sum(_said(r, framing, way) == r["truth"] for r in items), n)
         return out
 
     by = {"all": slice_of(rows)}
@@ -149,21 +181,19 @@ def score(rows):
     per_tile = defaultdict(list)
     for r in rows:
         per_tile[r["truth"]].append(r)
-    wrong = Counter()
-    for r in rows:
-        for framing in FRAMINGS:
-            read = (r["reads"].get(framing) or {}).get("both")
-            if read and read["name"] != r["truth"]:
-                wrong[f"{r['truth']}->{read['name']}"] += 1
-    return {"by": by, "per_tile": {t: slice_of(v) for t, v in sorted(per_tile.items())},
-            "readable_anywhere": any(r["detector"] == r["truth"] or any(right(r, f, w) for f in FRAMINGS for w in ("as_is", "turned"))
-                                     for r in rows),
-            "misreads": wrong.most_common()}
+    readers = {"detector": reads_on_two_tiles(rows, None, None)}
+    for framing in FRAMINGS:
+        for way in WAYS:
+            readers[f"{framing}/{way}"] = reads_on_two_tiles(rows, framing, way)
+    misreads = Counter(f"{r['truth']}->{_said(r, 'whole frame', 'as_is')}" for r in rows
+                       if _said(r, "whole frame", "as_is") != r["truth"])
+    return {"by": by, "per_tile": {t: slice_of(v) for t, v in sorted(per_tile.items())}, "readers": readers,
+            "readable_anywhere": any(v["reads"] for v in readers.values()), "misreads": misreads.most_common()}
 
 
 def contact_sheet(rows, path, per_row=6, thumb=160):
-    """A photo sheet of every scored photo captioned truth / the classifier's guess (whole-frame, both ways) / the detector's,
-    for a person to check the exam in aggregate. Wrong reads are drawn in red."""
+    """A photo sheet of every scored photo captioned truth / the classifier's whole-frame guess as it is and turned / the
+    detector's, for a person to check the exam in aggregate. Green where the as-is guess is right, red where not."""
     import numpy as np
     cells = []
     for r in rows:
@@ -171,14 +201,12 @@ def contact_sheet(rows, path, per_row=6, thumb=160):
         if image is None:
             continue
         cell = cv2.resize(whole_frame(image), (thumb, thumb))
-        read = (r["reads"].get("whole frame") or {}).get("both")
-        said = read["name"] if read else "-"
-        ok = said == r["truth"]
+        a, t = _said(r, "whole frame", "as_is"), _said(r, "whole frame", "turned")
         cv2.rectangle(cell, (0, 0), (thumb, 34), (0, 0, 0), -1)
         cv2.putText(cell, f"{r['truth']} {r['kind']} h{r['hold']}", (3, 13), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
                     (255, 255, 255), 1)
-        cv2.putText(cell, f"c:{said} d:{r['detector'] or '-'}", (3, 29), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (0, 200, 0) if ok else (0, 0, 255), 1)
+        cv2.putText(cell, f"c:{a}/{t} d:{r['detector'] or '-'}", (3, 29), cv2.FONT_HERSHEY_SIMPLEX, 0.35,
+                    (0, 200, 0) if a == r["truth"] else (0, 0, 255), 1)
         cells.append(cell)
     if not cells:
         return None
@@ -190,21 +218,22 @@ def contact_sheet(rows, path, per_row=6, thumb=160):
 
 
 def summary_lines(s):
-    """The report's text: one line per slice, framings as percentages, then the stop check and the misreads."""
-    lines = []
-    head = ["detector right", "wrist crop", "det box", "whole frame"]
-    lines.append(f"{'slice':<22}{'photos':>7}  boxed  " + "  ".join(f"{h:>14}" for h in head))
+    """The report's text: a line per slice (each framing as 'as it is / turned'), the readers' answers, the stop check."""
+    pair = lambda v, f: f"{v[f'{f}/as_is']:.0%}/{v[f'{f}/turned']:.0%}"
+    lines = [f"{'slice':<18}{'photos':>7}  boxed  detector  {'wrist crop':>11}  {'detector box':>12}  {'whole frame':>11}"]
     for name, v in s["by"].items():
-        lines.append(f"{name:<22}{v['photos']:>7}  {v['boxed']:>4.0%}   "
-                     f"{v['detector_right']:>13.0%}  {v['wrist crop/both']:>13.0%}  {v['detector box/both']:>13.0%}  "
-                     f"{v['whole frame/both']:>13.0%}")
-    lines.append("(classifier columns read each photo both ways up, the more confident read; the detector's is its best "
-                 "box at any confidence)")
-    lines.append("per tile (best framing, both ways): " + ", ".join(
-        f"{t} {max(v[f'{f}/both'] for f in FRAMINGS):.0%}" for t, v in s["per_tile"].items()))
-    lines.append("misreads: " + (", ".join(f"{k} x{n}" for k, n in s["misreads"][:15]) or "none"))
-    lines.append("some reader named some tile anywhere: " + ("yes" if s["readable_anywhere"] else
-                 "NO. The plan's stop: the base camera view needs its own reader, or another way."))
+        lines.append(f"{name:<18}{v['photos']:>7}  {v['boxed']:>4.0%}  {v['detector_right']:>8.0%}  "
+                     f"{pair(v, 'wrist crop'):>11}  {pair(v, 'detector box'):>12}  {pair(v, 'whole frame'):>11}")
+    lines.append("(classifier columns: right when read as it is / right when read upside down. The detector is its best box)")
+    lines.append("per tile, whole frame as it is / turned: " + ", ".join(f"{t} {pair(v, 'whole frame')}"
+                                                                       for t, v in s["per_tile"].items()))
+    whole = s["readers"]["whole frame/as_is"]
+    lines.append(f"whole frame, as it is: {whole['answers']} different answers; most common {whole['top_answer']} "
+                 f"({whole['top_share']:.0%} of photos). One answer for everything is a reader that sees nothing")
+    lines.append("misreads (whole frame, as it is): " + (", ".join(f"{k} x{n}" for k, n in s["misreads"][:12]) or "none"))
+    reading = [k for k, v in s["readers"].items() if v["reads"]]
+    lines.append("readers right on two or more tiles: " + (", ".join(reading) if reading else
+                 "NONE. The plan's stop: this view needs its own reader (see holdup_check.py), or another way."))
     return lines
 
 
@@ -212,3 +241,45 @@ def save_scores(session_dir, s):
     path = Path(session_dir) / "holdup_scores.json"
     path.write_text(json.dumps(s, indent=2, default=str) + "\n")
     return path
+
+
+# --- can the base camera's view be learned? (scripts/holdup_check.py) ---
+
+def split(rows, by="auto", test_holds=2):
+    """(train rows, test rows, how it was split, caveat). `auto` holds out the newest session if there are two or more with
+    the same tiles, else the last `test_holds` holds of each tile and way up. The second is optimistic: the same session's
+    hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies)."""
+    sessions = sorted({r["session"] for r in rows})
+    if by == "auto":
+        by = "session" if len(sessions) > 1 else "hold"
+    if by == "session":
+        if len(sessions) < 2:
+            raise ValueError("a split by session needs two sessions")
+        test = [r for r in rows if r["session"] == sessions[-1]]
+        train = [r for r in rows if r["session"] != sessions[-1]]
+        return train, test, f"held out the newest session, {sessions[-1]}", None
+    top = defaultdict(int)
+    for r in rows:
+        key = (r["session"], r["truth"], r["kind"])
+        top[key] = max(top[key], r["hold"])
+    held = [r["hold"] > top[(r["session"], r["truth"], r["kind"])] - test_holds for r in rows]
+    test = [r for r, h in zip(rows, held) if h]
+    train = [r for r, h in zip(rows, held) if not h]
+    return train, test, f"held out the last {test_holds} holds of every tile and way up", \
+        "OPTIMISTIC: the same session's hands, light and background are in train and test. Treat a pass as 'worth a real capture'."
+
+
+def check_summary(test_rows, said):
+    """Right rates for a model's answers on held-out rows: overall, per tile, per way up, against chance and the best
+    constant answer (what a model that ignored the photo could get)."""
+    n = len(test_rows)
+    right = [s == r["truth"] for r, s in zip(test_rows, said)]
+    tiles = sorted({r["truth"] for r in test_rows})
+    constant = max(Counter(r["truth"] for r in test_rows).values()) / n if n else 0.0
+    return {"photos": n, "tiles": len(tiles), "right": _rate(sum(right), n), "chance": 1 / len(tiles) if tiles else 0.0,
+            "best_constant_answer": constant,
+            "per_tile": {t: _rate(sum(ok for ok, r in zip(right, test_rows) if r["truth"] == t),
+                                  sum(r["truth"] == t for r in test_rows)) for t in tiles},
+            "per_kind": {k: _rate(sum(ok for ok, r in zip(right, test_rows) if r["kind"] == k),
+                                  sum(r["kind"] == k for r in test_rows)) for k in KINDS},
+            "confusions": Counter(f"{r['truth']}->{s}" for r, s in zip(test_rows, said) if s != r["truth"]).most_common(10)}

@@ -74,7 +74,8 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
-| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py` |
+| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py`, then `python scripts/holdup_check.py` |
+| Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
@@ -781,6 +782,11 @@ python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
 python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
 python scripts/holdup_score.py                                    # the latest holdup session
 python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_check/name_check.pt
+python scripts/holdup_check.py                                    # can a classifier learn this view? trains on some photos, scores others
+python scripts/holdup_check.py --sessions sessions/<time>_holdup --by hold --seeds 3
+python scripts/teleop_view.py                                     # drive by gamepad watching the wrist and base cameras (arm)
+python scripts/teleop_view.py --go manual_1 --name base_view_     # start at a saved pose; s saves the next one
+python scripts/teleop_view.py --sim
 ```
 
 `holdup_capture.py`: `--tiles A,B` (default 5C,3C,2C,9C,7C,1B,EW), `--holds N` per tile and way up (4; a new place and angle each), `--frames N` per shot
@@ -789,9 +795,26 @@ in the window: space takes the shot, `s` skips, `b` redoes the last, `q` quits. 
 `sessions/<time>_holdup/photos/<NAME>/`; the name you hold is the truth.
 `holdup_score.py`: `SESSION` (default: the latest), `--weights` (the classifier), `--detector`. It prints rates per slice (all,
 each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
-crop, a square round the detector's best box, the whole frame, each read both ways up) and for the detector, then writes
-`holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look through it). The plan's
-stop is "nothing reads anywhere the arm can hold a tile": the last line says if anything did.
+crop, a square round the detector's best box, the whole frame; each read as it is and upside down, reported apart) and for
+the detector, then writes `holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look
+through it). A reader counts as reading only if it is right on two or more tiles: one that answers "3C" to everything is right
+on every 3C photo and nothing else. The plan's stop is "nothing reads anywhere the arm can hold a tile": the last line says
+if anything did.
+
+`holdup_check.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
+(auto holds out the newest session when there are two, else the last `--test-holds` 2 holds of each tile and way up, which
+is optimistic: the same light and hands are on both sides), `--epochs` (150), `--seeds` (3). It is not a fine-tune of the
+installed weights: it trains a fresh YOLO11n-cls from its ImageNet weights on the whole-frame view, for just the tiles you
+held, and scores the held-out photos against chance and the best constant answer. The bar (70% or more, on 3+ tiles, well
+above the constant answer, to be worth a real capture; 40% or less to look at the photos first) is in
+`docs/face_down_plan.md` test 1b. It writes `holdup_check.json` into the newest session.
+
+`teleop_view.py` (moves the arm: asks a person to run it): the gamepad drives the arm as in `collect_corrections.py`, and one
+window shows the wrist and base cameras side by side with the commanded pose, the tool point and its distance from the
+shoulder. Keys in the window: `s` saves the commanded pose as the next `--name` (default `base_view_`) in
+`data/camera_poses.json`, `c` saves both frames to the session's `captures/`, `g` returns to `--go`'s pose, `q` rests and
+quits. Options: `--go POSE`, `--name PREFIX`, `--device PATH` (gamepad), `--sim`. `data/camera_poses.json` starts with the two
+poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not commanded).
 
 ## The tile detector: photos, labels, exam, retraining
 
