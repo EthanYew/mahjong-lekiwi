@@ -30,6 +30,7 @@ RAISED_REST = {**REST_POSE, "shoulder_lift": -40.0, "elbow_flex": 40.0}
 # --- cameras ---
 FPS = 30
 WRIST_CAM = "/dev/wristcam"            # udev symlink
+WRIST_USB_PORT = "3-8"                 # its USB port, for a power cycle if it dropped before this run saw where it was
 WRIST_RESOLUTION = (640, 480)          # what every dataset was recorded at (resized to 224 for training)
 REALSENSE_SERIAL = "825312070255"
 REALSENSE_RESOLUTION = (848, 480)

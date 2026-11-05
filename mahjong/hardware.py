@@ -6,9 +6,10 @@ behind. (2026-10-23: a bench run with the LeKiwi unplugged died in lerobot's "Fu
 {}" and left an empty session.)
 """
 import os
+import time
 from pathlib import Path
 
-from . import config
+from . import config, wrist_usb
 
 
 class NotReady(Exception):
@@ -37,6 +38,7 @@ def open_wrist_camera():
     if not ok:
         camera.release()
         raise NotReady("the wrist camera opened but gives no frames: replug it")
+    wrist_usb.remember_port()
     return camera
 
 
@@ -62,25 +64,63 @@ CLOSE = {"arm": lambda a: a.disconnect(), "wrist_camera": lambda c: c.release(),
          "gamepad": lambda g: g.close()}
 
 
+def _settled(open_camera):
+    """A camera that keeps giving frames for wrist_usb.SETTLE_S: a flapping one opens fine and drops again at once."""
+    from .camera import read_within
+    camera = open_camera()
+    end = time.monotonic() + wrist_usb.SETTLE_S
+    while time.monotonic() < end:
+        if not read_within(camera)[0]:
+            camera.release()
+            raise NotReady("the wrist camera dropped again straight away")
+    return camera
+
+
+def _log_recovery(record):
+    from .session import Session
+    print(f"Wrist camera recovery: {record['outcome']} after {record['seconds']}s.")
+    if Session.current is not None:
+        Session.current.event("wrist_camera_recovery", **record)
+
+
 def reopen_wrist_camera(camera, ask=None, openers=None):
-    """Release a wrist camera that stopped giving frames (camera.LOST_S) and open it again; if it won't
-    open, the usual retry / quit (connect). Returns the new camera; a simulated one comes back as is."""
+    """Release a wrist camera that stopped giving frames (camera.LOST_S) and get it back: give it a moment, cut its
+    port's power, and only then the usual retry / quit (connect). Each one logs how it ended (wrist_usb). Returns the
+    new camera; a simulated one comes back as is."""
     if getattr(camera, "simulated", False):
         return camera
     try:
         camera.release()
     except Exception:
         pass
-    print("Wrist camera lost: reopening it.")
+    print(f"Wrist camera lost: waiting up to {wrist_usb.RETURN_WAIT_S:.0f}s for it to come back. Don't replug it yet.")
     from .perception import drain_stdin
     drain_stdin()          # keys pressed while it was lost would answer connect's retry prompt
-    return connect(["wrist_camera"], ask=ask, openers=openers)["wrist_camera"]
+    opener = (openers or OPENERS)["wrist_camera"]
+    recovered, record = wrist_usb.recover(lambda: _settled(opener))
+    if recovered is None:
+        drain_stdin()      # and so would keys pressed during the wait
+        start = time.monotonic()
+        try:
+            recovered = connect(["wrist_camera"], ask=ask, openers=openers, recover_wrist=False)["wrist_camera"]
+        except SystemExit:
+            _log_recovery({**record, "outcome": "quit", "seconds": round(record["seconds"] + time.monotonic() - start, 2)})
+            raise
+        record = {**record, "outcome": "person", "seconds": round(record["seconds"] + time.monotonic() - start, 2)}
+    _log_recovery(record)
+    return recovered
 
 
-def connect(needed, gamepad_kwargs=None, ask=None, openers=None):
+def connect(needed, gamepad_kwargs=None, ask=None, openers=None, recover_wrist=True):
     """Open every device in `needed` (names from OPENERS). Returns {name: device}. Lists what's missing
-    and offers retry (Enter) or quit (q, raises SystemExit after closing whatever did open)."""
+    and offers retry (Enter) or quit (q, raises SystemExit after closing whatever did open). A wrist camera that's gone
+    from USB gets one port power cycle before that (never one that's there: another program may be using it)."""
     ask = ask or input
+    if recover_wrist and openers is None and "wrist_camera" in needed and not os.path.exists(config.WRIST_CAM):
+        print(f"No wrist camera at {config.WRIST_CAM}: trying a power cycle of its USB port.")
+        camera, _ = wrist_usb.recover(OPENERS["wrist_camera"], wait_s=0)
+        if camera is not None:
+            camera.release()
     openers = openers or OPENERS
     devices = {}
     while True:

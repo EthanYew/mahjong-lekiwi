@@ -55,6 +55,26 @@ record.py discards the episode ("wrist camera lost"); wrist_capture.py and setup
 collect_corrections reopens it and restarts the gamepad from the held pose. Each reopens it with
 `hardware.reopen_wrist_camera` (retry / quit if it won't open): use that in any new script.
 
+2026-11-05, why it drops (kernel log of every boot since 2026-10-08, every session's events and logs):
+
+- **It's the USB link, not the driver.** On port 3-8 the log has `error -71`, `disabled by hub (EMI?)`, `Cannot enable. Maybe
+  the USB cable is bad?` and fallbacks to full speed. 22 of 24 voided attempts had a USB disconnect in the 30s before them.
+  Nothing else on the controller shows this: no `-71` on the arm's board, the LifeCam on the next port or the RealSense, and
+  no over-current on 3-8.
+- **It started at once**: 0 disconnects in 446 picks and episodes, 10-23 to 10-27, then the first at 08:41 on 10-28, on the
+  same kernel. The cause of that step is unknown. Candidates: cable strain from the wrist-roll incident of 10-27 (a guess from
+  the date). Ruled out: the LifeCam (first seen 3 hours after the first drop), RealSense resets (1 of 96 within 10s of one).
+- **Two kinds of drop**: 82 plain disconnects (median 0.42s back, 64 under 1s), and 14 `EMI?` port disables (25s to hours).
+  **The slow times can't show whether waiting helps**: they include how fast a person replugged (the owner's point). Only
+  sub-second returns are clearly unaided. That's why each recovery now logs its outcome, and the wait is short.
+- **Drops lean to the right** (6.5% of attempts, against 1.3% centre, 2.4% left; 25 events, on the right in 6 of the 10 sessions with
+  voids, last known position before each). A lead for cable tension, not proof. A 10-minute stream with no arm script running had 0 drops, but
+  the long-run rate predicts only 0.7 there, so that's weak evidence.
+- **Online fixes that don't apply**: `modprobe -r uvcvideo` acts above the failure, and the RealSense shares the driver.
+  `nodrop=1` is already the value on this kernel. `quirks=0x80` is `UVC_QUIRK_FIX_BANDWIDTH`, not a memory setting, and the logs
+  show no bandwidth problem. `usbreset` needs a device still on the bus; no log has one connected but silent. Resetting the
+  controller would take the arm and RealSense with it.
+
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
 The bullets below were shortened in CLAUDE.md, which loads into every session.
@@ -150,4 +170,4 @@ The bullets below were shortened in CLAUDE.md, which loads into every session.
   bench voids and reruns the attempt, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script. Evidence: `docs/invariant_notes.md`. It can also fall off
   USB altogether (`/dev/wristcam` gone, 2026-10-30 `20261030_115706_bench`, 3 dropouts in 5 min first): only a
-  replug brings it back, and the bench waits at "Fix that, then Enter".
+  replug brought it back, and the bench waits at "Fix that, then Enter".

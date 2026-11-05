@@ -45,6 +45,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check a policy steers to the tile (vs. a memorised move) | `python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y` |
 | Try a narrower (or wider) gripper opening at the hover | `python scripts/bench.py --layout hand14 --trials 3 --hover-gripper 25` |
 | See what happened in the last session | `python scripts/session_report.py` |
+| Find which part makes the wrist camera drop, and how drops ended | `python scripts/wrist_usb_watch.py --label still`, then `--report` |
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
@@ -91,6 +92,40 @@ the gripper narrowing trimmed and the eval episodes left out). Why the default i
 did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step).
 
 ---
+
+## When the wrist camera drops out: `scripts/wrist_usb_watch.py`
+
+A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s, cuts the power of the
+camera's USB port once, and only then shows "Fix that, then Enter". **Don't replug during the wait**: a replug there would
+be counted as the camera coming back by itself. `session_report.py` prints how each loss ended, and
+`wrist_usb_watch.py --report` totals them.
+
+The power cycle and turning autosuspend off need root, so run this once per machine (`--remove` takes it out again):
+
+```
+sudo scripts/wrist_usb/setup.sh
+```
+
+It installs a udev rule, a helper in `/usr/local/sbin`, and a sudoers entry that lets your user run that helper without a
+password. The helper takes only a port name and refuses any port with something on it other than the wrist camera.
+Without the setup, the wait and the prompt still work. Many ports can't really cut power, so the cycle may do nothing:
+the logged outcomes will say.
+
+To find which part fails, watch the link while you try one thing at a time. The watcher moves nothing and never recovers
+the camera, so it shows what the link does by itself:
+
+```
+python scripts/wrist_usb_watch.py --label still --seconds 600     # arm left alone: the control
+python scripts/wrist_usb_watch.py --label by-hand --seconds 300   # motors off, move the arm by hand, right side especially
+python scripts/wrist_usb_watch.py --kernel-only --label bench     # 2nd terminal during a bench or teleop run: motors on
+python scripts/wrist_usb_watch.py --label new-cable --seconds 300 # then swap one part at a time
+python scripts/wrist_usb_watch.py --report                        # every watch, and how real losses ended
+```
+
+Drops by hand point to the cable or connector; drops only with the motors on point to electrical noise; drops that follow
+the camera onto a new cable point to the camera board. Run it from the main checkout, like other hardware scripts.
+Options: `--label`, `--seconds`, `--kernel-only` (the camera stays with another script), `--port` (default: where the
+camera is now), `--report`, `--sim`.
 
 ## Checking the setup after a pack-up: `scripts/setup_check.py`
 
