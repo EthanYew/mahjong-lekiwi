@@ -25,7 +25,7 @@ ITERATION_DROP_BEHIND = 3   # this many clean pairs behind the default: drop the
 PLAY_READY_ATTEMPTS = 28    # the play-ready check: two rounds of even-hand14 in one session...
 PLAY_READY_MISSES = 2       # ...at most this many not clean (26/28)...
 PLAY_READY_SPOT_MISSES = 2  # ...and no spot not clean this many times
-HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: CLAUDE.md, "Datasets store..."
+HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: .claude/rules/policy_data.md, "Datasets store..."
 STANDARD_SETUP = config.DATA / "standard_setup.json"
 
 

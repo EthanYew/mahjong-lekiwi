@@ -1,8 +1,8 @@
 # Invariant notes: the full evidence
 
-CLAUDE.md's invariants are loaded into every Claude session, so the longest keep the rule, the reason and the
+The invariants in `.claude/rules/` load with the code they cover, so the longest keep the rule, the reason and the
 names to look for, and their full measurements live here (moved verbatim on 2026-10-29). Add to these when a
-rule's evidence grows; keep the CLAUDE.md line to what someone changing the code needs.
+rule's evidence grows; keep the rule's line to what someone changing the code needs.
 
 ## Returns aim at the tile's home, never where the jaws closed
 
@@ -57,7 +57,7 @@ collect_corrections reopens it and restarts the gamepad from the held pose. Each
 
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
-The bullets below were shortened in CLAUDE.md, which loads into every session.
+The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep what loads small.
 
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed while the arm
   picks up or returns (read from the bench's own terminal, `mahjong/terminal_keys.py`: a global listener logged

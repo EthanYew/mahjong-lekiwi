@@ -35,6 +35,12 @@ not a worktree, or the sessions go when the worktree does.
 | See where things stand (default policy and why, bench totals, layouts, the drop zone, this checkout) | `python scripts/status.py` |
 | See which tiles get misread, and how much it matters | `python scripts/name_report.py` |
 | Approve and merge a branch's PR, then clean up after it | `python scripts/merge_pr.py` (lists them), then `python scripts/merge_pr.py <number>` |
+| Train on the PC, or check on a run | `/train-policy` in Claude Code |
+| Review a recording before training | `/clean-dataset <repo>` in Claude Code |
+| Plan the next run: one change, a prediction, the command | `/next-run` in Claude Code |
+| Diagnose odd behaviour on the arm from its logs | `/debug-arm <symptom>` in Claude Code |
+| Check a plan or branch against what has merged since | `/recheck-main <plan or branch>` in Claude Code |
+| Write up a run of work | `/write-retro` in Claude Code |
 | Review a batch of merges for what the tests didn't reach | `python scripts/merge_pr.py --review`, or `/post-merge-review` in Claude Code |
 | Make another policy the default | `python scripts/status.py --set-default <id> --evidence "sessions/<bench session>: <scores>" --why "..."` |
 | Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
@@ -648,7 +654,7 @@ In the plots (`handoff/<n>_<tile>.png`) a red (measured) line leaving a flat blu
 servos; blue moving outside the grey (input) stretches is the teleop.
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
-policies (they replay a memorised move from it; see `CLAUDE.md`).
+policies (they replay a memorised move from it; see `.claude/rules/policy_data.md`).
 
 ## Return correction (setting tiles down where they were)
 
@@ -997,13 +1003,12 @@ without changing it. Merging its PR is what marks the range reviewed (`data/post
 **Is the reviewer any good?** `scripts/review_backtest.py` runs it on old merges whose real bugs are known, in a copy of the repo as it stood then.
 
 ```
-python scripts/review_backtest.py run evening-11-04   # one run; stops past --budget dollars (default 12)
-python scripts/review_backtest.py run evening-11-04 --subscription   # on the claude.ai login, not an ANTHROPIC_API_KEY in the shell
+python scripts/review_backtest.py run consolidation-10-28   # one case; --model sonnet uses far less of your plan
 python scripts/review_backtest.py score               # a separate model grades new runs against data/review_backtest/cases.json
-python scripts/review_backtest.py table               # every run: hits, partials, extras, minutes, cost
+python scripts/review_backtest.py table               # every run: hits, partials, extras, minutes, calls
 ```
 
-Rerun it after changing `.claude/agents/merge-reviewer.md`. A real bug a later review finds goes in as a new case.
+**It uses your Claude plan's limits, and each run is as big as a real review (~150 calls), so it isn't a routine check.** It never bills an API key (nor does `--review`). Run one case when you want the number, not all three. A real bug a later review finds goes in as a new case.
 
 ### Data files and merging
 
@@ -1037,11 +1042,11 @@ python -m pytest                      # everything; slow tests load policies and
 Git hooks run the fast tests on every commit and every merge (in parallel when pytest-xdist is installed:
 `pip install pytest-xdist` in the lerobot env), so a broken invariant, or two branches that break each
 other, can't be committed. Turn them on once per clone: `git config core.hooksPath scripts/hooks`.
-`tests/test_docs.py` checks this README and CLAUDE.md against `data/` and the scripts: every option they
+`tests/test_docs.py` checks this README, CLAUDE.md and `.claude/rules/` against `data/` and the scripts: every option they
 mention exists, every script has a section, the default policy and every registered one are named right.
 `tests/test_code_health.py` runs ruff (`pip install ruff` in the lerobot env; rules in `ruff.toml`) and looks for functions copied whole between files. A
 false alarm gets `# noqa: <rule>` with the reason on that line.
-Merging worktrees: `merge_pr.py` above, and "Worktrees and merging" in `CLAUDE.md`.
+Merging worktrees: `merge_pr.py` above, and `.claude/rules/merging.md`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or
-`dataset.py` changed). See `CLAUDE.md` for the rules the code follows and why.
+`dataset.py` changed). See `.claude/rules/` for the rules the code follows and why.

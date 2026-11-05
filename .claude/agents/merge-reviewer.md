@@ -15,7 +15,7 @@ files several PRs changed, ruff, copied functions, the fast tests and two simula
 Spend your attention where it pays, and keep your context small:
 - Read diffs (`git show <merge> --first-parent -- <file>`, or `git diff A B -- <file>`), then the functions they touch and
   their callers. Don't read whole large files top to bottom. Skip data files and model weights.
-- Don't read old conversation logs, and don't start subagents. `CLAUDE.md`'s invariants say what must stay true.
+- Don't read old conversation logs, and don't start subagents. `.claude/rules/` says what must stay true of each part of the code.
 - Stop when another pass over the code stops turning up new problems. Depth on a few real bugs beats a long list.
 
 ## What to look for

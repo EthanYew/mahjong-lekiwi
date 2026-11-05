@@ -25,7 +25,7 @@ names the current default. Sections below hold the reasoning.
 | Tile name data | Standard built: placements, every play decision logged, discards in the audit, `name_report.py`. First backfill: 5 wrong names accepted in 199 placements, 4 of them on the standard mat (8C x2, 2B, 2C). Bench data replayed, no real hand yet | `docs/name_data.md`; `docs/retrospectives/evidence/2026-11-04_name_data/` | Stopgap in play: asks on 7 read names (2C added: v7x3 read 3C as it) and under 0.80 confidence until a second read passes. Set the bands' thresholds; the first real hand tests the play half |
 | Name check (second read) | Built, in play as ask-only: agreement changes nothing, disagreement asks (`name_check@61340cce`), except that on a registered read from the ask list agreement moves the question into the hand check before the first draw (`worktree-play-hand-confirm`, `--sim` only). First exam session: 42/42 right, but the detector was too, so it tested no catches. Held out on 3 wrist sessions: flagged 24 of 24 wrong detector reads, 0 wrong accepted in 164 agreements, 21% asks. Not passed: the gate is ~1000 reads. In real hands: 97 checks, 91 agreed, 81 of those with a person's word, 0 agreed on a wrong name, 1 false alarm | `docs/name_check_plan.md`; `data/name_check_eval/`; `docs/retrospectives/evidence/2026-11-04_name_check_build/`; `20261104_150542_bench`; `docs/retrospectives/evidence/2026-11-04_first_hands/hand_facts.txt` | Timing `--read-hand`. More exam sessions: other 20 names, other light. Agreement removing a question stays the owner's call, after the gate |
 | Harness (6) | Fast tests 96 → 11 s; `merge_pr.py` (merged-tree tests, closing step), `status.py`, `test_docs.py`, checkout warnings | this table's branch (`worktree-harness-docs-merge`) | `merge_pr.py --close` for the 35 merged branches left over |
-| Post-merge review | Built: ruff and a copied-function check in the fast tests, `merge-reviewer`, `review_brief.py`, an offer at the end of a batch. **Not scored:** the first 3 backtest runs stopped on an empty API balance after ~5 minutes each, so nothing says yet that it finds bugs | `data/review_backtest/cases.json` (answers committed before any run; method frozen at `3ce2794`) | `review_backtest.py run` on all 3 cases, then `score` |
+| Post-merge review | Built: ruff and a copied-function check in the fast tests, `merge-reviewer`, `review_brief.py`, an offer at the end of a batch. **Not scored:** the first 3 backtest runs stopped on an empty API balance after ~5 minutes each ($4.57), so nothing says yet that it finds bugs. Backtests are now optional and on the plan's limits, never an API key | `data/review_backtest/cases.json` (answers committed before any run; method frozen at `3ce2794`) | Judge it on the next real review's reproduced findings; `review_backtest.py run consolidation-10-28` only if the writeup needs a score |
 
 **The sequence decided 2026-10-23** (v2n baseline → hover jitter → golden set → check the eval on v2 → v3 →
 DAgger → hover A/B) ran to DAgger in six days. Two steps didn't come out as planned: the eval was never
@@ -353,7 +353,7 @@ dataset next to the main one.
 (34195 frames, 47000 steps), default since 2026-10-29 after the hand14 paired run (Status). **Round 2:**
 `Yewy/mahjong_mat_dagger_v4`, corrections on v4 → `pickup_mat_cl_v5` (both DAgger sets, registered 2026-10-29,
 `b6e2095`), default since 2026-10-29 after the paired bench against v4 (Status). Still worth targeting: the far spots, where v3b and v3c descended ~13mm deeper
-than the demos (FK heights drift with reach, CLAUDE.md), and S12 (7D), the only hand14 misses.
+than the demos (FK heights drift with reach, `.claude/rules/motion.md`), and S12 (7D), the only hand14 misses.
 
 ## 10. The tile detector
 
@@ -426,3 +426,9 @@ person's names (`scripts/hand_frames.py`), not from crops. Numbers and limits: `
   decide before step 2's big labelling round if the mix-ups are between near-identical faces. The
   sharpest view of all is the wrist camera at the hover (~4 cm above the tile): a name check there,
   before ACT starts, would catch a wrong tile before the arm commits to it.
+
+## Open items
+
+- Far corners (e.g. 7B) are out of reach after correction.
+- RealSense recalibration at table height across the workspace would shrink the correction needed.
+- Recording/deploying at servo I=8 would remove most sag; needs a new dataset and corrections.
