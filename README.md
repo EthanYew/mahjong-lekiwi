@@ -788,6 +788,7 @@ python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_che
 python scripts/holdup_check.py --mark-boxes                       # once per taught pose: drag a box round where the held tile shows
 python scripts/holdup_check.py                                    # can a classifier learn this view? trains on some photos, scores others
 python scripts/holdup_check.py --sessions sessions/<time>_holdup --by hold --seeds 3
+python scripts/holdup_check.py --sessions sessions/<evening>_holdup,sessions/<day>_holdup --test-session <day>_holdup   # another light
 python scripts/holdup_check.py --framing whole                    # the whole frame (hand-held photos have no tile box)
 python scripts/teleop_view.py                                     # drive by gamepad watching the wrist and base cameras (arm)
 python scripts/teleop_view.py --go manual_1 --name base_view_     # start at a saved pose; s saves the next one
@@ -808,7 +809,10 @@ if anything did.
 
 `holdup_check.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
 (auto holds out the newest session when every tile in it is also in an older one, else the last `--test-holds` 2 holds of each
-tile and way up, which is optimistic: the same light and hands are on both sides), `--framing tile|whole` (tile), `--epochs`
+tile and way up, which is optimistic: the same light and hands are on both sides), `--test-session NAME` (hold out that
+session and train on the others in `--sessions`, whatever `--by` says; only the tiles another session has are tested, the rest
+left out and counted: train on an evening, test on a day, or a new room; it writes `holdup_check_held_out.json` into that
+session), `--framing tile|whole` (tile), `--epochs`
 (150), `--seeds` (3, for the check and again for the control), `--mark-boxes`. It is not a fine-tune of the installed weights:
 it trains a fresh YOLO11n-cls from its ImageNet weights, for just the tiles you held, and scores the held-out photos against
 chance and the best constant answer. `tile` framing crops each photo to the tile box of the pose the arm held it at (a box per

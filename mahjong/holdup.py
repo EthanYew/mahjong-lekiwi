@@ -293,11 +293,28 @@ def save_scores(session_dir, s):
 
 # --- can the base camera's view be learned? (scripts/holdup_check.py) ---
 
-def split(rows, by="auto", test_holds=2):
+def split(rows, by="auto", test_holds=2, test_session=None):
     """(train rows, test rows, how it was split, caveat). `auto` holds out the newest session if there are two or more with
     the same tiles, else the last `test_holds` holds of each tile and way up. The second is optimistic: the same session's
-    hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies)."""
+    hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies).
+    `test_session` (a folder name) holds out that session whatever `by` says, trains on every other, and tests only the tiles
+    some other session has (a tile never trained on can't be named): e.g. train on an evening, test on a day."""
     sessions = sorted({r["session"] for r in rows})
+    if test_session is not None:
+        if test_session not in sessions:
+            raise ValueError(f"{test_session} isn't among the sessions read: {', '.join(sessions)}")
+        if len(sessions) < 2:
+            raise ValueError("holding out a session needs another to train on")
+        train = [r for r in rows if r["session"] != test_session]
+        trained = {r["truth"] for r in train}
+        held = [r for r in rows if r["session"] == test_session]
+        test = [r for r in held if r["truth"] in trained]
+        if not test:
+            raise ValueError(f"no tile in {test_session} is in another session, so there is nothing to test")
+        left = sorted({r["truth"] for r in held} - trained)
+        caveat = (f"left out {len(held) - len(test)} photo(s) of {', '.join(left)}: in no other session, never trained on"
+                  if left else None)
+        return train, test, f"held out {test_session}, trained on {', '.join(s for s in sessions if s != test_session)}", caveat
     if by == "auto":
         newest = {r["truth"] for r in rows if r["session"] == sessions[-1]}
         older = {r["truth"] for r in rows if r["session"] != sessions[-1]}

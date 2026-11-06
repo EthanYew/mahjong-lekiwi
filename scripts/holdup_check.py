@@ -4,6 +4,8 @@
     python scripts/holdup_check.py                              # every real holdup session; holds out the newest session if
                                                                 # there are two or more, else the last 2 holds of each tile/way up
     python scripts/holdup_check.py --by hold                    # always split by hold (optimistic: same session's light and hands)
+    python scripts/holdup_check.py --sessions sessions/EVENING_holdup,sessions/DAY_holdup --test-session DAY_holdup
+                                                                # train on one light, test on another (the tiles both have)
     python scripts/holdup_check.py --framing whole              # the whole frame's centre square, as before tile boxes
     python scripts/holdup_check.py --sessions sessions/A_holdup,sessions/B_holdup --epochs 200
 
@@ -24,7 +26,8 @@ verdict is BACKGROUND whatever the main rate. Without tile boxes there is no con
 
 The bar (docs/face_down_plan.md, test 1b, set before the first run): 70% or more, on 3+ tiles and well above the best
 constant answer -> worth a real capture at the arm's pose. 40% or less -> the view or the hold is the problem, look at the
-photos before capturing more. In between: capture more and rerun. Writes holdup_check.json next to the newest session.
+photos before capturing more. In between: capture more and rerun. Writes holdup_check.json next to the newest session
+(with --test-session, holdup_check_held_out.json in the session held out).
 """
 import argparse
 import json
@@ -50,6 +53,9 @@ def parse_args(argv=None):
     p.add_argument("--sessions", default=None, help="holdup session folders, comma separated (default: every real one)")
     p.add_argument("--by", choices=("auto", "session", "hold"), default="auto", help="how to hold photos out (default auto)")
     p.add_argument("--test-holds", type=int, default=2, help="with --by hold: holds of each tile and way up held out (default 2)")
+    p.add_argument("--test-session", default=None,
+                   help="hold out this session (a folder name or path among --sessions), train on the rest, test the tiles "
+                        "they share (e.g. train on an evening, test on a day); overrides --by")
     p.add_argument("--framing", choices=("tile", "whole"), default="tile",
                    help="tile: the square round each pose's tile box; whole: the frame's centre square (default tile)")
     p.add_argument("--epochs", type=int, default=150, help="default 150 (a small set needs many passes to train)")
@@ -175,7 +181,11 @@ def main(argv=None, train_fn=None, predict_fn=None, select=None):
         if len(kept) < len(rows):
             print(f"left out {len(rows) - len(kept)} photo(s) with no tile box (held by hand, or a pose with none)")
         rows = kept
-    train_rows, test_rows, how, caveat = holdup.split(rows, args.by, args.test_holds)
+    test_session = Path(args.test_session).name if args.test_session else None
+    try:
+        train_rows, test_rows, how, caveat = holdup.split(rows, args.by, args.test_holds, test_session)
+    except ValueError as e:
+        raise SystemExit(str(e))
     print(f"{len(rows)} photos from {len({r['session'] for r in rows})} session(s), framed: {args.framing}; {how}")
     print(f"  train {len(train_rows)} photos of {len({r['truth'] for r in train_rows})} tiles, "
           f"test {len(test_rows)} of {len({r['truth'] for r in test_rows})}")
@@ -204,7 +214,10 @@ def main(argv=None, train_fn=None, predict_fn=None, select=None):
     print("  confusions (seed 0): " + (", ".join(f"{k} x{n}" for k, n in first["confusions"]) or "none"))
     result = verdict(rate, first["tiles"], first["best_constant_answer"], control)
     print(f"\n{result}")
-    out = folders[-1] / "holdup_check.json"
+    if test_session:            # its own file in the session held out, so the usual check's result stays
+        out = next(f for f in folders if f.name == test_session) / "holdup_check_held_out.json"
+    else:
+        out = folders[-1] / "holdup_check.json"
     out.write_text(json.dumps({"split": how, "caveat": caveat, "sessions": sorted({r["session"] for r in rows}),
                                "framing": args.framing, "epochs": args.epochs, "mean_right": rate, "runs": runs,
                                "control_right": control, "control_runs": control_runs, "verdict": result}, indent=2) + "\n")

@@ -139,6 +139,22 @@ def test_tile_frame_and_the_greyed_out_control():
     assert blank.max() == holdup.BLANK and image.max() == 255                   # greyed out, the original untouched
 
 
+def test_a_chosen_session_is_held_out_and_only_shared_tiles_tested():
+    from mahjong import holdup
+    row = lambda s, t, h: {"session": s, "truth": t, "kind": "upright", "hold": h}
+    rows = [row("day", "7C", 1), row("day", "EW", 1), row("day", "EW", 2),
+            row("evening", "7C", 1), row("evening", "2C", 1), row("late", "1B", 1)]
+    train, test, how, caveat = holdup.split(rows, "hold", test_session="day")          # overrides --by
+    assert {r["session"] for r in train} == {"evening", "late"} and [r["truth"] for r in test] == ["7C"]
+    assert how.startswith("held out day, trained on evening, late") and "2 photo(s) of EW" in caveat
+    assert "1 photo(s) of 2C" in holdup.split(rows, "auto", test_session="evening")[3]
+    assert holdup.split(rows[:4], "auto", test_session="evening")[3] is None                  # every tile shared: nothing left out
+    with pytest.raises(ValueError):
+        holdup.split(rows, "auto", test_session="nowhere")
+    with pytest.raises(ValueError):                                                     # 1B is in no other session
+        holdup.split(rows, "auto", test_session="late")
+
+
 def test_auto_split_by_session_only_when_the_newest_tiles_were_all_trained_on():
     from mahjong import holdup
     row = lambda s, t, h: {"session": s, "truth": t, "kind": "upright", "hold": h}
