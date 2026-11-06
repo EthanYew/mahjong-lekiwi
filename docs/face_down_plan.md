@@ -164,8 +164,11 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   readers scored 0% (they answer one name to everything: this view is new to them, as expected). Test 1b scored 100%, but
   the same classifier trained with the tile blacked out scored 99%: each tile's holds were taken in a row from one spot, so the
   light, the empty spot and whoever was in view named the tile. `holdup_check.py` now crops to a tile box per pose and runs
-  that control every time (BACKGROUND verdict). Next capture: the tiles in turn from the same spots (S5, S9), then score on a
-  session never trained on.
+  that control every time (BACKGROUND verdict). `holdup_arm.py` now lays a tile on each spot, picks them in turn, and moves each
+  tile one spot along between arrangements. One of the 216 photos had the face blur over the tile; the rest that look soft are
+  the fixed-focus camera up close. The 2026-11-05 base-camera photos (hand-held and arm, 266 files) were deleted at the owner's
+  request (early face-blur attempts, a person in view); their event logs and wrist files stay. Next: a session collected the new
+  way, then a check that holds it out.
 - `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws. Built offline only: nothing here

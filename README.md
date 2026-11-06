@@ -832,16 +832,20 @@ on a layout spot, holds it up to the base camera at the saved `base_view_*` pose
 ```
 python scripts/holdup_arm.py --empty                       # first: visit each saved pose with nothing in the jaws, one Enter each
 python scripts/holdup_arm.py                               # collect what is short: default tiles, 6 holds per way up
-python scripts/holdup_arm.py --tiles 5C,3C --target-holds 10 --spots S7,S8 --holds-per-placement 3
+python scripts/holdup_arm.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
 python scripts/holdup_arm.py --sim                         # simulated arm and cameras
 ```
 
 `--empty` writes `sessions/<time>_holdup_dry/` with a base and a wrist frame per pose (`dry_run/`, `dry_run_sheet.jpg`) and prints each
 pose's height above the table (flagged under 30mm), reach and nearest joint limit. A collecting run counts the holds already in every
-real `*_holdup` session (by hand and by arm), asks you to lay the tile furthest short, and picks it up `--holds-per-placement` times (4):
-pick, rest, every pose with a small nudge (`--jitter-deg`, 2; 0 = as taught), rest, set it back down. You lay each tile twice: face
-down where the layout's face-up tile would lie (flipped sideways about its long edge, the top of its picture at the same end), then
-turned 180° on the mat. Which way up the camera sees each depends on the poses, so after the session's first hold it shows that photo
+real `*_holdup` session (by hand and by arm) and lays the tiles furthest short in groups, one on each `--spots` spot. Each round
+picks every spot once (pick, rest, every pose with a small nudge, `--jitter-deg` 2 or 0 = as taught, rest, set it back down), so
+holds of different tiles alternate; after `--rounds` rounds (at most 2, fewer if fewer holds are short) every tile moves one spot
+along and is laid the other way, until each tile has been held from every spot both ways up. A group short of tiles is filled
+with ones already at target, so no tile is collected alone. This order is what `holdup_check.py`'s control asks for: collected a
+tile at a time, the scene named the tile (2026-11-06). Several tiles need two or more spots. A tile is laid one of two ways: face
+down where the layout's face-up tile would lie (flipped sideways about its long edge, the top of its picture at the same end), or
+that turned 180° on the mat. Which way up the camera sees each depends on the poses, so after the session's first hold it shows that photo
 and asks whether the picture reads right way up (`u`, recorded as `upright`) or upside down (`d`, `turned`), and labels every later hold
 from the answer (in that window: `u` or `d`). A miss, a drop or an unreachable spot stops that tile and asks you.
 Where to lay each tile comes up as a live RealSense window, as in `layout.py`: the target spot's outline, the tile's name, and the short
@@ -851,8 +855,8 @@ face-down tile, so nothing turns green: line it up by eye. Space/Enter = laid, `
 moves. After a miss, or a tile lost on the way to a pose, the same window opens again for that tile and laying (same TOP end) to put
 it back by hand: Space/Enter tries again, `s` skips the tile, `q` quits. `--no-view` (and `--sim`) use a terminal prompt instead
 and don't open the RealSense. Other options: `--tiles`, `--target-holds`, `--layout` (the standard setup's),
-`--hover-lower-mm` (as `bench.py`'s, for a spot where the policy closes high), `--spots` (S5,S7,S9, taken in turn; S8 missed every pickup on 2026-11-05), `--max-misses` (2: that many misses in a row on a spot and the
-tile is given up for the run, instead of asking forever), `--poses`, `--frames` per pose (3), `--settle-s`, `--gap-s`, `--seed`, `--policy`. Photos and
+`--hover-lower-mm` (as `bench.py`'s, for a spot where the policy closes high), `--spots` (S5,S7,S9, a tile on each; S8 missed every pickup on 2026-11-05), `--max-misses` (2: that many misses in a row on a spot and
+it sits out the rest of that arrangement, instead of asking forever), `--poses`, `--frames` per pose (3), `--settle-s`, `--gap-s`, `--seed`, `--policy`. Photos and
 `holdup_shot` events (with `source: arm` and each frame's pose) go where the hand-held ones do, so `holdup_score.py` and `holdup_check.py` read them.
 
 ### Blurring faces in the base camera's photos

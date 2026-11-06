@@ -15,6 +15,7 @@ top of its picture at the same end, flipped sideways about its long edge) or `ro
 and says once per session what the first photo shows. `upright` and `turned` then mean what the camera sees (the picture reads
 right way up, or upside down in the frame), which is what holdup_score.py and the classifier mean by them.
 """
+import math
 import random
 from collections import defaultdict
 
@@ -51,14 +52,37 @@ def wanted(tiles, counts, target=DEFAULT_TARGET_HOLDS, kinds=holdup.KINDS):
 LAYINGS = ("as_layout", "rotated")      # the two ways a person lays a tile face down; which way up each shows is learned
 
 
-def placements(wanted_rows, holds_per_placement):
-    """What to lay: for each tile still short, both layings (one gives each way up), each picked up `holds` times: the larger
-    shortfall of its two ways up, at most `holds_per_placement` (every cycle sets the tile down by memory, so its error
-    compounds; the next run carries on from what's still missing)."""
-    most = {}
+def tile_groups(wanted_rows, tiles, size):
+    """The tiles laid together, `size` at a time (one per spot), furthest short first. A group short of `size` is filled with
+    other tiles from `tiles` (ones already at target first), photographed like the rest, so no tile is collected alone."""
+    short = list(dict.fromkeys(w["tile"] for w in wanted_rows))
+    groups = [short[i:i + size] for i in range(0, len(short), size)]
+    if groups and len(groups[-1]) < size:
+        last = groups[-1]
+        fill = [t for t in tiles if t not in short] + [t for t in short if t not in last]
+        last += fill[:size - len(last)]
+    return groups
+
+
+def arrangements(wanted_rows, tiles, n_spots, max_rounds):
+    """What to lay, in order: [{"tiles": one per spot, "laying", "rounds"}]. Collected one tile at a time, a tile's holds came in a
+    row from one spot, and the light, the spot and whoever was in view named it better than its face did (2026-11-06: 99% with
+    the tile blacked out). So a group of tiles is laid one per spot, and each round picks every spot once: holds of different
+    tiles alternate. Between arrangements every tile moves one spot along and the laying alternates, so each tile is held from
+    every spot, both ways up, through the whole session. `rounds` is what the group's furthest-short tile still needs, at most
+    `max_rounds` (each pickup sets the tile down by memory, so its error compounds; a next run carries on from what's short)."""
+    size = min(n_spots, len(tiles))
+    missing = {}
     for w in wanted_rows:
-        most[w["tile"]] = max(most.get(w["tile"], 0), w["missing"])
-    return [{"tile": t, "laying": laying, "holds": min(m, holds_per_placement)} for t, m in most.items() for laying in LAYINGS]
+        missing[w["tile"]] = max(missing.get(w["tile"], 0), w["missing"])
+    out = []
+    for group in tile_groups(wanted_rows, tiles, size):
+        need = max(missing.get(t, 0) for t in group)
+        rounds = min(max(1, math.ceil(need / size)), max_rounds)
+        for shift in range(size):
+            for laying in LAYINGS:
+                out.append({"tiles": group[shift:] + group[:shift], "laying": laying, "rounds": rounds})
+    return out
 
 
 def pose_names(prefix=POSE_PREFIX, poses=None):
