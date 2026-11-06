@@ -32,6 +32,20 @@ def save(name, joints, source, session=None, path=None):
     return entry
 
 
+def set_tile_box(name, box, source, path=None):
+    """Saves where a tile held at pose `name` shows up in the base camera's frame, [x0, y0, x1, y1] in pixels
+    (holdup.tile_boxes reads it). Returns the entry."""
+    path = path or config.CAMERA_POSES
+    poses = load(path)
+    if name not in poses:
+        raise SystemExit(f"No camera pose '{name}' in {path}")
+    x0, y0, x1, y1 = (int(v) for v in box)
+    poses[name]["tile_box"] = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+    poses[name]["tile_box_source"] = source
+    path.write_text(json.dumps({"poses": poses}, indent=2) + "\n")
+    return poses[name]
+
+
 def next_name(prefix, path=None):
     """`prefix` + the next unused number: base_view_1, base_view_2, ..."""
     taken = load(path)

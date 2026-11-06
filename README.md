@@ -785,8 +785,10 @@ python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
 python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
 python scripts/holdup_score.py                                    # the latest holdup session
 python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_check/name_check.pt
+python scripts/holdup_check.py --mark-boxes                       # once per taught pose: drag a box round where the held tile shows
 python scripts/holdup_check.py                                    # can a classifier learn this view? trains on some photos, scores others
 python scripts/holdup_check.py --sessions sessions/<time>_holdup --by hold --seeds 3
+python scripts/holdup_check.py --framing whole                    # the whole frame (hand-held photos have no tile box)
 python scripts/teleop_view.py                                     # drive by gamepad watching the wrist and base cameras (arm)
 python scripts/teleop_view.py --go manual_1 --name base_view_     # start at a saved pose; s saves the next one
 python scripts/teleop_view.py --sim
@@ -805,12 +807,17 @@ on every 3C photo and nothing else. The plan's stop is "nothing reads anywhere t
 if anything did.
 
 `holdup_check.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
-(auto holds out the newest session when there are two, else the last `--test-holds` 2 holds of each tile and way up, which
-is optimistic: the same light and hands are on both sides), `--epochs` (150), `--seeds` (3). It is not a fine-tune of the
-installed weights: it trains a fresh YOLO11n-cls from its ImageNet weights on the whole-frame view, for just the tiles you
-held, and scores the held-out photos against chance and the best constant answer. The bar (70% or more, on 3+ tiles, well
-above the constant answer, to be worth a real capture; 40% or less to look at the photos first) is in
-`docs/face_down_plan.md` test 1b. It writes `holdup_check.json` into the newest session.
+(auto holds out the newest session when every tile in it is also in an older one, else the last `--test-holds` 2 holds of each
+tile and way up, which is optimistic: the same light and hands are on both sides), `--framing tile|whole` (tile), `--epochs`
+(150), `--seeds` (3, for the check and again for the control), `--mark-boxes`. It is not a fine-tune of the installed weights:
+it trains a fresh YOLO11n-cls from its ImageNet weights, for just the tiles you held, and scores the held-out photos against
+chance and the best constant answer. `tile` framing crops each photo to the tile box of the pose the arm held it at (a box per
+`base_view_*` pose in `data/camera_poses.json`, drawn with `--mark-boxes` on the average of that pose's photos: Enter saves, `c`
+keeps the old one); photos with no box, such as hand-held ones, are left out. The control trains again on the whole frame with
+the tile box greyed out: if that beats the best constant answer by 15 points, the verdict is BACKGROUND (the scene names the
+tile, as on 2026-11-06 when each tile's holds were taken in a row). With no boxes there is no control, and a pass reads
+UNCONTROLLED. The bar (70% or more, on 3+ tiles, well above the constant answer, to be worth a real capture; 40% or less to
+look at the photos first) is in `docs/face_down_plan.md` test 1b. It writes `holdup_check.json` into the newest session.
 
 `teleop_view.py` (moves the arm: asks a person to run it): the gamepad drives the arm as in `collect_corrections.py`, and one
 window shows the wrist and base cameras side by side with the commanded pose, the tool point and its distance from the

@@ -71,8 +71,9 @@ def is_sim(session_dir):
 
 
 def rows(session_dir):
-    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session.
-    The first two sessions held tiles at fixed distances and have no holds: their `hold` is None."""
+    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session, pose.
+    The first two sessions held tiles at fixed distances and have no holds: their `hold` is None. `pose` is the saved camera
+    pose the arm held the tile at (holdup_arm.py); None for a tile held by hand."""
     session_dir = Path(session_dir)
     events = read_events(session_dir)
     conditions = next((e["conditions"] for e in events if e["type"] == "holdup_conditions"), {})
@@ -81,10 +82,12 @@ def rows(session_dir):
     for e in events:
         if e["type"] != "holdup_shot" or e["shot"] in discarded:
             continue
-        for f in e["files"]:
+        poses = e.get("frame_poses") or [None] * len(e["files"])        # by the arm: which saved pose each frame is from
+        for f, pose in zip(e["files"], poses):
             if (session_dir / f).exists():
                 out.append({"truth": e["tile"], "kind": e["kind"], "hold": e.get("hold"), "path": session_dir / f,
-                            "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name})
+                            "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name,
+                            "pose": pose})
     return out
 
 
@@ -106,6 +109,40 @@ def whole_frame(image, size=name_check.INPUT_PX):
     side = min(h, w)
     x0, y0 = (w - side) // 2, (h - side) // 2
     return cv2.resize(image[y0:y0 + side, x0:x0 + side], (size, size), interpolation=cv2.INTER_AREA)
+
+
+# --- where the held tile is (a box per saved pose) ---
+# The arm holds a tile at a saved pose, so it shows up in about the same part of the base camera's frame each time: not exactly
+# (each pose is nudged a couple of degrees, and the jaws close at a different place on the tile each pickup), so a pose's
+# `tile_box` in data/camera_poses.json is where the tile CAN be, drawn generously by a person (holdup_check.py --mark-boxes).
+# Two uses: framing the classifier on the tile instead of the room, and the control that greys the tile out to see whether
+# the rest of the frame gives the tile away (the first arm sessions did, 2026-11-06: 99% with the tile blacked out).
+BLANK = 128                              # the grey a tile box is filled with for the control
+
+
+def tile_boxes(poses=None):
+    """{pose name: [x0, y0, x1, y1]} for every saved camera pose with a tile box (base camera pixels)."""
+    from . import camera_poses
+    poses = camera_poses.load() if poses is None else poses
+    return {name: [int(v) for v in p["tile_box"]] for name, p in poses.items() if p.get("tile_box")}
+
+
+def tile_frame(image, box, size=name_check.INPUT_PX):
+    """The square of `image` around a pose's tile box (its longer side), resized: the tile and as little room as possible."""
+    return square_around(image, box, pad=1.0, size=size)
+
+
+def without_tile(image, box):
+    """A copy of `image` with the tile box filled grey: what's left is everything the photo shows except the tile."""
+    out = image.copy()
+    x0, y0, x1, y1 = (int(v) for v in box)
+    out[max(y0, 0):y1, max(x0, 0):x1] = BLANK
+    return out
+
+
+def as_input(image, size=name_check.INPUT_PX):
+    """An already-framed square, at the classifier's input size."""
+    return image if image.shape[:2] == (size, size) else cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
 
 
 def framings(image, boxes):
@@ -262,7 +299,9 @@ def split(rows, by="auto", test_holds=2):
     hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies)."""
     sessions = sorted({r["session"] for r in rows})
     if by == "auto":
-        by = "session" if len(sessions) > 1 else "hold"
+        newest = {r["truth"] for r in rows if r["session"] == sessions[-1]}
+        older = {r["truth"] for r in rows if r["session"] != sessions[-1]}
+        by = "session" if len(sessions) > 1 and newest <= older else "hold"     # every tile tested must have been trained on
     if by == "session":
         if len(sessions) < 2:
             raise ValueError("a split by session needs two sessions")

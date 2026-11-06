@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 
+import cv2
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -36,20 +37,115 @@ def test_check_trains_on_the_early_holds_and_scores_the_last_ones(tmp_path, monk
         seen["tested"] = len(images)
         return ["5C"] * len(images)                                             # one answer for everything
 
-    result = holdup_check.main(["--by", "hold", "--seeds", "2", "--epochs", "1"], train_fn=train, predict_fn=predict)
+    with pytest.raises(SystemExit):                                             # hand-held: no tile boxes to frame on
+        holdup_check.main(["--by", "hold", "--seeds", "1", "--epochs", "1"], train_fn=train, predict_fn=predict)
+    result = holdup_check.main(["--by", "hold", "--seeds", "2", "--epochs", "1", "--framing", "whole"],
+                               train_fn=train, predict_fn=predict)
     assert seen["seeds"] == [0, 1] and seen["tested"] == 12 and len(seen["train"]) == 12
     assert {p["name"] for p in seen["train"]} == {"5C", "3C", "2C"}
     assert result["verdict"].startswith("FAIL") and abs(result["mean_right"] - 1 / 3) < 1e-9
+    assert result["control_right"] is None                                      # no boxes, no control
     assert json.loads((out / "holdup_check.json").read_text())["split"].startswith("held out the last 2 holds")
 
 
 def test_verdict_bar():
     import holdup_check
-    assert holdup_check.verdict(0.9, 4, 0.25).startswith("PASS")
+    assert holdup_check.verdict(0.9, 4, 0.25, control=0.3).startswith("PASS")
     assert holdup_check.verdict(0.9, 2, 0.5).startswith("only 2")
     assert holdup_check.verdict(0.3, 4, 0.25).startswith("FAIL")
     assert holdup_check.verdict(0.55, 4, 0.25).startswith("IN BETWEEN")
     assert holdup_check.verdict(0.75, 4, 0.7).startswith("IN BETWEEN")            # near the best constant answer: no pass
+
+
+def test_verdict_control():
+    import holdup_check
+    assert holdup_check.verdict(1.0, 3, 0.57, control=0.99).startswith("BACKGROUND")   # 2026-11-06's arm photos
+    assert holdup_check.verdict(0.3, 3, 0.4, control=0.6).startswith("BACKGROUND")     # the background beats the tile itself
+    assert holdup_check.verdict(0.9, 3, 0.34, control=0.45).startswith("PASS")         # within the margin of the constant
+    assert holdup_check.verdict(0.9, 3, 0.34).startswith("UNCONTROLLED")               # no boxes: a pass isn't a pass
+
+
+def arm_like(out, poses):
+    """Turns a simulated hand-held session into one the arm took: each shot's frames from `poses` in turn."""
+    lines, n = [], 0
+    for line in (out / "events.jsonl").read_text().splitlines():
+        e = json.loads(line)
+        if e["type"] == "holdup_shot":
+            e["frame_poses"] = []
+            for _ in e["files"]:
+                e["frame_poses"].append(poses[n % len(poses)])
+                n += 1
+        lines.append(json.dumps(e))
+    (out / "events.jsonl").write_text("\n".join(lines) + "\n")
+
+
+def test_check_frames_on_the_tile_box_and_runs_the_control(tmp_path, monkeypatch):
+    import holdup_check
+    from mahjong import holdup
+    out = sim_session(monkeypatch, tmp_path)
+    arm_like(out, ["v1"])
+    monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
+    camera_poses.save("v1", {j: 0.0 for j in config.ARM_JOINTS}, "test")
+    camera_poses.set_tile_box("v1", [300, 200, 100, 0], "test")                # corners in any order
+    assert holdup.tile_boxes() == {"v1": [100, 0, 300, 200]}
+    assert {r["pose"] for r in holdup.rows(out)} == {"v1"}
+    monkeypatch.setattr(holdup_check, "find_sessions", lambda arg: [out])
+    _, test_rows, _, _ = holdup.split(holdup.rows(out), "hold", 2)
+    truth = [r["truth"] for r in test_rows]
+    seen = {"train": 0, "shapes": set()}
+
+    def train(photos, seed, epochs, log, crop_fn):
+        seen["train"] += 1
+        seen["shapes"] |= {crop_fn(cv2.imread(str(p["path"]))).shape for p in photos}
+        return {}
+
+    result = holdup_check.main(["--by", "hold", "--seeds", "2", "--epochs", "1"], train_fn=train,
+                               predict_fn=lambda checkpoint, images, crop_fn: truth)     # right whatever it's shown
+    assert seen["train"] == 4                                                   # 2 seeds, then 2 for the control
+    assert seen["shapes"] == {(name_check_px(), name_check_px(), 3)}
+    assert result["control_right"] == 1.0 and result["verdict"].startswith("BACKGROUND")
+
+
+def name_check_px():
+    from mahjong import name_check
+    return name_check.INPUT_PX
+
+
+def test_mark_boxes_saves_a_box_per_pose_and_keeps_one_left_alone(tmp_path, monkeypatch):
+    import holdup_check
+    out = sim_session(monkeypatch, tmp_path, holds=2)
+    arm_like(out, ["v1", "v2"])
+    monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
+    for name in ("v1", "v2"):
+        camera_poses.save(name, {j: 0.0 for j in config.ARM_JOINTS}, "test")
+    monkeypatch.setattr(holdup_check, "find_sessions", lambda arg: [out])
+    shown = []
+
+    def select(name, image):
+        shown.append((name, image.shape))
+        return [10, 20, 110, 220] if name == "v1" else None
+    saved = holdup_check.main(["--mark-boxes"], select=select)
+    assert saved == {"v1": [10, 20, 110, 220]} and [n for n, _ in shown] == ["v1", "v2"]
+    assert camera_poses.get("v1")["tile_box"] == [10, 20, 110, 220] and "tile_box" not in camera_poses.get("v2")
+
+
+def test_tile_frame_and_the_greyed_out_control():
+    import numpy as np
+    from mahjong import holdup
+    image = np.zeros((480, 640, 3), np.uint8)
+    image[0:100, 200:300] = 255                                                 # the "tile"
+    assert holdup.tile_frame(image, [200, 0, 300, 100]).mean() > 250            # the crop is the tile
+    blank = holdup.without_tile(image, [190, 0, 310, 110])
+    assert blank.max() == holdup.BLANK and image.max() == 255                   # greyed out, the original untouched
+
+
+def test_auto_split_by_session_only_when_the_newest_tiles_were_all_trained_on():
+    from mahjong import holdup
+    row = lambda s, t, h: {"session": s, "truth": t, "kind": "upright", "hold": h}
+    rows = [row("a", "7C", 1), row("a", "7C", 2), row("b", "7C", 1), row("b", "EW", 1), row("b", "EW", 2)]
+    assert holdup.split(rows, "auto")[2].startswith("held out the last")       # EW is only in the newest
+    rows.append(row("a", "EW", 1))
+    assert holdup.split(rows, "auto")[2].startswith("held out the newest session")
 
 
 @pytest.mark.slow

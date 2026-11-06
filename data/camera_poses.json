@@ -35,7 +35,14 @@
       "source": "taught with teleop_view.py: the commanded pose",
       "saved": "2026-11-05T19:31:30",
       "gripper": 0.0,
-      "session": "20261105_192932_teleop_view"
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        170,
+        0,
+        510,
+        350
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
     },
     "base_view_2": {
       "pose": {
@@ -48,7 +55,14 @@
       "source": "taught with teleop_view.py: the commanded pose",
       "saved": "2026-11-05T19:33:08",
       "gripper": 0.0,
-      "session": "20261105_192932_teleop_view"
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        140,
+        0,
+        500,
+        320
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
     },
     "base_view_3": {
       "pose": {
@@ -61,7 +75,14 @@
       "source": "taught with teleop_view.py: the commanded pose",
       "saved": "2026-11-05T19:34:22",
       "gripper": 0.0,
-      "session": "20261105_192932_teleop_view"
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        220,
+        0,
+        450,
+        190
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
     },
     "base_view_4": {
       "pose": {
@@ -74,7 +95,14 @@
       "source": "taught with teleop_view.py: the commanded pose",
       "saved": "2026-11-05T19:34:38",
       "gripper": 0.0,
-      "session": "20261105_192932_teleop_view"
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        160,
+        0,
+        500,
+        320
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
     }
   }
 }
