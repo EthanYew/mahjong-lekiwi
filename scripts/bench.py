@@ -232,17 +232,25 @@ class Bench:
                            policies=[{"id": p.id, "hover": self.hover_of(p)} for p in self.policies],
                            layout=args.layout, spots=self.spots, unattended=args.unattended, carry=args.carry,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
-                           hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper)
+                           hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper,
+                           hover_lower_mm=args.hover_lower_mm)
 
     # --- pieces ---
 
     def hover_of(self, policy):
         """The policy's hover (data/policies.json), with --hover-gripper's opening if given. The policy
         moves the gripper as deltas from it, so its narrowing on the way down shifts by the difference.
-        The wrist look keeps the policy's own opening: its face-fill threshold was measured there."""
-        if self.args.hover_gripper is None:
-            return policy.hover
-        return {**policy.hover, "gripper": self.args.hover_gripper}
+        The wrist look keeps the policy's own opening: its face-fill threshold was measured there.
+        --hover-lower-mm lowers the hover's height too (its offset and the clearance the settle aims for, together, so the
+        settle may go that far down): an experiment on where the policy's descent ends, never a counted result."""
+        hover = dict(policy.hover)
+        if self.args.hover_gripper is not None:
+            hover["gripper"] = self.args.hover_gripper
+        lower = (self.args.hover_lower_mm or 0.0) / 1000
+        if lower:
+            hover["offset_m"] -= lower
+            hover["clearance_m"] -= lower
+        return hover
 
     def scan(self, label, confirmed=None, look=True, **fields):
         """Detect tiles and log them as a `detections` event: consecutive scans show what changed on the
@@ -756,7 +764,7 @@ class Bench:
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                            **run, **review)
         self.last_attempt = attempt.name
-        if success and run["grasp_xy"]:
+        if success and run["grasp_xy"] and not self.args.hover_lower_mm:     # a lowered hover says nothing about the usual one
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
@@ -1122,7 +1130,13 @@ def parse_args(argv=None):
     p.add_argument("--hover-gripper", type=float, default=None,
                    help="gripper opening at the hover (%%) for every policy, instead of the one its episodes started "
                         "at (data/policies.json; v6 26.7). Its narrowing on the way down shifts by the same amount")
+    p.add_argument("--hover-lower-mm", type=float, default=None,
+                   help="hover this many mm lower than the policy's own (its offset and clearance both), e.g. 8 at a spot "
+                        "where it closes high (v8 at S8, 2026-11-05: 28mm up, missed). An experiment: its attempts save no "
+                        "hover samples and the session is no counted result. At most 10 (the arm's own limit)")
     args = p.parse_args(argv)
+    if args.hover_lower_mm is not None and not -15 <= args.hover_lower_mm <= 10:
+        p.error("--hover-lower-mm is from -15 (higher) to 10 (lower): the settle only goes 10mm under the hover's offset")
     if args.unattended and not (args.trials and (args.tile or args.layout)):
         p.error("--unattended needs --trials and --tile or --layout: at the menu, or asked which tile, it would wait for you")
     if args.carry and (len(args.carry) != 2 or len(set(args.carry)) != 2 or not args.layout or args.unattended
