@@ -51,11 +51,30 @@ def test_wanted_puts_the_tile_furthest_short_first_and_drops_the_ones_at_target(
     rows = holdup_arm.wanted(["5C", "3C", "2C", "9C"], counts, target=6)
     assert [(r["tile"], r["kind"], r["missing"]) for r in rows] == [
         ("9C", "upright", 6), ("9C", "turned", 6), ("2C", "upright", 5), ("2C", "turned", 6), ("3C", "upright", 1), ("3C", "turned", 6)]
-    plan = holdup_arm.placements(rows, 4)       # both layings of each tile, holds = its larger shortfall, capped
-    assert [(p["tile"], p["laying"], p["holds"]) for p in plan] == [
-        ("9C", "as_layout", 4), ("9C", "rotated", 4), ("2C", "as_layout", 4), ("2C", "rotated", 4),
-        ("3C", "as_layout", 4), ("3C", "rotated", 4)]
-    assert holdup_arm.placements(rows, 10)[4]["holds"] == 6
+
+
+def test_arrangements_lay_a_tile_per_spot_move_each_one_along_and_alternate_the_laying():
+    rows = holdup_arm.wanted(["9C", "2C", "3C", "5C"], {("5C", k): 6 for k in holdup.KINDS}, target=6)
+    plan = holdup_arm.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=2)
+    assert [(a["tiles"], a["laying"]) for a in plan] == [
+        (["9C", "2C"], "as_layout"), (["9C", "2C"], "rotated"), (["2C", "9C"], "as_layout"), (["2C", "9C"], "rotated"),
+        (["3C", "5C"], "as_layout"), (["3C", "5C"], "rotated"), (["5C", "3C"], "as_layout"), (["5C", "3C"], "rotated")]
+    assert {a["rounds"] for a in plan} == {2}        # 6 missing over 2 spots = 3 rounds, capped at 2
+    held = {}
+    for a in plan:                                    # every tile at every spot, both layings, the same number of times
+        for spot, tile in enumerate(a["tiles"]):
+            held[(tile, spot, a["laying"])] = held.get((tile, spot, a["laying"]), 0) + a["rounds"]
+    assert len(held) == 4 * 2 * 2 and set(held.values()) == {2}
+    assert holdup_arm.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=9)[0]["rounds"] == 3
+
+
+def test_a_short_group_is_filled_so_no_tile_is_collected_alone_and_one_hold_short_needs_one_round():
+    rows = holdup_arm.wanted(["1B", "EW", "7C"], {("1B", "upright"): 6, ("1B", "turned"): 6, ("EW", "upright"): 6,
+                                                   ("EW", "turned"): 6, ("7C", "upright"): 5, ("7C", "turned"): 5}, target=6)
+    assert holdup_arm.tile_groups(rows, ["1B", "EW", "7C"], 3) == [["7C", "1B", "EW"]]    # 1B and EW are at target: fillers
+    plan = holdup_arm.arrangements(rows, ["1B", "EW", "7C"], n_spots=3, max_rounds=4)
+    assert len(plan) == 6 and {a["rounds"] for a in plan} == {1}       # 7C is 1 short; 3 spots x 1 round gives it 3
+    assert holdup_arm.arrangements(rows, ["7C"], n_spots=3, max_rounds=4)[0]["tiles"] == ["7C"]     # one tile, one spot
 
 
 def test_pose_names_are_numbered_not_alphabetical():
@@ -100,7 +119,7 @@ def run_script(script, argv, answers):
 
 def test_a_simulated_run_picks_shows_and_sets_back_down_and_leaves_photos_the_other_scripts_read(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
-    folder = run_script(script, ["--tiles", "5C", "--target-holds", "2", "--holds-per-placement", "2", "--frames", "2"],
+    folder = run_script(script, ["--tiles", "5C", "--target-holds", "2", "--rounds", "2", "--frames", "2"],
                         ["", "", "", "", "d", ""])  # three lighting answers, lay as_layout, "upside down" about its first photo, lay rotated
     events = read_events(folder)
     kinds = [e["type"] for e in events]
@@ -114,6 +133,28 @@ def test_a_simulated_run_picks_shows_and_sets_back_down_and_leaves_photos_the_ot
     shot = next(e for e in events if e["type"] == "holdup_shot")
     assert shot["source"] == "arm" and shot["frame_poses"] == ["base_view_1"] * 2 + ["base_view_2"] * 2
     assert holdup.is_sim(folder)
+
+
+def test_a_simulated_run_with_two_tiles_alternates_them_and_moves_each_to_the_other_spot(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path, poses=1)
+    answers = iter(["", "", "", "", "", "d", "", "", "", "", "", ""])   # lighting x3, lay 2, "upside down", then lay 2 per arrangement
+    folder = script.main(["--sim", "--layout", "even-hand14", "--spots", "S5,S9", "--tiles", "1B,EW", "--target-holds", "2",
+                          "--rounds", "1", "--frames", "1"], ask=lambda prompt: next(answers, "q"))
+    events = read_events(folder)
+    shots = [(e["tile"], e["spot"]) for e in events if e["type"] == "holdup_shot"]
+    assert shots == [("1B", "S5"), ("EW", "S9"), ("1B", "S5"), ("EW", "S9"),
+                     ("EW", "S5"), ("1B", "S9"), ("EW", "S5"), ("1B", "S9")]     # never the same tile twice in a row
+    layouts = [e["tiles"] for e in events if e["type"] == "holdup_arrangement"]
+    assert layouts == [{"S5": "1B", "S9": "EW"}] * 2 + [{"S5": "EW", "S9": "1B"}] * 2
+    assert [e["laying"] for e in events if e["type"] == "holdup_arrangement"] == ["as_layout", "rotated"] * 2
+    counts = {(r["truth"], r["kind"]) for r in holdup.rows(folder)}
+    assert counts == {(t, k) for t in ("1B", "EW") for k in holdup.KINDS}
+
+
+def test_several_tiles_need_several_spots(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit):
+        run_script(script, ["--tiles", "1B,EW"], [])            # run_script lays on S7 only
 
 
 def test_nothing_is_collected_when_every_tile_already_has_enough(monkeypatch, tmp_path, capsys):

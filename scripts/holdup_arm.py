@@ -3,7 +3,7 @@ face down on a layout spot, hold it up to the base camera at the taught poses, s
 
     python scripts/holdup_arm.py --empty                      # first: visit the saved poses with NOTHING in the jaws
     python scripts/holdup_arm.py                              # collect what's short, 7 default tiles, 6 holds per way up
-    python scripts/holdup_arm.py --tiles 5C,3C --target-holds 10 --spots S7,S8
+    python scripts/holdup_arm.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
     python scripts/holdup_arm.py --sim                        # simulated arm and cameras, no hardware
 
 `--empty` is the safety pass: for each pose in data/camera_poses.json (`base_view_*`) it asks, moves there, and saves a base
@@ -11,13 +11,16 @@ and a wrist frame to the session's `dry_run/`, with the pose's height above the 
 (a pose with the tip under 30mm up is flagged). Look at the sheet before putting a tile in play: are the jaws in the base
 view, does the arm clear the base on the way? A tile is never in the jaws.
 
-The collecting run reads what the hold-up sessions already hold (by hand and by arm), works out which tile and way up are
-furthest short of `--target-holds`, and asks you to lay it, twice: as the layout's face-up tile would lie (flipped sideways
-about its long edge, so the top of its picture stays at the same end), then turned 180 degrees on the mat. The arm can't turn a
-tile, so that is what decides the way up the camera sees, and which is which depends on the poses: after the first hold of the
-session it shows you the photo and asks whether the picture reads right way up (`upright`) or upside down (`turned`), and
-labels every later hold from that. You lay one tile at a time; the arm picks it up `--holds-per-placement` times (each: pick,
-rest, every pose with a small random nudge, rest, set it back down, `--frames` frames at each pose). A live RealSense window
+The collecting run reads what the hold-up sessions already hold (by hand and by arm), works out which tiles are furthest short
+of `--target-holds`, and lays them in groups, one tile per `--spots` spot. Each round the arm picks every spot once (pick, rest,
+every pose with a small random nudge, rest, set it back down, `--frames` frames at each pose), so holds of different tiles
+alternate; after `--rounds` rounds every tile moves one spot along and is laid the other way. Collected a tile at a time, its
+holds came in a row from one spot, and the scene named the tile better than its face did (2026-11-06: 99% with the tile
+blacked out; `holdup_check.py`'s control). A tile is laid one of two ways: as the layout's face-up tile would lie (flipped
+sideways about its long edge, so the top of its picture stays at the same end), or that turned 180 degrees on the mat. The arm
+can't turn a tile, so that is what decides the way up the camera sees, and which is which depends on the poses: after the first
+hold of the session it shows you the photo and asks whether the picture reads right way up (`upright`) or upside down
+(`turned`), and labels every later hold from that. A live RealSense window
 shows where to lay each tile: the spot's outline, the tile's name and the end where the picture's top goes (TOP; `--layout-top`
 says which end of a spot a face-up layout tile's picture points to). Nothing turns green, since the detector can't see a back. A miss, a drop or an unreachable spot stops that tile and asks you, since nothing can
 see where a face-down tile is. Esc during a pickup stops the policy. Photos go where the hand-held ones go
@@ -58,11 +61,13 @@ def parse_args(argv=None):
     p.add_argument("--tiles", default=",".join(holdup.DEFAULT_TILES), help="tiles to collect, comma separated (default: %(default)s)")
     p.add_argument("--target-holds", type=int, default=holdup_arm.DEFAULT_TARGET_HOLDS,
                    help="holds per tile and way up to reach, counting every hold-up session (default %(default)s)")
-    p.add_argument("--holds-per-placement", type=int, default=4,
-                   help="pickups of a tile before you lay the next (default %(default)s): each sets it down by memory")
+    p.add_argument("--rounds", type=int, default=2,
+                   help="at most this many pickups of each tile before the tiles move one spot along (default %(default)s): "
+                        "each sets the tile down by memory")
     p.add_argument("--layout", default=default_layout(), help="the layout whose spots you lay tiles on (default: the standard setup's)")
     p.add_argument("--spots", default="S5,S7,S9",
-                   help="spot ids, taken in turn, one per tile laid (default %(default)s: S8 missed every pickup on 2026-11-05)")
+                   help="spot ids: a tile on each at once, picked in turn (default %(default)s: S8 missed every pickup on "
+                        "2026-11-05). More spots, more tiles interleaved")
     p.add_argument("--max-misses", type=int, default=2,
                    help="misses in a row on a spot before the tile is given up for this run (default %(default)s)")
     p.add_argument("--poses", default=None, help="saved poses to visit, comma separated (default: every base_view_N)")
@@ -340,6 +345,46 @@ def do_placement(rig, rng, placement, spot, ask, counters):
     return "ok"
 
 
+def lay(rig, arrangement, spots, where, ask):
+    """Asks for the arrangement's tiles to be laid face down, a spot at a time (the RealSense window, or the terminal).
+    Returns [(spot, tile)] for the spots laid (s leaves a spot out of this arrangement), or None to quit."""
+    laying = arrangement["laying"]
+    print(f"[{where}] Lay these, {laying.replace('_', ' ')}: " + ", ".join(f"{t} on {s['id']}" for s, t in zip(spots, arrangement["tiles"]))
+          + " (moving any tile already there)")
+    laid = []
+    for spot, tile in zip(spots, arrangement["tiles"]):
+        text = f"[{where}] {holdup_arm.lay_text(tile, laying, spot)}"
+        if rig.realsense is not None:
+            print(text + "\n  (the RealSense window shows where: Space/Enter when laid, s skip, q quit)")
+            answer = guide(rig.realsense, {"tile": tile, "laying": laying}, spot,
+                           holdup_arm.top_end_sign(laying, rig.args.layout_top))
+        else:
+            answer = ask(text + ", then Enter (s = skip, q = quit): ").strip().lower()
+        if answer == "q":
+            close_windows()
+            return None
+        if answer != "s":
+            laid.append((spot, tile))
+    close_windows()
+    return laid
+
+
+def run_rounds(rig, rng, arrangement, laid, ask, counters):
+    """Each round picks every laid spot once, so holds of different tiles alternate. A spot given up (misses, out of reach,
+    skipped) sits out the rest of this arrangement. Returns "ok" or "quit"."""
+    out = set()
+    for _ in range(arrangement["rounds"]):
+        for spot, tile in laid:
+            if spot["id"] in out:
+                continue
+            result = do_placement(rig, rng, {"tile": tile, "laying": arrangement["laying"], "holds": 1}, spot, ask, counters)
+            if result == "quit":
+                return "quit"
+            if result == "skip":
+                out.add(spot["id"])
+    return "ok"
+
+
 def empty_pass(rig, ask):
     """Visit each saved pose with nothing in the jaws, one Enter at a time; save a base and a wrist frame at each."""
     out = rig.session.dir / "dry_run"
@@ -395,9 +440,11 @@ def main(argv=None, ask=input):
         camera_poses.get(n)             # a wrong name fails before any hardware
     if not names:
         raise SystemExit(f"no {holdup_arm.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
-    tiles = [t.strip().upper() for t in args.tiles.split(",") if t.strip()]
-    plan = [] if args.empty else holdup_arm.placements(
-        holdup_arm.wanted(tiles, holdup_arm.hold_counts(), args.target_holds), args.holds_per_placement)
+    tiles = list(dict.fromkeys(t.strip().upper() for t in args.tiles.split(",") if t.strip()))
+    if not args.empty and len(tiles) > 1 and len(spots) < 2:
+        raise SystemExit("--spots needs two or more spots: with one, each tile's holds come in a row, and the scene names the tile")
+    plan = [] if args.empty else holdup_arm.arrangements(
+        holdup_arm.wanted(tiles, holdup_arm.hold_counts(), args.target_holds), tiles, len(spots), args.rounds)
     if not args.empty and not plan:
         return print(f"Every tile in {', '.join(tiles)} already has {args.target_holds} holds each way up: nothing to collect.")
     rig = Rig(args, spots, names)
@@ -411,24 +458,21 @@ def main(argv=None, ask=input):
         conditions = holdup.ask_lighting(ask)
         rig.open_session("holdup")
         rig.session.conditions = conditions
-        rig.session.event("holdup_conditions", conditions=conditions, shots=sum(p["holds"] for p in plan), source="arm",
-                          poses=names, jitter_deg=args.jitter_deg, target_holds=args.target_holds)
-        print("To collect: " + ", ".join(f"{p['tile']} {p['laying']} x{p['holds']}" for p in plan))
+        rig.session.event("holdup_conditions", conditions=conditions, shots=sum(len(a["tiles"]) * a["rounds"] for a in plan),
+                          source="arm", poses=names, jitter_deg=args.jitter_deg, target_holds=args.target_holds,
+                          spots=spot_ids, order="interleaved")
+        print(f"To collect: {len(plan)} arrangements, the tiles one per spot ({', '.join(spot_ids)}), each picked in turn; "
+              "between arrangements every tile moves one spot along and is laid the other way:")
+        for i, a in enumerate(plan, 1):
+            print(f"  {i}. {a['laying']}: " + ", ".join(f"{s} {t}" for s, t in zip(spot_ids, a["tiles"])) + f", {a['rounds']} round(s)")
         rig.arm.rest()
-        for i, placement in enumerate(plan):
-            spot = spots[i % len(spots)]
-            text = f"[{i + 1}/{len(plan)}] {holdup_arm.lay_text(placement['tile'], placement['laying'], spot)}"
-            if rig.realsense is not None:
-                print(text + "\n  (the RealSense window shows where: Space/Enter when laid, s skip, q quit)")
-                answer = guide(rig.realsense, placement, spot, holdup_arm.top_end_sign(placement["laying"], args.layout_top))
-                close_windows()
-            else:
-                answer = ask(text + ", then Enter (s = skip, q = quit): ").strip().lower()
-            if answer == "q":
+        for i, arrangement in enumerate(plan, 1):
+            laid = lay(rig, arrangement, spots, f"{i}/{len(plan)}", ask)
+            if laid is None:
                 break
-            if answer == "s":
-                continue
-            if do_placement(rig, rng, placement, spot, ask, counters) == "quit":
+            rig.session.event("holdup_arrangement", n=i, laying=arrangement["laying"], rounds=arrangement["rounds"],
+                              tiles={spot["id"]: tile for spot, tile in laid})
+            if run_rounds(rig, rng, arrangement, laid, ask, counters) == "quit":
                 break
     except KeyboardInterrupt:
         print("Interrupted.")
