@@ -220,3 +220,38 @@ def test_teleop_view_go_starts_at_a_saved_pose_and_needs_it_to_exist(tmp_path, m
         teleop_view.main(["--sim", "--go", "missing"])
     camera_poses.save("mine", camera_poses.load(config.REPO / "data" / "camera_poses.json")["manual_1"]["pose"], "test")
     teleop_view.main(["--sim", "--go", "mine"], keys=lambda: "q")
+
+
+def test_score_lists_every_check_and_says_which_have_a_clean_control(tmp_path, monkeypatch):
+    import holdup_score
+    from mahjong import holdup
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    run = lambda right, constant, tiles: {"photos": 24, "tiles": tiles, "right": right, "best_constant_answer": constant,
+                                          "per_tile": {"1B": right, "7C": right}, "confusions": [["1B->7C", 2]]}
+    day, evening = tmp_path / "20261106_105954_holdup", tmp_path / "20261106_195636_holdup"
+    for folder in (day, evening):
+        folder.mkdir()
+    (day / "holdup_check.json").write_text(json.dumps({          # an old file: no sizes, no time
+        "split": "held out the newest session, x", "caveat": None, "mean_right": 1.0, "runs": [run(1.0, 0.44, 3)],
+        "control_right": 0.99, "verdict": "BACKGROUND: the scene names it"}))
+    import datetime, os
+    old = datetime.datetime(2026, 11, 6, 13, 44).timestamp()
+    os.utime(day / "holdup_check.json", (old, old))                           # dated by its file
+    (evening / "holdup_check.json").write_text(json.dumps({
+        "written": "2026-11-06T22:51", "split": "held out the last 2 holds of every tile and way up", "caveat": "OPTIMISTIC: x",
+        "train_photos": 576, "train_holds": 48, "test_photos": 288, "test_holds": 24, "mean_right": 1.0,
+        "runs": [run(1.0, 0.17, 6)], "control_right": 0.0, "verdict": "PASS: worth a real capture"}))
+    (day / "holdup_check_held_out.json").write_text(json.dumps({
+        "written": "2026-11-07T09:00", "split": "held out 20261106_105954_holdup, trained on 20261106_195636_holdup",
+        "caveat": "left out 96 photo(s) of EW: in no other session, never trained on", "train_photos": 864, "train_holds": 72,
+        "test_photos": 120, "test_holds": 10, "mean_right": 0.99, "runs": [run(0.99, 0.60, 2)], "control_right": 0.60,
+        "verdict": "only 2 tile(s) held out: too few to judge"}))
+    results = holdup_score.main([])
+    assert [r["file"].split("/")[1] for r in results][-2:] == ["holdup_check.json", "holdup_check_held_out.json"]
+    text = "\n".join(holdup.check_lines(results))
+    assert "BACKGROUND" in text and "PASS" in text and "TOO FEW TILES" in text
+    assert "train 576 photos / 48 holds" in text and "left out 96 photo(s) of EW" in text and "OPTIMISTIC" not in text
+    assert "2 of 3 result(s) with a clean control" in text
+    assert "on a session never trained on: 99% on 1B, 7C (20261106_105954_holdup)" in text
+    assert holdup_score.main([str(evening)])[0]["file"].startswith(evening.name)       # one session's results only
+    assert "No holdup_check.py results yet" in holdup.check_lines([])[0]

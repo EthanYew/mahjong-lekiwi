@@ -75,7 +75,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
-| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py`, then `python scripts/holdup_check.py` |
+| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py --installed`, then `python scripts/holdup_check.py` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Have the arm collect base-camera photos of face-down tiles (check the saved poses with nothing in the jaws first) | `python scripts/holdup_arm.py --empty`, then `python scripts/holdup_arm.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
@@ -783,8 +783,9 @@ again in the evening; then the name classifier and the detector are scored on th
 python scripts/holdup_capture.py                                  # 7 tiles x 2 ways up x 4 holds, lighting asked first
 python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
 python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
-python scripts/holdup_score.py                                    # the latest holdup session
-python scripts/holdup_score.py sessions/<time>_holdup --weights outputs/name_check/name_check.pt
+python scripts/holdup_score.py                                    # is training a reader paying off? every holdup_check.py result
+python scripts/holdup_score.py --installed                        # the installed readers on the latest holdup session (test 1)
+python scripts/holdup_score.py --installed sessions/<time>_holdup --weights outputs/name_check/name_check.pt
 python scripts/holdup_check.py --mark-boxes                       # once per taught pose: drag a box round where the held tile shows
 python scripts/holdup_check.py                                    # can a classifier learn this view? trains on some photos, scores others
 python scripts/holdup_check.py --sessions sessions/<time>_holdup --by hold --seeds 3
@@ -799,7 +800,12 @@ python scripts/teleop_view.py --sim
 (3), `--gap-s` between a shot's frames, `--no-view` (Enter in the terminal instead of the preview window's space), `--sim`. Keys
 in the window: space takes the shot, `s` skips, `b` redoes the last, `q` quits. Photos go to
 `sessions/<time>_holdup/photos/<NAME>/`; the name you hold is the truth.
-`holdup_score.py`: `SESSION` (default: the latest), `--weights` (the classifier), `--detector`. It prints rates per slice (all,
+`holdup_score.py`: `SESSION` (default: every real holdup session; with `--installed`, the latest). By default it lists every
+`holdup_check.py` result, oldest first: what each trained and tested on (another session, or the same one, which is optimistic), the
+fresh reader's right rate, the control with the tile greyed out and the best constant answer, the per-tile rates and confusions,
+then which results have a clean control (within 15 points of the constant) and which of those were on a session never trained on:
+that last one is what says training pays off. Nothing is trained or run; it reads the JSON files. `--installed` is test 1: the
+installed readers, `--weights` (the classifier) and `--detector`, which were trained on other views and read ~0% here. It prints rates per slice (all,
 each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
 crop, a square round the detector's best box, the whole frame; each read as it is and upside down, reported apart) and for
 the detector, then writes `holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look

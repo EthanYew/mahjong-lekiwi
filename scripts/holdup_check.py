@@ -9,7 +9,8 @@
     python scripts/holdup_check.py --framing whole              # the whole frame's centre square, as before tile boxes
     python scripts/holdup_check.py --sessions sessions/A_holdup,sessions/B_holdup --epochs 200
 
-Why: the installed classifier and detector read nothing here (holdup_score.py), because neither was trained on this view.
+Why: the installed classifier and detector read nothing here (holdup_score.py --installed), because neither was trained on this
+view. `holdup_score.py` lists every result this writes, oldest first.
 This answers the question before a full capture is paid for. It is NOT a fine-tune of the installed weights: it starts a
 fresh YOLO11n-cls from its ImageNet weights, with a head for just the tiles held in these sessions. Holds are split whole,
 never a shot's near-identical frames across train and test. It runs --seeds times (small sets vary), and prints the
@@ -34,7 +35,7 @@ import json
 import statistics
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -218,7 +219,11 @@ def main(argv=None, train_fn=None, predict_fn=None, select=None):
         out = next(f for f in folders if f.name == test_session) / "holdup_check_held_out.json"
     else:
         out = folders[-1] / "holdup_check.json"
-    out.write_text(json.dumps({"split": how, "caveat": caveat, "sessions": sorted({r["session"] for r in rows}),
+    holds = lambda rs: len({(r["session"], r["truth"], r["kind"], r["shot"]) for r in rs})
+    out.write_text(json.dumps({"written": datetime.now().isoformat(timespec="minutes"),
+                               "split": how, "caveat": caveat, "sessions": sorted({r["session"] for r in rows}),
+                               "train_photos": len(train_rows), "train_holds": holds(train_rows),
+                               "test_photos": len(test_rows), "test_holds": holds(test_rows),
                                "framing": args.framing, "epochs": args.epochs, "mean_right": rate, "runs": runs,
                                "control_right": control, "control_runs": control_runs, "verdict": result}, indent=2) + "\n")
     print(f"saved {out}")

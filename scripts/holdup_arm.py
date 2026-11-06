@@ -482,7 +482,7 @@ def main(argv=None, ask=input):
         if rig.session:
             rig.session.event("holdup_done", shots_taken=counters["shots"])
             print(f"{counters['shots']} hold(s) saved in {folder}" + ("" if args.empty else
-                  f"\nCheck the photos: python scripts/holdup_score.py {folder}"))
+                  f"\nScore a reader trained on them: python scripts/holdup_check.py, then python scripts/holdup_score.py for every result"))
             rig.session.close()
     return folder
 
