@@ -1083,9 +1083,13 @@ sets and detector exam, the layouts and their notes, the drop zone and whether t
 there, the worst-read tiles on the standard surface (`name_report.py`), and how many merged branches are waiting to be
 closed.
 
-**Changing the default policy**: always with `--set-default ID --evidence ...` (and `--why`). It writes a
-`default_note` next to the default in `data/policies.json`; a test fails if the default changes without one.
-Then commit `data/policies.json` and update ROADMAP.md's status table.
+**Changing the default policy**: on a branch, never on `main`, always with `--set-default ID --evidence ...` (and `--why`;
+`--since YYYY-MM-DD` for a decision made earlier). It writes a `default_note` next to the default in `data/policies.json`; a
+test fails if the default changes without one. It then lists what still names the old default: the README policy list's
+`(default: ...)`, `record.py --policy` DAgger examples in README.md and CLAUDE.md, and ROADMAP.md's status table. The
+pre-commit tests fail until all agree, so change them in the same branch, commit them with `data/policies.json`, and merge
+the PR with `merge_pr.py`. Changed alone on `main` (2026-11-06), the default could be neither committed (the docs tests) nor
+pulled past (merge_pr.py stops on uncommitted changes to a file the PR also changes).
 
 Every hardware session also warns at its start if the checkout is behind origin/main (as last fetched), has
 uncommitted code, or is a worktree, and logs that in `session_start`.
