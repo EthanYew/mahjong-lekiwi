@@ -128,18 +128,45 @@ def parse_args(argv=None):
     p.add_argument("--set-default", metavar="ID", help="make this registered policy the default (with --evidence)")
     p.add_argument("--evidence", help="what the switch rests on, e.g. the bench session folder(s) and their scores")
     p.add_argument("--why", default="", help="the reason, in a sentence")
+    p.add_argument("--since", default=None, help="with --set-default: the day it was decided, YYYY-MM-DD (default today)")
     args = p.parse_args(argv)
     if args.set_default and not args.evidence:
         p.error("--set-default needs --evidence (e.g. sessions/<time>_bench and what it showed)")
     return args
 
 
+def stale_docs(policy_id, repo=None):
+    """Where the docs still disagree with a new default: what tests/test_docs.py checks, so the pre-commit hook would
+    refuse the commit until each is fixed (2026-11-06: a default changed alone on main could be neither committed nor merged)."""
+    import re
+    repo = Path(repo) if repo else Path(__file__).resolve().parents[1]
+    readme, claude, roadmap = ((repo / name).read_text() for name in ("README.md", "CLAUDE.md", "ROADMAP.md"))
+    out = []
+    if f"(default: `{policy_id}`" not in readme:
+        out.append(f"README.md: the policy list's \"(default: `...`\" names another policy; make it `{policy_id}`")
+    for name, text in (("README.md", readme), ("CLAUDE.md", claude)):
+        for line in text.splitlines():
+            if "record.py" in line and (m := re.search(r"--policy (pickup_mat_cl\w*)", line)) and m.group(1) != policy_id:
+                out.append(f"{name}: a DAgger example drives {m.group(1)}: {line.strip()[:90]}")
+    status = roadmap.split("\n## Status\n", 1)[-1].split("\n## ", 1)[0]
+    if policy_id not in status:
+        out.append(f"ROADMAP.md: the status table's Default policy row doesn't name {policy_id}")
+    return out
+
+
 def main(argv=None):
     args = parse_args(argv)
     if args.set_default:
         from mahjong.policy import set_default
-        note = set_default(args.set_default, args.evidence, args.why)
-        print(f"Default is now {args.set_default}: {note}\nCommit data/policies.json, and update ROADMAP.md's status.")
+        note = set_default(args.set_default, args.evidence, args.why, args.since)
+        print(f"Default is now {args.set_default}: {note}")
+        if checkout.git("rev-parse", "--abbrev-ref", "HEAD") == "main":
+            print("WARNING: this is main. A default is a decision: make it on a branch and merge it with merge_pr.py "
+                  "(undo here with: git restore data/policies.json)")
+        stale = stale_docs(args.set_default)
+        print("Still to change before the commit passes the tests:\n  " + "\n  ".join(stale) if stale else
+              "README.md, CLAUDE.md and ROADMAP.md already name it.")
+        print("Then commit data/policies.json with the docs, open a PR, and merge it with scripts/merge_pr.py.")
         return
     print(report())
 

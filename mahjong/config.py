@@ -30,6 +30,7 @@ RAISED_REST = {**REST_POSE, "shoulder_lift": -40.0, "elbow_flex": 40.0}
 # --- cameras ---
 FPS = 30
 WRIST_CAM = "/dev/wristcam"            # udev symlink
+BASE_CAM = "/dev/basecam"              # the LeKiwi base's front camera (same model as the wrist's): udev symlink by USB port, 3-9 on the NUC
 WRIST_USB_PORT = "3-8"                 # its USB port, for a power cycle if it dropped before this run saw where it was
 WRIST_RESOLUTION = (640, 480)          # what every dataset was recorded at (resized to 224 for training)
 REALSENSE_SERIAL = "825312070255"
@@ -104,6 +105,7 @@ DETECTOR_EVAL = DATA / "detector_eval"        # detector scores on the exam
 DETECTOR_DATA = DATA / "detector"             # exports for labelling and labelled exports (local; Roboflow keeps the labels)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
 DISCARD_POSE = DATA / "discard_pose.json"
+CAMERA_POSES = DATA / "camera_poses.json"       # arm poses that hold a tile up to the base camera (scripts/teleop_view.py)
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
 XLEROBOT_EXAMPLES = Path.home() / "Projects" / "XLeRobot" / "software" / "examples"

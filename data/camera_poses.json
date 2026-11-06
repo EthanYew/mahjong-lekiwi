@@ -1,0 +1,108 @@
+{
+  "poses": {
+    "manual_1": {
+      "pose": {
+        "shoulder_pan": -4.21978021978022,
+        "shoulder_lift": 47.91208791208791,
+        "elbow_flex": -8.395604395604396,
+        "wrist_flex": 98.46153846153847,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "hand-positioned by Ethan 2026-11-05 with the torque off: the measured pose, not a commanded one (a commanded pose sits a few mm lower)",
+      "saved": "2026-11-05T17:35:52",
+      "gripper": 12.89655172413793
+    },
+    "manual_2": {
+      "pose": {
+        "shoulder_pan": -3.340659340659341,
+        "shoulder_lift": 50.285714285714285,
+        "elbow_flex": -12.087912087912088,
+        "wrist_flex": 100.04395604395604,
+        "wrist_roll": -94.81318681318682
+      },
+      "source": "hand-positioned by Ethan 2026-11-05 with the torque off: the measured pose, not a commanded one (a commanded pose sits a few mm lower)",
+      "saved": "2026-11-05T17:35:52",
+      "gripper": 12.89655172413793
+    },
+    "base_view_1": {
+      "pose": {
+        "shoulder_pan": -6.5054945054945055,
+        "shoulder_lift": 35.78021978021978,
+        "elbow_flex": -6.637362637362638,
+        "wrist_flex": 91.78021978021978,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:31:30",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        170,
+        0,
+        510,
+        350
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
+    },
+    "base_view_2": {
+      "pose": {
+        "shoulder_pan": -6.5054945054945055,
+        "shoulder_lift": 37.8021978021978,
+        "elbow_flex": -10.153846153846153,
+        "wrist_flex": 97.93406593406593,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:33:08",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        140,
+        0,
+        500,
+        320
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
+    },
+    "base_view_3": {
+      "pose": {
+        "shoulder_pan": -8.527472527472527,
+        "shoulder_lift": 12.659340659340659,
+        "elbow_flex": 1.8021978021978022,
+        "wrist_flex": 86.94505494505495,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:34:22",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        220,
+        0,
+        450,
+        190
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
+    },
+    "base_view_4": {
+      "pose": {
+        "shoulder_pan": -5.802197802197802,
+        "shoulder_lift": 20.747252747252748,
+        "elbow_flex": 10.76923076923077,
+        "wrist_flex": 81.84615384615384,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:34:38",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view",
+      "tile_box": [
+        160,
+        0,
+        500,
+        320
+      ],
+      "tile_box_source": "drawn by Claude from photo grids of 20261105_211427_holdup and 20261106_105954_holdup (2026-11-06), generous for the \u00b12 degree nudges and grip; check with holdup_check.py --mark-boxes"
+    }
+  }
+}

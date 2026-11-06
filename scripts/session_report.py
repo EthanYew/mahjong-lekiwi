@@ -246,6 +246,9 @@ def main():
     bench_setup = next((e for e in events if e["type"] == "bench_setup"), {})
     if bench_setup.get("hover_gripper_override") is not None:
         print(f"  hover gripper {bench_setup['hover_gripper_override']:g}% (bench --hover-gripper), not the policy's own")
+    if bench_setup.get("hover_lower_mm"):
+        print(f"  hover {bench_setup['hover_lower_mm']:g}mm lower than the policy's own (bench --hover-lower-mm): an experiment, "
+              "not a counted result")
     if bench_setup.get("unattended"):
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "

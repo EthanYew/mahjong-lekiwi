@@ -15,12 +15,14 @@ LOST_S = 1.0       # no wrist frames for this long: the camera is lost, reopen i
 
 
 class WristCamera:
+    label = "wrist camera"
+
     def __init__(self, path=config.WRIST_CAM):
         if not os.path.exists(path):
-            raise RuntimeError(f"wrist camera {path} not found — check the udev rule / replug it")
+            raise RuntimeError(f"{self.label} {path} not found — check the udev rule / replug it")
         self.cap = cv2.VideoCapture(os.path.realpath(path), cv2.CAP_V4L2)
         if not self.cap.isOpened():
-            raise RuntimeError(f"wrist camera {path} failed to open")
+            raise RuntimeError(f"{self.label} {path} failed to open")
         width, height = config.WRIST_RESOLUTION
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -37,6 +39,14 @@ class WristCamera:
 
     def release(self):
         self.cap.release()
+
+
+class BaseCamera(WristCamera):
+    """The LeKiwi base's front camera, same model and settings as the wrist camera (docs/face_down_plan.md)."""
+    label = "base camera"
+
+    def __init__(self, path=config.BASE_CAM):
+        super().__init__(path)
 
 
 def read_within(camera, lost_s=LOST_S, clock=time.monotonic):

@@ -127,6 +127,34 @@ def test_hover_gripper_overrides_the_policys_opening_and_is_logged(tmp_path, mon
     assert [e["hover_gripper"] for e in events if e["type"] == "attempt"] == [25.0]
 
 
+def test_hover_lower_mm_lowers_the_hover_saves_no_samples_and_is_logged(tmp_path, monkeypatch):
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--tile", "8D", "--hover-lower-mm", "6"]))
+    own = b.policy.hover
+    lowered = b.hover_of(b.policy)
+    assert lowered["offset_m"] == pytest.approx(own["offset_m"] - 0.006) and lowered["clearance_m"] == pytest.approx(own["clearance_m"] - 0.006)
+    assert lowered["gripper"] == own["gripper"]
+    try:
+        b.arm.rest()
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    session = next(tmp_path.iterdir())
+    events = read_events(session)
+    assert next(e for e in events if e["type"] == "bench_setup")["hover_lower_mm"] == 6.0
+    attempt = next(e for e in events if e["type"] == "attempt")
+    assert attempt["success"] and attempt["hover_clearance_m"] < own["clearance_m"] - 0.002       # it hovered lower
+    assert not (session / "hover_corrections.jsonl").exists()                                    # and saved no sample of it
+
+
+def test_hover_lower_mm_is_limited_to_what_the_settle_can_reach():
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(["--sim", "--hover-lower-mm", "12"])
+    assert bench.parse_args(["--sim", "--hover-lower-mm", "-8"]).hover_lower_mm == -8.0
+
+
 def sim_bench(tmp_path, monkeypatch, trials=2):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)

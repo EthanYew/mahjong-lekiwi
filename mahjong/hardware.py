@@ -59,9 +59,23 @@ def open_gamepad(**kwargs):
         raise NotReady(f"{e} — switch the controller on / pair it") from e
 
 
-OPENERS = {"arm": open_arm, "wrist_camera": open_wrist_camera, "realsense": open_realsense, "gamepad": open_gamepad}
+def open_base_camera():
+    from .camera import BaseCamera, read_within
+    if not os.path.exists(config.BASE_CAM):
+        raise NotReady(f"no base camera at {config.BASE_CAM}: plug it in, and check `ls -l /dev/basecam /dev/wristcam` "
+                       "(docs/face_down_plan.md, 'The camera fix')")
+    camera = BaseCamera()
+    ok, _ = read_within(camera)
+    if not ok:
+        camera.release()
+        raise NotReady("the base camera opened but gives no frames: replug it")
+    return camera
+
+
+OPENERS = {"arm": open_arm, "wrist_camera": open_wrist_camera, "realsense": open_realsense, "gamepad": open_gamepad,
+           "base_camera": open_base_camera}
 CLOSE = {"arm": lambda a: a.disconnect(), "wrist_camera": lambda c: c.release(), "realsense": lambda r: r.close(),
-         "gamepad": lambda g: g.close()}
+         "gamepad": lambda g: g.close(), "base_camera": lambda c: c.release()}
 
 
 def _settled(open_camera):
