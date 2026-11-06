@@ -20,8 +20,8 @@ from pathlib import Path
 
 import cv2
 
-from . import name_check
-from .session import read_events
+from . import config, name_check, privacy
+from .session import ask_conditions, previous_conditions, read_events
 
 KINDS = ("upright", "turned")            # a tile held right way up, and turned 180 degrees
 DEFAULT_TILES = ("5C", "3C", "2C", "9C", "7C", "1B", "EW")      # the four the plan names, then a spread of suits
@@ -30,6 +30,15 @@ FRAMINGS = ("wrist crop", "detector box", "whole frame")
 WAYS = ("as_is", "turned")
 BOX_PAD = 1.3                            # the square around a detector box is this much wider than its longer side
 MIN_TILE_SHARE = 1 / 3                   # right on at least this share of a tile's photos for that tile to count as read
+
+
+LIGHT_KEYS = ("daylight", "lamp", "ceiling_lights")
+
+
+def ask_lighting(ask=input):
+    """The lighting setup questions only, answered before a hold-up session (saved as its `holdup_conditions`)."""
+    questions = [q for q in config.SETUP_QUESTIONS if q["key"] in LIGHT_KEYS]
+    return ask_conditions(previous_conditions(), questions=questions, ask=ask)
 
 
 def plan(tiles, holds, kinds=KINDS):
@@ -43,14 +52,15 @@ def shot_name(shot, n):
 
 
 def save_shot(folder, shot, frames):
-    """Writes `frames` under photos/<TILE>/ in `folder`; returns the paths relative to it."""
+    """Writes `frames` under photos/<TILE>/ in `folder`, with any face blurred first (privacy.py: the base camera sees the
+    room); returns the paths relative to it."""
     out = Path(folder) / "photos" / shot["tile"]
     out.mkdir(parents=True, exist_ok=True)
     files = []
     start = len(list(out.glob(f"{shot['kind']}_h{shot['hold']}_*.jpg")))
     for i, frame in enumerate(frames):
         path = out / shot_name(shot, start + i)
-        cv2.imwrite(str(path), frame)
+        cv2.imwrite(str(path), privacy.blur_faces(frame)[0])
         files.append(str(path.relative_to(folder)))
     return files
 
@@ -61,7 +71,8 @@ def is_sim(session_dir):
 
 
 def rows(session_dir):
-    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session."""
+    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session.
+    The first two sessions held tiles at fixed distances and have no holds: their `hold` is None."""
     session_dir = Path(session_dir)
     events = read_events(session_dir)
     conditions = next((e["conditions"] for e in events if e["type"] == "holdup_conditions"), {})
@@ -72,7 +83,7 @@ def rows(session_dir):
             continue
         for f in e["files"]:
             if (session_dir / f).exists():
-                out.append({"truth": e["tile"], "kind": e["kind"], "hold": e["hold"], "path": session_dir / f,
+                out.append({"truth": e["tile"], "kind": e["kind"], "hold": e.get("hold"), "path": session_dir / f,
                             "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name})
     return out
 

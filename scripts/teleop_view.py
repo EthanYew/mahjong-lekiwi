@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import camera_poses, config, hardware, kinematics
+from mahjong import camera_poses, config, hardware, kinematics, privacy
 from mahjong.gamepad import draw_input, warn_off_centre
 from mahjong.session import Session
 
@@ -107,6 +107,7 @@ def commanded_pose(arm):
 def main(argv=None, keys=None, max_steps=None):
     """`keys`: a function returning the next key press ('s', 'c', 'g', 'q') or None, for tests and --no-view."""
     args = parse_args(argv)
+    privacy.require()           # the weights that blur faces in the base camera's captures: before any hardware
     if args.go:
         camera_poses.get(args.go)           # fail before any hardware if the name is wrong
     devices = connect(args)
@@ -152,8 +153,8 @@ def main(argv=None, keys=None, max_steps=None):
                 out = session.dir / "captures"
                 out.mkdir(exist_ok=True)
                 for label, frame, ok in (("wrist", frame_w, ok_w), ("base", frame_b, ok_b)):
-                    if ok:
-                        cv2.imwrite(str(out / f"{captured:03d}_{label}.jpg"), frame)
+                    if ok:      # the base camera sees the room: faces blurred in what's kept (mahjong/privacy.py)
+                        cv2.imwrite(str(out / f"{captured:03d}_{label}.jpg"), privacy.blur_faces(frame)[0] if label == "base" else frame)
                 session.event("captured", n=captured, pose=pose)
                 print(f"saved captures/{captured:03d}_wrist.jpg and _base.jpg")
             elif key == "g" and args.go:

@@ -22,12 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, holdup
+from mahjong import config, holdup, privacy
 from mahjong.camera import BaseCamera, read_within
-from mahjong.session import Session, ask_conditions, previous_conditions
+from mahjong.session import Session
 
 WINDOW = "base camera: hold a tile up"
-LIGHT_KEYS = ("daylight", "lamp", "ceiling_lights")
 
 
 def parse_args(argv=None):
@@ -76,11 +75,6 @@ def open_camera(sim):
     return camera
 
 
-def ask_lighting(ask=input):
-    questions = [q for q in config.SETUP_QUESTIONS if q["key"] in LIGHT_KEYS]
-    return ask_conditions(previous_conditions(), questions=questions, ask=ask)
-
-
 def instruction(shot, n, total):
     way = "right way up" if shot["kind"] == "upright" else "turned 180"
     return f"[{n}/{total}] hold {shot['tile']} {way}, face to the camera, hold {shot['hold']}: somewhere new within the arm's reach"
@@ -121,11 +115,12 @@ def take_frames(camera, n, gap_s, sleep=time.sleep):
 
 def main(argv=None, ask=input, camera=None):
     args = parse_args(argv)
+    privacy.require()           # the weights that blur faces in the photos it saves
     shots = holdup.plan([t.strip().upper() for t in args.tiles.split(",") if t.strip()],
                         args.holds)
     camera = camera or open_camera(args.sim)
     view = not (args.no_view or args.sim)
-    conditions = ask_lighting(ask)
+    conditions = holdup.ask_lighting(ask)
     session = Session("holdup", ask_setup=False, sim=args.sim)
     session.conditions = conditions
     session.event("holdup_conditions", conditions=conditions, shots=len(shots))

@@ -23,6 +23,58 @@
       "source": "hand-positioned by Ethan 2026-11-05 with the torque off: the measured pose, not a commanded one (a commanded pose sits a few mm lower)",
       "saved": "2026-11-05T17:35:52",
       "gripper": 12.89655172413793
+    },
+    "base_view_1": {
+      "pose": {
+        "shoulder_pan": -6.5054945054945055,
+        "shoulder_lift": 35.78021978021978,
+        "elbow_flex": -6.637362637362638,
+        "wrist_flex": 91.78021978021978,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:31:30",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view"
+    },
+    "base_view_2": {
+      "pose": {
+        "shoulder_pan": -6.5054945054945055,
+        "shoulder_lift": 37.8021978021978,
+        "elbow_flex": -10.153846153846153,
+        "wrist_flex": 97.93406593406593,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:33:08",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view"
+    },
+    "base_view_3": {
+      "pose": {
+        "shoulder_pan": -8.527472527472527,
+        "shoulder_lift": 12.659340659340659,
+        "elbow_flex": 1.8021978021978022,
+        "wrist_flex": 86.94505494505495,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:34:22",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view"
+    },
+    "base_view_4": {
+      "pose": {
+        "shoulder_pan": -5.802197802197802,
+        "shoulder_lift": 20.747252747252748,
+        "elbow_flex": 10.76923076923077,
+        "wrist_flex": 81.84615384615384,
+        "wrist_roll": -88.74725274725274
+      },
+      "source": "taught with teleop_view.py: the commanded pose",
+      "saved": "2026-11-05T19:34:38",
+      "gripper": 0.0,
+      "session": "20261105_192932_teleop_view"
     }
   }
 }

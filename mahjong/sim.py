@@ -258,6 +258,24 @@ class SimCamera:
         pass
 
 
+class SimBaseCamera:
+    """The LeKiwi base camera as noise with a lighter tile-sized patch: enough for scripts that only save its frames."""
+
+    def __init__(self):
+        self.rng = np.random.default_rng(0)
+
+    def read(self):
+        frame = self.rng.integers(0, 60, (480, 640, 3), dtype=np.uint8)
+        frame[160:320, 240:400] = 220
+        return True, frame
+
+    def flush(self, frames=10):
+        pass
+
+    def release(self):
+        pass
+
+
 def connect(tiles=SIM_TILES, wrist_view=False):
     """The simulated counterpart of hardware.connect(["arm", "wrist_camera", "realsense"]): a mat of `tiles`
     that a release near the table puts the held tile back on, an arm that doesn't wait, and a wrist camera

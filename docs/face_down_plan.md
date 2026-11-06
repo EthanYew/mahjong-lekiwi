@@ -156,6 +156,14 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - A test script for tests 4-5 and 7-7b: aims at a saved spot with a chosen hover offset, runs the policy, logs close
   height, logs a person's word on bumps. It goes in `ARM_SCRIPTS`, with a `--sim` test and a README section.
 - A saved camera pose, the way the discard pose is saved.
+- **Progress, 2026-11-05** (`docs/retrospectives/2026-11-05_arm_collects_base_camera_photos.md`): test 1b ran on hand-held photos
+  (81-94% on 4 tiles, optimistic). The arm picked face-down tiles with v8 at S5 and S7, and held them at four taught poses; only
+  7C is photographed by the arm so far. v8 fails at S8 whatever the tile (a lone tile closes about 25mm up). Faces in the base
+  camera's photos are blurred as they are saved.
+- `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
+  doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
+  picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws. Built offline only: nothing here
+  has run on the arm.
 - For test 8, `play.py` will stop on face-down tiles in two places: a turn waits for a scan to see a tile on the zone, and
   the table check would take a face-down tile as missing. Test 3 may settle the first.
 

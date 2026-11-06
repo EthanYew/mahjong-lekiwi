@@ -44,6 +44,7 @@ not a worktree, or the sessions go when the worktree does.
 | Test a specific policy | `python scripts/bench.py --policy pickup_mat_cl_v1 --trials 5 --tile 8D` |
 | Check a policy steers to the tile (vs. a memorised move) | `python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y` |
 | Try a narrower (or wider) gripper opening at the hover | `python scripts/bench.py --layout hand14 --trials 3 --hover-gripper 25` |
+| Try a lower hover where the policy closes high (S8) | `python scripts/bench.py --trials 3 --tile 1B --hover-lower-mm 6` (lay that tile on S8) |
 | See what happened in the last session | `python scripts/session_report.py` |
 | Find which part makes the wrist camera drop, and how drops ended | `python scripts/wrist_usb_watch.py --label still`, then `--report` |
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
@@ -64,7 +65,7 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7` (press A on the gamepad to take over) |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v8 --policy pickup_mat_cl_v8` (press A on the gamepad to take over) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
@@ -76,13 +77,14 @@ not a worktree, or the sessions go when the worktree does.
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
 | Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py`, then `python scripts/holdup_check.py` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
+| Have the arm collect base-camera photos of face-down tiles (check the saved poses with nothing in the jaws first) | `python scripts/holdup_arm.py --empty`, then `python scripts/holdup_arm.py` |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v7`, `pickup_mat_cl_v6`'s data + 52 brown/white
-paper demos, 30 of them closing short as recorded;
-also `pickup_mat_cl_v8` (37 standard-mat demos + other surfaces + black-top jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%),
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
+jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%; the owner's pick on 2026-11-05 as the best trained, `status.py` has the evidence;
+also `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
 trained with `--augment --replace-mat 0.7`),
 `pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
@@ -222,6 +224,7 @@ python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry
 | `--sim` | simulated arm, cameras, detection and policy |
 | `--hover-perturb-mm LIST` | shift the hover on purpose, cycling through e.g. `0,6x,-6x,6y,-6y` (mm). A policy that steers follows the tile; one that replays a memorised move follows the offset. `session_report.py` prints which. |
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
+| `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
 | `--device PATH` | gamepad device path (only for teach-discard) |
 
@@ -507,7 +510,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v7 --policy pickup_mat_cl_v7                  # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v8 --policy pickup_mat_cl_v8                  # DAgger corrections
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
@@ -815,6 +818,55 @@ shoulder. Keys in the window: `s` saves the commanded pose as the next `--name` 
 `data/camera_poses.json`, `c` saves both frames to the session's `captures/`, `g` returns to `--go`'s pose, `q` rests and
 quits. Options: `--go POSE`, `--name PREFIX`, `--device PATH` (gamepad), `--sim`. `data/camera_poses.json` starts with the two
 poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not commanded).
+
+`holdup_arm.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
+on a layout spot, holds it up to the base camera at the saved `base_view_*` poses, saves frames and sets it back down.
+
+```
+python scripts/holdup_arm.py --empty                       # first: visit each saved pose with nothing in the jaws, one Enter each
+python scripts/holdup_arm.py                               # collect what is short: default tiles, 6 holds per way up
+python scripts/holdup_arm.py --tiles 5C,3C --target-holds 10 --spots S7,S8 --holds-per-placement 3
+python scripts/holdup_arm.py --sim                         # simulated arm and cameras
+```
+
+`--empty` writes `sessions/<time>_holdup_dry/` with a base and a wrist frame per pose (`dry_run/`, `dry_run_sheet.jpg`) and prints each
+pose's height above the table (flagged under 30mm), reach and nearest joint limit. A collecting run counts the holds already in every
+real `*_holdup` session (by hand and by arm), asks you to lay the tile furthest short, and picks it up `--holds-per-placement` times (4):
+pick, rest, every pose with a small nudge (`--jitter-deg`, 2; 0 = as taught), rest, set it back down. You lay each tile twice: face
+down where the layout's face-up tile would lie (flipped sideways about its long edge, the top of its picture at the same end), then
+turned 180° on the mat. Which way up the camera sees each depends on the poses, so after the session's first hold it shows that photo
+and asks whether the picture reads right way up (`u`, recorded as `upright`) or upside down (`d`, `turned`), and labels every later hold
+from the answer (in that window: `u` or `d`). A miss, a drop or an unreachable spot stops that tile and asks you.
+Where to lay each tile comes up as a live RealSense window, as in `layout.py`: the target spot's outline, the tile's name, and the short
+end where the top of its picture goes drawn thick and labelled TOP (`--layout-top far|near` says which end of a spot a face-up layout
+tile's picture points to; `far` = away from the robot, which is a guess until you check it on one tile). The detector can't see a
+face-down tile, so nothing turns green: line it up by eye. Space/Enter = laid, `s` skips, `q` quits; the window closes before the arm
+moves. After a miss, or a tile lost on the way to a pose, the same window opens again for that tile and laying (same TOP end) to put
+it back by hand: Space/Enter tries again, `s` skips the tile, `q` quits. `--no-view` (and `--sim`) use a terminal prompt instead
+and don't open the RealSense. Other options: `--tiles`, `--target-holds`, `--layout` (the standard setup's),
+`--hover-lower-mm` (as `bench.py`'s, for a spot where the policy closes high), `--spots` (S5,S7,S9, taken in turn; S8 missed every pickup on 2026-11-05), `--max-misses` (2: that many misses in a row on a spot and the
+tile is given up for the run, instead of asking forever), `--poses`, `--frames` per pose (3), `--settle-s`, `--gap-s`, `--seed`, `--policy`. Photos and
+`holdup_shot` events (with `source: arm` and each frame's pose) go where the hand-held ones do, so `holdup_score.py` and `holdup_check.py` read them.
+
+### Blurring faces in the base camera's photos
+
+The base camera looks out over the room, so a person near it is in the photos. Everything the base camera saves is blurred as it is
+saved (`mahjong/privacy.py`: the hold-up photos, `view_check.jpg`, the dry run's base frames, `teleop_view.py`'s base captures), with
+a pose model in `assets/yolo11n-pose.pt` (Ultralytics' public yolo11n-pose weights, 6 MB, CPU). The scripts stop before touching
+hardware if the file is missing and print the `curl` that fetches it. For photos already on disk:
+
+```
+python scripts/blur_faces.py                          # dry run over every session: counts, and a sheet of what would change
+python scripts/blur_faces.py --apply                  # rewrite them blurred (the originals are not kept)
+python scripts/blur_faces.py sessions/<time>_holdup --sheet /tmp/faces.jpg
+```
+
+`blur_faces.py` covers `photos/**`, `view_check.jpg`, `dry_run/*_base.jpg` and `captures/*_base.jpg` of each session; it changes nothing
+without `--apply` and always writes a sheet of the photos it flagged, as they would look. Look through it, and through some photos it
+did not flag: it lowers the chance of a face in a photo, it doesn't rule it out. A person anywhere near the camera is found, even
+turned away or half out of the frame, and where too little of the head shows the top of their box is blurred. A "person" covering more
+than 65% of the frame is ignored, because the held tile seen close up passes for one (it was blurred whole on the first try).
+Haar face detection, tried first, blurred the printing on the tile and still missed faces.
 
 ## The tile detector: photos, labels, exam, retraining
 
