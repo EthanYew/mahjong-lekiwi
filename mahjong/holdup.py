@@ -291,13 +291,100 @@ def save_scores(session_dir, s):
     return path
 
 
+# --- is training a reader for this view paying off? every holdup_check.py result (scripts/holdup_score.py) ---
+
+CHECK_FILES = ("holdup_check.json", "holdup_check_held_out.json")
+
+
+def check_results(folders):
+    """Every holdup_check.py result saved in these session folders, oldest first. A result written before the check recorded
+    its time is dated by its file."""
+    from datetime import datetime
+    out = []
+    for folder in folders:
+        for name in CHECK_FILES:
+            path = Path(folder) / name
+            if path.exists():
+                d = json.loads(path.read_text())
+                d.setdefault("written", datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="minutes"))
+                d["file"] = f"{Path(folder).name}/{name}"
+                out.append(d)
+    return sorted(out, key=lambda d: d["written"])
+
+
+def verdict_word(verdict):
+    head = verdict.split(":")[0]
+    return head if head in ("PASS", "FAIL", "IN BETWEEN", "BACKGROUND", "UNCONTROLLED") else "TOO FEW TILES"
+
+
+def check_lines(results):
+    """The report: one block per check (what it trained and tested on, the reader against the tile-greyed control and the best
+    constant answer), then what the results say together. Training pays off when the reader is well above the constant answer,
+    the control is near it, and that holds on a session never trained on."""
+    if not results:
+        return ["No holdup_check.py results yet: python scripts/holdup_check.py (it trains a reader for this view and scores it)"]
+    lines = [f"{'written':<17} {'verdict':<14} {'reader':>6} {'control':>8} {'constant':>9}  test",
+             "(reader: the fresh classifier right on photos it never trained on; control: the same with the tile greyed out, "
+             "which should be near constant, the best a reader that ignores the photo can do)"]
+    for d in results:
+        first = d["runs"][0]
+        control = "-" if d.get("control_right") is None else f"{d['control_right']:.0%}"
+        held_out = "held out" in d["split"] and "holds" not in d["split"]
+        tiles = ", ".join(f"{t} {v:.0%}" for t, v in first["per_tile"].items())
+        word = verdict_word(d["verdict"])
+        if word == "PASS" and d.get("control_right") is None:       # before the control existed: nothing checked the tile was read
+            word = "UNCONTROLLED"
+        lines.append(f"{d['written'].replace('T', ' '):<17} {word:<14} {d['mean_right']:>6.0%} "
+                     f"{control:>8} {first['best_constant_answer']:>9.0%}  {first['tiles']} tile(s), "
+                     f"{'another session' if held_out else 'same session (optimistic)'}")
+        sizes = (f"train {d['train_photos']} photos / {d['train_holds']} holds, test {d['test_photos']} / {d['test_holds']}"
+                 if "train_photos" in d else f"test {first['photos']} photos")
+        lines.append(f"    {d['split']}; {sizes}")
+        lines.append(f"    per tile: {tiles}; confusions: "
+                     + (", ".join(f"{k} x{n}" for k, n in first["confusions"]) or "none"))
+        if d.get("caveat") and not d["caveat"].startswith("OPTIMISTIC"):
+            lines.append(f"    {d['caveat']}")
+    controlled = [d for d in results if d.get("control_right") is not None]
+    clean = [d for d in controlled if d["control_right"] < d["runs"][0]["best_constant_answer"] + 0.15]
+    across = [d for d in clean if "held out" in d["split"] and "holds" not in d["split"]]
+    lines.append("")
+    if not clean:
+        lines.append("So far: no result with a clean control, so no score yet says the reader reads the tile")
+    else:
+        best = max(clean, key=lambda d: d["mean_right"] - d["runs"][0]["best_constant_answer"])
+        lines.append(f"So far: {len(clean)} of {len(results)} result(s) with a clean control; the best {best['mean_right']:.0%} "
+                     f"against a constant {best['runs'][0]['best_constant_answer']:.0%} on {best['runs'][0]['tiles']} tile(s) "
+                     f"({best['file']})")
+        lines.append(f"  on a session never trained on: " + ("; ".join(
+            f"{d['mean_right']:.0%} on {', '.join(d['runs'][0]['per_tile'])} ({d['file'].split('/')[0]})" for d in across)
+            if across else "none yet (holdup_check.py --test-session), the test that says it carries to new light or rooms"))
+    return lines
+
+
 # --- can the base camera's view be learned? (scripts/holdup_check.py) ---
 
-def split(rows, by="auto", test_holds=2):
+def split(rows, by="auto", test_holds=2, test_session=None):
     """(train rows, test rows, how it was split, caveat). `auto` holds out the newest session if there are two or more with
     the same tiles, else the last `test_holds` holds of each tile and way up. The second is optimistic: the same session's
-    hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies)."""
+    hands, light and background are in both halves. Whole shots stay together (a shot's frames are near copies).
+    `test_session` (a folder name) holds out that session whatever `by` says, trains on every other, and tests only the tiles
+    some other session has (a tile never trained on can't be named): e.g. train on an evening, test on a day."""
     sessions = sorted({r["session"] for r in rows})
+    if test_session is not None:
+        if test_session not in sessions:
+            raise ValueError(f"{test_session} isn't among the sessions read: {', '.join(sessions)}")
+        if len(sessions) < 2:
+            raise ValueError("holding out a session needs another to train on")
+        train = [r for r in rows if r["session"] != test_session]
+        trained = {r["truth"] for r in train}
+        held = [r for r in rows if r["session"] == test_session]
+        test = [r for r in held if r["truth"] in trained]
+        if not test:
+            raise ValueError(f"no tile in {test_session} is in another session, so there is nothing to test")
+        left = sorted({r["truth"] for r in held} - trained)
+        caveat = (f"left out {len(held) - len(test)} photo(s) of {', '.join(left)}: in no other session, never trained on"
+                  if left else None)
+        return train, test, f"held out {test_session}, trained on {', '.join(s for s in sessions if s != test_session)}", caveat
     if by == "auto":
         newest = {r["truth"] for r in rows if r["session"] == sessions[-1]}
         older = {r["truth"] for r in rows if r["session"] != sessions[-1]}

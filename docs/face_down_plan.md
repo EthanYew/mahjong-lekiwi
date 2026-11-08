@@ -167,8 +167,36 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   that control every time (BACKGROUND verdict). `holdup_arm.py` now lays a tile on each spot, picks them in turn, and moves each
   tile one spot along between arrangements. One of the 216 photos had the face blur over the tile; the rest that look soft are
   the fixed-focus camera up close. The 2026-11-05 base-camera photos (hand-held and arm, 266 files) were deleted at the owner's
-  request (early face-blur attempts, a person in view); their event logs and wrist files stay. Next: a session collected the new
-  way, then a check that holds it out.
+  request (early face-blur attempts, a person in view); their event logs and wrist files stay.
+- **Second arm session, 2026-11-06 12:52** (`sessions/20261106_125259_holdup`, 18 more holds of 1B, 7C and EW). It ran on
+  `275c05b`, before the tiles moved between spots, so it was still collected a tile at a time: 1B at S5 then S7, 7C at S9 then
+  S5, EW at S7 then S9. Each way up also came from a single spot (1B turned only at S5, upright only at S7), so the way up is
+  tied to the spot too. Trained on both sessions and scored on this one, the crop check scored 96% (93-100% over 3 seeds; 1B
+  read as EW in the misses), but with the tile greyed out it still scored 62% against 44% for the best constant answer: 18
+  points above it, over the 15-point line, so the verdict is still BACKGROUND. The blackout control fell from 99% to 62%, so
+  the crop helps, but not enough on its own. v8 picked 18 of 18 face down, leaving out 4 tries that stopped on the wrist
+  camera. The camera came back each time by waiting (1.5-2.9s), with no power cycle: the first sign on the arm that the wait
+  works. Close heights: 7C and EW 7-8mm above the grasp point, 1B 14-17mm at S5 and 19.5-22mm at S7, near the 20mm where
+  misses start. The tiles were on S5, S7 and S9 only, so none had a neighbour beside it, which may be why 1B closed high (the
+  lone-tile hypothesis, the default policy row in ROADMAP).
+- **The first clean pass, 2026-11-06 evening** (`sessions/20261106_195636_holdup`, 72 holds of 5C, 3C, 2C, 9C, 1B and 7C, 6
+  per tile and way up; lamp and ceiling lights, no daylight). Collected the new way: three tiles on S5, S7 and S9, picked in turn,
+  each moved one spot along and laid the other way after 2 rounds, in two groups (5C/3C/2C, then 9C/1B/7C). `holdup_check.py
+  --by hold`: **100% on held-out holds, every tile and both ways up, all 3 seeds; the control with the tile greyed out 0%**
+  (best constant answer 17%). The 0% is the design working: the held-out holds are each tile at the one spot it never had in
+  training (1B trained at S5 and S7, tested at S9), so a classifier that learned the scene names the tile that was there and
+  is always wrong. The one with the tile visible was right on the same photos, so it read the faces. Still optimistic: one
+  session, one room, and each group of three was collected in its own stretch of time, so telling a group-one tile from a
+  group-two tile could partly be the time. No two tiles in the set look alike (7C vs 8C isn't in it). The installed readers
+  scored 0-3% on these photos (`holdup_scores.json`), as expected.
+  **Another light** (`holdup_check.py --test-session`, added for this): trained only on the evening session, tested on the two
+  daytime sessions' 1B and 7C (EW left out, never trained on). 12:52, bright daylight: 96% (1B 94%, 6 read as 5C; 7C 100%),
+  control 31% against a constant 57%. 10:59, bright daylight: 99%, control 60% against a constant 60%. Daylight against lamp
+  light in the same room doesn't throw it, on 2 tiles, which the script calls too few to judge.
+  The picks: 72 of 72 completed held the tile (1 more stopped on the wrist camera, back after waiting), every close 5-10mm
+  above the grasp point, 1B included (14-22mm at 12:52).
+  Next: a session in another room or with a backdrop behind the poses, held out with `--test-session` (the move the demo
+  needs); more tiles, the pairs that look alike among them; then test 4.
 - `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws. Built offline only: nothing here

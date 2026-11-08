@@ -7,8 +7,8 @@
 Run it once by day and once in the evening: the lighting questions are asked first and saved with the session. For each
 tile and way up (right way up, then turned 180 degrees) it names the shot; hold the tile with its face to the camera
 where the arm can actually hold it (close, at an angle), a different place and angle each hold, then press space (or Enter in the terminal with --no-view). `s` skips the shot, `b` takes the last one
-again, `q` quits. The tile faces are checked by you: the name you hold is the truth. Score the session after with
-`python scripts/holdup_score.py`.
+again, `q` quits. The tile faces are checked by you: the name you hold is the truth. Score the installed readers after with
+`python scripts/holdup_score.py --installed`.
 
 Saved to sessions/<time>_holdup/photos/<NAME>/<upright|turned>_h<hold>_<n>.jpg with a `holdup_shot` event per shot.
 """
@@ -155,7 +155,7 @@ def main(argv=None, ask=input, camera=None):
         if view:
             cv2.destroyAllWindows()
         session.event("holdup_done", shots_taken=taken, planned=len(shots))
-        print(f"{taken} of {len(shots)} shots saved in {session.dir}\nScore them: python scripts/holdup_score.py")
+        print(f"{taken} of {len(shots)} shots saved in {session.dir}\nScore them: python scripts/holdup_score.py --installed")
         session.close()
     return session.dir
 

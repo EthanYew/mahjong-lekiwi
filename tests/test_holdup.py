@@ -60,7 +60,7 @@ def test_score_keeps_the_two_ways_up_apart_and_one_answer_for_everything_is_not_
     out = capture.main(["--sim", "--tiles", "5C,3C", "--holds", "1", "--frames", "1", "--gap-s", "0"],
                        ask=lambda prompt: "")
     boxes = lambda image: [{"tile_name": "3C", "confidence": 0.3, "xyxy": [240.0, 160.0, 400.0, 320.0]}]
-    s = holdup_score.main([str(out)], reader=FakeReader(), predict=boxes)
+    s = holdup_score.main(["--installed", str(out)], reader=FakeReader(), predict=boxes)
     assert s["by"]["all"]["photos"] == 4 and s["by"]["all"]["boxed"] == 1.0
     assert s["by"]["all"]["whole frame/as_is"] == s["by"]["all"]["whole frame/turned"] == 0.5     # 5C right, 3C read as 5C
     assert "whole frame/both" not in s["by"]["all"]
