@@ -188,7 +188,8 @@ v8, bright daylight, lamp and ceiling lights off, on `sessions/20261109_151530_w
 **Decided 2026-11-09: DAgger on v8 for wall picks**, because flat, touching and single-layer picks work and what fails is closing high and off-centre beside a stack. `record.py --wall-station F` records them, from the same hovers `wall_test.py` uses. A person's corrections are tied to this station.
 After training, the new policy has to match v8 on hand picks before it replaces it (a paired `bench.py`), and pass this cycle.
 
-**Alongside it:** the crude full run (test 8) with a wall one layer high at F, where flat and touching tiles went 15 of 15, to find what else breaks without waiting for training.
+**Alongside it:** the crude full run (test 8) with a wall one layer high at F, where flat and touching tiles went 15 of 15, to find what else breaks without waiting for training. `scripts/crude_run.py` does it, separately from `play.py`, which relies on scans that can't see green backs: hand slots, drop zone and station go by saved position, the hand by memory. A person checks every read in the moment, and a step that fails is logged and done by hand.
+It also tests what 7b asks: each drawn tile is set on the zone and picked up again by memory. Built and run only in the simulator so far.
 
 ## The tests
 

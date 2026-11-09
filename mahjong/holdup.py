@@ -132,6 +132,28 @@ def tile_frame(image, box, size=name_check.INPUT_PX):
     return square_around(image, box, pad=1.0, size=size)
 
 
+READER = config.TILE_DETECTOR.parent / "holdup_reader.pt"       # trained by holdup_check.py --save-reader
+
+
+def load_reader(path=None):
+    """The reader for held tiles (photos framed by as_input, so read_held's tile squares go in unchanged), or None if none is trained."""
+    path = Path(path or READER)
+    return name_check.Reader(path, crop_fn=as_input) if path.exists() else None
+
+
+def read_held(reader, frames, from_pose, boxes):
+    """The reader's name for one held tile from its photos at the saved poses, by summed confidence: {"name", "confidence" (its mean share), "votes"}.
+    None without a reader, or with no photo at a pose with a tile box."""
+    crops = [tile_frame(f, boxes[p]) for f, p in zip(frames, from_pose) if p in boxes]
+    if reader is None or not crops:
+        return None
+    votes = {}
+    for read in reader.read_many(crops):
+        votes[read["name"]] = votes.get(read["name"], 0.0) + read["confidence"]
+    name = max(votes, key=votes.get)
+    return {"name": name, "confidence": round(votes[name] / len(crops), 4), "votes": {k: round(v, 4) for k, v in votes.items()}}
+
+
 def without_tile(image, box):
     """A copy of `image` with the tile box filled grey: what's left is everything the photo shows except the tile."""
     out = image.copy()
