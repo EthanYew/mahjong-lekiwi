@@ -78,6 +78,7 @@ not a worktree, or the sessions go when the worktree does.
 | Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py --installed`, then `python scripts/holdup_check.py` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Have the arm collect base-camera photos of face-down tiles (check the saved poses with nothing in the jaws first) | `python scripts/holdup_arm.py --empty`, then `python scripts/holdup_arm.py` |
+| Test drawing face-down tiles from a wall, at one station you feed by hand | `python scripts/wall_test.py --stations F --cases flat --trials 10`; `--report` scores every session so far |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
@@ -835,6 +836,25 @@ shoulder. Keys in the window: `s` saves the commanded pose as the next `--name` 
 `data/camera_poses.json`, `c` saves both frames to the session's `captures/`, `g` returns to `--go`'s pose, `q` rests and
 quits. Options: `--go POSE`, `--name PREFIX`, `--device PATH` (gamepad), `--sim`. `data/camera_poses.json` starts with the two
 poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not commanded).
+
+`wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
+you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
+
+```
+python scripts/wall_test.py --hover-check --stations F,L                  # 1. no policy: is the hover centred on a face-up tile?
+python scripts/wall_test.py --push-check --stations F --trials 10         # 2. no arm: does a pushed row land in the same place?
+python scripts/wall_test.py --stations F,L --cases control,flat --trials 5    # 3. which station, alternating
+python scripts/wall_test.py --stations F --cases strip --trials 10        # 4. tiles touching end to end (then top, then bottom)
+python scripts/wall_test.py --stations F --cases cycle --trials 12        # 7. the real thing: top, bottom, you feed, and so on
+python scripts/wall_test.py --report                                      # every real session so far, scored
+python scripts/wall_test.py --sim --stations F,L --cases flat --trials 2  # simulated arm and cameras
+```
+
+`--cases`: `control` (face up), `flat`, `strip` (a tile touching its far end), `top` (the hover one tile higher, the next stack behind), `bottom` (the next stack behind), or `cycle` alone at one station, where
+`--trials` counts draws. Each attempt: a RealSense frame with the arm at rest, the policy, one base-camera photo if the jaws read held, the tile into the discard container, another RealSense frame, then one key from you, worst first:
+`t` a person touched it, `2` lifted two tiles, `k` knocked the top tile off, `n` moved the next stack, `p` pushed its own tile, `d` dropped it on the way, `a` closed on air, `c` clean (`q` quits). Enter isn't an answer. A cycle's non-clean
+draw asks you to put the wall right. `--push-check` wants the wall laid with the lead stack's top tile face up, and passes if the worst push is within 3mm of where pushes usually land.
+Other options: `--layout`, `--policy`. Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
 
 `holdup_arm.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
 on a layout spot, holds it up to the base camera at the saved `base_view_*` poses, saves frames and sets it back down.

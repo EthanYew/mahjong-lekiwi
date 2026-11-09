@@ -938,5 +938,30 @@
     "created": "2026-11-03T00:00:00",
     "note": "autonomous play: even-hand14's 13 hand slots (play.py --layout even-hand13), without S13 (WW), where the drawn tile's drop zone goes; spots keep even-hand14's ids; bench them with even-hand14",
     "ghost": null
+  },
+  "wall-stations": {
+    "created": "2026-11-09T16:00:00",
+    "note": "Where a face-down wall is drawn from (docs/face_down_plan.md, 'The wall: one station'; scripts/wall_test.py): F in front of the hand, 8mm past its far row; L on the hand's left. Chosen from the IK and the gamepad's reach at the hover-corrected point, not yet run on the arm",
+    "ghost": null,
+    "spots": [
+      {
+        "id": "F",
+        "xy": [
+          0.235,
+          -0.012
+        ],
+        "yaw_deg": 0.0,
+        "label": "F"
+      },
+      {
+        "id": "L",
+        "xy": [
+          0.14,
+          0.192
+        ],
+        "yaw_deg": 0.0,
+        "label": "L"
+      }
+    ]
   }
 }

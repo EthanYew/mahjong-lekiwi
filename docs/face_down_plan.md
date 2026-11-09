@@ -89,7 +89,46 @@ Beside the hand, within r ≤ 0.27m at both heights (estimate; clearance from th
 | y = +0.192 | 3 | -144° to -165°, tight at the end nearest the base |
 | y = -0.223 | 2 | about -20°, comfortable, but next to the drop zone |
 
+**The owner chose the left (2026-11-09):** space is being set aside left of the layout. Checked with the IK for a hover at both heights (no collisions, tiles
+assumed about 40mm end to end): at y = +0.192, stacks centred at x = 0.20, 0.16 and 0.12 have wrist roll -141°, -149° and -158°, and joint margins at the top
+tile's height of 22°, 31° and 35°. Below x = 0.10 the roll is past -164°, too close to the limit; a column further out at y = 0.21 is shorter in reach (x = 0.20 has a
+10° margin at the top height). Start at x = 0.20: a lone tile in the near row closed high and missed (S8), and the far row (x = 0.192) held all 90 picks on 2026-11-09. The tiles must lie square to the mat,
+because a tile turned clockwise more than about 20° here can't be reached by the roll (CLAUDE.md). v8 hasn't picked at y = +0.192 yet.
+
 That's about 10 tiles. The last hands took 19-34 turns, so a demo win needs a pre-arranged wall and hand, and the writeup says so.
+
+**The figures above are at the RealSense's coordinates, and the arm doesn't go there (found 2026-11-09).** The hover correction moves it about 35-44mm further out, so reach has to be worked out at
+the corrected point (`layout.reach_band` does; the check agrees with `even-hand14`'s recorded 19mm at S1 and 21mm at S13). Corrected, x = 0.20 at y = +0.195 is past the gamepad's reach and needs the jaws tilted 5° (7° for a top
+tile); stacks at x = 0.213 and beyond are refused by the IK. So a column here can't be drawn along its length, which is what the station below avoids.
+
+## The wall: one station
+
+Decided 2026-11-09. The arm draws from **one saved spot, a station**, and a person pushes the wall along so the next stack sits on it, adding stacks at the far end. Reach stops limiting the wall's length, one position needs
+checking instead of ten, and only the stack on the station has to be reachable. Top tile first, then the bottom, then a feed. A person feeding the wall is part of the demo and the writeup says so: feeds are logged as feeds, not rescues.
+
+Two candidates (`wall-stations` in `data/layouts.json`), both with the jaws straight down at both heights. Figures are computed at the corrected point, not run on the arm:
+
+| | F, in front of the hand (0.235, -0.012) | L, on its left (0.14, 0.192) |
+|---|---|---|
+| Wrist roll (limit -170°) | -94° | -146° |
+| Joint margin, flat / top tile | 27° / 21° | 28° / 22° |
+| Gamepad reach left | 16mm | 28mm |
+| Space | 8mm past the far-row tile at S7 | 20mm beside S1/S2 |
+
+F is where a real wall sits and has far more wrist roll to spare; L has more reach. Test 3 below chooses. If pushes turn out not to repeat, the fallback is three one-stack stations refilled by hand, and if top tiles fail, a wall one layer high.
+The positions come from the RealSense's xy, so lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
+
+The order, each step able to stop the next (`scripts/wall_test.py`, and README). Thresholds are the ones below:
+
+1. `--hover-check`: does the hover centre on a face-up tile on each station? The correction was measured only inside the hand's area, and L is past it.
+2. `--push-check`, no arm: does a pushed row land in the same place? The limit is 3mm from where pushes usually land, half the jaws' tolerance of about 6mm (a judgement, not a measurement). Over it: try a low end stop, which bends the no-tray decision, so tape comes first.
+3. `--stations F,L --cases control,flat --trials 5`: which station, by close height and clean picks.
+4. `--cases strip`, 10 tries: tiles touching end to end, the plan's test 4b at the station.
+5. `--cases top`, 10 tries, the hover a tile higher, the next stack behind (test 7).
+6. `--cases bottom`, 10 tries, the next stack behind (test 7).
+7. `--cases cycle --trials 12`: the real operation, fed by hand. At 90% per draw, 12 clean in a row happens about 28% of the time, so expect to step in.
+
+Tiles drawn go into the discard container, not back on the wall: putting a tile back on a wall is a different skill and isn't tested here.
 
 ## The tests
 
@@ -106,7 +145,7 @@ reliability claim: 10/10 is still consistent with a true rate near 70%.
 | 4 | **Face-down vs face-up on the same slots**, alternating, 10 each, single tiles, logging close height. Also how much green stands out from the mat | 1 hr | The thresholds below | test script |
 | 4b | 3 flat tiles touching end to end, 5 tries | 15 min | Fails where 4 passed: the strip is the problem, not height | test script |
 | 5 | A flat tile with the hover 20mm too high, 5 tries | 10 min | Closes about 20mm in the air: v7 is blind | test script |
-| 6 | **Pick from a short wall by gamepad**, top and bottom, at a familiar mid-mat spot | 15 min | If a person can't, v7 won't. Also shows whether the jaws grab two tiles, and which end to draw from | gamepad |
+| 6 | **Pick from a short wall by gamepad**, top and bottom, at a familiar mid-mat spot. **Tried 2026-11-09: the owner's view is "a bit challenging, but doable"; no session logged** | 15 min | If a person can't, v7 won't. Also shows whether the jaws grab two tiles, and which end to draw from | gamepad |
 | 7 | v7 on stacks at that spot: 10 top, 10 bottom, close height logged apart | 1 hr | The thresholds below | test script |
 | 7b | Set a tile down face down, pick it up again from memory, 10 times, no scan | 30 min | Misses grow with each cycle: a kept tile needs a way to be found | test script |
 | 8 | **The crude full run**, on the real columns: draw, show, read, check, place | 1 hr | It completes, with a list of where it broke | `play.py` changes |
@@ -178,8 +217,8 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   the crop helps, but not enough on its own. v8 picked 18 of 18 face down, leaving out 4 tries that stopped on the wrist
   camera. The camera came back each time by waiting (1.5-2.9s), with no power cycle: the first sign on the arm that the wait
   works. Close heights: 7C and EW 7-8mm above the grasp point, 1B 14-17mm at S5 and 19.5-22mm at S7, near the 20mm where
-  misses start. The tiles were on S5, S7 and S9 only, so none had a neighbour beside it, which may be why 1B closed high (the
-  lone-tile hypothesis, the default policy row in ROADMAP).
+  misses start. The wrist frames show white face-up tiles beside every 7C and EW pick and none near 1B (corrected 2026-11-09), which fits
+  1B closing high.
 - **The first clean pass, 2026-11-06 evening** (`sessions/20261106_195636_holdup`, 72 holds of 5C, 3C, 2C, 9C, 1B and 7C, 6
   per tile and way up; lamp and ceiling lights, no daylight). Collected the new way: three tiles on S5, S7 and S9, picked in turn,
   each moved one spot along and laid the other way after 2 rounds, in two groups (5C/3C/2C, then 9C/1B/7C). `holdup_check.py
@@ -200,14 +239,17 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   the evening; bright daylight, lamp and ceiling lights off, white paper behind the poses, the mat uncovered). Trained on the earlier arm
   sessions and held out: **97.0% (95.8-97.8% over 3 seeds)**, every tile 87.5% or better, 9C the weakest (91-94%, read as 7C). Control 15.5%
   against 16.7%, though on a blank background that's close to automatic. So the reader doesn't need its training room, on these 6 tiles.
-  v8 held 72 of 72, but its closes rose to a median 13.7mm above the grasp point (highest 18.3) from 7.6mm (highest 9.5): the lights
-  were off and there were no neighbouring tiles, and this session can't separate them.
+  v8 held 72 of 72, but its closes rose to a median 13.7mm above the grasp point (highest 18.3) from 7.6mm (highest 9.5).
+- **The reverse check, 2026-11-09** (trained only on that white session, scored on the cluttered evening): **97.5% (94.4-99.3%)**, control 16.2% against 16.7%.
+  The weakest tile and the direction of the mistakes both change from one direction to the other, so they look like variation between training runs.
+- **The lights check, 2026-11-09** (`sessions/20261109_122910_holdup`, 18 holds, lamp and ceiling lights on, dim daylight, otherwise as that morning): v8 held 18 of 18,
+  median close 13.0mm against 14.4mm for the same three tiles with the lights off, though the wrist view was twice as bright. So light isn't the main cause. Across the
+  sessions, v8 closes at about 8mm with white face-up tiles near the target and 13-18mm without them (a pattern, not a deliberate test; the table is in
+  `docs/retrospectives/2026-11-09_face_down_progress.md`). The wall will be mostly green, so expect 13mm or more. The reader scored 99.5% on these 3 tiles.
 - **Test 3, 2026-11-09:** six face-down tiles on the mat, five RealSense frames, the installed detector down to 1% confidence: no boxes.
   The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
   another check.
-- **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): one pass with the lights on to separate light from neighbours
-  (v8's closes, not the reader); the wall by gamepad (test 6); more backgrounds for the reader, then a held-out session in the demo room.
-  How much more capture depends on which tiles the demo's wall uses.
+- **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
 - `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws.

@@ -139,13 +139,14 @@ class Rig:
 
     # --- one hold ---
 
-    def pick(self, name, spot):
+    def pick(self, name, spot, raise_m=0.0):
         """Hover over the spot (the layout's xy stands for a detection: the detector can't see a back) and run the policy.
+        raise_m: a hover this much higher, for a tile on top of another (wall_test.py).
         Returns {"hover", "run", "attempt", "holding", ...} or {"unreachable": True}. The arm is left holding at rest."""
         x, y = spot["xy"]
         hx, hy = self.correction.apply(x, y)
         h = dict(self.policy.hover)
-        lower = (self.args.hover_lower_mm or 0.0) / 1000        # bench.py --hover-lower-mm: offset and clearance together
+        lower = (self.args.hover_lower_mm or 0.0) / 1000 - raise_m      # bench.py --hover-lower-mm: offset and clearance together
         h["offset_m"] -= lower
         h["clearance_m"] -= lower
         attempt = self.session.attempt_dir(name)

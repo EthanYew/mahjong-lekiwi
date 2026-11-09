@@ -82,6 +82,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/camera_poses.py`, `scripts/teleop_view.py` | gamepad teleop with the wrist and base cameras in one window; saves poses that hold a tile up to the base camera in `data/camera_poses.json` (test 2) |
 | `mahjong/privacy.py`, `scripts/blur_faces.py` | faces blurred in every photo the base camera saves (pose model `assets/yolo11n-pose.pt`; a "person" over 65% of the frame is the held tile, not a person); the script does the same for sessions already on disk, dry run unless `--apply` |
 | `mahjong/holdup_arm.py`, `scripts/holdup_arm.py` | the arm collects the hold-up photos (face-down plan, tests 1b/2): picks up a face-down tile laid on a layout spot, shows it at the saved `base_view_*` poses, sets it back; a tile on each spot, picked in turn and moved one spot along between arrangements, so holds of one tile never come in a row (the scene named the tile when they did); `--empty` visits the poses with nothing in the jaws first |
+| `mahjong/wall_test.py`, `scripts/wall_test.py` | drawing face-down tiles from one saved station a person feeds (`docs/face_down_plan.md`, "The wall: one station"): hover and push checks, flat / touching / top / bottom cases, a real cycle of draws; a person's one key on each attempt, since nothing can see a back; `--report` scores every real session |
 | `mahjong/name_check.py`, `scripts/train_name_check.py`, `name_check_eval.py` | a second read of a tile's name from the wrist camera at the hover: in play, agreement changes nothing and disagreement asks; its exam is `data/name_check_exam.json` |
 | `scripts/label_sheets.py` | one picture per tile name of every box labelled with it, to check a labelled set by eye |
 | `mahjong/hand_view.py` | play's window: the mat zoomed on the tiles, every slot named, the tiles under review picked out with what they could be (`identity.Votes.worth_a_look`; it only marks, never asks), the wrist view of the tile asked about |
@@ -202,7 +203,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   jaws close: 127/130 picked; 20mm or more: 3/25 (295 real attempts, `grasp_clearance_m`; `session_report.py` prints it).
   Teacher-forced scores don't see it: v6 and v7 tied on arm, grasp and timing error over 53 demos they never trained on,
   while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
-- **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05).
+- **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05). What seems to matter is white
+  face-up tiles near the target: about 8mm with them, 13-18mm with none or only green backs, and turning the lights on doesn't close the gap (a pattern across 4
+  sessions, not a deliberate test: `docs/retrospectives/2026-11-09_face_down_progress.md`).
   v8 at S8, from the same hover pose and 41mm hover as when it picked 6/6 at 5-9mm among a full hand, closed 21-28mm up on a lone
   tile and missed 7/7, face down and face up; with neighbours around it, 14-16mm and 1 of 2 completed picked. A hover 4mm lower
   closed only 2-3mm lower, so the hover isn't the lever. Bench and collect near-row spots with their neighbours in place, and
@@ -217,7 +220,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
 - **A classifier learns whatever separates the tiles, the scene included.** Each tile's base-camera holds taken in a row, a classifier with the tile
   blacked out still scored 99% (2026-11-06). So tiles are collected interleaved and moved between spots, `holdup_check.py` runs a greyed-out control,
-  and a score counts on a session never trained on. A plain background is a test, not training: variety teaches a reader to ignore scenes.
+  and a score counts on a session never trained on. Collected that way and cropped to the tile, a reader trained on either the cluttered room or a blank white
+  background read the other at 97% (6 tiles, 2026-11-09). Another room is untested.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script: it waits, cuts the port's power once, and only then asks a person, and each
