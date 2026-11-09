@@ -41,6 +41,7 @@ def parse_args(argv=None):
     p.add_argument("--station", default="F", help=f"the wall's station in layout {wall_test.LAYOUT} (default %(default)s)")
     p.add_argument("--stacked", action="store_true", help="a wall two high: top, bottom, then feed. Default: one tile high")
     p.add_argument("--top-back-mm", type=float, default=10.0, help="with --stacked: a top tile's hover starts this much nearer the robot (default %(default)s)")
+    p.add_argument("--leave-empty", default="", metavar="SLOTS", help="hand slots with no tile on the mat, comma separated, e.g. S7 (its tile right behind the wall throws the draw off): still named in --hand, never chosen as a discard")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
     p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what holdup_arm's Rig reads
@@ -50,8 +51,8 @@ def parse_args(argv=None):
 def photos_with_guess(frames, guess, typed):
     """The held tile's photos side by side, the reader's guess, and what's been typed so far."""
     row = np.hstack([cv2.resize(f, (320, 240)) for f in frames[:4]])
-    said = f"Reader: {guess['name']} ({guess['confidence']:.0%})" if guess else "No reader guess"
-    cv2.putText(row, f"{said}.  Enter accepts, or type the name, X = face not visible", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+    said = f"Reader: {guess['name']} ({guess['confidence']:.0%}).  Enter accepts, or type the name" if guess else "No reader guess: type the name"
+    cv2.putText(row, f"{said}, X = face not visible", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
     cv2.putText(row, f"> {typed}", (8, row.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
     return row
 
@@ -79,9 +80,10 @@ def type_in_window(frames, guess, show=None, wait_key=None):
 class Run:
     """One crude run: the hand by memory, the wall's station, the drop zone, and everything that went wrong."""
 
-    def __init__(self, rig, args, ask, slots, hand, station, zone, reader, boxes):
+    def __init__(self, rig, args, ask, slots, hand, station, zone, reader, boxes, empty=()):
         self.rig, self.args, self.ask, self.slots, self.hand = rig, args, ask, slots, hand
-        self.station, self.zone, self.reader, self.boxes = station, zone, reader, boxes
+        self.station, self.zone, self.reader, self.boxes, self.empty = station, zone, reader, boxes, empty
+        self.shallow = 0
         self.rng = holdup_arm.rng_for(0)
         self.pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
         self.spot_of = {s["id"]: s for s in layout.load(args.layout)["spots"]}
@@ -91,13 +93,28 @@ class Run:
         entry = {"turn": self.turn_no, "step": step, "what": what, "by_hand": by_hand}
         self.breaks.append(entry)
         self.rig.session.event("crude_break", **entry)
-        print(f"  BROKE at {step}: {what}" + (" (by hand)" if by_hand else ""))
+        print(f"  Noted for the list: {step}: {what}" + (" (by hand)" if by_hand else ""))
 
-    def by_hand(self, step, what, instruction):
-        """A person does what the arm couldn't. False if they quit."""
+    def by_hand(self, step, what, instruction=None, spot=None, where=None):
+        """A person does what the arm couldn't: to `spot` (`where`, in words), outlined in the window, or as `instruction` says. False if they quit."""
         self.broke(step, what, by_hand=True)
         drain_stdin()
+        if spot is not None:
+            return wall_script.prompt(self.rig, spot, crude_run.place_step(where), self.ask) != "q"
         return self.ask(f"{instruction}, then Enter (q = quit): ").strip().lower() != "q"
+
+    def jaws_have_tile(self):
+        """Arm.holding, or the shallow reading a person has said can be a tile."""
+        holding, command, measured = self.rig.arm.holding()
+        return holding or crude_run.maybe_shallow(command, measured)
+
+    def tile_in_jaws(self, pick):
+        """The jaws read shut on something narrower than a tile: a person says whether there's one there."""
+        drain_stdin()
+        while True:
+            answer = self.ask(f"The jaws read {pick['gripper_measured']:.1f}: a shallow grip, or nothing. Is there a tile in the jaws? y/n: ").strip().lower()
+            if answer in ("y", "n", "q"):       # q: treated as no, and the next prompt can quit
+                return answer == "y"
 
     def pick(self, step, spot, label, raise_m=0.0, back_m=0.0):
         """The pick at `spot`, tried twice unless a person says otherwise. Its result with the tile held at rest, else None."""
@@ -107,13 +124,18 @@ class Run:
             if pick.get("unreachable"):
                 self.broke(step, f"{spot['id']} is out of the hover's reach")
                 return None
-            if pick["run"]["stop_reason"] == "camera" and not pick["holding"]:      # says nothing about the pick
+            shallow = bool(not pick["holding"] and crude_run.maybe_shallow(pick["gripper_command"], pick["gripper_measured"]) and self.tile_in_jaws(pick))
+            if pick["run"]["stop_reason"] == "camera":
                 from mahjong import hardware
                 self.rig.wrist = hardware.reopen_wrist_camera(self.rig.wrist)
-                continue
-            self.rig.session.event("crude_pick", turn=self.turn_no, step=step, spot=spot["id"], held=bool(pick["holding"]), stop_reason=pick["run"]["stop_reason"],
-                                   grasp_clearance_m=pick["run"].get("grasp_clearance_m"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
-            if pick["holding"]:
+                if not pick["holding"] and not shallow:      # says nothing about the pick. A tile in the jaws stays: another hover would open them
+                    continue
+            self.rig.session.event("crude_pick", turn=self.turn_no, step=step, spot=spot["id"], held=bool(pick["holding"] or shallow), shallow=shallow, jaw_reading=pick["gripper_measured"],
+                                   stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=pick["run"].get("grasp_clearance_m"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
+            if shallow:
+                self.shallow += 1
+                print("  A shallow grip: carrying on with it.")
+            if pick["holding"] or shallow:
                 return pick
             tries += 1
             self.broke(step, f"missed at {spot['id']} (stop: {pick['run']['stop_reason']})")
@@ -138,7 +160,7 @@ class Run:
 
     def to_container(self, step, what):
         """The held tile into the discard container."""
-        if self.rig.arm.holding()[0]:
+        if self.jaws_have_tile():
             wall_script.discard(self.rig, self.pose)
         else:
             self.broke(step, f"lost {what} before the container")
@@ -150,17 +172,17 @@ class Run:
         back_m = self.args.top_back_mm / 1000 if layer == "top" else 0.0
         pick = self.pick("draw", self.station, f"t{self.turn_no}_draw_{layer}", raise_m, back_m)
         if pick is None:
-            return ([], []) if self.by_hand("draw", "the wall's tile wasn't drawn", "Put the drawn tile on the drop zone yourself, GREEN side up") else None
-        frames, from_pose, problem = self.rig.show(self.rng)
+            return ([], []) if self.by_hand("draw", "the wall's tile wasn't drawn", spot=self.zone_spot, where="the drop zone") else None
+        frames, from_pose, problem = self.rig.show(self.rng, still_held=self.jaws_have_tile)
         for i, (frame, pose) in enumerate(zip(frames, from_pose)):
             cv2.imwrite(str(pick["attempt"] / f"base_{pose}_{i}.jpg"), privacy.blur_faces(frame)[0])
         if problem:
             self.broke("show", problem)
         self.rig.arm.rest()
-        if not self.rig.arm.holding()[0]:
-            return (frames, from_pose) if self.by_hand("show", "the tile came out of the jaws", "Put it on the drop zone yourself, GREEN side up") else None
+        if not self.jaws_have_tile():
+            return (frames, from_pose) if self.by_hand("show", "the tile came out of the jaws", spot=self.zone_spot, where="the drop zone") else None
         if not self.set_down("set_on_zone", pick, self.station, self.zone_spot, layer):
-            return (frames, from_pose) if self.by_hand("set_on_zone", "not set down", "Take it from the jaws and put it on the drop zone, GREEN side up") else None
+            return (frames, from_pose) if self.by_hand("set_on_zone", "not set down", spot=self.zone_spot, where="the drop zone") else None
         return frames, from_pose
 
     def read(self, frames, from_pose):
@@ -175,8 +197,13 @@ class Run:
                 if typed is None:
                     return None
             else:
-                said = f"Reader says {guess['name']} ({guess['confidence']:.0%}). " if guess else ""
-                typed = self.ask(f"{said}Enter accepts, or type the name, X = face not visible, q = quit: ").strip().upper()
+                if not frames:
+                    question = "The camera never saw this tile. Look at it, type its name, then Enter (q = quit): "
+                elif guess:
+                    question = f"Reader says {guess['name']} ({guess['confidence']:.0%}). Enter accepts, or type the name, X = face not visible, q = quit: "
+                else:
+                    question = "No reader guess: type the tile's name, X = face not visible, q = quit: "
+                typed = self.ask(question).strip().upper()
                 if typed == "Q":
                     return None
             if typed == "X":
@@ -187,7 +214,7 @@ class Run:
             name = typed or (guess["name"] if guess else "")
             if game.is_playable(name):
                 break
-            print(f"  '{name}' isn't a tile name (for example 5C, 3D, 9B, EW, RD).")
+            print(f"  '{name}' isn't a tile name (for example 5C, 3D, 9B, EW, RD)." if name else "  There's no guess to accept here: type the tile's name.")
         row = {"turn": self.turn_no, "guess": guess["name"] if guess else None, "name": name, "face_hidden": hidden, "guess_confidence": guess["confidence"] if guess else None}
         self.reads.append(row)
         self.rig.session.event("crude_read", **row)
@@ -200,7 +227,8 @@ class Run:
             print(f"Drew {name}: the hand is complete. Win!")
             self.rig.session.event("crude_win", turn=self.turn_no, drawn=name)
             return "win"
-        best, _ = game.choose_discard(hand13, name, self.discards)
+        _, candidates = game.choose_discard(hand13, name, self.discards)
+        best = crude_run.choose_allowed(candidates, self.slots, self.empty)
         from_hand = best["index"] != game.HAND_SIZE
         slot = self.slots[best["index"]] if from_hand else None
         print(f"Drew {name}; discard {best['tile_name']}" + (f" from {slot}" if from_hand else " (the drawn tile)") + f". {best.get('shanten_after', '?')} away after it.")
@@ -215,12 +243,14 @@ class Run:
                 self.to_container("discard", best["tile_name"])
         pick = self.pick("pick_from_zone", self.zone_spot, f"t{self.turn_no}_zone")
         if pick is None:
-            where = f"on {slot}, GREEN side up" if from_hand else "in the discard container"
-            if not self.by_hand("pick_from_zone", f"the drawn {name} wasn't picked off the zone", f"Put the tile on the drop zone {where} yourself"):
+            what = f"the drawn {name} wasn't picked off the zone"
+            done = self.by_hand("pick_from_zone", what, spot=self.spot_of[slot], where=slot) if from_hand \
+                else self.by_hand("pick_from_zone", what, "Put the tile from the drop zone in the discard container yourself")
+            if not done:
                 return "quit"
         elif from_hand:
             if not self.set_down("place_in_hand", pick, self.zone_spot, self.spot_of[slot]) and \
-                    not self.by_hand("place_in_hand", "not set down", f"Take it from the jaws and put it on {slot}, GREEN side up"):
+                    not self.by_hand("place_in_hand", "not set down", spot=self.spot_of[slot], where=slot):
                 return "quit"
         else:
             self.to_container("discard", name)
@@ -231,7 +261,7 @@ class Run:
 
     @property
     def zone_spot(self):
-        return {"id": "zone", "xy": [float(v) for v in self.zone]}
+        return {"id": "zone", "xy": [float(v) for v in self.zone], "yaw_deg": 0.0}
 
     def feed(self, plan, turns):
         station_id = self.station["id"]
@@ -246,7 +276,7 @@ class Run:
     def turn(self, plan, turns):
         """One draw to its discard. Returns False to stop."""
         self.turn_no = plan["turn"]
-        print(f"\n=== Turn {self.turn_no} of {turns}: {crude_run.hand_text(self.slots, self.hand)}")
+        print(f"\n=== Turn {self.turn_no} of {turns}: {crude_run.hand_text(self.slots, self.hand, self.empty)}")
         if not self.feed(plan, turns):
             return False
         got = self.draw(plan)
@@ -271,6 +301,7 @@ def main(argv=None, ask=input):
     privacy.require()           # the weights that blur faces in the base camera's photos: before any hardware
     slots = [s["id"] for s in layout.load(args.layout)["spots"]]
     hand = crude_run.parse_hand(args.hand, slots)
+    empty = crude_run.parse_slots(args.leave_empty, slots)
     stations = {s["id"]: s for s in layout.load(wall_test.LAYOUT)["spots"]}
     if args.station not in stations:
         raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.station} (has: {', '.join(stations)})")
@@ -292,13 +323,14 @@ def main(argv=None, ask=input):
     run = None
     try:
         conditions = holdup.ask_lighting(ask)
-        rig.open_session("crude", hand=hand, turns=args.turns, station=args.station, stacked=args.stacked, zone_xy=zone["xy"], reader=holdup.READER.name if reader else None)
+        rig.open_session("crude", hand=hand, turns=args.turns, station=args.station, stacked=args.stacked, zone_xy=zone["xy"], reader=holdup.READER.name if reader else None, left_empty=empty)
         rig.session.conditions = conditions
         rig.session.event("crude_conditions", conditions=conditions)
         rig.arm.rest()
-        run = Run(rig, args, ask, slots, hand, station, zone["xy"], reader, holdup.tile_boxes())
+        run = Run(rig, args, ask, slots, hand, station, zone["xy"], reader, holdup.tile_boxes(), empty)
+        print("\n" + crude_run.FLOW + "\n")
         drain_stdin()
-        if ask(f"Lay the hand GREEN side up: {crude_run.hand_text(slots, hand)}. The drop zone stays clear. Enter when done (q = quit): ").strip().lower() != "q":
+        if ask(f"Lay the hand GREEN side up: {crude_run.hand_text(slots, hand, empty)}. The drop zone stays clear. Enter when done (q = quit): ").strip().lower() != "q":
             for plan in crude_run.draw_plan(args.turns, args.stacked):
                 if not run.turn(plan, args.turns):
                     break
@@ -308,7 +340,7 @@ def main(argv=None, ask=input):
         folder = rig.session.dir if rig.session else None
         rig.close()
         if rig.session and run:
-            result = crude_run.summary(run.done, run.breaks, run.reads)
+            result = crude_run.summary(run.done, run.breaks, run.reads, run.shallow)
             print("\n" + "\n".join(crude_run.summary_lines(result, run.breaks)))
             (folder / "crude_summary.json").write_text(json.dumps({**result, "breaks_list": run.breaks}, indent=2) + "\n")
             rig.session.event("crude_done", **result)
