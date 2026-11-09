@@ -210,6 +210,14 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - **The base camera sees the room, so what it saves is face-blurred.** A pose model (`assets/yolo11n-pose.pt`), not Haar cascades,
   which blurred the tile's printing; the held tile close to the camera is seen as a person, so a "person" over 65% of the frame is
   ignored (`mahjong/privacy.py`). The blur lowers the chance of a face in a photo; it doesn't rule it out.
+- **The wrist and base cameras can only be told apart by USB port.** They report the same ID and serial, and on 2026-11-05 `/dev/wristcam`
+  pointed at the base camera. The udev rule names them by port (wrist 3-8, base 3-9 on the NUC), so keep each cable in its port.
+  `setup_check.py` doesn't check this yet. Evidence: `docs/face_down_plan.md`.
+- **The detector doesn't see tile backs, even at 1% confidence** (6 face-down tiles, 5 frames, no boxes; 34 on a face-up scan, 2026-11-09). A
+  face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
+- **A classifier learns whatever separates the tiles, the scene included.** Each tile's base-camera holds taken in a row, a classifier with the tile
+  blacked out still scored 99% (2026-11-06). So tiles are collected interleaved and moved between spots, `holdup_check.py` runs a greyed-out control,
+  and a score counts on a session never trained on. A plain background is a test, not training: variety teaches a reader to ignore scenes.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script: it waits, cuts the port's power once, and only then asks a person, and each
