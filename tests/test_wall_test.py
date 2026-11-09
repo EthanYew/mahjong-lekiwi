@@ -66,6 +66,84 @@ def test_the_stations_are_in_the_layouts_file_and_every_outcome_key_is_one_chara
     assert all(len(k) == 1 for k in wall_test.OUTCOMES) and "q" not in wall_test.OUTCOMES   # q quits
 
 
+ALL_STEPS = [*(wall_test.lay_step(case, "F", f"{case}, try 10/10") for case in wall_test.CASES), wall_test.hover_step("F"), wall_test.push_step("F"),
+             wall_test.wall_step("F", 7), wall_test.feed_step("F"), wall_test.put_right_step("F", "top"), wall_test.put_right_step("F", "bottom")]
+
+
+def test_every_line_of_every_instruction_fits_the_camera_window():
+    """A long line used to run off the edge of the 848px window, which cut the instruction short."""
+    import cv2
+    for step in ALL_STEPS:
+        for line in step["lines"]:
+            width = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+            assert width <= 848 - 20, line
+
+
+def test_each_instruction_says_how_many_tiles_and_which_side_up_and_matches_its_picture():
+    tiles = {"control": 1, "flat": 1, "strip": 2, "top": 4, "bottom": 3}
+    for case, count in tiles.items():
+        step = wall_test.lay_step(case, "F", "tag")
+        assert sum(cell is not None for row in step["picture"] for cell in row) == count
+        assert f"{count} tile" in " ".join(step["lines"])
+        assert ("WHITE" if case == "control" else "GREEN") in " ".join(step["lines"])
+        assert sum("[" in (cell or "") for row in step["picture"] for cell in row) == 1     # one tile the arm goes for
+    assert wall_test.CASES["bottom"]["picture"][0][0] is None                               # nothing on top of the bottom tile
+    assert "NOTHING on top" in " ".join(wall_test.lay_step("bottom", "F", "tag")["lines"])
+    assert wall_test.push_step("F")["picture"][0][0] == "W" and wall_test.push_step("F")["picture"][1][0] == "G"
+
+
+def test_the_terminal_shows_the_instruction_the_picture_and_what_the_letters_mean():
+    text = wall_test.step_text(wall_test.lay_step("top", "F", "top, try 1/10"))
+    assert "[top, try 1/10] Clear station F" in text and "[G]" in text and "W = white side up" in text
+
+
+def test_the_window_has_no_top_mark_when_which_way_up_doesnt_matter_and_shows_every_line():
+    import numpy as np
+    from mahjong import holdup_arm, sim
+    mat = sim.SimPerception(tiles=[])
+    image, spot = np.zeros((480, 848, 3), np.uint8), {"id": "F", "xy": [0.235, -0.012]}
+    plain = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", None)
+    marked = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", 1)
+    assert not (plain == marked).all()
+    two = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one\ntwo", None)
+    assert two[36:60].any() and not plain[36:60].any()      # the second line has its own row
+
+
+def test_the_windows_picture_draws_every_step_inside_the_frame():
+    import numpy as np
+    import wall_test as script
+    for step in ALL_STEPS:
+        frame = np.zeros((480, 848, 3), np.uint8)
+        script.draw_picture(frame, step["picture"])
+        assert frame.any()
+
+
+def prompts_of(script, argv, answers):
+    prompts, answers = [], iter(answers)
+
+    def ask(text):
+        prompts.append(text)
+        return next(answers, "q")
+    script.main(["--sim", *argv], ask=ask)
+    return prompts
+
+
+def test_a_simulated_session_prompts_with_what_to_lay_and_no_top_mark(monkeypatch, tmp_path):
+    prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "bottom", "--trials", "1"], [*LIGHT, "n", "", "c"])
+    assert any("3 tiles, GREEN side up" in p and "NOTHING on top" in p for p in prompts)
+    assert not any("TOP" in p for p in prompts)
+
+
+def test_a_cycle_doesnt_ask_for_the_wall_put_right_after_its_last_draw(monkeypatch, tmp_path):
+    prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "1"], [*LIGHT, "n", "", "p"])
+    assert any("stacks of 2" in p for p in prompts) and not any("Not clean" in p for p in prompts)
+
+
+def test_a_cycle_says_what_the_wall_should_look_like_after_a_draw_that_wasnt_clean(monkeypatch, tmp_path):
+    prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "2"], [*LIGHT, "n", "", "p", "", "c"])
+    assert any("Take the top tile off by hand" in p for p in prompts)
+
+
 def test_every_station_is_comfortably_reached_once_the_hover_correction_has_moved_it():
     """The arm goes ~40mm from the RealSense's xy (hover correction): a spot picked from its xy alone looked fine at 0.245 and was at the edge."""
     from mahjong import layout

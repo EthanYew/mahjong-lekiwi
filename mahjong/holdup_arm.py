@@ -118,20 +118,25 @@ def top_end_sign(laying, layout_top="far"):
 
 def guide_frame(image, spot, intrinsics, T_cam_to_base, text, sign):
     """The RealSense frame with the target spot's outline (green), the short end where the top of the picture goes drawn
-    thick and labelled TOP, and `text` along the top: what a person lines the tile up with. The detector can't see a face-down
+    thick and labelled TOP (sign 1 or -1; None when which way up doesn't matter: no mark), and `text` along the top, one
+    line per newline: what a person lines the tile up with. The detector can't see a face-down
     tile, so nothing here says whether it is placed: it is by eye, as the layout script says when it has no yaw."""
     import cv2
     import numpy as np
     from . import layout
     out = layout.draw(image, [spot], intrinsics, T_cam_to_base, states={spot["id"]: "ok"})
-    corners = layout.table_to_pixel(layout.tile_corners(*spot["xy"], spot.get("yaw_deg", 0.0)), intrinsics, T_cam_to_base)
-    a, b = (corners[0], corners[3]) if sign > 0 else (corners[1], corners[2])       # tile_corners: +x end is 0 -> 3
-    cv2.line(out, tuple(np.round(a).astype(int)), tuple(np.round(b).astype(int)), (0, 220, 255), 4)
-    mid = (a + b) / 2
-    away = mid - corners.mean(axis=0)
-    label = mid + away * 0.9
-    cv2.putText(out, "TOP", (int(label[0]) - 14, int(label[1]) + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 255), 2)
-    cv2.putText(out, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    if sign is not None:
+        corners = layout.table_to_pixel(layout.tile_corners(*spot["xy"], spot.get("yaw_deg", 0.0)), intrinsics, T_cam_to_base)
+        a, b = (corners[0], corners[3]) if sign > 0 else (corners[1], corners[2])       # tile_corners: +x end is 0 -> 3
+        cv2.line(out, tuple(np.round(a).astype(int)), tuple(np.round(b).astype(int)), (0, 220, 255), 4)
+        mid = (a + b) / 2
+        away = mid - corners.mean(axis=0)
+        label = mid + away * 0.9
+        cv2.putText(out, "TOP", (int(label[0]) - 14, int(label[1]) + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 255), 2)
+    lines = text.split("\n")
+    cv2.rectangle(out, (0, 0), (out.shape[1], 10 + 26 * len(lines)), (0, 0, 0), -1)         # the mat is pale and striped: white text needs a ground
+    for i, line in enumerate(lines):
+        cv2.putText(out, line, (10, 25 + 26 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     cv2.putText(out, "Space/Enter: laid, go    s: skip    q: quit", (10, out.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                 (255, 255, 255), 1)
     return out
