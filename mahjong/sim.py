@@ -312,7 +312,10 @@ class SimPolicy:
         arm.robot.holding = True
         if tile is not None:
             self.mat.grasp(tile)
-        up, _ = kinematics.hover_command(x, y, 0.13, 0.0)
+        for height in (0.13, 0.10, 0.08):       # out to the side the IK runs out of height first (the left wall station)
+            up, _ = kinematics.hover_command(x, y, height, 0.0)
+            if up is not None:
+                break
         arm.move_to(up, 2.0)
         return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,

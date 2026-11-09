@@ -97,6 +97,39 @@ because a tile turned clockwise more than about 20° here can't be reached by th
 
 That's about 10 tiles. The last hands took 19-34 turns, so a demo win needs a pre-arranged wall and hand, and the writeup says so.
 
+**The figures above are at the RealSense's coordinates, and the arm doesn't go there (found 2026-11-09).** The hover correction moves it about 35-44mm further out, so reach has to be worked out at
+the corrected point (`layout.reach_band` does; the check agrees with `even-hand14`'s recorded 19mm at S1 and 21mm at S13). Corrected, x = 0.20 at y = +0.195 is past the gamepad's reach and needs the jaws tilted 5° (7° for a top
+tile); stacks at x = 0.213 and beyond are refused by the IK. So a column here can't be drawn along its length, which is what the station below avoids.
+
+## The wall: one station
+
+Decided 2026-11-09. The arm draws from **one saved spot, a station**, and a person pushes the wall along so the next stack sits on it, adding stacks at the far end. Reach stops limiting the wall's length, one position needs
+checking instead of ten, and only the stack on the station has to be reachable. Top tile first, then the bottom, then a feed. A person feeding the wall is part of the demo and the writeup says so: feeds are logged as feeds, not rescues.
+
+Two candidates (`wall-stations` in `data/layouts.json`), both with the jaws straight down at both heights. Figures are computed at the corrected point, not run on the arm:
+
+| | F, in front of the hand (0.235, -0.012) | L, on its left (0.14, 0.192) |
+|---|---|---|
+| Wrist roll (limit -170°) | -94° | -146° |
+| Joint margin, flat / top tile | 27° / 21° | 28° / 22° |
+| Gamepad reach left | 16mm | 28mm |
+| Space | 8mm past the far-row tile at S7 | 20mm beside S1/S2 |
+
+F is where a real wall sits and has far more wrist roll to spare; L has more reach. Test 3 below chooses. If pushes turn out not to repeat, the fallback is three one-stack stations refilled by hand, and if top tiles fail, a wall one layer high.
+The positions come from the RealSense's xy, so lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
+
+The order, each step able to stop the next (`scripts/wall_test.py`, and README). Thresholds are the ones below:
+
+1. `--hover-check`: does the hover centre on a face-up tile on each station? The correction was measured only inside the hand's area, and L is past it.
+2. `--push-check`, no arm: does a pushed row land in the same place? The limit is 3mm from where pushes usually land, half the jaws' tolerance of about 6mm (a judgement, not a measurement). Over it: try a low end stop, which bends the no-tray decision, so tape comes first.
+3. `--stations F,L --cases control,flat --trials 5`: which station, by close height and clean picks.
+4. `--cases strip`, 10 tries: tiles touching end to end, the plan's test 4b at the station.
+5. `--cases top`, 10 tries, the hover a tile higher, the next stack behind (test 7).
+6. `--cases bottom`, 10 tries, the next stack behind (test 7).
+7. `--cases cycle --trials 12`: the real operation, fed by hand. At 90% per draw, 12 clean in a row happens about 28% of the time, so expect to step in.
+
+Tiles drawn go into the discard container, not back on the wall: putting a tile back on a wall is a different skill and isn't tested here.
+
 ## The tests
 
 Times are guesses. Each one can stop the plan before the next is paid for. Ten tries gives a signal for a decision, not a
@@ -216,8 +249,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - **Test 3, 2026-11-09:** six face-down tiles on the mat, five RealSense frames, the installed detector down to 1% confidence: no boxes.
   The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
   another check.
-- **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): a flat face-down tile at the new left column, then v8 on stacks there (test 7), logging
-  close height; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
+- **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
 - `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws.
