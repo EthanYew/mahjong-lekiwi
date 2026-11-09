@@ -33,12 +33,18 @@ pressing A (the rightmost face button) hands it to you, from the pose the policy
 and training (make_policy.py --add) keeps only your frames, as deltas from the hover like every other
 episode. Record these into a dataset of their own.
 
+Wall picks (docs/face_down_plan.md, "The wall: one station"): --wall-station F aims at that saved station, because the detector can't see a
+green back, and walks --wall-layers in turn. Each episode says what to lay, in words and a side view, from the same hovers wall_test.py uses: a top
+tile's is one tile higher and --wall-top-back-mm nearer the robot, a bottom tile's is the policy's own. A tile still held afterwards goes in the discard
+container, since it can't be put back on a stack. Each log row has wall_layer, hover_raise_m and hover_back_m.
+
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --repeats 2 \
         --hover-offsets-mm 6x,-6y
     python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c
+    python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v8 --policy pickup_mat_cl_v8 --wall-station F --hover-jitter-mm 6
 """
 import argparse
 import json
@@ -54,7 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware, kinematics, layout
+from mahjong import config, hardware, kinematics, layout, wall_test
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
@@ -120,7 +126,57 @@ def parse_args(argv=None):
                         "--clearance-mm, --hover-gripper) until you press A on the gamepad; only your frames are trained on")
     p.add_argument("--no-return", action="store_true",
                    help="don't set a held tile back down after an episode: it's released at rest, as before")
+    p.add_argument("--wall-station", default=None, metavar="ID",
+                   help=f"record wall picks at this station of layout {wall_test.LAYOUT} (F or L), aiming at its saved position: the detector can't see green backs")
+    p.add_argument("--wall-layers", default="top,bottom",
+                   help="with --wall-station: the layers to record, taken in turn; repeat one to get more of it, e.g. top,top,bottom (default %(default)s)")
+    p.add_argument("--wall-top-back-mm", type=float, default=10.0,
+                   help="with --wall-station: start a top tile's hover this much nearer the robot, as wall_test.py --top-back-mm (default %(default)s, what worked at F)")
     return p.parse_args(argv)
+
+
+def wall_setup(args):
+    """What --wall-station records, checked before anything connects: {"station", "layers", "back_m"}, or None without it."""
+    if not args.wall_station:
+        return None
+    if args.layout:
+        raise SystemExit("--wall-station or --layout, not both: a wall station is its own saved spot")
+    spots = {s["id"]: s for s in layout.load(wall_test.LAYOUT)["spots"]}
+    if args.wall_station not in spots:
+        raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.wall_station} (has: {', '.join(spots)})")
+    layers = wall_test.parse_list(args.wall_layers)
+    if not layers or set(layers) - {"top", "bottom"}:
+        raise SystemExit("--wall-layers takes top and bottom, comma separated")
+    if abs(args.wall_top_back_mm) > wall_test.MAX_HOVER_BACK_MM:
+        raise SystemExit(f"--wall-top-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
+    if not config.DISCARD_POSE.exists():
+        raise SystemExit("No discard pose: teach one with bench.py's teach-discard. A drawn tile can't be put back on a stack")
+    return {"station": spots[args.wall_station], "layers": layers, "back_m": args.wall_top_back_mm / 1000}
+
+
+def wall_placement(wall, saved, episodes):
+    """Says what to lay for episode number `saved` and waits for it. (tile, placement) as the detector and a layout give them,
+    or (None, None) to quit. A layer changes only when an episode is saved, so a discarded one is tried again."""
+    layer, station = wall["layers"][saved % len(wall["layers"])], wall["station"]
+    print(wall_test.step_text(wall_test.lay_step(layer, station["id"], f"{layer}, episode {saved + 1}/{episodes}")))
+    drain_stdin()
+    if input("\nEnter once it's laid (q = quit): ").strip().lower() == "q":
+        return None, None
+    return ({"tile_name": "wall", "xy": [float(v) for v in station["xy"]]},
+            {"layout": wall_test.LAYOUT, "spot": station["id"], "spot_xy": station["xy"], "wall_layer": layer,
+             "hover_raise_m": wall_test.HOVER_RAISE_M[layer], "hover_back_m": wall["back_m"] if layer == "top" else 0.0})
+
+
+def discard_tile(arm):
+    """A wall tile still held goes in the discard container, as wall_test.py's do. True if there was one."""
+    if not arm.holding()[0]:
+        return False
+    pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
+    arm.rest()
+    arm.go_to_pose(pose)
+    arm.set_gripper(config.GRIPPER_RELEASE)
+    arm.rest()
+    return True
 
 
 def open_dataset(repo_id):
@@ -155,6 +211,7 @@ def main(argv=None):
         policy = Policy(args.policy)
         hover = dict(policy.hover)
         print(f"DAgger: {policy.id} drives from its hover {hover}; press A on the gamepad to take over")
+    wall = wall_setup(args)    # before connecting anything, so a typo fails fast
     spots, todo, ghost = [], [], None
     if args.layout:            # before connecting anything, so a typo fails fast
         spots = layout.load(args.layout)["spots"]
@@ -171,7 +228,8 @@ def main(argv=None):
                       deadzone=args.deadzone, left_stick_max_mm_s=args.left_stick_max_mm_s,
                       slice=args.slice, layout=args.layout, hover_jitter_mm=args.hover_jitter_mm,
                       hover_offsets_m=args.hover_offsets_mm, jitter_zero_fraction=args.jitter_zero_fraction,
-                      jitter_seed=args.jitter_seed, policy=args.policy)
+                      jitter_seed=args.jitter_seed, policy=args.policy, wall_station=args.wall_station,
+                      wall_layers=wall["layers"] if wall else None, wall_top_back_m=wall["back_m"] if wall else None)
     session.event("connect", **arm.at_connect)
     correction = None if args.no_correction else HoverCorrection.load()
     print(f"Hover correction: {correction.summary() if correction else 'off'}")
@@ -193,7 +251,13 @@ def main(argv=None):
             else:
                 rest_and_release(arm, hover)
                 placement = {}
-                if args.layout:
+                if wall:
+                    tile, placement = wall_placement(wall, saved, args.episodes)
+                    for k in ("exit_early", "rerecord_episode", "stop_recording"):   # keys pressed while laying
+                        events[k] = False
+                    if tile is None:
+                        break
+                elif args.layout:
                     if not todo:
                         print(f"Every spot of layout {args.layout} recorded.")
                         break
@@ -232,11 +296,13 @@ def main(argv=None):
             x, y = tile["xy"]
             home = homes(tile, {"id": placement["spot"]} if placement else None)
             hx, hy = correction.apply(x, y) if correction else (x, y)
+            hx -= placement.get("hover_back_m", 0.0)            # a wall's top tile
+            raise_m = placement.get("hover_raise_m", 0.0)
             if offset is None:
                 offset = next_offset(args, rng, saved)
             if any(offset):
                 print(f"  hover jittered by ({offset[0] * 1000:+.1f}, {offset[1] * 1000:+.1f})mm on purpose")
-            result = arm.hover(hx + offset[0], hy + offset[1], hover["offset_m"], hover["clearance_m"], hover["gripper"])
+            result = arm.hover(hx + offset[0], hy + offset[1], hover["offset_m"] + raise_m, hover["clearance_m"] + raise_m, hover["gripper"])
             if result is None:
                 print("Unreachable from the closed-loop hover — choose another tile.")
                 session.event("attempt_skipped", reason="unreachable", tile=tile["tile_name"],
@@ -325,8 +391,11 @@ def main(argv=None):
             held = {"tile_name": tile["tile_name"], "detection_xy": [x, y], "home_xy": home, "attempt_dir": None,
                     "spot": placement.get("spot")}
             arm.squeeze()              # jaws a person stopped closing on the tile: shut, so holding() sees it
-            returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
-                                                          correction, hover, args.policy or "teleop", states)
+            if wall:
+                returned = discard_tile(arm)       # it can't go back on a stack
+            else:
+                returned = not args.no_return and return_tile(arm, actions, result, held, returns, realsense, session,
+                                                              correction, hover, args.policy or "teleop", states)
             dagger = {"policy": policy.id, "takeover_frame": takeover, "fps": fps} if policy else {}
             if events["stop_recording"] or events["rerecord_episode"]:
                 dataset.clear_episode_buffer()
@@ -360,7 +429,7 @@ def main(argv=None):
                   + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None
                      else f", no takeover: {policy.id}'s alone, not trained on)"))
             offset = None          # the next episode draws its own
-            if placement:
+            if placement and args.layout:
                 todo.pop(0)
     except KeyboardInterrupt:          # Esc and q are the ways out; Ctrl-C is stepping in
         print("Interrupted.")

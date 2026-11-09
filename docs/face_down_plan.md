@@ -170,8 +170,25 @@ v8, bright daylight, lamp and ceiling lights off, on `sessions/20261109_151530_w
 - **The wall turned 90°** (`20261109_173835_wall`, 2 tries, both failed, logged as an ordinary cycle). The tiles' long sides ran across the jaws, with the next tile touching along that side, so the jaws would have to span 35mm instead of 26mm at the short ends, with neighbours pressed against both faces.
   Two tries prove little, but it probably needs new demos and a wider hover opening. Parked until the v1 demo works, which uses the end-to-end wall.
 
-**Next:** 12 draws in a row at F with a straight edge guiding the wall (`--stations F --cases cycle --trials 12 --top-back-mm 10`). It shows whether the v1 wall works from start to finish without new data. If it fails, record: DAgger on v8 for wall picks, because flat, touching and bottom tiles already work.
-`record.py` can't do that yet: it aims at tiles the detector sees and has no raised hover. A person's corrections are tied to one station.
+### The cycle with top tiles shifted, 2026-11-09
+
+`sessions/20261109_205645_wall` (11 draws; no daylight, lamp and ceiling lights), then `20261109_211132_setup`, then `20261109_211759_wall` (2) and `20261109_212052_wall` (4; no daylight, ceiling light only).
+
+| | Clean | Top | Bottom |
+|---|---|---|---|
+| First run | 3 of 11 | 2 of 6 | 1 of 5 |
+| After the setup check | 4 of 6 | 2 of 3 | 2 of 3 |
+| **All** | **7 of 17** | 4 of 9 | 3 of 8 |
+
+- **By the plan's thresholds that calls for a change:** 41% clean with both settings together, against 8/8 and 10/10 tried apart. The separate results were in daylight and these runs were after dark, and light wasn't varied on purpose, so what's due to that can't be told apart.
+- **The setup check recalibrated nothing.** It only reads: it read WARN (table tilt, and no tile found in the wrist view at F6), and `T_cam_to_base`, the hover model and the reference weren't changed. The lamp was off for the better runs and on for the worst, but six draws can't say why they went better.
+- **Closes are still high.** Above each tile's own level: top 12.6-13.4mm and bottom 14.7-17.2mm in the later runs, up to 25.6mm in the first.
+- **A held tile can be useless to the reader.** In the last two picks (`20261109_212052_wall` tries 3 and 4), the tile swung in the jaws and reached the base camera with its face turned away. A high grip is the owner's reading; a grip off-centre along the tile would look the same. The outcome keys don't record this.
+
+**Decided 2026-11-09: DAgger on v8 for wall picks**, because flat, touching and single-layer picks work and what fails is closing high and off-centre beside a stack. `record.py --wall-station F` records them, from the same hovers `wall_test.py` uses. A person's corrections are tied to this station.
+After training, the new policy has to match v8 on hand picks before it replaces it (a paired `bench.py`), and pass this cycle.
+
+**Alongside it:** the crude full run (test 8) with a wall one layer high at F, where flat and touching tiles went 15 of 15, to find what else breaks without waiting for training.
 
 ## The tests
 
