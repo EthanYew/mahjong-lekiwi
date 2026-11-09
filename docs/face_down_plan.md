@@ -130,6 +130,33 @@ The order, each step able to stop the next (`scripts/wall_test.py`, and README).
 
 Tiles drawn go into the discard container, not back on the wall: putting a tile back on a wall is a different skill and isn't tested here.
 
+### First results, 2026-11-09
+
+v8, bright daylight, lamp and ceiling lights off, on `sessions/20261109_151530_wall_hover`, `20261109_152013_wall_push`, `20261109_154119_wall`, `20261109_160213_wall`, `20261109_161634_wall` and `20261109_162040_wall`.
+"Clean" is the owner's word per attempt. Close heights are above the tile's own grip level.
+
+| Station, setup | Clean | Median close |
+|---|---|---|
+| F, white tile | 5/5 | 15.0mm |
+| F, green flat | 5/5 | 17.5mm |
+| F, two touching end to end | 10/10 | 14.3mm |
+| F, bottom tile, stack beside it | 10/10 | 18.8mm (highest 20.0) |
+| F, top tile | **0/3** (stopped at 3) | 10.6mm |
+| L, white tile | 5/5 | 4.4mm |
+| L, green flat | 4/5 (1 pushed) | 10.9mm |
+
+- **Top tiles took the second column's tile, all 3 times.** The owner saw it, and the wrist video agrees. They were logged as "moved the next stack", since no key for it existed then.
+- **It's an aim forward, not height.** At the close the jaw tips were about 9mm further out than on touching flat tiles (top 286.7mm, bottom 282.7mm, flat 277.8mm along x, by FK from measured joints). A two-high stack behind the target adds about 5mm, on bottom and top alike
+  (tips move 9.4-9.7mm from the hover, against 4.8mm beside flat tiles); the raised hover starts about 4mm further out as well, probably because the arm sags less there. The commanded forward move varied only 14.3-15.6mm over the 3 top tries.
+  Judged by eye from the wrist frames, the place v8 expects its target at the hover falls on or next to the second column's tile. Three tries is a small sample.
+- **The raised hover works for height:** the top tries closed at 10.6mm above their own level, lower than any other F case.
+- **The bottom's 10/10 can't be checked from the photos,** because tiles had often been re-laid before the after-photo (a hand is in some frames). The script now says to leave the mat alone until the outcome keys.
+- **F and L aren't settled.** F has more clean picks (30 of 30 without top tiles, L 9 of 10); L closes 7-10mm lower, and hasn't been tried on touching tiles or stacks. Computed heights read higher with reach, which may flatter L a little.
+- **The push check failed:** the worst push was 7.2mm from where they usually land (limit 3mm), and the row crept about 8mm sideways over 10 pushes, averaging 14.6mm off the station. The check's "detector wander" read exactly 0.0mm, which may mean only one baseline scan read the tile. So `cycle` waits for a straight guide along the wall.
+
+**Next:** top tiles with the hover about 10mm nearer the robot, 5 tries at each station (`--stations F,L --cases top --trials 5 --hover-back-mm 10`). The right tile means an aiming error, which may not need new data, though the margin has to survive the pushes. Still the second column means record: DAgger on v8
+for wall picks, because flat, touching and bottom tiles already work. `record.py` can't do that yet: it aims at tiles the detector sees and has no raised hover. A person's corrections are tied to one station, so settle the station first.
+
 ## The tests
 
 Times are guesses. Each one can stop the plan before the next is paid for. Ten tries gives a signal for a decision, not a
