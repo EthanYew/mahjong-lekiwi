@@ -62,5 +62,8 @@
   },
   "mahjong_surfaces_standard_mat_eval_v1": {
     "8": "hover settled at the 65mm limit on a same-tile retry: command 23mm above the measured tip (1.5-8mm on the other nine), so its first ~16mm of commanded descent barely move; 20261103_170624_record"
+  },
+  "Yewy/mahjong_wall_dagger_v8": {
+    "31": "saved by accident: the owner meant to discard it (84 frames, no takeover)"
   }
 }
