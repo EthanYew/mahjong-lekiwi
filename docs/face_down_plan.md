@@ -1,8 +1,8 @@
 # Drawing from the wall: the face-down plan
 
 Written 2026-11-05 from Ethan's `docs/retrospectives/face-down-pivot.md` and a review of it against the code and the
-cameras. Nothing here has been tried on the arm yet. Numbers marked "estimate" come from the arm's geometry or one
-photo, not from a run. Results go in ROADMAP.md's status, as usual.
+cameras. Progress so far: `docs/retrospectives/2026-11-09_face_down_progress.md`, and "What gets built" below. Numbers marked
+"estimate" come from the arm's geometry or one photo, not from a run. Results go in ROADMAP.md's status, as usual.
 
 ## Why
 
@@ -26,6 +26,8 @@ wanted: it hides the hand from human opponents, which face-up tiles couldn't do.
 - v1 runs on the NUC. Later, the code and the cameras move to the Pi, with each camera in a specific USB port.
 - The thresholds below, and a turn for v8 in play before any demos are recorded, including a hand with the problem tiles.
 - Reads are checked in the moment where that's more efficient (see "Checking reads").
+- The demo is in another room, and the white paper behind the poses stays here (2026-11-09). The reader is trained on this setup and
+  has to work there.
 
 **Suggested by Claude:** a scripted camera pose (now taught by gamepad), one policy with a hover that changes per tile,
 code tracking the stack instead of depth sensing, v7 as a baseline first, flat and stacked tested apart, the face-up
@@ -100,7 +102,7 @@ reliability claim: 10/10 is still consistent with a true rate near 70%.
 | 1 | **Hold tiles up by hand** wherever the arm can reach (close and at an angle, so no fixed distances), right way up and 180°, by day and evening, including 5C, 3C, 2C, 9C; score the classifier and the detector | 20 min | Nothing reads anywhere | capture script; no arm |
 | 1b | **Can the view be learned?** Train a fresh small classifier on some holds, score it on others it never saw (`holdup_check.py`, 3 seeds), cropped to the tile, with a control that greys the tile out | 5 min | The control beats the best constant answer by 15 points: the background names the tile, recapture before reading anything. Under 40% right: look at the photos before capturing more. 70% or more on 3+ tiles and well above the best constant answer: capture at the real pose. In between: more holds, rerun | test 1's photos |
 | 2 | **Teach the camera pose by gamepad** (`teleop_view.py`: both cameras in one window, `s` saves the pose). Put 5 tiles in the jaws; check swing, hidden faces, whether they set down flat | 30 min | Tiles swing or drop | saved pose |
-| 3 | Run the detector at low confidence on a face-down tile | 5 min | If it boxes backs, targeting and the zone check may come free | one frame |
+| 3 | Run the detector at low confidence on a face-down tile. **Done 2026-11-09: no boxes** (below) | 5 min | If it boxes backs, targeting and the zone check may come free | one frame |
 | 4 | **Face-down vs face-up on the same slots**, alternating, 10 each, single tiles, logging close height. Also how much green stands out from the mat | 1 hr | The thresholds below | test script |
 | 4b | 3 flat tiles touching end to end, 5 tries | 15 min | Fails where 4 passed: the strip is the problem, not height | test script |
 | 5 | A flat tile with the hover 20mm too high, 5 tries | 10 min | Closes about 20mm in the air: v7 is blind | test script |
@@ -136,18 +138,17 @@ tile's photo sits next to it, so Enter doesn't become a habit.
 
 ## The camera fix (test 0)
 
-Replace the first line of `/etc/udev/rules.d/99-mahjong-cameras.rules` with these (not yet run):
+Done: these lines are in `/etc/udev/rules.d/99-mahjong-cameras.rules` (since 2026-11-05), and after the NUC restarted on 2026-11-09
+`/dev/wristcam` was `video8` and `/dev/basecam` `video10`. The names hold as long as each cable stays in its port.
 
 ```
 SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-8", ATTRS{idVendor}=="05a3", SYMLINK+="wristcam"
 SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-9", ATTRS{idVendor}=="05a3", SYMLINK+="basecam"
 ```
 
-Then `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=video4linux`. `ls -l /dev/wristcam` should
-show `video8`. Those port numbers are the NUC's, and change on the Pi.
+Those port numbers are the NUC's, and change on the Pi.
 
-Also: a check in `setup_check.py` that the jaws are in the wrist view and the base camera is present; an invariant in
-CLAUDE.md once it's in. Whether a second camera of this model makes the wrist camera's dropouts worse is an open
+Still to do: a check in `setup_check.py` that the jaws are in the wrist view and the base camera is present. Whether a second camera of this model makes the wrist camera's dropouts worse is an open
 question, so `session_report.py`'s recovery log gets compared before and after. Both are on the same USB bus.
 
 ## What gets built
@@ -195,18 +196,27 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   light in the same room doesn't throw it, on 2 tiles, which the script calls too few to judge.
   The picks: 72 of 72 completed held the tile (1 more stopped on the wrist camera, back after waiting), every close 5-10mm
   above the grasp point, 1B included (14-22mm at 12:52).
-  Next: a session in another room or with a backdrop behind the poses, held out with `--test-session` (the move the demo
-  needs); more tiles, the pairs that look alike among them; then test 4.
+- **A very different background, 2026-11-09** (`sessions/20261109_100829_holdup`, 72 holds of the same 6 tiles, tiles grouped differently from
+  the evening; bright daylight, lamp and ceiling lights off, white paper behind the poses, the mat uncovered). Trained on the earlier arm
+  sessions and held out: **97.0% (95.8-97.8% over 3 seeds)**, every tile 87.5% or better, 9C the weakest (91-94%, read as 7C). Control 15.5%
+  against 16.7%, though on a blank background that's close to automatic. So the reader doesn't need its training room, on these 6 tiles.
+  v8 held 72 of 72, but its closes rose to a median 13.7mm above the grasp point (highest 18.3) from 7.6mm (highest 9.5): the lights
+  were off and there were no neighbouring tiles, and this session can't separate them.
+- **Test 3, 2026-11-09:** six face-down tiles on the mat, five RealSense frames, the installed detector down to 1% confidence: no boxes.
+  The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
+  another check.
+- **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): one pass with the lights on to separate light from neighbours
+  (v8's closes, not the reader); the wall by gamepad (test 6); more backgrounds for the reader, then a held-out session in the demo room.
+  How much more capture depends on which tiles the demo's wall uses.
 - `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
-  picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws. Built offline only: nothing here
-  has run on the arm.
+  picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws.
 - For test 8, `play.py` will stop on face-down tiles in two places: a turn waits for a scan to see a tile on the zone, and
-  the table check would take a face-down tile as missing. Test 3 may settle the first.
+  the table check would take a face-down tile as missing. Test 3 means neither comes free: both need another way to know.
 
 ## Results to report
 
-- **Camera:** both named correctly across a reboot.
+- **Camera:** both named correctly across a reboot (2026-11-09).
 - **Reading:** the exam rate as a rough range, each tile's errors, every tile read wrong named.
 - **Flat:** clean out of about 10, and close heights against face-up in the same slots.
 - **Stacked:** clean out of about 10 for each case, and close heights.
@@ -221,7 +231,7 @@ pose, the picks and the full run need the hardware.
 ## Out of scope for v1
 
 New demos and a new policy (unless the thresholds call for them), depth sensing, a detector for tile backs (unless test 7b
-calls for one), other surfaces and lighting, opponents.
+calls for one), other surfaces and lighting apart from the demo room's, opponents.
 
 ## Parked
 
