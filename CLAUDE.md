@@ -204,7 +204,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   Teacher-forced scores don't see it: v6 and v7 tied on arm, grasp and timing error over 53 demos they never trained on,
   while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
 - **A two-high stack behind the target pulls v8 forward, and a top tile gets the next column's** (station F, 2026-11-09; 3 top tries). The jaw tips moved 9.4-9.7mm out from the hover with a stack
-  behind, 4.8mm beside flat tiles, and a raised hover starts ~4mm further out. Top tiles 0/3, closing at a fine height: the error is forward, not height. Evidence: `docs/face_down_plan.md`.
+  behind, 4.8mm beside flat tiles, and a raised hover starts ~4mm further out. Top tiles 0/3, closing at a fine height: the error is forward, not height. A hover 10mm nearer the robot fixed the top tile (8/8) and broke the bottom one (0/2, closing early and shallow, against 10/10 at the regular hover), so
+  only top tiles get it (`wall_test.py --top-back-mm`). Evidence: `docs/face_down_plan.md`.
 - **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05). What seems to matter is white
   face-up tiles near the target: about 8mm with them, 13-18mm with none or only green backs, and turning the lights on doesn't close the gap (a pattern across 4
   sessions, not a deliberate test: `docs/retrospectives/2026-11-09_face_down_progress.md`).

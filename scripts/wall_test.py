@@ -47,6 +47,10 @@ def parse_args(argv=None):
     p.add_argument("--hover-back-mm", type=float, default=0.0,
                    help=f"start every pick this many mm nearer the robot than the station, up to {wall_test.MAX_HOVER_BACK_MM:.0f} (negative: further out). "
                         "To test whether a pick that lands too far out is an aiming error (default %(default)s)")
+    p.add_argument("--top-back-mm", type=float, default=0.0,
+                   help="the same, for top tiles only: bottom tiles keep the regular hover. At F, 10 worked for top tiles and broke bottom ones, 2026-11-09 (default %(default)s)")
+    p.add_argument("--exclude-session", default=None, metavar="SESSION", help="leave this session out of --report, because it wasn't the test it was logged as (needs --why); no hardware")
+    p.add_argument("--why", default=None, help="with --exclude-session: the reason, kept with the session")
     p.add_argument("--layout", default=wall_test.LAYOUT, help="the layout holding the stations (default %(default)s)")
     p.add_argument("--push-check", action="store_true", help="no arm: scan a face-up lead tile after each push, and say how far pushes stray")
     p.add_argument("--hover-check", action="store_true", help="no policy: hover over a face-up tile on each station and save the wrist view")
@@ -131,9 +135,10 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     session, table = rig.session, table_of(rig)
     settings = wall_test.case_of(case, layer)
     layer, raise_m = settings["layer"], wall_test.HOVER_RAISE_M[settings["layer"]]
+    back_m = ctx["back_m"] + (ctx["top_back_m"] if layer == "top" else 0.0)
     before = table.snapshot()
     while True:
-        pick = rig.pick(f"{station['id']}_{case}_{layer}", station, raise_m=raise_m, back_m=ctx["back_m"])
+        pick = rig.pick(f"{station['id']}_{case}_{layer}", station, raise_m=raise_m, back_m=back_m)
         if pick.get("unreachable"):
             session.event("wall_unreachable", station=station["id"], case=case, layer=layer)
             print(f"{station['id']} is out of the hover's reach at this height: stopping this station.")
@@ -164,7 +169,7 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     print(f"\nTry {ctx['n']}: station {station['id']}, {case}" + (f" ({layer} tile)" if case == wall_test.CYCLE else ""))
     outcome = ask_outcome(ask, held, None if close is None else close * 1000, photo)
     session.event("wall_attempt", n=ctx["n"], station=station["id"], station_xy=station["xy"], case=case, layer=layer, face=settings["face"],
-                  behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_back_m=ctx["back_m"], hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
+                  behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_back_m=back_m, hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
                   hover_tilt_deg=hover["tilt_deg"], attempt_dir=pick["attempt"].name, stop_reason=run["stop_reason"], duration_s=run["duration_s"], held=held,
                   gripper_command=pick["gripper_command"], gripper_measured=pick["gripper_measured"], grasp_clearance_m=run.get("grasp_clearance_m"),
                   above_own_level_m=close, base_photo=photo.name if photo else None, show_problem=problem or None,
@@ -198,20 +203,25 @@ def run_cycle(rig, rng, station, draws, ask, ctx):
     stacks = sum(d["layer"] == "top" for d in plan)
     if prompt(rig, station, wall_test.wall_step(station["id"], stacks + 1), ask) == "q":
         return
+    already_fed = False
     for draw in plan:
-        if draw["feed_before"]:
+        if draw["feed_before"] and not already_fed:
             if prompt(rig, station, wall_test.feed_step(station["id"]), ask) == "q":
                 return
             rig.session.event("wall_feed", station=station["id"], feed_index=draw["feed_index"], before_draw=draw["draw"])
+        already_fed = False
         result = attempt(rig, rng, station, wall_test.CYCLE, ask, ctx, layer=draw["layer"], draw=draw["draw"], feed_index=draw["feed_index"],
                          draws_since_feed=draw["draws_since_feed"])
         if result in ("quit", "stop"):
             return
         if result == "fix" and draw is not plan[-1]:          # after the last draw there's nothing to put right for
-            answer = prompt(rig, station, wall_test.put_right_step(station["id"], draw["layer"]), ask)
-            rig.session.event("wall_put_right", station=station["id"], draw=draw["draw"])
-            if answer == "q":
+            step = wall_test.put_right_step(station["id"]) if draw["layer"] == "top" else wall_test.clear_and_feed_step(station["id"])
+            if prompt(rig, station, step, ask) == "q":
                 return
+            rig.session.event("wall_put_right", station=station["id"], draw=draw["draw"])
+            if draw["layer"] == "bottom":          # one step for the person: what's left comes off and the next stack comes on
+                already_fed = True
+                rig.session.event("wall_feed", station=station["id"], feed_index=draw["feed_index"] + 1, before_draw=draw["draw"] + 1)
 
 
 def push_check(args, station, ask):
@@ -289,6 +299,10 @@ def report(root=None):
         return print("No real wall-test sessions yet.")
     everything = []
     for folder in folders:
+        why = wall_test.excluded(folder)
+        if why:
+            print(f"{folder.name}: left out ({why})")
+            continue
         for e in (e for e in read_events(folder) if e["type"] == "wall_push_summary"):
             print(f"{folder.name}: push check at {e['station']}: worst {e['worst_mm']}mm of {e['pushes']} pushes "
                   f"(detector wander {e['baseline_mm']}mm), {'pass' if e['passed'] else 'FAIL'}")
@@ -314,12 +328,32 @@ def check_cases(args, cases, stations):
         raise SystemExit(f"--hover-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
     if args.hover_back_mm and (args.push_check or args.hover_check):
         raise SystemExit("--hover-back-mm is for runs that pick tiles, not --push-check or --hover-check")
+    if abs(args.top_back_mm) > wall_test.MAX_HOVER_BACK_MM:
+        raise SystemExit(f"--top-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
+    if args.top_back_mm and args.hover_back_mm:
+        raise SystemExit("--top-back-mm or --hover-back-mm, not both: a top tile's shift would be their sum")
+    if args.top_back_mm and (args.push_check or args.hover_check or not {"top", wall_test.CYCLE} & set(cases)):
+        raise SystemExit("--top-back-mm needs a run that picks top tiles: --cases top or cycle")
+
+
+def exclude_session(name, why):
+    folder = config.SESSIONS / Path(name).name
+    if "_wall" not in folder.name or not (folder / "events.jsonl").exists():
+        raise SystemExit(f"no wall-test session {folder.name} in {config.SESSIONS}")
+    if not why:
+        raise SystemExit("--exclude-session needs --why: the reason stays with the session")
+    count = len(wall_test.attempts(folder))
+    wall_test.exclude(folder, why)
+    print(f"{folder.name}: {count} attempt(s) left out of --report ({why}). Its files are untouched.")
+    return folder
 
 
 def main(argv=None, ask=input):
     args = parse_args(argv)
     if args.report:
         return report()
+    if args.exclude_session:
+        return exclude_session(args.exclude_session, args.why)
     wanted = wall_test.parse_list(args.stations)
     cases = wall_test.parse_list(args.cases)
     known = {s["id"]: s for s in layout.load(args.layout)["spots"]}
@@ -342,7 +376,7 @@ def main(argv=None, ask=input):
         camera_poses.get(name)
     rig = holdup_script.Rig(args, list(spots.values()), poses[:1])
     rng = holdup_arm.rng_for(0)
-    ctx = {"n": 0, "back_m": args.hover_back_mm / 1000}
+    ctx = {"n": 0, "back_m": args.hover_back_mm / 1000, "top_back_m": args.top_back_mm / 1000}
     try:
         if args.hover_check:
             rig.open_session("wall_hover", stations=wanted)
@@ -354,9 +388,11 @@ def main(argv=None, ask=input):
         ctx["discard_pose"] = json.loads(config.DISCARD_POSE.read_text())["pose"]
         rig.open_session("wall", stations=wanted, cases=cases, trials=args.trials)
         rig.session.conditions = conditions
-        rig.session.event("wall_conditions", conditions=conditions, white_tiles_near=ctx["whites"], show_pose=poses[0], hover_back_m=ctx["back_m"])
+        rig.session.event("wall_conditions", conditions=conditions, white_tiles_near=ctx["whites"], show_pose=poses[0], hover_back_m=ctx["back_m"], top_back_m=ctx["top_back_m"])
         if ctx["back_m"]:
             print(f"Every pick starts {args.hover_back_mm:g}mm nearer the robot than the station.")
+        if ctx["top_back_m"]:
+            print(f"Top tiles start {args.top_back_mm:g}mm nearer the robot than the station; bottom tiles keep the regular hover.")
         print("Leave the mat alone until the outcome keys appear: the photo after each try is taken just before them, and a re-laid tile hides what happened.")
         rig.arm.rest()
         if cases == [wall_test.CYCLE]:
