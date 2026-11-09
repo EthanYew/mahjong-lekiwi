@@ -189,7 +189,12 @@ v8, bright daylight, lamp and ceiling lights off, on `sessions/20261109_151530_w
 After training, the new policy has to match v8 on hand picks before it replaces it (a paired `bench.py`), and pass this cycle.
 
 **Alongside it:** the crude full run (test 8) with a wall one layer high at F, where flat and touching tiles went 15 of 15, to find what else breaks without waiting for training. `scripts/crude_run.py` does it, separately from `play.py`, which relies on scans that can't see green backs: hand slots, drop zone and station go by saved position, the hand by memory. A person checks every read in the moment, and a step that fails is logged and done by hand.
-It also tests what 7b asks: each drawn tile is set on the zone and picked up again by memory. Built and run only in the simulator so far.
+It also tests what 7b asks: each drawn tile is set on the zone and picked up again by memory.
+
+**What the first crude runs showed, 2026-11-09/10:** v8's jaws move about 5mm further out from the hover on an empty mat and 2-8mm back toward the robot with the green hand in view, closing short (`20261109_232039_crude` onward). A hand-off and hand-on test agreed (`20261109_235430_wall`, `20261109_235654_wall` hand on; `20261110_000017_wall` hand off, 3 tries). So 16 more corrections were recorded with the hand laid (episodes 65-80 of `Yewy/mahjong_wall_dagger_v8`).
+`pickup_mat_cl_v9` trained on all 80 usable corrections, 2026-11-10. Offline it matches v8 (arm error 0.60-0.87° against 0.68-0.99°, no freezes), but that set has no walls or green hand in it, so only the arm can say whether it helps.
+
+**A held tile's jaw reading has fallen:** 9.5 (2026-11-09 10:08), 7.8 (15:41), 7.0 (21:20), 6.3 (21:43), 3.7 (22:24), 3.0 (2026-11-10 00:19). A person's own grips fell with it, so it isn't how the tile is gripped. Under 5 `holds_tile` fails on a good pick, the policy runs to its 16s cap, and `wall_test.py` won't take `c`: the labels of the last three wall sessions may be forced. Check the gripper before scoring anything.
 
 ## The tests
 

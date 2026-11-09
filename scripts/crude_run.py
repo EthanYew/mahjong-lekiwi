@@ -112,7 +112,7 @@ class Run:
         """The jaws read shut on something narrower than a tile: a person says whether there's one there."""
         drain_stdin()
         while True:
-            answer = self.ask(f"The jaws read {pick['gripper_measured']:.1f}: a shallow grip, or nothing. Is there a tile in the jaws? y/n: ").strip().lower()
+            answer = self.ask(f"The jaws read {pick['gripper_measured']:.1f}, too low for the held check. Is there a tile in the jaws? y/n: ").strip().lower()
             if answer in ("y", "n", "q"):       # q: treated as no, and the next prompt can quit
                 return answer == "y"
 
@@ -134,7 +134,7 @@ class Run:
                                    stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=pick["run"].get("grasp_clearance_m"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
             if shallow:
                 self.shallow += 1
-                print("  A shallow grip: carrying on with it.")
+                print("  A tile in the jaws, on a low reading: carrying on with it.")
             if pick["holding"] or shallow:
                 return pick
             tries += 1

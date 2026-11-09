@@ -4,7 +4,7 @@ scripts/crude_run.py runs this on the arm.
 """
 from . import config, game
 
-SHALLOW_MIN_READING = 2.0   # jaws shut on nothing read 0.6-0.9; a tile caught by its rounded end read 3.3-3.4 and was lifted (20261109_232955_crude)
+SHALLOW_MIN_READING = 2.0   # jaws shut on nothing read 0.6-0.9. A held tile's reading fell from 9.5 to 3.0 over 2026-11-09, under holds_tile's margin (not a shallow grip, as first thought)
 FLOW = ("Each turn: you feed the wall, the arm draws a tile, shows it to the base camera and sets it on the drop zone, you confirm its name, then the arm plays the discard.\n"
         "A line starting 'Noted' goes on the end-of-run list. It doesn't stop anything: the next prompt says what to do.")
 STEPS = ("draw", "show", "set_on_zone", "read", "pick_from_hand", "discard", "pick_from_zone", "place_in_hand", "person")

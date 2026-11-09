@@ -86,7 +86,8 @@ not a worktree, or the sessions go when the worktree does.
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%; the owner's pick on 2026-11-05 as the best trained, `status.py` has the evidence;
-also `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
+also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
+`pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
 trained with `--augment --replace-mat 0.7`),
 `pickup_mat_cl_v5` (without the green demos or augmentation; fails on the green mat), `pickup_mat_cl_v4`
@@ -856,7 +857,7 @@ python scripts/crude_run.py --hand ... --sim                                    
 ```
 
 A turn: the arm draws from the station, holds the tile up at each saved `base_view_*` pose, and sets it on the drop zone. A window shows the photos and the reader's guess: Enter accepts it, or type the name, and `X` says the face wasn't visible. `game.py` chooses the discard, and the arm plays it. Whatever fails is written down
-(`crude_break`, printed as "Noted for the list") and you do that step by hand, in the outline the window shows; each turn ends by asking if anything else went wrong. If the jaws read shut on something narrower than a tile (a shallow grip, or nothing), it asks whether there's a tile in them, and carries on if so.
+(`crude_break`, printed as "Noted for the list") and you do that step by hand, in the outline the window shows; each turn ends by asking if anything else went wrong. If the jaws read too low for the held check but not as low as empty (the held reading fell from 9.5 to 3.0 over 2026-11-09), it asks whether there's a tile in them, and carries on if so.
 `--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
