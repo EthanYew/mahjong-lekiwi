@@ -205,16 +205,18 @@ def close_windows():
     cv2.waitKey(1)
 
 
-def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None):
+def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None, overlay=None):
     """A live RealSense window until the tile is laid: the spot's outline, the end where the picture's top goes, the tile's name.
     Returns "" (laid, go), "s" or "q". The caller closes the window before the arm moves (close_windows): nothing pumps it then.
-    `text` replaces the default title."""
+    `text` replaces the default title; `overlay(frame)` draws on each frame (wall_test.py's picture of what to lay)."""
     show = show or (lambda image: cv2.imshow(GUIDE_WINDOW, image))
     wait_key = wait_key or (lambda: cv2.waitKey(30) & 0xFF)
     text = text or (f"Lay {placement['tile']} FACE DOWN on {spot['id']}"
                     + (", then turn it 180" if placement["laying"] == "rotated" else ""))
     while True:
         out = holdup_arm.guide_frame(realsense.snapshot(), spot, realsense.intrinsics, realsense.T_cam_to_base, text, sign)
+        if overlay is not None:
+            overlay(out)
         show(out)
         key = wait_key()
         answer = {13: "", 10: "", 32: "", ord("s"): "s", ord("q"): "q", 27: "q"}.get(key)

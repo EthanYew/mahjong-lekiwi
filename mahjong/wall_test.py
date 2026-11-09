@@ -19,18 +19,22 @@ BASELINE_SCANS = 3          # scans of the untouched row before any push: the de
 CYCLE = "cycle"
 
 # face: which way up the target lies. layer: how it's stacked, which sets the hover. behind: what touches its far end.
+# say: what to lay, in lines short enough for the camera window. picture: the same from the side, robot on the left, top row
+# first; W white side up, G green side up, [ ] the tile the arm goes for, None nothing there.
 CASES = {
-    "control": {"face": "up", "layer": "flat", "behind": None,
-                "lay": "one tile FACE UP on {id}, nothing touching it"},
-    "flat": {"face": "down", "layer": "flat", "behind": None,
-             "lay": "one tile FACE DOWN on {id}, nothing touching it"},
-    "strip": {"face": "down", "layer": "flat", "behind": "flat",
-              "lay": "one tile FACE DOWN on {id}, and another FACE DOWN touching its far end"},
-    "top": {"face": "down", "layer": "top", "behind": "stack",
-            "lay": "a stack of two FACE DOWN on {id}, square and flush, and another stack of two touching its far end"},
-    "bottom": {"face": "down", "layer": "bottom", "behind": "stack",
-               "lay": "one tile FACE DOWN on {id} (the stack's top already gone), and a stack of two touching its far end"},
+    "control": {"face": "up", "layer": "flat", "behind": None, "picture": [["[W]"]],
+                "say": ("1 tile, WHITE side up, flat on the mat", "Nothing touching it")},
+    "flat": {"face": "down", "layer": "flat", "behind": None, "picture": [["[G]"]],
+             "say": ("1 tile, GREEN side up, flat on the mat", "Nothing touching it")},
+    "strip": {"face": "down", "layer": "flat", "behind": "flat", "picture": [["[G]", "G"]],
+              "say": ("2 tiles, GREEN side up, flat on the mat, end to end", "One on {id}, the other touching its far end")},
+    "top": {"face": "down", "layer": "top", "behind": "stack", "picture": [["[G]", "G"], ["G", "G"]],
+            "say": ("4 tiles, GREEN side up: 2 stacks of 2, end to end", "One stack on {id}, the other touching its far end")},
+    "bottom": {"face": "down", "layer": "bottom", "behind": "stack", "picture": [[None, "G"], ["[G]", "G"]],
+               "say": ("3 tiles, GREEN side up", "1 flat on {id}, NOTHING on top of it", "A stack of 2 touching its far end")},
 }
+LEGEND = ("Side view, robot on the left. W = white side up, G = green side up, [ ] = the tile the arm goes for.\n"
+          "The far end is the end pointing away from the robot.")
 HOVER_RAISE_M = {"flat": 0.0, "bottom": 0.0, "top": config.TILE_THICKNESS_M}      # above the policy's own hover
 LEVEL_M = HOVER_RAISE_M     # how far the target's own grip level sits above a flat tile's
 
@@ -62,6 +66,61 @@ def cycle_plan(draws):
     """The real operation, `draws` draws from a wall: top, bottom, then the next stack is fed onto the station."""
     return [{"draw": i + 1, "layer": "top" if i % 2 == 0 else "bottom", "feed_before": i > 0 and i % 2 == 0,
              "feed_index": i // 2, "draws_since_feed": i % 2} for i in range(draws)]
+
+
+def _wall_picture(columns=4, face=None):
+    """A wall two high from the station outward, the arm going for the top tile on the station. face: the top tile's, for the push check."""
+    return [[face or "[G]", *["G"] * (columns - 1)], ["G"] * columns]
+
+
+def lay_step(case, station_id, tag):
+    """What to do before an attempt: {"lines": short enough for the window, "picture": the same from the side}."""
+    settings = CASES[case]
+    return {"lines": [f"[{tag}] Clear station {station_id}, then lay:", *(line.format(id=station_id) for line in settings["say"])],
+            "picture": settings["picture"]}
+
+
+def hover_step(station_id):
+    return {"lines": [f"[hover check] Clear station {station_id}, then lay:", "1 tile, WHITE side up, flat on the mat", "Nothing touching it. The arm only hovers"],
+            "picture": [["W"]]}
+
+
+def push_step(station_id):
+    return {"lines": [f"[push check] Lay a wall on station {station_id}, the arm stays parked:", "3 or more stacks of 2, GREEN side up, end to end, running away",
+                      f"EXCEPT the top tile of the stack on {station_id}: WHITE side up"],
+            "picture": _wall_picture(face="W")}
+
+
+def wall_step(station_id, stacks):
+    return {"lines": [f"[cycle] Clear station {station_id}, then lay the wall:", f"{stacks} stacks of 2 ({stacks * 2} tiles), GREEN side up, end to end",
+                      f"First stack on {station_id}, the rest running away from the robot"],
+            "picture": _wall_picture()}
+
+
+def feed_step(station_id):
+    return {"lines": [f"[cycle] Feed the wall at station {station_id}:", "Push the whole wall toward the robot", f"until the next stack sits on {station_id}",
+                      "Add a stack at the far end if it's getting short"],
+            "picture": _wall_picture()}
+
+
+def put_right_step(station_id, drew):
+    """After a draw that wasn't clean, what the next one needs. drew: the layer just tried."""
+    if drew == "top":
+        return {"lines": [f"[cycle] Not clean. Put station {station_id} right for the next draw:", "Take the top tile off by hand, if it's still there",
+                          "Square up the bottom tile. Leave the rest of the wall"],
+                "picture": [[None, "G", "G"], ["[G]", "G", "G"]]}
+    return {"lines": [f"[cycle] Not clean. Clear station {station_id} for the next stack:", f"Take anything left on {station_id} off by hand",
+                      "Leave the rest of the wall where it is"],
+            "picture": [[None, "G", "G"], [None, "G", "G"]]}
+
+
+def picture_text(rows, indent="      "):
+    return "\n".join(indent + "".join(f"{cell or '':^5}" for cell in row).rstrip() for row in rows)
+
+
+def step_text(step):
+    """A step for the terminal: the instruction, the picture, what the picture's letters mean."""
+    return "\n" + "\n".join(step["lines"]) + "\n\n" + picture_text(step["picture"]) + "\n\n" + LEGEND
 
 
 def case_of(case, layer=None):

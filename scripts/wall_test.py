@@ -10,7 +10,8 @@
 
 A station is one saved spot in data/layouts.json (`wall-stations`). Put a tile on it face up to green with `layout.py --name wall-stations`,
 tape around it, then flip: the detector can't see a back, so nothing else says a face-down tile is in place. The layout's xy stands in
-for a detection; a top tile's hover is one tile higher. Before each attempt a window shows the station and says what to lay.
+for a detection; a top tile's hover is one tile higher. Before each attempt a window shows the station, says what to lay and draws it from
+the side; the terminal has the same words and picture.
 
 Each attempt: RealSense frame with the arm at rest, hover, policy, rest, one photo from the base camera if the jaws read held (does it
 show two tiles?), into the discard container, RealSense frame again, then your one key on how it went. Enter isn't an answer, so it
@@ -53,12 +54,33 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def prompt(rig, station, text, ask):
+def draw_picture(frame, rows):
+    """The step's side view in the window's bottom left: white and green tiles, the one the arm goes for outlined in yellow."""
+    tile_w, tile_h, gap, left = 46, 24, 3, 76
+    h = frame.shape[0]
+    top = h - 40 - len(rows) * (tile_h + gap)
+    cv2.rectangle(frame, (0, top - 26), (max(left + 4 * (tile_w + gap), 310), h - 30), (0, 0, 0), -1)
+    cv2.putText(frame, "side view, yellow = the tile the arm goes for", (6, top - 9), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.putText(frame, "robot >", (6, top + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if cell is None:
+                continue
+            x, y = left + c * (tile_w + gap), top + r * (tile_h + gap)
+            colour = (255, 255, 255) if "W" in cell else (60, 150, 60)
+            cv2.rectangle(frame, (x, y), (x + tile_w, y + tile_h), colour, -1)
+            cv2.rectangle(frame, (x, y), (x + tile_w, y + tile_h), (0, 255, 255) if cell.startswith("[") else (130, 130, 130), 3 if cell.startswith("[") else 1)
+    return frame
+
+
+def prompt(rig, station, step, ask):
     """Show what to lay, on the live RealSense window (or the terminal). Returns "", "s" or "q"."""
+    text = wall_test.step_text(step)
     if rig.realsense is None:
-        return ask(f"{text}. Enter when done (s = skip, q = quit): ").strip().lower()
-    print(f"{text}\n  (the RealSense window shows where: Space/Enter when done, s skip, q quit)")
-    answer = holdup_script.guide(rig.realsense, {"tile": "", "laying": ""}, station, 1, text=text)
+        return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
+    print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")
+    answer = holdup_script.guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
+                                 overlay=lambda frame: draw_picture(frame, step["picture"]))
     holdup_script.close_windows()
     return answer
 
@@ -77,12 +99,14 @@ def save_before_after(table, station, before, after, folder):
 
 def ask_outcome(ask, held, close_mm, photo):
     """One key for how the attempt went; None if the person quit. Clean needs the jaws to have read a tile."""
-    keys = "  ".join(f"{k} = {v}" for k, v in wall_test.OUTCOMES.items())
     drain_stdin()           # keys pressed during the pickup aren't answers
     close = "no close logged" if close_mm is None else f"closed {close_mm:.0f}mm above its level"
     print(f"Jaws read {'a tile' if held else 'nothing'}, {close}." + (f" Base photo: {photo}" if photo else ""))
+    print("Press the key for the WORST thing that happened:")
+    for key, what in wall_test.OUTCOMES.items():
+        print(f"  {key}  {what}" + ("  (picked the tile, nothing else moved, no help)" if what == wall_test.CLEAN else ""))
     while True:
-        answer = ask(f"How did it go? {keys}  (q = quit): ").strip().lower()
+        answer = ask("Key, then Enter (q = quit): ").strip().lower()
         if answer == "q":
             return None
         if answer == "c" and not held:
@@ -134,7 +158,7 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     if problem:
         print(f"Stopped showing it: {problem}.")
     ctx["n"] += 1
-    print(f"[{ctx['n']}] {station['id']} {case} {layer}")
+    print(f"\nTry {ctx['n']}: station {station['id']}, {case}" + (f" ({layer} tile)" if case == wall_test.CYCLE else ""))
     outcome = ask_outcome(ask, held, None if close is None else close * 1000, photo)
     session.event("wall_attempt", n=ctx["n"], station=station["id"], station_xy=station["xy"], case=case, layer=layer, face=settings["face"],
                   behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
@@ -153,7 +177,7 @@ def run_cases(rig, rng, spots, args, cases, ask, ctx):
         if (station_id, case) in stopped:
             continue
         station = spots[station_id]
-        answer = prompt(rig, station, f"[{case}, try {number}/{args.trials}] Lay {wall_test.CASES[case]['lay'].format(id=station_id)}", ask)
+        answer = prompt(rig, station, wall_test.lay_step(case, station_id, f"{case}, try {number}/{args.trials}"), ask)
         if answer == "q":
             return
         if answer == "s":
@@ -169,19 +193,19 @@ def run_cases(rig, rng, spots, args, cases, ask, ctx):
 def run_cycle(rig, rng, station, draws, ask, ctx):
     plan = wall_test.cycle_plan(draws)
     stacks = sum(d["layer"] == "top" for d in plan)
-    if prompt(rig, station, f"Lay a wall of {stacks + 1} stacks, two high, FACE DOWN, touching end to end, the first on {station['id']}, running away from the robot", ask) == "q":
+    if prompt(rig, station, wall_test.wall_step(station["id"], stacks + 1), ask) == "q":
         return
     for draw in plan:
         if draw["feed_before"]:
-            if prompt(rig, station, f"Push the wall in until the next stack sits on {station['id']} (add one at the far end if you want)", ask) == "q":
+            if prompt(rig, station, wall_test.feed_step(station["id"]), ask) == "q":
                 return
             rig.session.event("wall_feed", station=station["id"], feed_index=draw["feed_index"], before_draw=draw["draw"])
         result = attempt(rig, rng, station, wall_test.CYCLE, ask, ctx, layer=draw["layer"], draw=draw["draw"], feed_index=draw["feed_index"],
                          draws_since_feed=draw["draws_since_feed"])
         if result in ("quit", "stop"):
             return
-        if result == "fix":
-            answer = prompt(rig, station, "Not clean: put the wall right so the next draw is as planned (take a missed tile off, square the stack)", ask)
+        if result == "fix" and draw is not plan[-1]:          # after the last draw there's nothing to put right for
+            answer = prompt(rig, station, wall_test.put_right_step(station["id"], draw["layer"]), ask)
             rig.session.event("wall_put_right", station=station["id"], draw=draw["draw"])
             if answer == "q":
                 return
@@ -195,8 +219,8 @@ def push_check(args, station, ask):
     else:
         from mahjong import hardware
         table = hardware.connect(["realsense"])["realsense"]
-    print(f"Lay the wall two high against {station['id']}, the top tile of the lead stack FACE UP: that's the tile the scans can read, and the "
-          "one a push is most likely to leave behind. The arm stays parked.")
+    print(wall_test.step_text(wall_test.push_step(station["id"])))
+    print("\nThe white tile is the one the camera can read, and the one a push is most likely to leave behind.")
     try:
         if ask("Enter once it's laid (q = quit): ").strip().lower() == "q":
             return None
@@ -209,7 +233,7 @@ def push_check(args, station, ask):
         baseline = [p for p in (read() for _ in range(wall_test.BASELINE_SCANS)) if p]
         pushes = []
         while len(pushes) < args.trials:
-            if ask(f"[{len(pushes) + 1}/{args.trials}] Pull the row back about 3cm, push it in again, Enter (q = stop): ").strip().lower() == "q":
+            if ask(f"[push {len(pushes) + 1}/{args.trials}] Pull the whole wall back about 3cm, push it in until the white tile is on {station['id']} again, then Enter (q = stop): ").strip().lower() == "q":
                 break
             xy = read()
             session.event("wall_push", n=len(pushes) + 1, xy=xy)
@@ -233,7 +257,7 @@ def hover_check(rig, spots, ask):
     """The hover over a face-up tile on each station, no policy: the wrist view with the place a tile should be marked, the reach left."""
     table = table_of(rig)
     for station_id, station in spots.items():
-        if prompt(rig, station, f"Lay one tile FACE UP on {station_id}", ask) == "q":
+        if prompt(rig, station, wall_test.hover_step(station_id), ask) == "q":
             return
         x, y = station["xy"]
         tile = layout.nearest_tile(table.detect_tiles(), station["xy"], radius_m=wall_test.PUSH_RADIUS_M)
@@ -319,7 +343,7 @@ def main(argv=None, ask=input):
             hover_check(rig, spots, ask)
             return rig.session.dir
         conditions = holdup.ask_lighting(ask)
-        ctx["whites"] = {s: ask(f"White face-up tiles within about 8cm of {s}, not counting the target? [y/N]: ").strip().lower().startswith("y") for s in wanted}
+        ctx["whites"] = {s: ask(f"Apart from the tile being tested, is any tile lying WHITE side up within about 8cm of station {s}? [y/N]: ").strip().lower().startswith("y") for s in wanted}
         ctx["discard_pose"] = json.loads(config.DISCARD_POSE.read_text())["pose"]
         rig.open_session("wall", stations=wanted, cases=cases, trials=args.trials)
         rig.session.conditions = conditions
