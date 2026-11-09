@@ -204,6 +204,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   jaws close: 127/130 picked; 20mm or more: 3/25 (295 real attempts, `grasp_clearance_m`; `session_report.py` prints it).
   Teacher-forced scores don't see it: v6 and v7 tied on arm, grasp and timing error over 53 demos they never trained on,
   while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
+- **A green hand in the wrist view pulls v8 back at station F.** The jaws moved about 5mm further out on an empty mat and 2-8mm back with the hand laid, closing short (2026-11-09), so a wall result counts only with the hand in place. Evidence: `docs/face_down_plan.md`.
+- **A held tile's jaw reading can drift under `holds_tile`'s margin.** It fell from 9.5 to 3.0 over 2026-11-09 with the command at 0 and empty jaws still at 0.6-0.9. Below 5 a good pick reads as not held, runs to the 16s cap, and a retry opens the jaws. Cause not found. Evidence: `docs/face_down_plan.md`.
 - **A two-high stack behind the target pulls v8 forward, and a top tile gets the next column's** (station F, 2026-11-09; 3 top tries). The jaw tips moved 9.4-9.7mm out from the hover with a stack
   behind, 4.8mm beside flat tiles, and a raised hover starts ~4mm further out. Top tiles 0/3, closing at a fine height: the error is forward, not height. A hover 10mm nearer the robot fixed the top tile (8/8) and broke the bottom one (0/2, closing early and shallow, against 10/10 at the regular hover), so
   only top tiles get it (`wall_test.py --top-back-mm`). Evidence: `docs/face_down_plan.md`.
