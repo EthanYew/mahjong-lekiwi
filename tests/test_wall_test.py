@@ -134,6 +134,32 @@ def test_a_simulated_session_prompts_with_what_to_lay_and_no_top_mark(monkeypatc
     assert not any("TOP" in p for p in prompts)
 
 
+def test_a_shifted_hover_starts_nearer_the_robot_and_is_logged(monkeypatch, tmp_path):
+    from mahjong import layout
+    from mahjong.hover_correction import HoverCorrection
+    script = script_in(monkeypatch, tmp_path)
+    folder = run(script, ["--cases", "top", "--trials", "1", "--hover-back-mm", "10"], [*LIGHT, "n", "", "w"])
+    row = attempts_of(folder)[0]
+    station = next(s for s in layout.load(wall_test.LAYOUT)["spots"] if s["id"] == "F")
+    x, y = HoverCorrection.load().apply(*station["xy"])
+    assert row["hover_xy"] == pytest.approx([x - 0.010, y]) and row["hover_back_m"] == 0.010
+    assert row["outcome"] == "took the wrong tile"
+
+
+def test_a_shifted_hover_is_never_pooled_with_the_unshifted_tries():
+    rows = [{"station": "F", "case": "top", "layer": "top", "outcome": "took the wrong tile", "held": True, "above_own_level_m": 0.01},       # logged before the option existed
+            {"station": "F", "case": "top", "layer": "top", "outcome": wall_test.CLEAN, "held": True, "above_own_level_m": 0.01, "hover_back_m": 0.010}]
+    groups = {g["hover_back_mm"]: g for g in wall_test.summarize(rows)}
+    assert groups[0]["clean"] == 0 and groups[10]["clean"] == 1 and groups[0]["tries"] == groups[10]["tries"] == 1
+
+
+@pytest.mark.parametrize("argv", [["--hover-back-mm", "25"], ["--hover-back-mm", "-25"], ["--hover-back-mm", "5", "--push-check"], ["--hover-back-mm", "5", "--hover-check"]])
+def test_a_hover_shift_out_of_range_or_on_a_check_fails_before_any_hardware(monkeypatch, tmp_path, argv):
+    script = script_in(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit):
+        script.main(["--sim", *argv], ask=lambda prompt: pytest.fail("asked a question"))
+
+
 def test_a_cycle_doesnt_ask_for_the_wall_put_right_after_its_last_draw(monkeypatch, tmp_path):
     prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "1"], [*LIGHT, "n", "", "p"])
     assert any("stacks of 2" in p for p in prompts) and not any("Not clean" in p for p in prompts)

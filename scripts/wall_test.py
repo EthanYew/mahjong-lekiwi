@@ -44,6 +44,9 @@ def parse_args(argv=None):
     p.add_argument("--stations", default="F", help="station ids in the layout, comma separated (default %(default)s; the layout has F, in front of the hand, and L, on its left)")
     p.add_argument("--cases", default="flat", help=f"what to try, comma separated: {', '.join(wall_test.CASES)}; or {wall_test.CYCLE} alone (default %(default)s)")
     p.add_argument("--trials", type=int, default=10, help="tries of each station and case; in a cycle, draws; in a push check, pushes (default %(default)s)")
+    p.add_argument("--hover-back-mm", type=float, default=0.0,
+                   help=f"start every pick this many mm nearer the robot than the station, up to {wall_test.MAX_HOVER_BACK_MM:.0f} (negative: further out). "
+                        "To test whether a pick that lands too far out is an aiming error (default %(default)s)")
     p.add_argument("--layout", default=wall_test.LAYOUT, help="the layout holding the stations (default %(default)s)")
     p.add_argument("--push-check", action="store_true", help="no arm: scan a face-up lead tile after each push, and say how far pushes stray")
     p.add_argument("--hover-check", action="store_true", help="no policy: hover over a face-up tile on each station and save the wrist view")
@@ -130,7 +133,7 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     layer, raise_m = settings["layer"], wall_test.HOVER_RAISE_M[settings["layer"]]
     before = table.snapshot()
     while True:
-        pick = rig.pick(f"{station['id']}_{case}_{layer}", station, raise_m=raise_m)
+        pick = rig.pick(f"{station['id']}_{case}_{layer}", station, raise_m=raise_m, back_m=ctx["back_m"])
         if pick.get("unreachable"):
             session.event("wall_unreachable", station=station["id"], case=case, layer=layer)
             print(f"{station['id']} is out of the hover's reach at this height: stopping this station.")
@@ -161,7 +164,7 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     print(f"\nTry {ctx['n']}: station {station['id']}, {case}" + (f" ({layer} tile)" if case == wall_test.CYCLE else ""))
     outcome = ask_outcome(ask, held, None if close is None else close * 1000, photo)
     session.event("wall_attempt", n=ctx["n"], station=station["id"], station_xy=station["xy"], case=case, layer=layer, face=settings["face"],
-                  behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
+                  behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_back_m=ctx["back_m"], hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
                   hover_tilt_deg=hover["tilt_deg"], attempt_dir=pick["attempt"].name, stop_reason=run["stop_reason"], duration_s=run["duration_s"], held=held,
                   gripper_command=pick["gripper_command"], gripper_measured=pick["gripper_measured"], grasp_clearance_m=run.get("grasp_clearance_m"),
                   above_own_level_m=close, base_photo=photo.name if photo else None, show_problem=problem or None,
@@ -307,6 +310,10 @@ def check_cases(args, cases, stations):
         raise SystemExit(f"{wall_test.CYCLE} runs alone, at one station")
     if args.trials < 1:
         raise SystemExit("--trials has to be at least 1")
+    if abs(args.hover_back_mm) > wall_test.MAX_HOVER_BACK_MM:
+        raise SystemExit(f"--hover-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
+    if args.hover_back_mm and (args.push_check or args.hover_check):
+        raise SystemExit("--hover-back-mm is for runs that pick tiles, not --push-check or --hover-check")
 
 
 def main(argv=None, ask=input):
@@ -335,7 +342,7 @@ def main(argv=None, ask=input):
         camera_poses.get(name)
     rig = holdup_script.Rig(args, list(spots.values()), poses[:1])
     rng = holdup_arm.rng_for(0)
-    ctx = {"n": 0}
+    ctx = {"n": 0, "back_m": args.hover_back_mm / 1000}
     try:
         if args.hover_check:
             rig.open_session("wall_hover", stations=wanted)
@@ -347,7 +354,10 @@ def main(argv=None, ask=input):
         ctx["discard_pose"] = json.loads(config.DISCARD_POSE.read_text())["pose"]
         rig.open_session("wall", stations=wanted, cases=cases, trials=args.trials)
         rig.session.conditions = conditions
-        rig.session.event("wall_conditions", conditions=conditions, white_tiles_near=ctx["whites"], show_pose=poses[0])
+        rig.session.event("wall_conditions", conditions=conditions, white_tiles_near=ctx["whites"], show_pose=poses[0], hover_back_m=ctx["back_m"])
+        if ctx["back_m"]:
+            print(f"Every pick starts {args.hover_back_mm:g}mm nearer the robot than the station.")
+        print("Leave the mat alone until the outcome keys appear: the photo after each try is taken just before them, and a re-laid tile hides what happened.")
         rig.arm.rest()
         if cases == [wall_test.CYCLE]:
             run_cycle(rig, rng, next(iter(spots.values())), args.trials, ask, ctx)

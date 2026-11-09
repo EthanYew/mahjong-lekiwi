@@ -14,7 +14,8 @@ from .session import read_events
 LAYOUT = "wall-stations"
 PUSH_LIMIT_MM = 3.0         # half the jaws' ~6mm tolerance (a judgement, not a measurement): what a push may stray from where it usually lands
 PUSH_RADIUS_M = 0.030       # the lead tile is the one read this close to the station
-BASELINE_SCANS = 3          # scans of the untouched row before any push: the detector's own wander, which a push's spread can't be told from
+MAX_HOVER_BACK_MM = 20.0    # more than half a tile's length: past this the jaws aren't over the tile being tested
+BASELINE_SCANS = 3         # scans of the untouched row before any push: the detector's own wander, which a push's spread can't be told from
 
 CYCLE = "cycle"
 
@@ -41,6 +42,7 @@ LEVEL_M = HOVER_RAISE_M     # how far the target's own grip level sits above a f
 OUTCOMES = {       # one per attempt: the first that applies, worst first
     "t": "a person touched it",
     "2": "lifted two tiles",
+    "w": "took the wrong tile",
     "k": "knocked the top tile off",
     "n": "moved the next stack",
     "p": "pushed its own tile",
@@ -168,19 +170,20 @@ def attempts(session_dir):
 
 
 def summarize(rows):
-    """One entry per station, case and layer: tries, clean, what went wrong, and the close heights above the target's own level."""
+    """One entry per station, case, layer and hover shift: tries, clean, what went wrong, and the close heights above the
+    target's own level. A shifted hover is a different test, so it's never pooled with the unshifted tries."""
     groups = {}
     for row in rows:
-        groups.setdefault((row["station"], row["case"], row["layer"]), []).append(row)
+        groups.setdefault((row["station"], row["case"], row["layer"], round(row.get("hover_back_m", 0.0) * 1000)), []).append(row)
     out = []
-    for (station, case, layer), group in sorted(groups.items()):
+    for (station, case, layer, back_mm), group in sorted(groups.items()):
         closes = [r["above_own_level_m"] * 1000 for r in group if r.get("above_own_level_m") is not None]
         clean = sum(r["outcome"] == CLEAN for r in group)
         not_clean = {}
         for r in group:
             if r["outcome"] != CLEAN:
                 not_clean[r["outcome"]] = not_clean.get(r["outcome"], 0) + 1
-        out.append({"station": station, "case": case, "layer": layer, "tries": len(group), "clean": clean,
+        out.append({"station": station, "case": case, "layer": layer, "hover_back_mm": back_mm, "tries": len(group), "clean": clean,
                     "held": sum(bool(r["held"]) for r in group), "not_clean": not_clean,
                     "close_median_mm": round(statistics.median(closes), 1) if closes else None,
                     "close_max_mm": round(max(closes), 1) if closes else None,
@@ -190,11 +193,11 @@ def summarize(rows):
 
 def table(groups):
     """The summary as lines of text."""
-    lines = [f"{'station':8}{'case':9}{'layer':8}{'clean':>7}{'held':>6}{'close mm (median, max)':>25}  verdict"]
+    lines = [f"{'station':8}{'case':9}{'layer':8}{'back mm':>8}{'clean':>7}{'held':>6}{'close mm (median, max)':>25}  verdict"]
     for g in groups:
         close = "-" if g["close_median_mm"] is None else f"{g['close_median_mm']:.1f}, {g['close_max_mm']:.1f}"
-        lines.append(f"{g['station']:8}{g['case']:9}{g['layer']:8}{g['clean']:>4}/{g['tries']:<2}{g['held']:>6}{close:>25}  {g['verdict']}")
-        lines += [f"{'':25}{count} x {what}" for what, count in sorted(g["not_clean"].items())]
+        lines.append(f"{g['station']:8}{g['case']:9}{g['layer']:8}{g['hover_back_mm']:>8}{g['clean']:>4}/{g['tries']:<2}{g['held']:>6}{close:>25}  {g['verdict']}")
+        lines += [f"{'':33}{count} x {what}" for what, count in sorted(g["not_clean"].items())]
     return lines
 
 
