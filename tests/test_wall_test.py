@@ -67,7 +67,7 @@ def test_the_stations_are_in_the_layouts_file_and_every_outcome_key_is_one_chara
 
 
 ALL_STEPS = [*(wall_test.lay_step(case, "F", f"{case}, try 10/10") for case in wall_test.CASES), wall_test.hover_step("F"), wall_test.push_step("F"),
-             wall_test.wall_step("F", 7), wall_test.feed_step("F"), wall_test.put_right_step("F", "top"), wall_test.put_right_step("F", "bottom")]
+             wall_test.wall_step("F", 7), wall_test.feed_step("F"), wall_test.put_right_step("F"), wall_test.clear_and_feed_step("F")]
 
 
 def test_every_line_of_every_instruction_fits_the_camera_window():
@@ -160,6 +160,60 @@ def test_a_hover_shift_out_of_range_or_on_a_check_fails_before_any_hardware(monk
         script.main(["--sim", *argv], ask=lambda prompt: pytest.fail("asked a question"))
 
 
+def test_a_missed_bottom_tile_is_one_step_clear_and_push_with_a_tile_to_aim_at(monkeypatch, tmp_path):
+    prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "3"], [*LIGHT, "n", "", "c", "p", "", "c"])
+    both = [p for p in prompts if "Lift off anything" in p]
+    assert len(both) == 1 and "Push the whole wall" in both[0] and "[G]" in both[0]
+    assert not any("[cycle] Feed the wall" in p for p in prompts)       # it isn't asked for a second time
+
+
+def test_a_clean_bottom_tile_still_gets_the_plain_feed(monkeypatch, tmp_path):
+    prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "3"], [*LIGHT, "n", "", "c", "c", "", "c"])
+    assert sum("[cycle] Feed the wall" in p for p in prompts) == 1 and not any("Lift off anything" in p for p in prompts)
+
+
+def test_only_top_tiles_get_the_top_shift(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path)
+    folder = run(script, ["--cases", "cycle", "--trials", "2", "--top-back-mm", "10"], [*LIGHT, "n", "", "c", "c"])
+    top, bottom = attempts_of(folder)
+    assert (top["layer"], top["hover_back_m"]) == ("top", 0.010) and (bottom["layer"], bottom["hover_back_m"]) == ("bottom", 0.0)
+    assert bottom["hover_xy"][0] - top["hover_xy"][0] == pytest.approx(0.010, abs=1e-6)
+    assert {g["hover_back_mm"]: g["layer"] for g in wall_test.summarize(wall_test.attempts(folder))} == {10: "top", 0: "bottom"}
+
+
+@pytest.mark.parametrize("argv", [["--top-back-mm", "25", "--cases", "top"], ["--top-back-mm", "10", "--hover-back-mm", "10", "--cases", "top"],
+                                  ["--top-back-mm", "10", "--cases", "flat"], ["--top-back-mm", "10", "--cases", "bottom"], ["--top-back-mm", "10", "--push-check"]])
+def test_a_top_shift_that_wouldnt_do_what_it_says_fails_before_any_hardware(monkeypatch, tmp_path, argv):
+    script = script_in(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit):
+        script.main(["--sim", *argv], ask=lambda prompt: pytest.fail("asked a question"))
+
+
+def test_a_session_left_out_says_why_and_stops_counting(monkeypatch, tmp_path, capsys):
+    script = script_in(monkeypatch, tmp_path)
+    real = tmp_path / "20261110_100000_wall"
+    real.mkdir()
+    events = [{"type": "session_start", "sim": False},
+              {"type": "wall_attempt", "station": "F", "case": "cycle", "layer": "top", "held": False, "above_own_level_m": 0.012, "outcome": "closed on air"}]
+    (real / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    script.main(["--exclude-session", real.name, "--why", "the wall was turned 90 degrees"])
+    assert wall_test.attempts(real) == [] and wall_test.excluded(real) == "the wall was turned 90 degrees"
+    capsys.readouterr()
+    script.main(["--report"])
+    out = capsys.readouterr().out
+    assert "left out (the wall was turned 90 degrees)" in out and "closed on air" not in out
+
+
+@pytest.mark.parametrize("argv", [["--exclude-session", "20261110_100000_wall"], ["--exclude-session", "20261110_999999_wall", "--why", "x"], ["--exclude-session", "20261110_100000_bench", "--why", "x"]])
+def test_leaving_a_session_out_needs_a_real_wall_session_and_a_reason(monkeypatch, tmp_path, argv):
+    script = script_in(monkeypatch, tmp_path)
+    for name in ("20261110_100000_wall", "20261110_100000_bench"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "events.jsonl").write_text("")
+    with pytest.raises(SystemExit):
+        script.main(argv)
+
+
 def test_a_cycle_doesnt_ask_for_the_wall_put_right_after_its_last_draw(monkeypatch, tmp_path):
     prompts = prompts_of(script_in(monkeypatch, tmp_path), ["--cases", "cycle", "--trials", "1"], [*LIGHT, "n", "", "p"])
     assert any("stacks of 2" in p for p in prompts) and not any("Not clean" in p for p in prompts)
@@ -228,7 +282,7 @@ def test_a_top_tile_is_hovered_one_tile_higher_on_the_arm(monkeypatch, tmp_path)
 def test_a_cycle_asks_for_a_feed_every_second_draw_and_for_the_wall_put_right_after_a_miss(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
     folder = run(script, ["--cases", "cycle", "--trials", "4"],
-                 [*LIGHT, "n", "", "c", "p", "", "", "c", "c"])     # lay the wall; top clean; bottom pushed, put right; feed; top; bottom
+                 [*LIGHT, "n", "", "c", "p", "", "c", "c"])     # lay the wall; top clean; bottom pushed, then one step to clear and feed; top; bottom
     events = read_events(folder)
     rows = attempts_of(folder)
     assert [r["layer"] for r in rows] == ["top", "bottom", "top", "bottom"] and [r["feed_index"] for r in rows] == [0, 0, 1, 1]

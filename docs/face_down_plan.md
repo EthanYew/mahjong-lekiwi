@@ -154,8 +154,24 @@ v8, bright daylight, lamp and ceiling lights off, on `sessions/20261109_151530_w
 - **F and L aren't settled.** F has more clean picks (30 of 30 without top tiles, L 9 of 10); L closes 7-10mm lower, and hasn't been tried on touching tiles or stacks. Computed heights read higher with reach, which may flatter L a little.
 - **The push check failed:** the worst push was 7.2mm from where they usually land (limit 3mm), and the row crept about 8mm sideways over 10 pushes, averaging 14.6mm off the station. The check's "detector wander" read exactly 0.0mm, which may mean only one baseline scan read the tile. So `cycle` waits for a straight guide along the wall.
 
-**Next:** top tiles with the hover about 10mm nearer the robot, 5 tries at each station (`--stations F,L --cases top --trials 5 --hover-back-mm 10`). The right tile means an aiming error, which may not need new data, though the margin has to survive the pushes. Still the second column means record: DAgger on v8
-for wall picks, because flat, touching and bottom tiles already work. `record.py` can't do that yet: it aims at tiles the detector sees and has no raised hover. A person's corrections are tied to one station, so settle the station first.
+### The hover shift, 2026-11-09
+
+`sessions/20261109_165958_wall` (top tiles alone, 10mm nearer the robot, dim daylight) and `20261109_173158_wall` (a cycle, the same shift on every draw, bright daylight).
+
+| Tile at F | Regular hover | Hover 10mm nearer the robot |
+|---|---|---|
+| Top | 0/3 | **8/8** (5 alone, 3 in a cycle) |
+| Bottom | **10/10** | 0/2 |
+
+- **The shift cancels the top tile's error.** The jaw tips closed at 277.5mm along x when the top tiles were alone, against 277.8mm for clean flat picks and 286.7mm unshifted.
+- **It breaks the bottom tile.** Starting further back, the jaws came down 14mm instead of 24mm and closed 29mm up instead of 19mm: early, shallow closes, as the owner saw.
+- **So top tiles get the shift and bottom tiles don't** (`--top-back-mm 10`). The two together haven't been run in a cycle.
+- **L went 0/5 on top tiles with the shift** and has never had a try without it, so that doesn't rule it out. F is the station for now.
+- **The wall turned 90°** (`20261109_173835_wall`, 2 tries, both failed, logged as an ordinary cycle). The tiles' long sides ran across the jaws, with the next tile touching along that side, so the jaws would have to span 35mm instead of 26mm at the short ends, with neighbours pressed against both faces.
+  Two tries prove little, but it probably needs new demos and a wider hover opening. Parked until the v1 demo works, which uses the end-to-end wall.
+
+**Next:** 12 draws in a row at F with a straight edge guiding the wall (`--stations F --cases cycle --trials 12 --top-back-mm 10`). It shows whether the v1 wall works from start to finish without new data. If it fails, record: DAgger on v8 for wall picks, because flat, touching and bottom tiles already work.
+`record.py` can't do that yet: it aims at tiles the detector sees and has no raised hover. A person's corrections are tied to one station.
 
 ## The tests
 

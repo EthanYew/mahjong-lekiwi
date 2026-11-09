@@ -4,8 +4,10 @@ The arm goes to one saved spot, a station; a person feeds the next stack onto it
 Nothing here can see a face-down tile, so "clean" is a person's word, given per attempt (OUTCOMES). The jaws' reading can't
 replace it: two tiles lifted together are as wide as one.
 """
+import json
 import math
 import statistics
+from datetime import datetime
 from pathlib import Path
 
 from . import config
@@ -105,15 +107,18 @@ def feed_step(station_id):
             "picture": _wall_picture()}
 
 
-def put_right_step(station_id, drew):
-    """After a draw that wasn't clean, what the next one needs. drew: the layer just tried."""
-    if drew == "top":
-        return {"lines": [f"[cycle] Not clean. Put station {station_id} right for the next draw:", "Take the top tile off by hand, if it's still there",
-                          "Square up the bottom tile. Leave the rest of the wall"],
-                "picture": [[None, "G", "G"], ["[G]", "G", "G"]]}
-    return {"lines": [f"[cycle] Not clean. Clear station {station_id} for the next stack:", f"Take anything left on {station_id} off by hand",
-                      "Leave the rest of the wall where it is"],
-            "picture": [[None, "G", "G"], [None, "G", "G"]]}
+def put_right_step(station_id):
+    """After a top tile that wasn't clean: the bottom tile is the next draw."""
+    return {"lines": [f"[cycle] Not clean. Put station {station_id} right for the next draw:", "Take the top tile off by hand, if it's still there",
+                      "Square up the bottom tile. Leave the rest of the wall"],
+            "picture": [[None, "G", "G"], ["[G]", "G", "G"]]}
+
+
+def clear_and_feed_step(station_id):
+    """After a bottom tile that wasn't clean: one step, so the station is never shown empty with nothing to aim at."""
+    return {"lines": [f"[cycle] Not clean. Get the next stack onto station {station_id}:", f"1. Lift off anything still on {station_id}, by hand",
+                      "2. Push the whole wall toward the robot", f"until the next stack sits on {station_id}"],
+            "picture": _wall_picture()}
 
 
 def picture_text(rows, indent="      "):
@@ -164,8 +169,21 @@ def verdict(clean, tries, case):
     return "carry on" if clean >= 8 else "try a change, then decide" if clean >= 4 else "record demos"
 
 
+def excluded(session_dir):
+    """Why a person left this session out of the scores, or None."""
+    return next((e["why"] for e in read_events(Path(session_dir)) if e["type"] == "wall_excluded"), None)
+
+
+def exclude(session_dir, why):
+    """Leave a session out of the scores: a run that wasn't the test it was logged as (a different wall, say). Its files stay."""
+    with open(Path(session_dir) / "events.jsonl", "a") as f:
+        f.write(json.dumps({"time": datetime.now().isoformat(timespec="seconds"), "type": "wall_excluded", "why": why}) + "\n")
+
+
 def attempts(session_dir):
-    """The answered attempts of one session (quit or voided ones have no outcome)."""
+    """The answered attempts of one session (quit or voided ones have no outcome), none if a person left it out."""
+    if excluded(session_dir):
+        return []
     return [e for e in read_events(Path(session_dir)) if e["type"] == "wall_attempt" and e.get("outcome")]
 
 

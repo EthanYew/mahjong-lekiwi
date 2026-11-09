@@ -856,6 +856,8 @@ python scripts/wall_test.py --sim --stations F,L --cases flat --trials 2  # simu
 draw asks you to put the wall right. `--push-check` wants the wall laid with the lead stack's top tile face up, and passes if the worst push is within 3mm of where pushes usually land.
 `--hover-back-mm N` starts every pick N mm nearer the robot than the station (up to 20; negative is further out), to test whether a pick landing too far out is an aiming error, e.g.
 `--stations F,L --cases top --trials 5 --hover-back-mm 10`; `--report` keeps shifted tries apart from unshifted ones. Leave the mat alone until the outcome keys appear, since the photo after each try is taken just before them.
+`--top-back-mm N` shifts top tiles only and leaves bottom tiles at the regular hover, which is what worked at F: `--stations F --cases cycle --trials 12 --top-back-mm 10`. A run that wasn't the test it was logged as (a wall laid another way, say)
+is left out of `--report` with `--exclude-session SESSION --why "..."`; its files stay.
 Other options: `--layout`, `--policy`. Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
 
 `holdup_arm.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
