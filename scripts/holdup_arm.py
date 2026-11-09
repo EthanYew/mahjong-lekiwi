@@ -166,9 +166,10 @@ class Rig:
         return {"hover": hover, "run": run, "attempt": attempt, "holding": holding, "squeezed_from": squeezed,
                 "gripper_command": command, "gripper_measured": measured}
 
-    def show(self, rng):
+    def show(self, rng, still_held=None):
         """Visit every pose with the tile in the jaws; returns (frames, which pose each is from, "" or why it stopped).
-        Between poses the arm is checked: a tile that slipped ends the hold."""
+        Between poses the arm is checked: a tile that slipped ends the hold. still_held: that check, for a grip Arm.holding can't see."""
+        still_held = still_held or (lambda: self.arm.holding()[0])
         frames, from_pose = [], []
         limits = self.arm.joint_limits()
         for name in self.pose_list:
@@ -176,7 +177,7 @@ class Rig:
             pose = {j: min(max(v, limits[j][0]), limits[j][1]) for j, v in pose.items()}     # a nudge never passes a joint's limit
             self.arm.go_to_pose(pose)
             self.arm.sleep(self.args.settle_s)
-            if not self.arm.holding()[0]:
+            if not still_held():
                 return frames, from_pose, f"the tile was lost at {name}"
             got = []
             for i in range(self.args.frames):
