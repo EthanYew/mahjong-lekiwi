@@ -15,8 +15,8 @@ import re
 import shlex
 import sys
 
-ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "holdup_arm", "wall_test")
-SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "holdup_arm", "wall_test")   # `record` and `collect_corrections` have no --sim
+ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "holdup_arm", "wall_test", "crude_run")
+SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "holdup_arm", "wall_test", "crude_run")   # `record` and `collect_corrections` have no --sim
 SAFE_FLAGS = {"--help", "-h"}
 
 MENTION = re.compile(r"scripts/(%s)\.py" % "|".join(ARM_SCRIPTS))

@@ -61,6 +61,8 @@ def parse_args(argv=None):
                    help="tile: the square round each pose's tile box; whole: the frame's centre square (default tile)")
     p.add_argument("--epochs", type=int, default=150, help="default 150 (a small set needs many passes to train)")
     p.add_argument("--seeds", type=int, default=3, help="runs, seeds 0..N-1, for the check and again for the control (default 3)")
+    p.add_argument("--save-reader", action="store_true",
+                   help="instead of scoring: train one reader on every photo of these sessions and save it to assets/holdup_reader.pt (crude_run.py reads with it). Name the clean sessions with --sessions")
     p.add_argument("--mark-boxes", action="store_true",
                    help="draw each pose's tile box on the average of its photos (a window; Enter saves, c keeps the old one), then stop")
     return p.parse_args(argv)
@@ -165,6 +167,22 @@ def mark_boxes(rows, boxes, select=None):
     return saved
 
 
+def save_reader(rows, args, boxes, train_fn):
+    """One reader on every photo, nothing held out: the scores come from the runs above, on sessions it never saw."""
+    if args.framing != "tile":
+        raise SystemExit("--save-reader reads the tile box of each pose: leave --framing at tile")
+    with tempfile.TemporaryDirectory() as folder:
+        photos = []
+        for i, r in enumerate(rows):
+            path = Path(folder) / f"{i:05d}.png"
+            cv2.imwrite(str(path), framed(r, args.framing, boxes))
+            photos.append({"name": r["truth"], "path": path, "session": r["session"]})
+        checkpoint = train_fn(photos, seed=0, epochs=args.epochs, log=lambda *_: None, crop_fn=holdup.as_input)
+    saved = name_check.save(checkpoint, holdup.READER)
+    print(f"Reader on {len(rows)} photos of {', '.join(sorted({r['truth'] for r in rows}))}: {saved}")
+    return saved
+
+
 def main(argv=None, train_fn=None, predict_fn=None, select=None):
     args = parse_args(argv)
     folders = find_sessions(args.sessions)
@@ -182,6 +200,8 @@ def main(argv=None, train_fn=None, predict_fn=None, select=None):
         if len(kept) < len(rows):
             print(f"left out {len(rows) - len(kept)} photo(s) with no tile box (held by hand, or a pose with none)")
         rows = kept
+    if args.save_reader:
+        return save_reader(rows, args, boxes, train_fn or name_check.train)
     test_session = Path(args.test_session).name if args.test_session else None
     try:
         train_rows, test_rows, how, caveat = holdup.split(rows, args.by, args.test_holds, test_session)

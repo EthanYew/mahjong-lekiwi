@@ -224,9 +224,9 @@ def save(checkpoint, path=None):
 class Reader:
     """Reads a tile's name from a wrist frame: {"name", "confidence"}."""
 
-    def __init__(self, path=None, device=None):
+    def __init__(self, path=None, device=None, crop_fn=crop):
         import torch
-        self.path = Path(path or WEIGHTS)
+        self.path, self.crop_fn = Path(path or WEIGHTS), crop_fn
         self.device = device or _device()
         checkpoint = torch.load(self.path, map_location=self.device, weights_only=False)      # our own file, in assets/
         self.classes = checkpoint["classes"]
@@ -236,7 +236,7 @@ class Reader:
         import torch
         out = []
         with torch.no_grad():
-            for part in _tensor(images, self.device).split(batch):
+            for part in _tensor(images, self.device, self.crop_fn).split(batch):
                 result = self.model(part)
                 probs = result[0] if isinstance(result, (tuple, list)) else result.softmax(1)
                 for p in probs.float().cpu().numpy():

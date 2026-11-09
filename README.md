@@ -78,6 +78,7 @@ not a worktree, or the sessions go when the worktree does.
 | Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py --installed`, then `python scripts/holdup_check.py` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Have the arm collect base-camera photos of face-down tiles (check the saved poses with nothing in the jaws first) | `python scripts/holdup_arm.py --empty`, then `python scripts/holdup_arm.py` |
+| Try a whole face-down turn: draw, show, read, you check, discard (crude, to find where it breaks) | `python scripts/crude_run.py --hand <13 names> --turns 6` |
 | Test drawing face-down tiles from a wall, at one station you feed by hand | `python scripts/wall_test.py --stations F --cases flat --trials 10`; `--report` scores every session so far |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
@@ -844,6 +845,18 @@ shoulder. Keys in the window: `s` saves the commanded pose as the next `--name` 
 `data/camera_poses.json`, `c` saves both frames to the session's `captures/`, `g` returns to `--go`'s pose, `q` rests and
 quits. Options: `--go POSE`, `--name PREFIX`, `--device PATH` (gamepad), `--sim`. `data/camera_poses.json` starts with the two
 poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not commanded).
+
+`crude_run.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, test 8): the whole face-down turn, crude on purpose, for a list of where it breaks. Lay 13 tiles green side up on the hand's slots and name them with `--hand`, in the layout's order.
+
+```
+python scripts/holdup_check.py --sessions sessions/20261106_195636_holdup,sessions/20261109_100829_holdup,sessions/20261109_122910_holdup --save-reader   # once: train the reader (GPU, minutes)
+python scripts/crude_run.py --hand 1C,2C,3C,5C,5C,7C,7C,9C,9C,1B,1B,2C,3C --turns 6        # a wall one tile high
+python scripts/crude_run.py --hand ... --turns 6 --stacked --top-back-mm 10                 # two high: top, bottom, feed
+python scripts/crude_run.py --hand ... --sim                                                # simulated arm and cameras
+```
+
+A turn: the arm draws from the station, holds the tile up at each saved `base_view_*` pose, and sets it on the drop zone. A window shows the photos and the reader's guess: Enter accepts it, or type the name, and `X` says the face wasn't visible. `game.py` chooses the discard, and the arm plays it. Whatever fails is written down
+(`crude_break`) and you do that step by hand; each turn ends by asking if anything else went wrong. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
 you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
