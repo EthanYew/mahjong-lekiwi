@@ -941,7 +941,7 @@
   },
   "wall-stations": {
     "created": "2026-11-09T16:00:00",
-    "note": "Where a face-down wall is drawn from (docs/face_down_plan.md, 'The wall: one station'; scripts/wall_test.py): F in front of the hand, 8mm past its far row; L on the hand's left. Chosen from the IK and the gamepad's reach at the hover-corrected point, not yet run on the arm",
+    "note": "Where a face-down wall is drawn from (docs/face_down_plan.md, 'The wall: one station'; scripts/wall_test.py): F in front of the hand, 8mm past its far row; L on the hand's left. Chosen from the IK and the gamepad's reach at the hover-corrected point, not yet run on the arm. F2 and L2 (2026-11-11, the owner's ask: more room beside the hand's tiles), computed the same way and not yet run on the arm: F2 5mm further out than F (13mm past S7's tile, 10mm of gamepad reach left; 10mm out would leave 5mm, under the 8mm warning), L2 10mm further left than L (30mm beside S1/S2, 20mm of reach left, wrist roll -147 vs -146). F and L stay as they were, since recordings name them",
     "ghost": null,
     "spots": [
       {
@@ -961,6 +961,24 @@
         ],
         "yaw_deg": 0.0,
         "label": "L"
+      },
+      {
+        "id": "F2",
+        "xy": [
+          0.24,
+          -0.012
+        ],
+        "yaw_deg": 0.0,
+        "label": "F2"
+      },
+      {
+        "id": "L2",
+        "xy": [
+          0.14,
+          0.202
+        ],
+        "yaw_deg": 0.0,
+        "label": "L2"
       }
     ]
   }
