@@ -516,6 +516,7 @@ python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --lay
 python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v8 --policy pickup_mat_cl_v8                  # DAgger corrections
 python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v8 --policy pickup_mat_cl_v8 --wall-station F --hover-jitter-mm 6   # DAgger on wall picks
 python scripts/record.py --dataset Yewy/mahjong_zone_dagger_<v> --policy <ID> --wall-station zone --wall-layers flat --hover-jitter-mm 6   # DAgger at the drop zone, on the policy crude_run.py drove
+python scripts/record.py --dataset Yewy/mahjong_facedown_dagger_<v> --policy <ID> --layout even-hand14 --face-down --start-spot S11 --repeats 3 --hover-jitter-mm 6   # DAgger on green-back tiles at layout spots
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
@@ -533,6 +534,8 @@ with when you took over. Use a dataset of their own, never an eval slice.
 waits for Enter. The layers in `--wall-layers` are taken in turn, and a discarded episode tries the same layer again. The hovers are `wall_test.py`'s: a top tile's is one tile higher and `--wall-top-back-mm` nearer the robot, and a bottom tile's is the policy's own. A
 tile still held afterwards goes in the discard container, which needs a discard pose. For DAgger, take over before the jaws close and bring them down so they close low on the tile and centred along it: a grip near the top edge lets the tile swing round in the jaws.
 
+**Face-down spots (`--layout NAME --face-down`)**: any spot of a layout with the tiles green side up, e.g. the hand's right end with `--layout even-hand14 --face-down --start-spot S11 --repeats 3`. The detector can't see a green back, so each episode names the spot, waits for Enter (`s` skips the spot, `q` quits) and aims at the spot's saved position; `--hover-jitter-mm` stands in for where a real tile sits. Lay the layout's other tiles green side up as they'd be. A held tile goes in the discard container afterwards: a scan can't check where a returned green back landed. Each log row has `face_down`.
+
 **The drop zone (`--wall-station zone --wall-layers flat`)**: the same, aimed at the drop zone, for the tile `crude_run.py` sets there and picks up
 again. Lay the crude run's hand green side up first (S13 stays empty: the zone is there), then one green-back tile on the zone each episode; the
 hover jitter stands in for where the arm's own set-down leaves it.
@@ -549,6 +552,7 @@ hover jitter stands in for where the arm's own set-down leaves it.
 | `--layout NAME` | guides you to place each tile on a taught spot (outline turns green when it's right) |
 | `--repeats N` | with `--layout`: episodes per spot (default 2) |
 | `--start-spot ID` | with `--layout`: start at this spot |
+| `--face-down` | with `--layout`: tiles lie green side up, so each episode aims at the spot's saved position instead of a detected tile; a tile still held afterwards goes in the discard container (see below) |
 | `--hover-gripper PCT` | gripper opening at the hover (default 90%). A narrower start skips the slow narrowing: v2n's trimmed episodes start at 27.2, so record at that to compare with v2n. Changing it means a new dataset |
 | `--hover-offset-mm`, `--clearance-mm` | the pincer tip is commanded this far above the grasp point (default 45), then settled until it measures this far (default 40) |
 | `--no-correction` | hover over the raw detection |
