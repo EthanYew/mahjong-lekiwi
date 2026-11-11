@@ -4,6 +4,7 @@ The SO101 follower sits on a LeKiwi base, ~9cm above a green mat; a RealSense on
 detects tiles; a wrist camera feeds the ACT policy. Per-policy hover settings (how the episodes a
 policy was trained on began) live in data/policies.json, not here.
 """
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -104,8 +105,20 @@ DETECTOR_EXAM = DATA / "detector_exam.json"   # sessions whose frames are the ti
 DETECTOR_EVAL = DATA / "detector_eval"        # detector scores on the exam
 DETECTOR_DATA = DATA / "detector"             # exports for labelling and labelled exports (local; Roboflow keeps the labels)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
-DISCARD_POSE = DATA / "discard_pose.json"
+DISCARD_POSE = DATA / "discard_pose.json"      # over the discard container (bench.py's teach-discard): discard_pose()
 CAMERA_POSES = DATA / "camera_poses.json"       # arm poses that hold a tile up to the base camera (scripts/teleop_view.py)
+
+
+def discard_pose(why=None):
+    """The taught pose over the discard container ({joint: deg}), or None if none is taught. With `why` (what needs it):
+    SystemExit instead, saying so, for a script that checks before any hardware connects."""
+    if DISCARD_POSE.exists():
+        return json.loads(DISCARD_POSE.read_text())["pose"]
+    if why:
+        raise SystemExit(f"No discard pose: teach one with bench.py's teach-discard. {why}")
+    return None
+
+
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
 XLEROBOT_EXAMPLES = Path.home() / "Projects" / "XLeRobot" / "software" / "examples"

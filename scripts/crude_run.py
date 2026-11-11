@@ -80,12 +80,12 @@ def type_in_window(frames, guess, show=None, wait_key=None):
 class Run:
     """One crude run: the hand by memory, the wall's station, the drop zone, and everything that went wrong."""
 
-    def __init__(self, rig, args, ask, slots, hand, station, zone, reader, boxes, empty=()):
+    def __init__(self, rig, args, ask, slots, hand, station, zone_spot, reader, boxes, empty=()):
         self.rig, self.args, self.ask, self.slots, self.hand = rig, args, ask, slots, hand
-        self.station, self.zone, self.reader, self.boxes, self.empty = station, zone, reader, boxes, empty
+        self.station, self.zone_spot, self.reader, self.boxes, self.empty = station, zone_spot, reader, boxes, empty
         self.shallow = 0
         self.rng = base_cam_collect.rng_for(0)
-        self.pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
+        self.pose = config.discard_pose()
         self.spot_of = {s["id"]: s for s in layout.load(args.layout)["spots"]}
         self.turn_no, self.breaks, self.reads, self.discards, self.done = 0, [], [], [], 0
 
@@ -146,12 +146,7 @@ class Run:
 
     def set_down(self, step, pick, picked_from, spot, layer="flat"):
         """Set the held tile on `spot`, aimed as a return is. False if it couldn't be."""
-        arm, home = self.rig.arm, [float(v) for v in spot["xy"]]
-        grasp = pick["run"]["grasp_xy"] or pick["hover"]["hover_xy"]
-        x, y = self.rig.returns.target(home, [float(v) for v in picked_from["xy"]], grasp)
-        arm.rest()
-        raised = wall_test.HOVER_RAISE_M[layer]                             # a top tile's: taken off, so it's let go at the mat and not a tile's height above it
-        placed = arm.place(x, y, pick["hover"]["offset_m"] - raised, grasp_clearance_m=wall_test.above_own_level_m(pick["run"].get("grasp_clearance_m"), layer))
+        placed, (x, y) = self.rig.set_down(pick, picked_from, spot, layer)
         self.rig.session.event("crude_set_down", turn=self.turn_no, step=step, spot=spot["id"], asked_xy=[x, y], reachable=placed is not None)
         if placed is None:
             self.broke(step, f"couldn't reach {spot['id']} to set it down")
@@ -161,7 +156,7 @@ class Run:
     def to_container(self, step, what):
         """The held tile into the discard container."""
         if self.jaws_have_tile():
-            wall_script.discard(self.rig, self.pose)
+            self.rig.arm.discard(self.pose)
         else:
             self.broke(step, f"lost {what} before the container")
 
@@ -259,10 +254,6 @@ class Run:
         self.discards.append(best["tile_name"])
         return "ok"
 
-    @property
-    def zone_spot(self):
-        return {"id": "zone", "xy": [float(v) for v in self.zone], "yaw_deg": 0.0}
-
     def feed(self, plan, turns):
         station_id = self.station["id"]
         if plan["turn"] == 1:
@@ -310,13 +301,12 @@ def main(argv=None, ask=input):
     poses = base_cam_collect.pose_names()
     if not poses:
         raise SystemExit(f"no {base_cam_collect.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
-    if not config.DISCARD_POSE.exists():
-        raise SystemExit("No discard pose: teach one with bench.py's teach-discard")
-    zone = markers.load_zone()
+    config.discard_pose(why="The discards go in the container")
+    zone = markers.zone_spot()
     if zone is None:
         raise SystemExit("No drop zone saved for this RealSense calibration: teach it with play.py --teach-zone")
     station = stations[args.station]
-    all_spots = [station, {"id": "zone", "xy": zone["xy"]}, *layout.load(args.layout)["spots"]]
+    all_spots = [station, zone, *layout.load(args.layout)["spots"]]
     reader = base_cam.load_reader()
     print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
     rig = face_down_rig.Rig(args, all_spots, poses)
@@ -327,7 +317,7 @@ def main(argv=None, ask=input):
         rig.session.conditions = conditions
         rig.session.event("crude_conditions", conditions=conditions)
         rig.arm.rest()
-        run = Run(rig, args, ask, slots, hand, station, zone["xy"], reader, base_cam.tile_boxes(), empty)
+        run = Run(rig, args, ask, slots, hand, station, zone, reader, base_cam.tile_boxes(), empty)
         print("\n" + crude_run.FLOW + "\n")
         drain_stdin()
         if ask(f"Lay the hand GREEN side up: {crude_run.hand_text(slots, hand, empty)}. The drop zone stays clear. Enter when done (q = quit): ").strip().lower() != "q":

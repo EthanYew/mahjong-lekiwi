@@ -90,7 +90,8 @@ SAME_TILE_NO = {"knocked a tile", "hover was wrong"}      # discards after which
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
 
 
-ZONE = "zone"     # --wall-station zone: the drop zone's saved position, not a station of the layout
+ZONE = markers.ZONE_ID     # --wall-station zone: the drop zone's saved position, not a station of the layout
+FACE_DOWN = layout.FACE_DOWN
 
 
 def parse_args(argv=None):
@@ -157,10 +158,9 @@ def wall_setup(args):
         raise SystemExit("--wall-station or --layout, not both: a wall station is its own saved spot")
     spots = {s["id"]: s for s in layout.load(wall_test.LAYOUT)["spots"]}
     if args.wall_station == ZONE:
-        zone = markers.load_zone()
-        if zone is None:
+        spots[ZONE] = markers.zone_spot()
+        if spots[ZONE] is None:
             raise SystemExit("No drop zone saved for this RealSense calibration: teach it with play.py --teach-zone")
-        spots[ZONE] = {"id": ZONE, "xy": [float(v) for v in zone["xy"]], "yaw_deg": 0.0}
     if args.wall_station not in spots:
         raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.wall_station} (has: {', '.join(spots)}; or {ZONE})")
     layers = wall_test.parse_list(args.wall_layers)
@@ -168,8 +168,7 @@ def wall_setup(args):
         raise SystemExit("--wall-layers takes top, bottom and flat, comma separated")
     if abs(args.wall_top_back_mm) > wall_test.MAX_HOVER_BACK_MM:
         raise SystemExit(f"--wall-top-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
-    if not config.DISCARD_POSE.exists():
-        raise SystemExit("No discard pose: teach one with bench.py's teach-discard. A drawn tile can't be put back on a stack")
+    config.discard_pose(why="A drawn tile can't be put back on a stack")
     return {"station": spots[args.wall_station], "layers": layers, "back_m": args.wall_top_back_mm / 1000}
 
 
@@ -181,7 +180,7 @@ def wall_placement(wall, saved, episodes):
     drain_stdin()
     if input("\nEnter once it's laid (q = quit): ").strip().lower() == "q":
         return None, None
-    return ({"tile_name": "wall", "xy": [float(v) for v in station["xy"]]},
+    return (layout.saved_target(station, "wall"),
             {"layout": wall_test.LAYOUT, "spot": station["id"], "spot_xy": station["xy"], "wall_layer": layer,
              "hover_raise_m": wall_test.HOVER_RAISE_M[layer], "hover_back_m": wall["back_m"] if layer == "top" else 0.0})
 
@@ -195,8 +194,7 @@ def face_down_placement(layout_name, spot, to_go):
     answer = input("Enter once it's laid (s = skip this spot, q = quit): ").strip().lower()
     if answer in ("q", "s"):
         return ("quit" if answer == "q" else "skip"), None
-    xy = [float(v) for v in spot["xy"]]
-    return ({"tile_name": "face_down", "xy": xy},
+    return (layout.saved_target(spot, FACE_DOWN),
             {"layout": layout_name, "spot": spot["id"], "spot_xy": spot["xy"], "spot_yaw_deg": spot.get("yaw_deg", 0.0),
              "placement_status": "saved_position", "placed_xy": None, "placed_yaw_deg": None, "face_down": True,
              "wall_layer": "flat", "hover_raise_m": 0.0, "hover_back_m": 0.0})
@@ -206,11 +204,7 @@ def discard_tile(arm):
     """A wall tile still held goes in the discard container, as wall_test.py's do. True if there was one."""
     if not arm.holding()[0]:
         return False
-    pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
-    arm.rest()
-    arm.go_to_pose(pose)
-    arm.set_gripper(config.GRIPPER_RELEASE)
-    arm.rest()
+    arm.discard(config.discard_pose())
     return True
 
 
@@ -249,8 +243,8 @@ def main(argv=None):
     wall = wall_setup(args)    # before connecting anything, so a typo fails fast
     if args.face_down and not args.layout:
         raise SystemExit("--face-down needs --layout: it aims at the layout's saved spots")
-    if args.face_down and not config.DISCARD_POSE.exists():
-        raise SystemExit("No discard pose: teach one with bench.py's teach-discard. A face-down tile goes in the container afterwards")
+    if args.face_down:
+        config.discard_pose(why="A face-down tile goes in the container afterwards")
     spots, todo, ghost = [], [], None
     if args.layout:            # before connecting anything, so a typo fails fast
         spots = layout.load(args.layout)["spots"]

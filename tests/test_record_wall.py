@@ -69,29 +69,33 @@ def test_a_held_wall_tile_goes_in_the_container_and_isnt_returned(tmp_path, monk
     assert calls == ["discard", "discard"]
 
 
-def test_discard_tile_lets_go_over_the_container_and_only_when_holding():
+def test_discard_tile_lets_go_over_the_container_and_only_when_holding(tmp_path, monkeypatch):
     import record
+    from mahjong.arm import Arm
     log = []
 
-    class Arm:
+    class Robot:
         held = True
 
-        def holding(self):
-            return self.held, 0.0, 11.0
-
-        def rest(self):
-            log.append("rest")
-
-        def go_to_pose(self, pose):
-            log.append("container")
-
-        def set_gripper(self, value):
-            log.append(("open", value))
-
-    assert record.discard_tile(Arm()) is True and log == ["rest", "container", ("open", config.GRIPPER_RELEASE), "rest"]
+    arm = Arm.__new__(Arm)       # Arm.discard itself, its moves stubbed: rest first (go_to_pose doesn't lift), release, rest
+    arm.holding = lambda: (Robot.held, 0.0, 11.0)
+    arm.rest = lambda: log.append("rest")
+    arm.go_to_pose = lambda pose, direct=False: log.append(("container", pose))
+    arm.set_gripper = lambda value: log.append(("open", value))
+    monkeypatch.setattr(config, "DISCARD_POSE", tmp_path / "discard_pose.json")
+    config.DISCARD_POSE.write_text('{"pose": {"shoulder_pan": 1.0}}')
+    assert record.discard_tile(arm) is True
+    assert log == ["rest", ("container", {"shoulder_pan": 1.0}), ("open", config.GRIPPER_RELEASE), "rest"]
     log.clear()
-    Arm.held = False
-    assert record.discard_tile(Arm()) is False and log == []
+    Robot.held = False
+    assert record.discard_tile(arm) is False and log == []
+
+
+def test_without_a_taught_discard_pose_a_script_that_needs_one_stops_before_any_hardware(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DISCARD_POSE", tmp_path / "none.json")
+    assert config.discard_pose() is None
+    with pytest.raises(SystemExit, match="teach-discard. A drawn tile"):
+        config.discard_pose(why="A drawn tile goes in the container")
 
 
 def test_zone_episodes_aim_at_the_drop_zone_from_the_policys_own_hover(tmp_path, monkeypatch, capsys):
