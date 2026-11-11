@@ -1,8 +1,8 @@
-"""The arm collects base-camera photos of face-down tiles (docs/face_down_plan.md, tests 1b and 2): pick up a tile a person laid
-face down on a layout spot, hold it up to the base camera at the taught poses, save frames, set it back down.
+"""Collect the base camera's training photos with the arm: pick up a tile a person laid face down on a layout spot, hold it up
+to the base camera at the taught poses, save frames, set it back down (docs/face_down_plan.md). base_cam_train.py trains on them.
 
     python scripts/base_cam_collect.py --empty                      # first: visit the saved poses with NOTHING in the jaws
-    python scripts/base_cam_collect.py                              # collect what's short, 7 default tiles, 6 holds per way up
+    python scripts/base_cam_collect.py                              # collect what's short: every tile name, 6 holds per way up
     python scripts/base_cam_collect.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
     python scripts/base_cam_collect.py --sim                        # simulated arm and cameras, no hardware
 
@@ -11,7 +11,8 @@ and a wrist frame to the session's `dry_run/`, with the pose's height above the 
 (a pose with the tip under 30mm up is flagged). Look at the sheet before putting a tile in play: are the jaws in the base
 view, does the arm clear the base on the way? A tile is never in the jaws.
 
-The collecting run reads what the hold-up sessions already hold (by hand and by arm), works out which tiles are furthest short
+The collecting run reads what the interleaved hold-up sessions already hold (earlier ones let the scene name the tile, so they
+don't count), works out which tiles are furthest short
 of `--target-holds`, and lays them in groups, one tile per `--spots` spot. Each round the arm picks every spot once (pick, rest,
 every pose with a small random nudge, rest, set it back down, `--frames` frames at each pose), so holds of different tiles
 alternate; after `--rounds` rounds every tile moves one spot along and is laid the other way. Collected a tile at a time, its
@@ -23,8 +24,8 @@ hold of the session it shows you the photo and asks whether the picture reads ri
 (`turned`), and labels every later hold from that. A live RealSense window
 shows where to lay each tile: the spot's outline, the tile's name and the end where the picture's top goes (TOP; `--layout-top`
 says which end of a spot a face-up layout tile's picture points to). Nothing turns green, since the detector can't see a back. A miss, a drop or an unreachable spot stops that tile and asks you, since nothing can
-see where a face-down tile is. Esc during a pickup stops the policy. Photos go where the hand-held ones go
-(`sessions/<time>_holdup/photos/<NAME>/`) with `holdup_shot` events, so `holdup_score.py` and `base_cam_train.py` read them.
+see where a face-down tile is. Esc during a pickup stops the policy. Photos go to
+`sessions/<time>_holdup/photos/<NAME>/` with `holdup_shot` events, which `base_cam_train.py` reads.
 Run `setup_check.py` first, and from the main checkout (sessions are per-checkout).
 """
 import argparse
@@ -43,6 +44,7 @@ from mahjong import camera_poses, config, base_cam, base_cam_collect, kinematics
 from mahjong.camera import grab_frames
 from mahjong.face_down_rig import Rig, close_windows, guide
 
+PLAN_SHOWN = 6               # arrangements listed at the start; every tile at once is 60+ of them
 LOW_POSE_M = 0.030          # the plan's floor for a pose's tip above the table (docs/face_down_plan.md, "What the base camera sees")
 STANDARD_SETUP = config.DATA / "standard_setup.json"
 
@@ -54,7 +56,9 @@ def default_layout():
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--empty", action="store_true", help="the safety pass: visit the saved poses with nothing in the jaws, no policy")
-    p.add_argument("--tiles", default=",".join(base_cam.DEFAULT_TILES), help="tiles to collect, comma separated (default: %(default)s)")
+    p.add_argument("--tiles", default=None,
+                   help="tiles to collect, comma separated (default: every tile name, flowers too; only the ones short of "
+                        "--target-holds are laid, furthest short first)")
     p.add_argument("--target-holds", type=int, default=base_cam_collect.DEFAULT_TARGET_HOLDS,
                    help="holds per tile and way up to reach, counting every hold-up session (default %(default)s)")
     p.add_argument("--rounds", type=int, default=2,
@@ -303,7 +307,11 @@ def main(argv=None, ask=input):
         camera_poses.get(n)             # a wrong name fails before any hardware
     if not names:
         raise SystemExit(f"no {base_cam_collect.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
-    tiles = list(dict.fromkeys(t.strip().upper() for t in args.tiles.split(",") if t.strip()))
+    tiles = (list(dict.fromkeys(t.strip().upper() for t in args.tiles.split(",") if t.strip())) if args.tiles
+             else list(base_cam_collect.DEFAULT_TILES))
+    unknown = [t for t in tiles if t not in base_cam_collect.DEFAULT_TILES]
+    if unknown:
+        raise SystemExit(f"not a tile name: {', '.join(unknown)} (names: {', '.join(base_cam_collect.DEFAULT_TILES)})")
     if not args.empty and len(tiles) > 1 and len(spots) < 2:
         raise SystemExit("--spots needs two or more spots: with one, each tile's holds come in a row, and the scene names the tile")
     plan = [] if args.empty else base_cam_collect.arrangements(
@@ -326,8 +334,12 @@ def main(argv=None, ask=input):
                           spots=spot_ids, order="interleaved")
         print(f"To collect: {len(plan)} arrangements, the tiles one per spot ({', '.join(spot_ids)}), each picked in turn; "
               "between arrangements every tile moves one spot along and is laid the other way:")
-        for i, a in enumerate(plan, 1):
+        for i, a in enumerate(plan[:PLAN_SHOWN], 1):
             print(f"  {i}. {a['laying']}: " + ", ".join(f"{s} {t}" for s, t in zip(spot_ids, a["tiles"])) + f", {a['rounds']} round(s)")
+        if len(plan) > PLAN_SHOWN:
+            short = sorted({t for a in plan for t in a["tiles"]})
+            print(f"  ... and {len(plan) - PLAN_SHOWN} more ({len(short)} tiles: {', '.join(short)}). Quit any time (q): "
+                  "the next run counts what's saved and carries on")
         rig.arm.rest()
         for i, arrangement in enumerate(plan, 1):
             laid = lay(rig, arrangement, spots, f"{i}/{len(plan)}", ask)
@@ -345,7 +357,7 @@ def main(argv=None, ask=input):
         if rig.session:
             rig.session.event("holdup_done", shots_taken=counters["shots"])
             print(f"{counters['shots']} hold(s) saved in {folder}" + ("" if args.empty else
-                  f"\nScore a reader trained on them: python scripts/base_cam_train.py, then python scripts/holdup_score.py for every result"))
+                  f"\nScore a reader trained on them: python scripts/base_cam_train.py (--history lists every result)"))
             rig.session.close()
     return folder
 

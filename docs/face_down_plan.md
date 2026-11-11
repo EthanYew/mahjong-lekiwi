@@ -321,6 +321,11 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - `scripts/base_cam_collect.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws.
+- **2026-11-11, the scripts renamed for what they do**: `holdup_arm.py` is `base_cam_collect.py` and `holdup_check.py` is
+  `base_cam_train.py` (`--history` replaces `holdup_score.py`). The hand-held capture (`holdup_capture.py`) and the installed
+  readers' scoring (`holdup_score.py --installed`) are gone: test 1 is answered, and hand-held photos have no pose, so they can't
+  train the reader. Collection now defaults to every tile name, flowers too (the owner's choice), and counts only interleaved
+  sessions, so EW (held only a tile at a time on 11-06) is collected again. The reader knows 1B, 2C, 3C, 5C, 7C and 9C; 32 are short.
 - For test 8, `play.py` will stop on face-down tiles in two places: a turn waits for a scan to see a tile on the zone, and
   the table check would take a face-down tile as missing. Test 3 means neither comes free: both need another way to know.
 

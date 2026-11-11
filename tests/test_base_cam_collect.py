@@ -14,10 +14,11 @@ from mahjong.session import read_events
 POSE = {"shoulder_pan": -6.5, "shoulder_lift": 35.8, "elbow_flex": -6.6, "wrist_flex": 91.8, "wrist_roll": -88.7}
 
 
-def write_session(folder, shots, sim=False):
-    """A finished hold-up session with one saved photo per (tile, kind, hold)."""
+def write_session(folder, shots, sim=False, order="interleaved"):
+    """A finished hold-up session with one saved photo per (tile, kind, hold); order None is one from before interleaving."""
     folder.mkdir(parents=True)
-    lines = [{"type": "session_start", "sim": sim}]
+    lines = [{"type": "session_start", "sim": sim}, {"type": "holdup_conditions", "conditions": {}, "source": "arm",
+                                                      **({"order": order} if order else {})}]
     for n, (tile, kind, hold) in enumerate(shots, 1):
         photo = folder / "photos" / tile / f"{kind}_h{hold}_0.jpg"
         photo.parent.mkdir(parents=True, exist_ok=True)
@@ -32,6 +33,21 @@ def test_hold_counts_count_holds_across_sessions_and_leave_out_simulated_ones(tm
     write_session(tmp_path / "20261105_110000_holdup", [("5C", "upright", 1)])      # a new session's hold 1 is another hold
     write_session(tmp_path / "20261105_120000_holdup", [("3C", "upright", 1)], sim=True)
     assert base_cam_collect.hold_counts(tmp_path) == {("5C", "upright"): 3, ("5C", "turned"): 1}
+
+
+def test_holds_from_before_interleaving_dont_count_so_their_tiles_are_collected_again(tmp_path):
+    write_session(tmp_path / "20261106_105954_holdup", [("EW", "upright", h) for h in range(1, 7)], order=None)
+    write_session(tmp_path / "20261106_195636_holdup", [("5C", "upright", 1)])
+    assert base_cam_collect.hold_counts(tmp_path) == {("5C", "upright"): 1}
+    assert base_cam_collect.wanted(["EW"], base_cam_collect.hold_counts(tmp_path))[0]["missing"] == 6
+
+
+def test_the_default_is_every_tile_name_and_a_typo_fails_before_any_hardware(monkeypatch, tmp_path):
+    import base_cam_collect as script
+    from mahjong import detector
+    assert list(base_cam_collect.DEFAULT_TILES) == detector.TILE_NAMES and "1F" in base_cam_collect.DEFAULT_TILES
+    with pytest.raises(SystemExit, match="not a tile name: 5X"):
+        script.main(["--sim", "--tiles", "5C,5X"])
 
 
 def test_a_fixed_distance_session_from_before_holds_is_left_out_not_a_crash(tmp_path):

@@ -1,4 +1,4 @@
-"""Can the base camera's view be learned? Train a small classifier on some hold-up photos, score it on others it never saw.
+"""Train and score the base camera's tile reader on the photos base_cam_collect.py took; --save-reader installs one.
 
     python scripts/base_cam_train.py --mark-boxes                 # once per taught pose: drag a box round where the tile shows
     python scripts/base_cam_train.py                              # every real holdup session; holds out the newest session if
@@ -8,10 +8,11 @@
                                                                 # train on one light, test on another (the tiles both have)
     python scripts/base_cam_train.py --framing whole              # the whole frame's centre square, as before tile boxes
     python scripts/base_cam_train.py --sessions sessions/A_holdup,sessions/B_holdup --epochs 200
+    python scripts/base_cam_train.py --save-reader --sessions sessions/A_holdup,sessions/B_holdup   # install assets/holdup_reader.pt
+    python scripts/base_cam_train.py --history                    # every result this has written, oldest first (no GPU, no training)
 
-Why: the installed classifier and detector read nothing here (holdup_score.py --installed), because neither was trained on this
-view. `holdup_score.py` lists every result this writes, oldest first.
-This answers the question before a full capture is paid for. It is NOT a fine-tune of the installed weights: it starts a
+Why: the tile detector (RealSense) and the name check (wrist camera) read ~0% on this view (test 1, 2026-11-05/06), because
+neither was trained on it, so the base camera has a reader of its own. A check is NOT a fine-tune of the installed weights: it starts a
 fresh YOLO11n-cls from its ImageNet weights, with a head for just the tiles held in these sessions. Holds are split whole,
 never a shot's near-identical frames across train and test. It runs --seeds times (small sets vary), and prints the
 held-out right rate against chance and against the best constant answer.
@@ -29,6 +30,10 @@ The bar (docs/face_down_plan.md, test 1b, set before the first run): 70% or more
 constant answer -> worth a real capture at the arm's pose. 40% or less -> the view or the hold is the problem, look at the
 photos before capturing more. In between: capture more and rerun. Writes holdup_check.json next to the newest session
 (with --test-session, holdup_check_held_out.json in the session held out).
+
+--history reads those files back (in --sessions, or every real holdup session): what each trained and tested on, the reader's
+right rate, the control and the best constant answer. Training pays off when the reader is well above the constant answer,
+the control is near it (else the background names the tile), and that holds on a session never trained on (--test-session).
 """
 import argparse
 import json
@@ -65,6 +70,8 @@ def parse_args(argv=None):
                    help="instead of scoring: train one reader on every photo of these sessions and save it to assets/holdup_reader.pt (crude_run.py reads with it). Name the clean sessions with --sessions")
     p.add_argument("--mark-boxes", action="store_true",
                    help="draw each pose's tile box on the average of its photos (a window; Enter saves, c keeps the old one), then stop")
+    p.add_argument("--history", action="store_true",
+                   help="list every result this has written (in --sessions, or every real holdup session), oldest first; trains nothing")
     return p.parse_args(argv)
 
 
@@ -186,9 +193,13 @@ def save_reader(rows, args, boxes, train_fn):
 def main(argv=None, train_fn=None, predict_fn=None, select=None):
     args = parse_args(argv)
     folders = find_sessions(args.sessions)
+    if args.history:
+        results = base_cam.check_results(folders)
+        print("\n".join(base_cam.check_lines(results)))
+        return results
     rows = [r for f in folders for r in base_cam.rows(f)]
     if not rows:
-        raise SystemExit(f"No holdup photos in {[str(f) for f in folders] or config.SESSIONS}: python scripts/holdup_capture.py")
+        raise SystemExit(f"No holdup photos in {[str(f) for f in folders] or config.SESSIONS}: python scripts/base_cam_collect.py")
     boxes = base_cam.tile_boxes()
     if args.mark_boxes:
         return mark_boxes(rows, boxes, select)

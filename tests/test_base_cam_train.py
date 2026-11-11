@@ -12,10 +12,9 @@ from mahjong import camera_poses, config
 
 
 def sim_session(monkeypatch, tmp_path, holds=4):
-    import holdup_capture
+    from holdup_sessions import write_session
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    return holdup_capture.main(["--sim", "--tiles", "5C,3C,2C", "--holds", str(holds), "--frames", "1", "--gap-s", "0"],
-                               ask=lambda prompt: "")
+    return write_session(tmp_path, holds=holds)
 
 
 def test_check_trains_on_the_early_holds_and_scores_the_last_ones(tmp_path, monkeypatch):
@@ -223,7 +222,7 @@ def test_teleop_view_go_starts_at_a_saved_pose_and_needs_it_to_exist(tmp_path, m
 
 
 def test_score_lists_every_check_and_says_which_have_a_clean_control(tmp_path, monkeypatch):
-    import holdup_score
+    import base_cam_train
     from mahjong import base_cam
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     run = lambda right, constant, tiles: {"photos": 24, "tiles": tiles, "right": right, "best_constant_answer": constant,
@@ -246,12 +245,12 @@ def test_score_lists_every_check_and_says_which_have_a_clean_control(tmp_path, m
         "caveat": "left out 96 photo(s) of EW: in no other session, never trained on", "train_photos": 864, "train_holds": 72,
         "test_photos": 120, "test_holds": 10, "mean_right": 0.99, "runs": [run(0.99, 0.60, 2)], "control_right": 0.60,
         "verdict": "only 2 tile(s) held out: too few to judge"}))
-    results = holdup_score.main([])
+    results = base_cam_train.main(["--history"])
     assert [r["file"].split("/")[1] for r in results][-2:] == ["holdup_check.json", "holdup_check_held_out.json"]
     text = "\n".join(base_cam.check_lines(results))
     assert "BACKGROUND" in text and "PASS" in text and "TOO FEW TILES" in text
     assert "train 576 photos / 48 holds" in text and "left out 96 photo(s) of EW" in text and "OPTIMISTIC" not in text
     assert "2 of 3 result(s) with a clean control" in text
     assert "on a session never trained on: 99% on 1B, 7C (20261106_105954_holdup)" in text
-    assert holdup_score.main([str(evening)])[0]["file"].startswith(evening.name)       # one session's results only
+    assert base_cam_train.main(["--history", "--sessions", str(evening)])[0]["file"].startswith(evening.name)       # one session's results only
     assert "No base_cam_train.py results yet" in base_cam.check_lines([])[0]

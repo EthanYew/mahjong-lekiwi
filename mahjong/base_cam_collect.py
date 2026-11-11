@@ -13,26 +13,35 @@ Which way up the base camera sees a tile is decided by how a person laid it (the
 nobody can say beforehand. A person lays a tile one of two ways, `as_layout` (where the layout's face-up tile would be, the
 top of its picture at the same end, flipped sideways about its long edge) or `rotated` (that, turned 180 degrees on the mat),
 and says once per session what the first photo shows. `upright` and `turned` then mean what the camera sees (the picture reads
-right way up, or upside down in the frame), which is what holdup_score.py and the classifier mean by them.
+right way up, or upside down in the frame), which is what base_cam_train.py and the reader mean by them.
 """
 import math
 import random
 from collections import defaultdict
 
-from . import camera_poses, config, base_cam
+from . import base_cam, camera_poses, config, detector
+from .session import read_events
 
 POSE_PREFIX = "base_view_"
 DEFAULT_TARGET_HOLDS = 6        # holds per tile and way up the shortfall is measured against
+DEFAULT_TILES = tuple(detector.TILE_NAMES)      # every tile, flowers too (the owner's choice, 2026-11-11): the short ones first
 JITTER_JOINTS = ("shoulder_pan", "wrist_flex", "wrist_roll")     # nudged between holds; lift and elbow set the distance
 DEFAULT_JITTER_DEG = 2.0
 
 
+def interleaved(session_dir):
+    """Whether a hold-up session was collected the interleaved way (several tiles, one per spot, moved between arrangements):
+    the only way whose holds a reader can be trained on. Earlier ones (by hand, or the arm a tile at a time, 2026-11-05/06) let
+    the scene name the tile, so they aren't counted, and the reader was never trained on them."""
+    return any(e["type"] == "holdup_conditions" and e.get("order") == "interleaved" for e in read_events(session_dir))
+
+
 def hold_counts(sessions_dir=None):
-    """{(tile, kind): distinct holds} over every real hold-up session: by hand and by arm both count, simulated don't."""
+    """{(tile, kind): distinct holds} over every real, interleaved hold-up session (`interleaved`); simulated ones don't count."""
     folder = sessions_dir or config.SESSIONS
     seen = defaultdict(set)
     for session in sorted(folder.glob("*_holdup")):
-        if base_cam.is_sim(session):
+        if base_cam.is_sim(session) or not interleaved(session):
             continue
         for row in base_cam.rows(session):
             if row["hold"] is None:         # a fixed-distance session from before holds: nothing to count
