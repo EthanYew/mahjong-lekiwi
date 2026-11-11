@@ -408,6 +408,62 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert len(asked) == 1 and "spot empty" in asked[0]
 
 
+FACE_DOWN_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]
+
+
+def face_down_bench(tmp_path, monkeypatch, argv=()):
+    import bench
+    from mahjong import layout
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
+    layout.save("down", FACE_DOWN_SPOTS)
+    return bench.Bench(bench.parse_args(["--sim", "--layout", "down", "--face-down", *argv]))
+
+
+def test_face_down_trials_aim_at_each_spots_saved_position_and_log_no_samples_or_landings(tmp_path, monkeypatch):
+    from mahjong import scorecard
+    b = face_down_bench(tmp_path, monkeypatch, ["--trials", "2"])
+    try:
+        b.arm.rest()
+        b.trials(2)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    attempts = [e for e in events if e["type"] == "attempt"]
+    spot_xy = {s["id"]: s["xy"] for s in FACE_DOWN_SPOTS}
+    assert [a["spot"] for a in attempts] == ["L", "L", "R", "R"] and all(a["success"] for a in attempts)
+    assert all(a["name_source"] == "saved_position" and a["detection_xy"] == spot_xy[a["spot"]] for a in attempts)
+    assert len([e for e in events if e["type"] == "return"]) == 4
+    assert not [e for e in events if e["type"] == "return_landed"]      # a green back can't be seen landing
+    assert not (b.session.dir / "hover_corrections.jsonl").exists()      # a saved position isn't a detection
+    assert not (b.session.dir / "return_corrections.jsonl").exists()
+    assert [e["spots"] for e in events if e["type"] == "face_down_laid"] == [["L", "R"]]    # asked once, not per round
+    assert "face-down tiles, picked by saved position" in scorecard.off_standard(events, {"surface": None, "layout": "down"})
+
+
+def test_face_down_pickup_at_the_menu_asks_which_spot(tmp_path, monkeypatch):
+    answers = iter(["X", "r", "", "y"])        # no such spot, R, the lay-it prompt's Enter, "picked it up?"
+    monkeypatch.setattr("builtins.input", lambda *_: next(answers))
+    b = face_down_bench(tmp_path, monkeypatch)
+    try:
+        b.ask_names = input             # a real mat: the person is asked to lay it
+        b.arm.rest()
+        assert b.pickup() is True
+    finally:
+        b.close()
+    (attempt,) = [e for e in read_events(b.session.dir) if e["type"] == "attempt"]
+    assert attempt["spot"] == "R" and attempt["detection_xy"] == FACE_DOWN_SPOTS[1]["xy"]
+    assert b.held["home_xy"] == FACE_DOWN_SPOTS[1]["xy"] and b.held["saved_position"]
+
+
+@pytest.mark.parametrize("argv", [["--face-down"], ["--face-down", "--layout", "x", "--trials", "1", "--unattended"],
+                                  ["--face-down", "--layout", "x", "--tile", "8D"]])
+def test_face_down_needs_a_layout_and_someone_watching(argv):
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(argv)
+
+
 def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monkeypatch):
     import builtins
     import bench
