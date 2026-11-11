@@ -207,7 +207,7 @@ reliability claim: 10/10 is still consistent with a true rate near 70%.
 |---|---|---|---|---|
 | 0 | Fix the camera names (below), then a photo from each with the arm parked | 30 min | A camera is dead or can't see in front of it | sudo |
 | 1 | **Hold tiles up by hand** wherever the arm can reach (close and at an angle, so no fixed distances), right way up and 180°, by day and evening, including 5C, 3C, 2C, 9C; score the classifier and the detector | 20 min | Nothing reads anywhere | capture script; no arm |
-| 1b | **Can the view be learned?** Train a fresh small classifier on some holds, score it on others it never saw (`holdup_check.py`, 3 seeds), cropped to the tile, with a control that greys the tile out | 5 min | The control beats the best constant answer by 15 points: the background names the tile, recapture before reading anything. Under 40% right: look at the photos before capturing more. 70% or more on 3+ tiles and well above the best constant answer: capture at the real pose. In between: more holds, rerun | test 1's photos |
+| 1b | **Can the view be learned?** Train a fresh small classifier on some holds, score it on others it never saw (`base_cam_train.py`, 3 seeds), cropped to the tile, with a control that greys the tile out | 5 min | The control beats the best constant answer by 15 points: the background names the tile, recapture before reading anything. Under 40% right: look at the photos before capturing more. 70% or more on 3+ tiles and well above the best constant answer: capture at the real pose. In between: more holds, rerun | test 1's photos |
 | 2 | **Teach the camera pose by gamepad** (`teleop_view.py`: both cameras in one window, `s` saves the pose). Put 5 tiles in the jaws; check swing, hidden faces, whether they set down flat | 30 min | Tiles swing or drop | saved pose |
 | 3 | Run the detector at low confidence on a face-down tile. **Done 2026-11-09: no boxes** (below) | 5 min | If it boxes backs, targeting and the zone check may come free | one frame |
 | 4 | **Face-down vs face-up on the same slots**, alternating, 10 each, single tiles, logging close height. Also how much green stands out from the mat | 1 hr | The thresholds below | test script |
@@ -271,8 +271,8 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - **Progress, 2026-11-06:** the arm photographed 1B, EW and 7C (`sessions/20261106_105954_holdup`, 18 holds). The installed
   readers scored 0% (they answer one name to everything: this view is new to them, as expected). Test 1b scored 100%, but
   the same classifier trained with the tile blacked out scored 99%: each tile's holds were taken in a row from one spot, so the
-  light, the empty spot and whoever was in view named the tile. `holdup_check.py` now crops to a tile box per pose and runs
-  that control every time (BACKGROUND verdict). `holdup_arm.py` now lays a tile on each spot, picks them in turn, and moves each
+  light, the empty spot and whoever was in view named the tile. `base_cam_train.py` now crops to a tile box per pose and runs
+  that control every time (BACKGROUND verdict). `base_cam_collect.py` now lays a tile on each spot, picks them in turn, and moves each
   tile one spot along between arrangements. One of the 216 photos had the face blur over the tile; the rest that look soft are
   the fixed-focus camera up close. The 2026-11-05 base-camera photos (hand-held and arm, 266 files) were deleted at the owner's
   request (early face-blur attempts, a person in view); their event logs and wrist files stay.
@@ -289,7 +289,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   1B closing high.
 - **The first clean pass, 2026-11-06 evening** (`sessions/20261106_195636_holdup`, 72 holds of 5C, 3C, 2C, 9C, 1B and 7C, 6
   per tile and way up; lamp and ceiling lights, no daylight). Collected the new way: three tiles on S5, S7 and S9, picked in turn,
-  each moved one spot along and laid the other way after 2 rounds, in two groups (5C/3C/2C, then 9C/1B/7C). `holdup_check.py
+  each moved one spot along and laid the other way after 2 rounds, in two groups (5C/3C/2C, then 9C/1B/7C). `base_cam_train.py
   --by hold`: **100% on held-out holds, every tile and both ways up, all 3 seeds; the control with the tile greyed out 0%**
   (best constant answer 17%). The 0% is the design working: the held-out holds are each tile at the one spot it never had in
   training (1B trained at S5 and S7, tested at S9), so a classifier that learned the scene names the tile that was there and
@@ -297,7 +297,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   session, one room, and each group of three was collected in its own stretch of time, so telling a group-one tile from a
   group-two tile could partly be the time. No two tiles in the set look alike (7C vs 8C isn't in it). The installed readers
   scored 0-3% on these photos (`holdup_scores.json`), as expected.
-  **Another light** (`holdup_check.py --test-session`, added for this): trained only on the evening session, tested on the two
+  **Another light** (`base_cam_train.py --test-session`, added for this): trained only on the evening session, tested on the two
   daytime sessions' 1B and 7C (EW left out, never trained on). 12:52, bright daylight: 96% (1B 94%, 6 read as 5C; 7C 100%),
   control 31% against a constant 57%. 10:59, bright daylight: 99%, control 60% against a constant 60%. Daylight against lamp
   light in the same room doesn't throw it, on 2 tiles, which the script calls too few to judge.
@@ -318,7 +318,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
   another check.
 - **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
-- `scripts/holdup_arm.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
+- `scripts/base_cam_collect.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and
   picked up again without a scan). `--empty` first visits the saved poses with nothing in the jaws.
 - For test 8, `play.py` will stop on face-down tiles in two places: a turn waits for a scan to see a tile on the zone, and

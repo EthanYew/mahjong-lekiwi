@@ -3,10 +3,10 @@ tile a person laid at a layout spot, holds it up to the base camera at a taught 
 
 The logic that needs no hardware lives here, so it can be tested: which tiles still need photos (`wanted`, from the holds
 already in the hold-up sessions), the poses a hold visits (`pose_names`) and how each is nudged (`jitter`), and the
-`holdup_shot` events the other hold-up scripts already read. scripts/holdup_arm.py moves the arm.
+`holdup_shot` events the other hold-up scripts already read. scripts/base_cam_collect.py moves the arm.
 
 A hold is one pickup: the arm visits every chosen pose with the same tile in the jaws, so the photos of a hold differ in
-pose but share the grip, and `holdup_check.py` keeps a hold whole on one side of its train / test split. Holds count, not
+pose but share the grip, and `base_cam_train.py` keeps a hold whole on one side of its train / test split. Holds count, not
 frames: the frames of one pose are near-copies.
 
 Which way up the base camera sees a tile is decided by how a person laid it (the arm can't turn it) and by the pose, so
@@ -19,7 +19,7 @@ import math
 import random
 from collections import defaultdict
 
-from . import camera_poses, config, holdup
+from . import camera_poses, config, base_cam
 
 POSE_PREFIX = "base_view_"
 DEFAULT_TARGET_HOLDS = 6        # holds per tile and way up the shortfall is measured against
@@ -32,16 +32,16 @@ def hold_counts(sessions_dir=None):
     folder = sessions_dir or config.SESSIONS
     seen = defaultdict(set)
     for session in sorted(folder.glob("*_holdup")):
-        if holdup.is_sim(session):
+        if base_cam.is_sim(session):
             continue
-        for row in holdup.rows(session):
+        for row in base_cam.rows(session):
             if row["hold"] is None:         # a fixed-distance session from before holds: nothing to count
                 continue
             seen[(row["truth"], row["kind"])].add((row["session"], row["hold"]))
     return {key: len(holds) for key, holds in seen.items()}
 
 
-def wanted(tiles, counts, target=DEFAULT_TARGET_HOLDS, kinds=holdup.KINDS):
+def wanted(tiles, counts, target=DEFAULT_TARGET_HOLDS, kinds=base_cam.KINDS):
     """What to collect next: [{"tile", "kind", "missing"}], the tile furthest short first (both ways up of a tile together,
     so a person lays one tile and turns it round). Tiles at `target` holds in every way up are left out."""
     short = {t: {k: max(0, target - counts.get((t, k), 0)) for k in kinds} for t in tiles}
@@ -105,7 +105,7 @@ def jitter(pose, rng, deg=DEFAULT_JITTER_DEG):
 
 def learn_view(laying, seen):
     """{laying: way up} from one answer: this laying showed `seen` ("upright" or "turned"); the other laying shows the other."""
-    other = holdup.KINDS[1 - holdup.KINDS.index(seen)]
+    other = base_cam.KINDS[1 - base_cam.KINDS.index(seen)]
     return {laying: seen, LAYINGS[1 - LAYINGS.index(laying)]: other}
 
 
@@ -151,7 +151,7 @@ def lay_text(tile, laying, spot):
 
 
 def shot_event(tile, kind, hold, files, frame_poses, **extra):
-    """The fields of a `holdup_shot` event (what holdup.rows reads) plus where it came from: by the arm, and each frame's pose."""
+    """The fields of a `holdup_shot` event (what base_cam.rows reads) plus where it came from: by the arm, and each frame's pose."""
     return {"tile": tile, "kind": kind, "hold": hold, "files": files, "frame_poses": frame_poses, "source": "arm", **extra}
 
 

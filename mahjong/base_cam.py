@@ -73,7 +73,7 @@ def is_sim(session_dir):
 def rows(session_dir):
     """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session, pose.
     The first two sessions held tiles at fixed distances and have no holds: their `hold` is None. `pose` is the saved camera
-    pose the arm held the tile at (holdup_arm.py); None for a tile held by hand."""
+    pose the arm held the tile at (base_cam_collect.py); None for a tile held by hand."""
     session_dir = Path(session_dir)
     events = read_events(session_dir)
     conditions = next((e["conditions"] for e in events if e["type"] == "holdup_conditions"), {})
@@ -114,7 +114,7 @@ def whole_frame(image, size=name_check.INPUT_PX):
 # --- where the held tile is (a box per saved pose) ---
 # The arm holds a tile at a saved pose, so it shows up in about the same part of the base camera's frame each time: not exactly
 # (each pose is nudged a couple of degrees, and the jaws close at a different place on the tile each pickup), so a pose's
-# `tile_box` in data/camera_poses.json is where the tile CAN be, drawn generously by a person (holdup_check.py --mark-boxes).
+# `tile_box` in data/camera_poses.json is where the tile CAN be, drawn generously by a person (base_cam_train.py --mark-boxes).
 # Two uses: framing the classifier on the tile instead of the room, and the control that greys the tile out to see whether
 # the rest of the frame gives the tile away (the first arm sessions did, 2026-11-06: 99% with the tile blacked out).
 BLANK = 128                              # the grey a tile box is filled with for the control
@@ -132,7 +132,7 @@ def tile_frame(image, box, size=name_check.INPUT_PX):
     return square_around(image, box, pad=1.0, size=size)
 
 
-READER = config.TILE_DETECTOR.parent / "holdup_reader.pt"       # trained by holdup_check.py --save-reader
+READER = config.TILE_DETECTOR.parent / "holdup_reader.pt"       # trained by base_cam_train.py --save-reader
 
 
 def load_reader(path=None):
@@ -303,7 +303,7 @@ def summary_lines(s):
     lines.append("misreads (whole frame, as it is): " + (", ".join(f"{k} x{n}" for k, n in s["misreads"][:12]) or "none"))
     reading = [k for k, v in s["readers"].items() if v["reads"]]
     lines.append("readers right on two or more tiles: " + (", ".join(reading) if reading else
-                 "NONE. The plan's stop: this view needs its own reader (see holdup_check.py), or another way."))
+                 "NONE. The plan's stop: this view needs its own reader (see base_cam_train.py), or another way."))
     return lines
 
 
@@ -313,13 +313,13 @@ def save_scores(session_dir, s):
     return path
 
 
-# --- is training a reader for this view paying off? every holdup_check.py result (scripts/holdup_score.py) ---
+# --- is training a reader for this view paying off? every base_cam_train.py result (scripts/holdup_score.py) ---
 
 CHECK_FILES = ("holdup_check.json", "holdup_check_held_out.json")
 
 
 def check_results(folders):
-    """Every holdup_check.py result saved in these session folders, oldest first. A result written before the check recorded
+    """Every base_cam_train.py result saved in these session folders, oldest first. A result written before the check recorded
     its time is dated by its file."""
     from datetime import datetime
     out = []
@@ -344,7 +344,7 @@ def check_lines(results):
     constant answer), then what the results say together. Training pays off when the reader is well above the constant answer,
     the control is near it, and that holds on a session never trained on."""
     if not results:
-        return ["No holdup_check.py results yet: python scripts/holdup_check.py (it trains a reader for this view and scores it)"]
+        return ["No base_cam_train.py results yet: python scripts/base_cam_train.py (it trains a reader for this view and scores it)"]
     lines = [f"{'written':<17} {'verdict':<14} {'reader':>6} {'control':>8} {'constant':>9}  test",
              "(reader: the fresh classifier right on photos it never trained on; control: the same with the tile greyed out, "
              "which should be near constant, the best a reader that ignores the photo can do)"]
@@ -379,11 +379,11 @@ def check_lines(results):
                      f"({best['file']})")
         lines.append(f"  on a session never trained on: " + ("; ".join(
             f"{d['mean_right']:.0%} on {', '.join(d['runs'][0]['per_tile'])} ({d['file'].split('/')[0]})" for d in across)
-            if across else "none yet (holdup_check.py --test-session), the test that says it carries to new light or rooms"))
+            if across else "none yet (base_cam_train.py --test-session), the test that says it carries to new light or rooms"))
     return lines
 
 
-# --- can the base camera's view be learned? (scripts/holdup_check.py) ---
+# --- can the base camera's view be learned? (scripts/base_cam_train.py) ---
 
 def split(rows, by="auto", test_holds=2, test_session=None):
     """(train rows, test rows, how it was split, caveat). `auto` holds out the newest session if there are two or more with

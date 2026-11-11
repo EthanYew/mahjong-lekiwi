@@ -11,7 +11,7 @@ you can check, but the reader only knows the tiles it was trained on. A turn: pi
 (then type the name, from the tile). game.py chooses the discard. Then it picks that tile from its slot into the container and the drawn tile from the zone into the slot,
 or the drawn tile straight into the container. Nothing can see a green back, so every pick goes by saved position, and a landing is only as good as the aim.
 
-Without assets/holdup_reader.pt it asks you for every name: train one with `holdup_check.py --save-reader`. Results are in `sessions/<time>_crude/`: `crude_break` and `crude_read`
+Without assets/holdup_reader.pt it asks you for every name: train one with `base_cam_train.py --save-reader`. Results are in `sessions/<time>_crude/`: `crude_break` and `crude_read`
 events, per attempt `wrist.mp4` and `base_*.jpg`, and `crude_summary.json`. Run `setup_check.py` first, and from the main checkout.
 """
 import argparse
@@ -25,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-import holdup_arm as holdup_script
+import base_cam_collect as holdup_script
 import wall_test as wall_script
-from mahjong import config, crude_run, game, holdup, holdup_arm, layout, markers, privacy, wall_test
+from mahjong import config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, wall_test
 from mahjong.perception import drain_stdin
 
 WINDOW = "what the base camera saw"
@@ -44,7 +44,7 @@ def parse_args(argv=None):
     p.add_argument("--leave-empty", default="", metavar="SLOTS", help="hand slots with no tile on the mat, comma separated, e.g. S7 (its tile right behind the wall throws the draw off): still named in --hand, never chosen as a discard")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
-    p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what holdup_arm's Rig reads
+    p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what base_cam_collect's Rig reads
     return p.parse_args(argv)
 
 
@@ -84,7 +84,7 @@ class Run:
         self.rig, self.args, self.ask, self.slots, self.hand = rig, args, ask, slots, hand
         self.station, self.zone, self.reader, self.boxes, self.empty = station, zone, reader, boxes, empty
         self.shallow = 0
-        self.rng = holdup_arm.rng_for(0)
+        self.rng = base_cam_collect.rng_for(0)
         self.pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
         self.spot_of = {s["id"]: s for s in layout.load(args.layout)["spots"]}
         self.turn_no, self.breaks, self.reads, self.discards, self.done = 0, [], [], [], 0
@@ -187,7 +187,7 @@ class Run:
 
     def read(self, frames, from_pose):
         """The robot's guess, logged first, then a person's word. Returns the name, or None if they quit."""
-        guess = holdup.read_held(self.reader, frames, from_pose, self.boxes)
+        guess = base_cam.read_held(self.reader, frames, from_pose, self.boxes)
         self.rig.session.event("crude_guess", turn=self.turn_no, guess=guess)
         hidden = False
         while True:
@@ -307,9 +307,9 @@ def main(argv=None, ask=input):
         raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.station} (has: {', '.join(stations)})")
     if args.turns < 1:
         raise SystemExit("--turns has to be at least 1")
-    poses = holdup_arm.pose_names()
+    poses = base_cam_collect.pose_names()
     if not poses:
-        raise SystemExit(f"no {holdup_arm.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
+        raise SystemExit(f"no {base_cam_collect.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
     if not config.DISCARD_POSE.exists():
         raise SystemExit("No discard pose: teach one with bench.py's teach-discard")
     zone = markers.load_zone()
@@ -317,17 +317,17 @@ def main(argv=None, ask=input):
         raise SystemExit("No drop zone saved for this RealSense calibration: teach it with play.py --teach-zone")
     station = stations[args.station]
     all_spots = [station, {"id": "zone", "xy": zone["xy"]}, *layout.load(args.layout)["spots"]]
-    reader = holdup.load_reader()
-    print(f"Reader: {holdup.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({holdup.READER}): you'll name every tile. holdup_check.py --save-reader trains one")
+    reader = base_cam.load_reader()
+    print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
     rig = holdup_script.Rig(args, all_spots, poses)
     run = None
     try:
-        conditions = holdup.ask_lighting(ask)
-        rig.open_session("crude", hand=hand, turns=args.turns, station=args.station, stacked=args.stacked, zone_xy=zone["xy"], reader=holdup.READER.name if reader else None, left_empty=empty)
+        conditions = base_cam.ask_lighting(ask)
+        rig.open_session("crude", hand=hand, turns=args.turns, station=args.station, stacked=args.stacked, zone_xy=zone["xy"], reader=base_cam.READER.name if reader else None, left_empty=empty)
         rig.session.conditions = conditions
         rig.session.event("crude_conditions", conditions=conditions)
         rig.arm.rest()
-        run = Run(rig, args, ask, slots, hand, station, zone["xy"], reader, holdup.tile_boxes(), empty)
+        run = Run(rig, args, ask, slots, hand, station, zone["xy"], reader, base_cam.tile_boxes(), empty)
         print("\n" + crude_run.FLOW + "\n")
         drain_stdin()
         if ask(f"Lay the hand GREEN side up: {crude_run.hand_text(slots, hand, empty)}. The drop zone stays clear. Enter when done (q = quit): ").strip().lower() != "q":

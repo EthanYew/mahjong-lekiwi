@@ -164,7 +164,7 @@ def _augment(x):
 
 def train(photos, seed=0, epochs=EPOCHS, batch=BATCH, device=None, log=print, crop_fn=crop):
     """A checkpoint trained on `photos`: {"classes", "model", ...}. Thin names are drawn as often as common ones.
-    `crop_fn` frames each photo (default: the wrist camera's crop; holdup_check.py trains on the base camera's view)."""
+    `crop_fn` frames each photo (default: the wrist camera's crop; base_cam_train.py trains on the base camera's view)."""
     import random
 
     import torch

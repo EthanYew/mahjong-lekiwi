@@ -1,16 +1,16 @@
-"""Is training a reader for the base camera's view paying off? Every holdup_check.py result in one table; --installed scores
+"""Is training a reader for the base camera's view paying off? Every base_cam_train.py result in one table; --installed scores
 the installed readers instead.
 
-    python scripts/holdup_score.py                       # every holdup_check.py result, oldest first, and what they say together
+    python scripts/holdup_score.py                       # every base_cam_train.py result, oldest first, and what they say together
     python scripts/holdup_score.py sessions/20261106_195636_holdup        # only the results saved in that session
     python scripts/holdup_score.py --installed           # the installed classifier and detector on the latest holdup session
     python scripts/holdup_score.py --installed sessions/20261105_150000_holdup --weights outputs/name_check/name_check.pt
 
-The default reads the holdup_check.json / holdup_check_held_out.json files that holdup_check.py writes (no GPU, nothing
+The default reads the holdup_check.json / holdup_check_held_out.json files that base_cam_train.py writes (no GPU, nothing
 trained). For each: what it trained and tested on, the fresh classifier's right rate on photos it never saw, the control (the
 same with the tile greyed out) and the best constant answer. Training pays off when the reader is well above the constant
 answer, the control is near it (else the background names the tile), and that holds on a session never trained on
-(`holdup_check.py --test-session`): the last lines say which results meet that.
+(`base_cam_train.py --test-session`): the last lines say which results meet that.
 
 --installed is face-down plan test 1: the name classifier (assets/name_check.pt, trained on the wrist camera at the hover) and the
 detector (assets/tile_detector.pt, the RealSense looking down) on these photos. They read ~0% here because the view is new to
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, holdup, name_check, perception
+from mahjong import config, base_cam, name_check, perception
 
 
 def parse_args(argv=None):
@@ -43,20 +43,20 @@ def parse_args(argv=None):
 def latest_session():
     found = sorted(config.SESSIONS.glob("*_holdup"))
     if not found:
-        raise SystemExit(f"No holdup session in {config.SESSIONS}: python scripts/holdup_arm.py")
+        raise SystemExit(f"No holdup session in {config.SESSIONS}: python scripts/base_cam_collect.py")
     return found[-1]
 
 
 def training_report(session=None):
-    """Every holdup_check.py result (in `session`, or every real holdup session), and the lines that say what they show."""
-    folders = [session] if session else [f for f in sorted(config.SESSIONS.glob("*_holdup")) if not holdup.is_sim(f)]
-    results = holdup.check_results(folders)
-    print("\n".join(holdup.check_lines(results)))
+    """Every base_cam_train.py result (in `session`, or every real holdup session), and the lines that say what they show."""
+    folders = [session] if session else [f for f in sorted(config.SESSIONS.glob("*_holdup")) if not base_cam.is_sim(f)]
+    results = base_cam.check_results(folders)
+    print("\n".join(base_cam.check_lines(results)))
     return results
 
 
 def installed(folder, weights, detector, reader=None, predict=None):
-    rows = holdup.rows(folder)
+    rows = base_cam.rows(folder)
     if not rows:
         raise SystemExit(f"No photos in {folder}")
     if reader is None:
@@ -68,13 +68,13 @@ def installed(folder, weights, detector, reader=None, predict=None):
     for row in rows:
         image = cv2.imread(str(row["path"]))
         if image is not None:
-            scored.append(holdup.score_photo(row, image, predict, reader))
-    s = holdup.score(scored)
+            scored.append(base_cam.score_photo(row, image, predict, reader))
+    s = base_cam.score(scored)
     print(f"{folder.name}: {len(scored)} photos, {len({r['truth'] for r in scored})} tiles; the INSTALLED readers, trained on "
           f"other views (whether a reader trained on this one pays off: python scripts/holdup_score.py)\n")
-    print("\n".join(holdup.summary_lines(s)))
-    print(f"\nsaved {holdup.save_scores(folder, s)}")
-    sheet = holdup.contact_sheet(scored, folder / "holdup_sheet.jpg")
+    print("\n".join(base_cam.summary_lines(s)))
+    print(f"\nsaved {base_cam.save_scores(folder, s)}")
+    sheet = base_cam.contact_sheet(scored, folder / "holdup_sheet.jpg")
     if sheet:
         print(f"saved {sheet}")
     return s

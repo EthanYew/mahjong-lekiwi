@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, holdup, privacy
+from mahjong import config, base_cam, privacy
 from mahjong.camera import BaseCamera, read_within
 from mahjong.session import Session
 
@@ -31,9 +31,9 @@ WINDOW = "base camera: hold a tile up"
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--tiles", default=",".join(holdup.DEFAULT_TILES),
+    p.add_argument("--tiles", default=",".join(base_cam.DEFAULT_TILES),
                    help="the tiles you will hold, comma separated (default: %(default)s)")
-    p.add_argument("--holds", type=int, default=holdup.DEFAULT_HOLDS,
+    p.add_argument("--holds", type=int, default=base_cam.DEFAULT_HOLDS,
                    help="holds per tile and way up; move the tile to a new place and angle each time (default: %(default)s)")
     p.add_argument("--frames", type=int, default=3, help="frames saved per shot (default 3)")
     p.add_argument("--gap-s", type=float, default=0.25, help="seconds between a shot's frames (default 0.25)")
@@ -116,11 +116,11 @@ def take_frames(camera, n, gap_s, sleep=time.sleep):
 def main(argv=None, ask=input, camera=None):
     args = parse_args(argv)
     privacy.require()           # the weights that blur faces in the photos it saves
-    shots = holdup.plan([t.strip().upper() for t in args.tiles.split(",") if t.strip()],
+    shots = base_cam.plan([t.strip().upper() for t in args.tiles.split(",") if t.strip()],
                         args.holds)
     camera = camera or open_camera(args.sim)
     view = not (args.no_view or args.sim)
-    conditions = holdup.ask_lighting(ask)
+    conditions = base_cam.ask_lighting(ask)
     session = Session("holdup", ask_setup=False, sim=args.sim)
     session.conditions = conditions
     session.event("holdup_conditions", conditions=conditions, shots=len(shots))
@@ -145,7 +145,7 @@ def main(argv=None, ask=input, camera=None):
                 if not frames:
                     print("No frames from the camera: replug it, then take this shot again.")
                     continue
-                files = holdup.save_shot(session.dir, shot, frames)
+                files = base_cam.save_shot(session.dir, shot, frames)
                 taken += 1
                 last = {"shot": taken, "files": files}
                 session.event("holdup_shot", shot=taken, files=files, **shot)

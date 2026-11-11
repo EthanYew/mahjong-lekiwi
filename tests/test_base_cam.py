@@ -7,7 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import config, holdup
+from mahjong import config, base_cam
 from mahjong.session import read_events
 
 
@@ -25,7 +25,7 @@ def capture_module(monkeypatch, tmp_path):
 
 
 def test_plan_goes_tile_by_tile_each_way_up_several_holds():
-    shots = holdup.plan(["5C", "3C"], 2)
+    shots = base_cam.plan(["5C", "3C"], 2)
     assert len(shots) == 8
     assert [(s["tile"], s["kind"], s["hold"]) for s in shots[:5]] == [
         ("5C", "upright", 1), ("5C", "upright", 2), ("5C", "turned", 1), ("5C", "turned", 2), ("3C", "upright", 1)]
@@ -43,7 +43,7 @@ def test_capture_saves_frames_under_the_tile_and_skip_and_redo_work(tmp_path, mo
     assert not (out / "photos" / "3C").exists()
     assert any(e["type"] == "holdup_conditions" for e in read_events(out))
     assert [e for e in read_events(out) if e["type"] == "holdup_done"][0]["shots_taken"] == 3
-    assert len(holdup.rows(out)) == 4                                        # the redone shot left no row
+    assert len(base_cam.rows(out)) == 4                                        # the redone shot left no row
 
 
 def test_a_redone_shot_leaves_no_row_and_a_sim_session_says_so(tmp_path, monkeypatch):
@@ -51,7 +51,7 @@ def test_a_redone_shot_leaves_no_row_and_a_sim_session_says_so(tmp_path, monkeyp
     answers = iter(["", "b", "q"])
     out = capture.main(["--sim", "--tiles", "5C", "--holds", "1", "--frames", "2", "--gap-s", "0"],
                        ask=lambda prompt: next(answers, "q") if "hold " in prompt else "")
-    assert holdup.rows(out) == [] and holdup.is_sim(out)
+    assert base_cam.rows(out) == [] and base_cam.is_sim(out)
 
 
 def test_score_keeps_the_two_ways_up_apart_and_one_answer_for_everything_is_not_reading(tmp_path, monkeypatch):
@@ -79,16 +79,16 @@ def test_nothing_readable_is_the_plans_stop():
             return [{"name": "EW", "confidence": 0.9} for _ in images]
     image = np.zeros((480, 640, 3), np.uint8)
     row = {"truth": "5C", "kind": "upright", "hold": 1, "shot": 1, "daylight": "dim"}
-    scored = holdup.score_photo(row, image, lambda im: [], Blind())
+    scored = base_cam.score_photo(row, image, lambda im: [], Blind())
     assert scored["reads"]["detector box"] is None                           # no box, no box framing
-    s = holdup.score([scored])
+    s = base_cam.score([scored])
     assert not s["readable_anywhere"]
-    assert "NONE" in holdup.summary_lines(s)[-1]
+    assert "NONE" in base_cam.summary_lines(s)[-1]
 
 
 def test_square_around_a_box_stays_inside_the_frame():
     image = np.zeros((480, 640, 3), np.uint8)
-    assert holdup.square_around(image, [600.0, 400.0, 640.0, 480.0]).shape[:2] == (224, 224)
+    assert base_cam.square_around(image, [600.0, 400.0, 640.0, 480.0]).shape[:2] == (224, 224)
 
 
 def scored_rows(said):
@@ -104,9 +104,9 @@ def scored_rows(said):
 
 
 def test_a_reader_right_on_two_tiles_reads_and_a_constant_one_does_not():
-    right_on_two = holdup.score(scored_rows(lambda truth, i: truth if truth != "2C" else "5C"))
+    right_on_two = base_cam.score(scored_rows(lambda truth, i: truth if truth != "2C" else "5C"))
     assert right_on_two["readable_anywhere"] and right_on_two["readers"]["whole frame/as_is"]["tiles_read"] == ["3C", "5C"]
-    constant = holdup.score(scored_rows(lambda truth, i: "3C"))
+    constant = base_cam.score(scored_rows(lambda truth, i: "3C"))
     assert not constant["readable_anywhere"] and constant["readers"]["whole frame/as_is"]["tiles_read"] == ["3C"]
     assert abs(constant["by"]["all"]["whole frame/as_is"] - 1 / 3) < 1e-9       # the 24% of the first session, in miniature
 
@@ -115,7 +115,7 @@ def fake_rows(sessions):
     rows = []
     for session in sessions:
         for truth in ("5C", "3C", "2C"):
-            for kind in holdup.KINDS:
+            for kind in base_cam.KINDS:
                 for hold in range(1, 5):
                     rows.append({"truth": truth, "kind": kind, "hold": hold, "shot": hold, "session": session,
                                  "path": f"{session}/{truth}_{kind}_{hold}.jpg"})
@@ -123,9 +123,9 @@ def fake_rows(sessions):
 
 
 def test_split_holds_out_the_newest_session_or_the_last_holds():
-    two = holdup.split(fake_rows(["a_holdup", "b_holdup"]), "auto")
+    two = base_cam.split(fake_rows(["a_holdup", "b_holdup"]), "auto")
     assert {r["session"] for r in two[0]} == {"a_holdup"} and {r["session"] for r in two[1]} == {"b_holdup"} and two[3] is None
-    one = holdup.split(fake_rows(["a_holdup"]), "auto", test_holds=2)
+    one = base_cam.split(fake_rows(["a_holdup"]), "auto", test_holds=2)
     assert {r["hold"] for r in one[1]} == {3, 4} and {r["hold"] for r in one[0]} == {1, 2}
     assert "OPTIMISTIC" in one[3]
     assert len(one[0]) + len(one[1]) == 24
@@ -133,6 +133,6 @@ def test_split_holds_out_the_newest_session_or_the_last_holds():
 
 def test_check_summary_compares_with_chance_and_a_constant_answer():
     rows = fake_rows(["a_holdup"])
-    s = holdup.check_summary(rows, [r["truth"] if r["truth"] != "2C" else "5C" for r in rows])
+    s = base_cam.check_summary(rows, [r["truth"] if r["truth"] != "2C" else "5C" for r in rows])
     assert s["tiles"] == 3 and abs(s["right"] - 2 / 3) < 1e-9 and abs(s["chance"] - 1 / 3) < 1e-9
     assert s["per_tile"]["2C"] == 0.0 and s["confusions"][0][0] == "2C->5C"
