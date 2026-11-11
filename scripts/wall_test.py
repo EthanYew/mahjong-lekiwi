@@ -41,7 +41,7 @@ CROP_PX = 150               # table_before_after.jpg: this far around the statio
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--stations", default="F", help="station ids in the layout, comma separated (default %(default)s; the layout has F, in front of the hand, and L, on its left)")
+    p.add_argument("--stations", default="F", help="station ids in the layout, comma separated (default %(default)s; the layout has F, in front of the hand, and L, on its left, and F2 and L2 with more room beside the hand)")
     p.add_argument("--cases", default="flat", help=f"what to try, comma separated: {', '.join(wall_test.CASES)}; or {wall_test.CYCLE} alone (default %(default)s)")
     p.add_argument("--trials", type=int, default=10, help="tries of each station and case; in a cycle, draws; in a push check, pushes (default %(default)s)")
     p.add_argument("--hover-back-mm", type=float, default=0.0,

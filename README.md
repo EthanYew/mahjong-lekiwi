@@ -96,7 +96,7 @@ trained with `--augment --replace-mat 0.7`),
 hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
 `pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with
 the gripper narrowing trimmed and the eval episodes left out). Why the default is the default, and how each
-did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step).
+did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step). How the versions evolved, what each one's data captured and how each was trained: `docs/policy_history.md`.
 
 ---
 
@@ -870,7 +870,7 @@ A turn: the arm draws from the station, holds the tile up at each saved `base_vi
 `--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
-you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
+you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left; `F2` 5mm further out and `L2` 10mm further left, for more room beside the hand's tiles, e.g. `--stations F2,L2`, `record.py --wall-station L2`): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
 
 ```
 python scripts/wall_test.py --hover-check --stations F,L                  # 1. no policy: is the hover centred on a face-up tile?

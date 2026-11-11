@@ -62,7 +62,11 @@ def test_the_summary_separates_a_cycles_top_and_bottom_draws():
 
 def test_the_stations_are_in_the_layouts_file_and_every_outcome_key_is_one_character():
     layouts = json.loads(config.LAYOUTS.read_text())
-    assert {s["id"] for s in layouts[wall_test.LAYOUT]["spots"]} == {"F", "L"}
+    spots = {s["id"]: s["xy"] for s in layouts[wall_test.LAYOUT]["spots"]}
+    assert set(spots) == {"F", "L", "F2", "L2"}
+    # F2 and L2 give the hand's tiles more room: F2 further out than F, L2 further left than L, each on F's / L's line
+    assert spots["F2"][0] > spots["F"][0] and spots["F2"][1] == spots["F"][1]
+    assert spots["L2"][1] > spots["L"][1] and spots["L2"][0] == spots["L"][0]
     assert all(len(k) == 1 for k in wall_test.OUTCOMES) and "q" not in wall_test.OUTCOMES   # q quits
 
 
