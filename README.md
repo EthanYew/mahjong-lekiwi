@@ -86,7 +86,7 @@ not a worktree, or the sessions go when the worktree does.
 
 Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%; the owner's pick on 2026-11-05 as the best trained, `status.py` has the evidence;
-also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
+also `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 on face-down tiles: every hand spot S1-S14 with green backs up, and top and bottom tiles at station L; trained 2026-11-12, private on the Hub, not benched yet), `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
 trained with `--augment --replace-mat 0.7`),
