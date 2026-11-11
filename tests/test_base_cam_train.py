@@ -1,4 +1,4 @@
-"""holdup_check.py (can the base camera's view be learned) and teleop_view.py (both cameras while driving), with fakes."""
+"""base_cam_train.py (can the base camera's view be learned) and teleop_view.py (both cameras while driving), with fakes."""
 import json
 import sys
 from pathlib import Path
@@ -12,19 +12,18 @@ from mahjong import camera_poses, config
 
 
 def sim_session(monkeypatch, tmp_path, holds=4):
-    import holdup_capture
+    from holdup_sessions import write_session
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
-    return holdup_capture.main(["--sim", "--tiles", "5C,3C,2C", "--holds", str(holds), "--frames", "1", "--gap-s", "0"],
-                               ask=lambda prompt: "")
+    return write_session(tmp_path, holds=holds)
 
 
 def test_check_trains_on_the_early_holds_and_scores_the_last_ones(tmp_path, monkeypatch):
-    import holdup_check
+    import base_cam_train
     out = sim_session(monkeypatch, tmp_path)
-    assert holdup_check.find_sessions(None) == []                               # a sim session never counts by default
+    assert base_cam_train.find_sessions(None) == []                               # a sim session never counts by default
     with pytest.raises(SystemExit):
-        holdup_check.main([])
-    monkeypatch.setattr(holdup_check, "find_sessions", lambda arg: [out])
+        base_cam_train.main([])
+    monkeypatch.setattr(base_cam_train, "find_sessions", lambda arg: [out])
     seen = {"seeds": []}
 
     def train(photos, seed, epochs, log, crop_fn):
@@ -38,8 +37,8 @@ def test_check_trains_on_the_early_holds_and_scores_the_last_ones(tmp_path, monk
         return ["5C"] * len(images)                                             # one answer for everything
 
     with pytest.raises(SystemExit):                                             # hand-held: no tile boxes to frame on
-        holdup_check.main(["--by", "hold", "--seeds", "1", "--epochs", "1"], train_fn=train, predict_fn=predict)
-    result = holdup_check.main(["--by", "hold", "--seeds", "2", "--epochs", "1", "--framing", "whole"],
+        base_cam_train.main(["--by", "hold", "--seeds", "1", "--epochs", "1"], train_fn=train, predict_fn=predict)
+    result = base_cam_train.main(["--by", "hold", "--seeds", "2", "--epochs", "1", "--framing", "whole"],
                                train_fn=train, predict_fn=predict)
     assert seen["seeds"] == [0, 1] and seen["tested"] == 12 and len(seen["train"]) == 12
     assert {p["name"] for p in seen["train"]} == {"5C", "3C", "2C"}
@@ -49,20 +48,20 @@ def test_check_trains_on_the_early_holds_and_scores_the_last_ones(tmp_path, monk
 
 
 def test_verdict_bar():
-    import holdup_check
-    assert holdup_check.verdict(0.9, 4, 0.25, control=0.3).startswith("PASS")
-    assert holdup_check.verdict(0.9, 2, 0.5).startswith("only 2")
-    assert holdup_check.verdict(0.3, 4, 0.25).startswith("FAIL")
-    assert holdup_check.verdict(0.55, 4, 0.25).startswith("IN BETWEEN")
-    assert holdup_check.verdict(0.75, 4, 0.7).startswith("IN BETWEEN")            # near the best constant answer: no pass
+    import base_cam_train
+    assert base_cam_train.verdict(0.9, 4, 0.25, control=0.3).startswith("PASS")
+    assert base_cam_train.verdict(0.9, 2, 0.5).startswith("only 2")
+    assert base_cam_train.verdict(0.3, 4, 0.25).startswith("FAIL")
+    assert base_cam_train.verdict(0.55, 4, 0.25).startswith("IN BETWEEN")
+    assert base_cam_train.verdict(0.75, 4, 0.7).startswith("IN BETWEEN")            # near the best constant answer: no pass
 
 
 def test_verdict_control():
-    import holdup_check
-    assert holdup_check.verdict(1.0, 3, 0.57, control=0.99).startswith("BACKGROUND")   # 2026-11-06's arm photos
-    assert holdup_check.verdict(0.3, 3, 0.4, control=0.6).startswith("BACKGROUND")     # the background beats the tile itself
-    assert holdup_check.verdict(0.9, 3, 0.34, control=0.45).startswith("PASS")         # within the margin of the constant
-    assert holdup_check.verdict(0.9, 3, 0.34).startswith("UNCONTROLLED")               # no boxes: a pass isn't a pass
+    import base_cam_train
+    assert base_cam_train.verdict(1.0, 3, 0.57, control=0.99).startswith("BACKGROUND")   # 2026-11-06's arm photos
+    assert base_cam_train.verdict(0.3, 3, 0.4, control=0.6).startswith("BACKGROUND")     # the background beats the tile itself
+    assert base_cam_train.verdict(0.9, 3, 0.34, control=0.45).startswith("PASS")         # within the margin of the constant
+    assert base_cam_train.verdict(0.9, 3, 0.34).startswith("UNCONTROLLED")               # no boxes: a pass isn't a pass
 
 
 def arm_like(out, poses):
@@ -80,17 +79,17 @@ def arm_like(out, poses):
 
 
 def test_check_frames_on_the_tile_box_and_runs_the_control(tmp_path, monkeypatch):
-    import holdup_check
-    from mahjong import holdup
+    import base_cam_train
+    from mahjong import base_cam
     out = sim_session(monkeypatch, tmp_path)
     arm_like(out, ["v1"])
     monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
     camera_poses.save("v1", {j: 0.0 for j in config.ARM_JOINTS}, "test")
     camera_poses.set_tile_box("v1", [300, 200, 100, 0], "test")                # corners in any order
-    assert holdup.tile_boxes() == {"v1": [100, 0, 300, 200]}
-    assert {r["pose"] for r in holdup.rows(out)} == {"v1"}
-    monkeypatch.setattr(holdup_check, "find_sessions", lambda arg: [out])
-    _, test_rows, _, _ = holdup.split(holdup.rows(out), "hold", 2)
+    assert base_cam.tile_boxes() == {"v1": [100, 0, 300, 200]}
+    assert {r["pose"] for r in base_cam.rows(out)} == {"v1"}
+    monkeypatch.setattr(base_cam_train, "find_sessions", lambda arg: [out])
+    _, test_rows, _, _ = base_cam.split(base_cam.rows(out), "hold", 2)
     truth = [r["truth"] for r in test_rows]
     seen = {"train": 0, "shapes": set()}
 
@@ -99,7 +98,7 @@ def test_check_frames_on_the_tile_box_and_runs_the_control(tmp_path, monkeypatch
         seen["shapes"] |= {crop_fn(cv2.imread(str(p["path"]))).shape for p in photos}
         return {}
 
-    result = holdup_check.main(["--by", "hold", "--seeds", "2", "--epochs", "1"], train_fn=train,
+    result = base_cam_train.main(["--by", "hold", "--seeds", "2", "--epochs", "1"], train_fn=train,
                                predict_fn=lambda checkpoint, images, crop_fn: truth)     # right whatever it's shown
     assert seen["train"] == 4                                                   # 2 seeds, then 2 for the control
     assert seen["shapes"] == {(name_check_px(), name_check_px(), 3)}
@@ -112,56 +111,56 @@ def name_check_px():
 
 
 def test_mark_boxes_saves_a_box_per_pose_and_keeps_one_left_alone(tmp_path, monkeypatch):
-    import holdup_check
+    import base_cam_train
     out = sim_session(monkeypatch, tmp_path, holds=2)
     arm_like(out, ["v1", "v2"])
     monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
     for name in ("v1", "v2"):
         camera_poses.save(name, {j: 0.0 for j in config.ARM_JOINTS}, "test")
-    monkeypatch.setattr(holdup_check, "find_sessions", lambda arg: [out])
+    monkeypatch.setattr(base_cam_train, "find_sessions", lambda arg: [out])
     shown = []
 
     def select(name, image):
         shown.append((name, image.shape))
         return [10, 20, 110, 220] if name == "v1" else None
-    saved = holdup_check.main(["--mark-boxes"], select=select)
+    saved = base_cam_train.main(["--mark-boxes"], select=select)
     assert saved == {"v1": [10, 20, 110, 220]} and [n for n, _ in shown] == ["v1", "v2"]
     assert camera_poses.get("v1")["tile_box"] == [10, 20, 110, 220] and "tile_box" not in camera_poses.get("v2")
 
 
 def test_tile_frame_and_the_greyed_out_control():
     import numpy as np
-    from mahjong import holdup
+    from mahjong import base_cam
     image = np.zeros((480, 640, 3), np.uint8)
     image[0:100, 200:300] = 255                                                 # the "tile"
-    assert holdup.tile_frame(image, [200, 0, 300, 100]).mean() > 250            # the crop is the tile
-    blank = holdup.without_tile(image, [190, 0, 310, 110])
-    assert blank.max() == holdup.BLANK and image.max() == 255                   # greyed out, the original untouched
+    assert base_cam.tile_frame(image, [200, 0, 300, 100]).mean() > 250            # the crop is the tile
+    blank = base_cam.without_tile(image, [190, 0, 310, 110])
+    assert blank.max() == base_cam.BLANK and image.max() == 255                   # greyed out, the original untouched
 
 
 def test_a_chosen_session_is_held_out_and_only_shared_tiles_tested():
-    from mahjong import holdup
+    from mahjong import base_cam
     row = lambda s, t, h: {"session": s, "truth": t, "kind": "upright", "hold": h}
     rows = [row("day", "7C", 1), row("day", "EW", 1), row("day", "EW", 2),
             row("evening", "7C", 1), row("evening", "2C", 1), row("late", "1B", 1)]
-    train, test, how, caveat = holdup.split(rows, "hold", test_session="day")          # overrides --by
+    train, test, how, caveat = base_cam.split(rows, "hold", test_session="day")          # overrides --by
     assert {r["session"] for r in train} == {"evening", "late"} and [r["truth"] for r in test] == ["7C"]
     assert how.startswith("held out day, trained on evening, late") and "2 photo(s) of EW" in caveat
-    assert "1 photo(s) of 2C" in holdup.split(rows, "auto", test_session="evening")[3]
-    assert holdup.split(rows[:4], "auto", test_session="evening")[3] is None                  # every tile shared: nothing left out
+    assert "1 photo(s) of 2C" in base_cam.split(rows, "auto", test_session="evening")[3]
+    assert base_cam.split(rows[:4], "auto", test_session="evening")[3] is None                  # every tile shared: nothing left out
     with pytest.raises(ValueError):
-        holdup.split(rows, "auto", test_session="nowhere")
+        base_cam.split(rows, "auto", test_session="nowhere")
     with pytest.raises(ValueError):                                                     # 1B is in no other session
-        holdup.split(rows, "auto", test_session="late")
+        base_cam.split(rows, "auto", test_session="late")
 
 
 def test_auto_split_by_session_only_when_the_newest_tiles_were_all_trained_on():
-    from mahjong import holdup
+    from mahjong import base_cam
     row = lambda s, t, h: {"session": s, "truth": t, "kind": "upright", "hold": h}
     rows = [row("a", "7C", 1), row("a", "7C", 2), row("b", "7C", 1), row("b", "EW", 1), row("b", "EW", 2)]
-    assert holdup.split(rows, "auto")[2].startswith("held out the last")       # EW is only in the newest
+    assert base_cam.split(rows, "auto")[2].startswith("held out the last")       # EW is only in the newest
     rows.append(row("a", "EW", 1))
-    assert holdup.split(rows, "auto")[2].startswith("held out the newest session")
+    assert base_cam.split(rows, "auto")[2].startswith("held out the newest session")
 
 
 @pytest.mark.slow
@@ -169,7 +168,7 @@ def test_the_real_classifier_learns_two_easy_classes(tmp_path):
     """The real train/predict path on tiny synthetic photos: dark vs light tiles, split into train and test."""
     import cv2
     import numpy as np
-    from mahjong import holdup, name_check
+    from mahjong import base_cam, name_check
     photos, images, truth = [], [], []
     for name, value in (("5C", 40), ("3C", 215)):
         for i in range(10):
@@ -180,8 +179,8 @@ def test_the_real_classifier_learns_two_easy_classes(tmp_path):
             (photos if i < 7 else images).append({"name": name, "path": path, "session": "s"} if i < 7 else frame)
             if i >= 7:
                 truth.append(name)
-    checkpoint = name_check.train(photos, epochs=10, log=lambda *_: None, crop_fn=holdup.whole_frame, device="cpu")
-    said = name_check.predict(checkpoint, images, crop_fn=holdup.whole_frame, device="cpu")
+    checkpoint = name_check.train(photos, epochs=10, log=lambda *_: None, crop_fn=base_cam.whole_frame, device="cpu")
+    said = name_check.predict(checkpoint, images, crop_fn=base_cam.whole_frame, device="cpu")
     assert said == truth
 
 
@@ -223,8 +222,8 @@ def test_teleop_view_go_starts_at_a_saved_pose_and_needs_it_to_exist(tmp_path, m
 
 
 def test_score_lists_every_check_and_says_which_have_a_clean_control(tmp_path, monkeypatch):
-    import holdup_score
-    from mahjong import holdup
+    import base_cam_train
+    from mahjong import base_cam
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     run = lambda right, constant, tiles: {"photos": 24, "tiles": tiles, "right": right, "best_constant_answer": constant,
                                           "per_tile": {"1B": right, "7C": right}, "confusions": [["1B->7C", 2]]}
@@ -246,12 +245,12 @@ def test_score_lists_every_check_and_says_which_have_a_clean_control(tmp_path, m
         "caveat": "left out 96 photo(s) of EW: in no other session, never trained on", "train_photos": 864, "train_holds": 72,
         "test_photos": 120, "test_holds": 10, "mean_right": 0.99, "runs": [run(0.99, 0.60, 2)], "control_right": 0.60,
         "verdict": "only 2 tile(s) held out: too few to judge"}))
-    results = holdup_score.main([])
+    results = base_cam_train.main(["--history"])
     assert [r["file"].split("/")[1] for r in results][-2:] == ["holdup_check.json", "holdup_check_held_out.json"]
-    text = "\n".join(holdup.check_lines(results))
+    text = "\n".join(base_cam.check_lines(results))
     assert "BACKGROUND" in text and "PASS" in text and "TOO FEW TILES" in text
     assert "train 576 photos / 48 holds" in text and "left out 96 photo(s) of EW" in text and "OPTIMISTIC" not in text
     assert "2 of 3 result(s) with a clean control" in text
     assert "on a session never trained on: 99% on 1B, 7C (20261106_105954_holdup)" in text
-    assert holdup_score.main([str(evening)])[0]["file"].startswith(evening.name)       # one session's results only
-    assert "No holdup_check.py results yet" in holdup.check_lines([])[0]
+    assert base_cam_train.main(["--history", "--sessions", str(evening)])[0]["file"].startswith(evening.name)       # one session's results only
+    assert "No base_cam_train.py results yet" in base_cam.check_lines([])[0]

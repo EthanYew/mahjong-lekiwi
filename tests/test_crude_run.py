@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import camera_poses, config, crude_run, game, holdup, name_check
+from mahjong import camera_poses, config, crude_run, game, base_cam, name_check
 from mahjong.session import read_events
 
 POSE = {j: 0.0 for j in config.ARM_JOINTS}
@@ -69,10 +69,10 @@ class FakeReader:
 
 def test_the_held_tiles_name_comes_from_every_pose_with_a_box():
     frames = [np.zeros((480, 640, 3), np.uint8)] * 3
-    read = holdup.read_held(FakeReader(), frames, ["a", "b", "c"], {"a": [0, 0, 100, 100], "b": [0, 0, 100, 100], "c": [0, 0, 100, 100]})
+    read = base_cam.read_held(FakeReader(), frames, ["a", "b", "c"], {"a": [0, 0, 100, 100], "b": [0, 0, 100, 100], "c": [0, 0, 100, 100]})
     assert read["name"] == "5C" and read["confidence"] == pytest.approx(0.5) and read["votes"]["9C"] == 0.9
-    assert holdup.read_held(None, frames, ["a"] * 3, {"a": [0, 0, 100, 100]}) is None
-    assert holdup.read_held(FakeReader(), frames, ["z"] * 3, {"a": [0, 0, 100, 100]}) is None
+    assert base_cam.read_held(None, frames, ["a"] * 3, {"a": [0, 0, 100, 100]}) is None
+    assert base_cam.read_held(FakeReader(), frames, ["z"] * 3, {"a": [0, 0, 100, 100]}) is None
 
 
 # --- the whole script on the simulated arm ---
@@ -81,7 +81,7 @@ def script_in(monkeypatch, tmp_path):
     import crude_run as script
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
-    monkeypatch.setattr(holdup, "READER", tmp_path / "none.pt")
+    monkeypatch.setattr(base_cam, "READER", tmp_path / "none.pt")
     camera_poses.save("base_view_1", POSE, "test")
     camera_poses.save("base_view_2", POSE, "test")
     return script
@@ -150,9 +150,9 @@ def test_a_top_tile_is_set_down_from_the_mats_height_not_its_own(monkeypatch, tm
 
 
 def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch, tmp_path):
-    import holdup_arm as holdup_script
+    from mahjong import face_down_rig
     script = script_in(monkeypatch, tmp_path)
-    real, calls = holdup_script.Rig.pick, []
+    real, calls = face_down_rig.Rig.pick, []
 
     def missing(self, name, spot, raise_m=0.0, back_m=0.0):
         pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
@@ -161,7 +161,7 @@ def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch,
             self.arm.set_gripper(90.0)
             pick["holding"] = False
         return pick
-    monkeypatch.setattr(holdup_script.Rig, "pick", missing)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", missing)
     folder, _ = run(script, ["--turns", "1"], [*LIGHT, "", "", "", "5C", ""])          # ... Enter = try again
     (miss,) = events_of(folder, "crude_break")
     assert miss["step"] == "draw" and "missed" in miss["what"] and not miss["by_hand"]
@@ -170,9 +170,9 @@ def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch,
 
 def shallow_first_pick(monkeypatch, stop_reason="cap"):
     """The first pick reads as a shallow grip: Rig.pick says not held, and the arm goes on reading 3.3."""
-    import holdup_arm as holdup_script
+    from mahjong import face_down_rig
     from mahjong.arm import Arm
-    real, calls, shallow_now = holdup_script.Rig.pick, [], [False]
+    real, calls, shallow_now = face_down_rig.Rig.pick, [], [False]
 
     def pick(self, name, spot, raise_m=0.0, back_m=0.0):
         shallow_now[0] = False          # only the first pick is shallow
@@ -183,7 +183,7 @@ def shallow_first_pick(monkeypatch, stop_reason="cap"):
             out["run"]["stop_reason"] = stop_reason
             shallow_now[0] = True
         return out
-    monkeypatch.setattr(holdup_script.Rig, "pick", pick)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", pick)
     holding = Arm.holding
 
     def holding_shallow(self):
@@ -223,9 +223,9 @@ def test_a_tile_in_the_jaws_when_the_camera_drops_isnt_retried(monkeypatch, tmp_
 
 
 def test_a_missed_draw_says_the_camera_never_saw_it_and_outlines_the_zone(monkeypatch, tmp_path, capsys):
-    import holdup_arm as holdup_script
+    from mahjong import face_down_rig
     script = script_in(monkeypatch, tmp_path)
-    real = holdup_script.Rig.pick
+    real = face_down_rig.Rig.pick
 
     def missing(self, name, spot, raise_m=0.0, back_m=0.0):
         pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
@@ -233,7 +233,7 @@ def test_a_missed_draw_says_the_camera_never_saw_it_and_outlines_the_zone(monkey
             self.arm.set_gripper(90.0)
             pick["holding"] = False
         return pick
-    monkeypatch.setattr(holdup_script.Rig, "pick", missing)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", missing)
     folder, prompts = run(script, ["--turns", "1"], [*LIGHT, "", "", "h", "", "", "3C", ""])     # h = by hand; the zone step; Enter isn't a name; then the name
     assert any("[by hand] Put the tile on the drop zone" in p for p in prompts)
     assert any("The camera never saw this tile" in p for p in prompts)
@@ -253,8 +253,8 @@ def test_a_slot_left_empty_is_said_when_laying_the_hand_and_never_discarded(monk
 
 def test_x_says_the_face_wasnt_visible_and_a_guess_at_it_isnt_scored(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
-    monkeypatch.setattr(holdup, "load_reader", lambda: FakeReader())
-    monkeypatch.setattr(holdup, "read_held", lambda *a: {"name": "5C", "confidence": 0.9, "votes": {"5C": 0.9}})
+    monkeypatch.setattr(base_cam, "load_reader", lambda: FakeReader())
+    monkeypatch.setattr(base_cam, "read_held", lambda *a: {"name": "5C", "confidence": 0.9, "votes": {"5C": 0.9}})
     folder, _ = run(script, ["--turns", "1"], [*LIGHT, "", "", "x", "2C", ""])
     (read,) = events_of(folder, "crude_read")
     assert read["name"] == "2C" and read["face_hidden"] is True and read["guess"] is None
@@ -263,8 +263,8 @@ def test_x_says_the_face_wasnt_visible_and_a_guess_at_it_isnt_scored(monkeypatch
 
 def test_enter_accepts_the_readers_guess_and_it_is_scored(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
-    monkeypatch.setattr(holdup, "load_reader", lambda: FakeReader())
-    monkeypatch.setattr(holdup, "read_held", lambda *a: {"name": "5C", "confidence": 0.9, "votes": {"5C": 0.9}})
+    monkeypatch.setattr(base_cam, "load_reader", lambda: FakeReader())
+    monkeypatch.setattr(base_cam, "read_held", lambda *a: {"name": "5C", "confidence": 0.9, "votes": {"5C": 0.9}})
     folder, _ = run(script, ["--turns", "1"], [*LIGHT, "", "", "", ""])
     (read,) = events_of(folder, "crude_read")
     assert read["name"] == "5C" and read["guess"] == "5C"
@@ -294,19 +294,19 @@ def test_a_bad_request_fails_before_any_hardware(monkeypatch, tmp_path, argv):
 
 
 def test_saving_a_reader_trains_on_every_photo_and_writes_it(monkeypatch, tmp_path):
-    import holdup_check
+    import base_cam_train
     image = np.zeros((480, 640, 3), np.uint8)
     rows = []
     for i, name in enumerate(("5C", "9C")):
         path = tmp_path / f"{i}.png"
         cv2.imwrite(str(path), image)
         rows.append({"truth": name, "path": path, "session": "s", "pose": "base_view_1"})
-    args = holdup_check.parse_args(["--save-reader"])
-    monkeypatch.setattr(holdup, "READER", tmp_path / "reader.pt")
+    args = base_cam_train.parse_args(["--save-reader"])
+    monkeypatch.setattr(base_cam, "READER", tmp_path / "reader.pt")
     seen = []
 
     def train(photos, seed, epochs, log, crop_fn):
         seen.extend(cv2.imread(str(p["path"])).shape for p in photos)
         return {"classes": ["5C", "9C"], "model": None}
-    saved = holdup_check.save_reader(rows, args, {"base_view_1": [0, 0, 100, 100]}, train)
+    saved = base_cam_train.save_reader(rows, args, {"base_view_1": [0, 0, 100, 100]}, train)
     assert saved.exists() and len(seen) == 2 and seen[0][:2] == (name_check.INPUT_PX, name_check.INPUT_PX)

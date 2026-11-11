@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import config, holdup, privacy
+from mahjong import config, base_cam, privacy
 
 FACE = (200, 100, 80, 80)
 
@@ -77,7 +77,7 @@ def test_blur_file_only_rewrites_with_apply(tmp_path):
 
 def test_saved_hold_up_photos_have_the_face_blurred(tmp_path, monkeypatch):
     monkeypatch.setattr(privacy, "find_faces", lambda image: [FACE])
-    files = holdup.save_shot(tmp_path, {"tile": "5C", "kind": "upright", "hold": 1}, [striped()])
+    files = base_cam.save_shot(tmp_path, {"tile": "5C", "kind": "upright", "hold": 1}, [striped()])
     saved = cv2.imread(str(tmp_path / files[0]))
     x, y, w, h = FACE
     assert saved[y:y + h, x:x + w].std() < 0.3 * striped()[y:y + h, x:x + w].std()

@@ -30,8 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-import holdup_arm as holdup_script
-from mahjong import camera_poses, config, gamepad, holdup, holdup_arm, layout, privacy, wall_test, wrist_check
+from mahjong import face_down_rig
+from mahjong import camera_poses, config, gamepad, base_cam, base_cam_collect, layout, privacy, wall_test, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.perception import drain_stdin
 from mahjong.session import Session, read_events
@@ -57,7 +57,7 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true", help="score every real wall-test session so far; no hardware")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
-    p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what holdup_arm's Rig reads
+    p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what base_cam_collect's Rig reads
     return p.parse_args(argv)
 
 
@@ -86,9 +86,9 @@ def prompt(rig, station, step, ask):
     if rig.realsense is None:
         return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
     print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")
-    answer = holdup_script.guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
+    answer = face_down_rig.guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
                                  overlay=lambda frame: draw_picture(frame, step["picture"]))
-    holdup_script.close_windows()
+    face_down_rig.close_windows()
     return answer
 
 
@@ -367,15 +367,15 @@ def main(argv=None, ask=input):
             raise SystemExit("--push-check is for one station at a time")
         return push_check(args, next(iter(spots.values())), ask)
     privacy.require()           # the weights that blur faces in the base camera's photos: before any hardware
-    poses = holdup_arm.pose_names()
+    poses = base_cam_collect.pose_names()
     if not poses:
-        raise SystemExit(f"no {holdup_arm.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
+        raise SystemExit(f"no {base_cam_collect.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
     if not args.hover_check and not config.DISCARD_POSE.exists():
         raise SystemExit("No discard pose: teach one with bench.py's teach-discard")
     for name in poses[:1]:
         camera_poses.get(name)
-    rig = holdup_script.Rig(args, list(spots.values()), poses[:1])
-    rng = holdup_arm.rng_for(0)
+    rig = face_down_rig.Rig(args, list(spots.values()), poses[:1])
+    rng = base_cam_collect.rng_for(0)
     ctx = {"n": 0, "back_m": args.hover_back_mm / 1000, "top_back_m": args.top_back_mm / 1000}
     try:
         if args.hover_check:
@@ -383,7 +383,7 @@ def main(argv=None, ask=input):
             rig.arm.rest()
             hover_check(rig, spots, ask)
             return rig.session.dir
-        conditions = holdup.ask_lighting(ask)
+        conditions = base_cam.ask_lighting(ask)
         ctx["whites"] = {s: ask(f"Apart from the tile being tested, is any tile lying WHITE side up within about 8cm of station {s}? [y/N]: ").strip().lower().startswith("y") for s in wanted}
         ctx["discard_pose"] = json.loads(config.DISCARD_POSE.read_text())["pose"]
         rig.open_session("wall", stations=wanted, cases=cases, trials=args.trials)

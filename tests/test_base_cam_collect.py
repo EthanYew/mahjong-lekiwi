@@ -8,16 +8,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import camera_poses, config, holdup, holdup_arm
+from mahjong import camera_poses, config, base_cam, base_cam_collect
 from mahjong.session import read_events
 
 POSE = {"shoulder_pan": -6.5, "shoulder_lift": 35.8, "elbow_flex": -6.6, "wrist_flex": 91.8, "wrist_roll": -88.7}
 
 
-def write_session(folder, shots, sim=False):
-    """A finished hold-up session with one saved photo per (tile, kind, hold)."""
+def write_session(folder, shots, sim=False, order="interleaved"):
+    """A finished hold-up session with one saved photo per (tile, kind, hold); order None is one from before interleaving."""
     folder.mkdir(parents=True)
-    lines = [{"type": "session_start", "sim": sim}]
+    lines = [{"type": "session_start", "sim": sim}, {"type": "holdup_conditions", "conditions": {}, "source": "arm",
+                                                      **({"order": order} if order else {})}]
     for n, (tile, kind, hold) in enumerate(shots, 1):
         photo = folder / "photos" / tile / f"{kind}_h{hold}_0.jpg"
         photo.parent.mkdir(parents=True, exist_ok=True)
@@ -31,7 +32,22 @@ def test_hold_counts_count_holds_across_sessions_and_leave_out_simulated_ones(tm
     write_session(tmp_path / "20261105_100000_holdup", [("5C", "upright", 1), ("5C", "upright", 2), ("5C", "turned", 1)])
     write_session(tmp_path / "20261105_110000_holdup", [("5C", "upright", 1)])      # a new session's hold 1 is another hold
     write_session(tmp_path / "20261105_120000_holdup", [("3C", "upright", 1)], sim=True)
-    assert holdup_arm.hold_counts(tmp_path) == {("5C", "upright"): 3, ("5C", "turned"): 1}
+    assert base_cam_collect.hold_counts(tmp_path) == {("5C", "upright"): 3, ("5C", "turned"): 1}
+
+
+def test_holds_from_before_interleaving_dont_count_so_their_tiles_are_collected_again(tmp_path):
+    write_session(tmp_path / "20261106_105954_holdup", [("EW", "upright", h) for h in range(1, 7)], order=None)
+    write_session(tmp_path / "20261106_195636_holdup", [("5C", "upright", 1)])
+    assert base_cam_collect.hold_counts(tmp_path) == {("5C", "upright"): 1}
+    assert base_cam_collect.wanted(["EW"], base_cam_collect.hold_counts(tmp_path))[0]["missing"] == 6
+
+
+def test_the_default_is_every_tile_name_and_a_typo_fails_before_any_hardware(monkeypatch, tmp_path):
+    import base_cam_collect as script
+    from mahjong import detector
+    assert list(base_cam_collect.DEFAULT_TILES) == detector.TILE_NAMES and "1F" in base_cam_collect.DEFAULT_TILES
+    with pytest.raises(SystemExit, match="not a tile name: 5X"):
+        script.main(["--sim", "--tiles", "5C,5X"])
 
 
 def test_a_fixed_distance_session_from_before_holds_is_left_out_not_a_crash(tmp_path):
@@ -43,19 +59,19 @@ def test_a_fixed_distance_session_from_before_holds_is_left_out_not_a_crash(tmp_
         {"type": "holdup_shot", "shot": 1, "tile": "5C", "kind": "upright", "distance_cm": 20,
          "files": ["photos/5C/20cm_upright_0.jpg"]}) + "\n")
     write_session(tmp_path / "20261105_100000_holdup", [("5C", "turned", 1)])
-    assert holdup_arm.hold_counts(tmp_path) == {("5C", "turned"): 1}
+    assert base_cam_collect.hold_counts(tmp_path) == {("5C", "turned"): 1}
 
 
 def test_wanted_puts_the_tile_furthest_short_first_and_drops_the_ones_at_target():
     counts = {("5C", "upright"): 6, ("5C", "turned"): 6, ("3C", "upright"): 5, ("2C", "upright"): 1}
-    rows = holdup_arm.wanted(["5C", "3C", "2C", "9C"], counts, target=6)
+    rows = base_cam_collect.wanted(["5C", "3C", "2C", "9C"], counts, target=6)
     assert [(r["tile"], r["kind"], r["missing"]) for r in rows] == [
         ("9C", "upright", 6), ("9C", "turned", 6), ("2C", "upright", 5), ("2C", "turned", 6), ("3C", "upright", 1), ("3C", "turned", 6)]
 
 
 def test_arrangements_lay_a_tile_per_spot_move_each_one_along_and_alternate_the_laying():
-    rows = holdup_arm.wanted(["9C", "2C", "3C", "5C"], {("5C", k): 6 for k in holdup.KINDS}, target=6)
-    plan = holdup_arm.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=2)
+    rows = base_cam_collect.wanted(["9C", "2C", "3C", "5C"], {("5C", k): 6 for k in base_cam.KINDS}, target=6)
+    plan = base_cam_collect.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=2)
     assert [(a["tiles"], a["laying"]) for a in plan] == [
         (["9C", "2C"], "as_layout"), (["9C", "2C"], "rotated"), (["2C", "9C"], "as_layout"), (["2C", "9C"], "rotated"),
         (["3C", "5C"], "as_layout"), (["3C", "5C"], "rotated"), (["5C", "3C"], "as_layout"), (["5C", "3C"], "rotated")]
@@ -65,46 +81,46 @@ def test_arrangements_lay_a_tile_per_spot_move_each_one_along_and_alternate_the_
         for spot, tile in enumerate(a["tiles"]):
             held[(tile, spot, a["laying"])] = held.get((tile, spot, a["laying"]), 0) + a["rounds"]
     assert len(held) == 4 * 2 * 2 and set(held.values()) == {2}
-    assert holdup_arm.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=9)[0]["rounds"] == 3
+    assert base_cam_collect.arrangements(rows, ["9C", "2C", "3C", "5C"], n_spots=2, max_rounds=9)[0]["rounds"] == 3
 
 
 def test_a_short_group_is_filled_so_no_tile_is_collected_alone_and_one_hold_short_needs_one_round():
-    rows = holdup_arm.wanted(["1B", "EW", "7C"], {("1B", "upright"): 6, ("1B", "turned"): 6, ("EW", "upright"): 6,
+    rows = base_cam_collect.wanted(["1B", "EW", "7C"], {("1B", "upright"): 6, ("1B", "turned"): 6, ("EW", "upright"): 6,
                                                    ("EW", "turned"): 6, ("7C", "upright"): 5, ("7C", "turned"): 5}, target=6)
-    assert holdup_arm.tile_groups(rows, ["1B", "EW", "7C"], 3) == [["7C", "1B", "EW"]]    # 1B and EW are at target: fillers
-    plan = holdup_arm.arrangements(rows, ["1B", "EW", "7C"], n_spots=3, max_rounds=4)
+    assert base_cam_collect.tile_groups(rows, ["1B", "EW", "7C"], 3) == [["7C", "1B", "EW"]]    # 1B and EW are at target: fillers
+    plan = base_cam_collect.arrangements(rows, ["1B", "EW", "7C"], n_spots=3, max_rounds=4)
     assert len(plan) == 6 and {a["rounds"] for a in plan} == {1}       # 7C is 1 short; 3 spots x 1 round gives it 3
-    assert holdup_arm.arrangements(rows, ["7C"], n_spots=3, max_rounds=4)[0]["tiles"] == ["7C"]     # one tile, one spot
+    assert base_cam_collect.arrangements(rows, ["7C"], n_spots=3, max_rounds=4)[0]["tiles"] == ["7C"]     # one tile, one spot
 
 
 def test_pose_names_are_numbered_not_alphabetical():
     poses = {f"base_view_{n}": {} for n in (10, 2, 1)} | {"manual_1": {}}
-    assert holdup_arm.pose_names(poses=poses) == ["base_view_1", "base_view_2", "base_view_10"]
+    assert base_cam_collect.pose_names(poses=poses) == ["base_view_1", "base_view_2", "base_view_10"]
 
 
 def test_jitter_moves_only_pan_flex_and_roll_within_the_limit_and_zero_leaves_the_pose():
     rng = random.Random(1)
     for _ in range(50):
-        out = holdup_arm.jitter(POSE, rng, 2.0)
+        out = base_cam_collect.jitter(POSE, rng, 2.0)
         assert out["shoulder_lift"] == POSE["shoulder_lift"] and out["elbow_flex"] == POSE["elbow_flex"]
-        assert all(abs(out[j] - POSE[j]) <= 2.0 for j in holdup_arm.JITTER_JOINTS)
-    assert holdup_arm.jitter(POSE, rng, 0) == POSE
+        assert all(abs(out[j] - POSE[j]) <= 2.0 for j in base_cam_collect.JITTER_JOINTS)
+    assert base_cam_collect.jitter(POSE, rng, 0) == POSE
 
 
 def test_one_answer_about_the_first_photo_fixes_what_both_layings_show():
-    assert holdup_arm.learn_view("as_layout", "turned") == {"as_layout": "turned", "rotated": "upright"}
-    assert holdup_arm.learn_view("rotated", "turned") == {"rotated": "turned", "as_layout": "upright"}
+    assert base_cam_collect.learn_view("as_layout", "turned") == {"as_layout": "turned", "rotated": "upright"}
+    assert base_cam_collect.learn_view("rotated", "turned") == {"rotated": "turned", "as_layout": "upright"}
 
 
 def test_the_lay_text_says_where_and_how_without_naming_a_way_up():
     spot = {"id": "S7", "xy": [0.192, -0.012]}
-    text = holdup_arm.lay_text("5C", "as_layout", spot)
+    text = base_cam_collect.lay_text("5C", "as_layout", spot)
     assert "FACE DOWN on S7" in text and "180" not in text
-    assert "180" in holdup_arm.lay_text("5C", "rotated", spot)
+    assert "180" in base_cam_collect.lay_text("5C", "rotated", spot)
 
 
 def script_in(monkeypatch, tmp_path, poses=2):
-    import holdup_arm as script
+    import base_cam_collect as script
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(config, "CAMERA_POSES", tmp_path / "poses.json")
     for n in range(1, poses + 1):
@@ -126,13 +142,13 @@ def test_a_simulated_run_picks_shows_and_sets_back_down_and_leaves_photos_the_ot
     assert kinds.count("holdup_pick") == 4 and kinds.count("holdup_return") == 4
     assert kinds.count("holdup_view_map") == 1          # asked once, not per hold
     assert next(e for e in events if e["type"] == "holdup_view_map")["view"] == {"as_layout": "turned", "rotated": "upright"}
-    rows = holdup.rows(folder)
+    rows = base_cam.rows(folder)
     assert len(rows) == 4 * 2 * 2           # 4 holds x 2 poses x 2 frames
     assert {(r["truth"], r["kind"], r["hold"]) for r in rows} == {
         ("5C", "turned", 1), ("5C", "turned", 2), ("5C", "upright", 1), ("5C", "upright", 2)}
     shot = next(e for e in events if e["type"] == "holdup_shot")
     assert shot["source"] == "arm" and shot["frame_poses"] == ["base_view_1"] * 2 + ["base_view_2"] * 2
-    assert holdup.is_sim(folder)
+    assert base_cam.is_sim(folder)
 
 
 def test_a_simulated_run_with_two_tiles_alternates_them_and_moves_each_to_the_other_spot(monkeypatch, tmp_path):
@@ -147,8 +163,8 @@ def test_a_simulated_run_with_two_tiles_alternates_them_and_moves_each_to_the_ot
     layouts = [e["tiles"] for e in events if e["type"] == "holdup_arrangement"]
     assert layouts == [{"S5": "1B", "S9": "EW"}] * 2 + [{"S5": "EW", "S9": "1B"}] * 2
     assert [e["laying"] for e in events if e["type"] == "holdup_arrangement"] == ["as_layout", "rotated"] * 2
-    counts = {(r["truth"], r["kind"]) for r in holdup.rows(folder)}
-    assert counts == {(t, k) for t in ("1B", "EW") for k in holdup.KINDS}
+    counts = {(r["truth"], r["kind"]) for r in base_cam.rows(folder)}
+    assert counts == {(t, k) for t in ("1B", "EW") for k in base_cam.KINDS}
 
 
 def test_several_tiles_need_several_spots(monkeypatch, tmp_path):
@@ -159,7 +175,7 @@ def test_several_tiles_need_several_spots(monkeypatch, tmp_path):
 
 def test_nothing_is_collected_when_every_tile_already_has_enough(monkeypatch, tmp_path, capsys):
     script = script_in(monkeypatch, tmp_path, poses=1)
-    write_session(tmp_path / "20261105_100000_holdup", [("5C", k, h) for k in holdup.KINDS for h in (1, 2)])
+    write_session(tmp_path / "20261105_100000_holdup", [("5C", k, h) for k in base_cam.KINDS for h in (1, 2)])
     run_script(script, ["--tiles", "5C", "--target-holds", "2"], [])
     assert "nothing to collect" in capsys.readouterr().out
 
@@ -242,8 +258,8 @@ def test_repeated_misses_on_a_spot_give_the_tile_up_instead_of_stalling_the_run(
 
 
 def test_the_top_of_the_picture_goes_to_the_far_end_for_as_layout_and_the_near_end_for_rotated():
-    assert holdup_arm.top_end_sign("as_layout") == 1 and holdup_arm.top_end_sign("rotated") == -1
-    assert holdup_arm.top_end_sign("as_layout", "near") == -1 and holdup_arm.top_end_sign("rotated", "near") == 1
+    assert base_cam_collect.top_end_sign("as_layout") == 1 and base_cam_collect.top_end_sign("rotated") == -1
+    assert base_cam_collect.top_end_sign("as_layout", "near") == -1 and base_cam_collect.top_end_sign("rotated", "near") == 1
 
 
 def test_the_guide_frame_outlines_the_spot_and_marks_the_end_the_top_goes():
@@ -251,8 +267,8 @@ def test_the_guide_frame_outlines_the_spot_and_marks_the_end_the_top_goes():
     mat = SimPerception()
     spot = {"id": "S7", "xy": [0.192, -0.012], "yaw_deg": 0.0}
     image = mat.snapshot()
-    far = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "Lay 5C", 1)
-    near = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "Lay 5C", -1)
+    far = base_cam_collect.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "Lay 5C", 1)
+    near = base_cam_collect.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "Lay 5C", -1)
     assert far.shape == image.shape and not (far == image).all()
     assert not (far == near).all()          # the thick TOP edge moves to the other end
 

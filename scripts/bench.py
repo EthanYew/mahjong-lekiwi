@@ -95,21 +95,9 @@ from mahjong.camera import grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
-from mahjong.terminal_keys import TerminalKeys, new_events
+from mahjong.terminal_keys import Abort, TerminalKeys, new_events
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_conditions, ask_notes
-
-
-class Abort:
-    """Esc, from the bench's terminal (mahjong/terminal_keys.py), as an Event-like flag for policy.run."""
-    def __init__(self, events):
-        self.events = events
-
-    def clear(self):
-        self.events["stop_recording"] = self.events["exit_early"] = self.events["rerecord_episode"] = False
-
-    def is_set(self):
-        return self.events["stop_recording"]
 
 
 class Mark:

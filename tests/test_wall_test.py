@@ -103,13 +103,13 @@ def test_the_terminal_shows_the_instruction_the_picture_and_what_the_letters_mea
 
 def test_the_window_has_no_top_mark_when_which_way_up_doesnt_matter_and_shows_every_line():
     import numpy as np
-    from mahjong import holdup_arm, sim
+    from mahjong import base_cam_collect, sim
     mat = sim.SimPerception(tiles=[])
     image, spot = np.zeros((480, 848, 3), np.uint8), {"id": "F", "xy": [0.235, -0.012]}
-    plain = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", None)
-    marked = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", 1)
+    plain = base_cam_collect.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", None)
+    marked = base_cam_collect.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one", 1)
     assert not (plain == marked).all()
-    two = holdup_arm.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one\ntwo", None)
+    two = base_cam_collect.guide_frame(image, spot, mat.intrinsics, mat.T_cam_to_base, "one\ntwo", None)
     assert two[36:60].any() and not plain[36:60].any()      # the second line has its own row
 
 

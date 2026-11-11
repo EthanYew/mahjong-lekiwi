@@ -75,9 +75,9 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
-| Hold tiles up to the base camera and see if anything reads them (face-down plan, test 1; no arm) | `python scripts/holdup_capture.py`, then `python scripts/holdup_score.py --installed`, then `python scripts/holdup_check.py` |
+| Teach the base camera's reader more tiles (the arm holds each up; then train, score and install) | `python scripts/base_cam_collect.py`, then `python scripts/base_cam_train.py --test-session <newest>_holdup`, then `--save-reader` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
-| Have the arm collect base-camera photos of face-down tiles (check the saved poses with nothing in the jaws first) | `python scripts/holdup_arm.py --empty`, then `python scripts/holdup_arm.py` |
+| Check the saved base-camera poses with nothing in the jaws, before collecting | `python scripts/base_cam_collect.py --empty` |
 | Try a whole face-down turn: draw, show, read, you check, discard (crude, to find where it breaks) | `python scripts/crude_run.py --hand <13 names> --turns 6` |
 | Test drawing face-down tiles from a wall, at one station you feed by hand | `python scripts/wall_test.py --stations F --cases flat --trials 10`; `--report` scores every session so far |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
@@ -793,61 +793,48 @@ weights that trained on an exam session, and scores go in `data/name_check_eval/
 the two agree on a wrong name, so nothing catches it. To install new weights, copy them to `assets/name_check.pt` and commit them
 with the score.
 
-## Holding tiles up to the base camera (face-down plan, test 1)
+## Reading a held tile with the base camera (face-down plan)
 
-`docs/face_down_plan.md`'s first test: no arm, just the LeKiwi base's front camera (`/dev/basecam`, its own USB port: check
-`ls -l /dev/basecam /dev/wristcam` first). You hold each tile up wherever the arm can actually hold it (close, at an angle; no fixed distances), right way up and turned 180°, by day and
-again in the evening; then the name classifier and the detector are scored on the photos.
+Three cameras, three readers. A *detector* finds every tile in a picture and names each one (boxes); a *classifier* is
+shown one tile and names it.
+
+| Camera | Reader | Kind | Weights | What it's for | Trained by |
+|---|---|---|---|---|---|
+| RealSense, above the mat | tile detector | detector | `assets/tile_detector.pt` | where every face-up tile on the mat is, and its name | Roboflow labels, `train_detector.py` |
+| Wrist camera | name check | classifier | `assets/name_check.pt` | a second read of the tile under the jaws at the hover | `wrist_capture.py`, `train_name_check.py` |
+| Base camera, the LeKiwi's front | holdup reader | classifier | `assets/holdup_reader.pt` | the name of a face-down tile the arm holds up after drawing it | `base_cam_collect.py`, `base_cam_train.py` |
+
+Neither of the first two reads the base camera's view (~0%, test 1), and the detector can't see a tile's back, so the base
+camera has its own reader. Which tiles it knows: `crude_run.py` prints them at the start. Making it know more:
 
 ```
-python scripts/holdup_capture.py                                  # 7 tiles x 2 ways up x 4 holds, lighting asked first
-python scripts/holdup_capture.py --tiles 5C,3C,2C,9C --holds 6 --frames 4
-python scripts/holdup_capture.py --sim                            # synthetic camera, no hardware
-python scripts/holdup_score.py                                    # is training a reader paying off? every holdup_check.py result
-python scripts/holdup_score.py --installed                        # the installed readers on the latest holdup session (test 1)
-python scripts/holdup_score.py --installed sessions/<time>_holdup --weights outputs/name_check/name_check.pt
-python scripts/holdup_check.py --mark-boxes                       # once per taught pose: drag a box round where the held tile shows
-python scripts/holdup_check.py                                    # can a classifier learn this view? trains on some photos, scores others
-python scripts/holdup_check.py --sessions sessions/<time>_holdup --by hold --seeds 3
-python scripts/holdup_check.py --sessions sessions/<evening>_holdup,sessions/<day>_holdup --test-session <day>_holdup   # another light
-python scripts/holdup_check.py --framing whole                    # the whole frame (hand-held photos have no tile box)
-python scripts/teleop_view.py                                     # drive by gamepad watching the wrist and base cameras (arm)
-python scripts/teleop_view.py --go manual_1 --name base_view_     # start at a saved pose; s saves the next one
-python scripts/teleop_view.py --sim
+python scripts/teleop_view.py                                     # once: drive by gamepad, s saves a base_view_N pose (arm)
+python scripts/base_cam_collect.py --empty                        # after teaching poses: visit them with nothing in the jaws (arm)
+python scripts/base_cam_collect.py                                # collect every tile short of 6 holds each way up (arm, ~13 min a tile)
+python scripts/base_cam_train.py --mark-boxes                     # once per new pose: drag a box round where the held tile shows
+python scripts/base_cam_train.py --test-session <newest>_holdup   # score a fresh reader on a session it never trained on
+python scripts/base_cam_train.py --save-reader --sessions sessions/A_holdup,sessions/B_holdup   # install it (GPU, minutes)
+python scripts/base_cam_train.py --history                        # every score so far, oldest first
 ```
 
-`holdup_capture.py`: `--tiles A,B` (default 5C,3C,2C,9C,7C,1B,EW), `--holds N` per tile and way up (4; a new place and angle each), `--frames N` per shot
-(3), `--gap-s` between a shot's frames, `--no-view` (Enter in the terminal instead of the preview window's space), `--sim`. Keys
-in the window: space takes the shot, `s` skips, `b` redoes the last, `q` quits. Photos go to
-`sessions/<time>_holdup/photos/<NAME>/`; the name you hold is the truth.
-`holdup_score.py`: `SESSION` (default: every real holdup session; with `--installed`, the latest). By default it lists every
-`holdup_check.py` result, oldest first: what each trained and tested on (another session, or the same one, which is optimistic), the
-fresh reader's right rate, the control with the tile greyed out and the best constant answer, the per-tile rates and confusions,
-then which results have a clean control (within 15 points of the constant) and which of those were on a session never trained on:
-that last one is what says training pays off. Nothing is trained or run; it reads the JSON files. `--installed` is test 1: the
-installed readers, `--weights` (the classifier) and `--detector`, which were trained on other views and read ~0% here. It prints rates per slice (all,
-each way up, each daylight setting) and per tile, for three framings of the classifier (the wrist camera's
-crop, a square round the detector's best box, the whole frame; each read as it is and upside down, reported apart) and for
-the detector, then writes `holdup_scores.json` and `holdup_sheet.jpg` (every photo with its guesses, wrong ones in red: look
-through it). A reader counts as reading only if it is right on two or more tiles: one that answers "3C" to everything is right
-on every 3C photo and nothing else. The plan's stop is "nothing reads anywhere the arm can hold a tile": the last line says
-if anything did.
-
-`holdup_check.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
+`base_cam_train.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
 (auto holds out the newest session when every tile in it is also in an older one, else the last `--test-holds` 2 holds of each
 tile and way up, which is optimistic: the same light and hands are on both sides), `--test-session NAME` (hold out that
 session and train on the others in `--sessions`, whatever `--by` says; only the tiles another session has are tested, the rest
 left out and counted: train on an evening, test on a day, or a new room; it writes `holdup_check_held_out.json` into that
-session), `--framing tile|whole` (tile), `--epochs`
-(150), `--seeds` (3, for the check and again for the control), `--mark-boxes`. It is not a fine-tune of the installed weights:
-it trains a fresh YOLO11n-cls from its ImageNet weights, for just the tiles you held, and scores the held-out photos against
-chance and the best constant answer. `tile` framing crops each photo to the tile box of the pose the arm held it at (a box per
-`base_view_*` pose in `data/camera_poses.json`, drawn with `--mark-boxes` on the average of that pose's photos: Enter saves, `c`
-keeps the old one); photos with no box, such as hand-held ones, are left out. The control trains again on the whole frame with
+session), `--framing tile|whole` (tile), `--epochs` (150), `--seeds` (3, for the check and again for the control),
+`--mark-boxes`, `--save-reader`, `--history`. A check is not a fine-tune of the installed weights: it trains a fresh YOLO11n-cls
+from its ImageNet weights, for just the tiles in the photos, and scores the held-out photos against chance and the best
+constant answer. `tile` framing crops each photo to the tile box of the pose the arm held it at (a box per `base_view_*` pose in
+`data/camera_poses.json`, drawn with `--mark-boxes` on the average of that pose's photos: Enter saves, `c` keeps the old one);
+photos with no box, such as the hand-held ones of 2026-11-05, are left out. The control trains again on the whole frame with
 the tile box greyed out: if that beats the best constant answer by 15 points, the verdict is BACKGROUND (the scene names the
 tile, as on 2026-11-06 when each tile's holds were taken in a row). With no boxes there is no control, and a pass reads
-UNCONTROLLED. The bar (70% or more, on 3+ tiles, well above the constant answer, to be worth a real capture; 40% or less to
-look at the photos first) is in `docs/face_down_plan.md` test 1b. It writes `holdup_check.json` into the newest session.
+UNCONTROLLED. The bar (70% or more, on 3+ tiles, well above the constant answer) is in `docs/face_down_plan.md` test 1b. It
+writes `holdup_check.json` into the newest session. `--save-reader` trains one reader on every photo of `--sessions` (name the
+clean, interleaved ones) and saves it to `assets/holdup_reader.pt`, which `crude_run.py` reads with. `--history` reads the
+JSON files back, trains nothing: each result's split, the reader's rate, the control and the constant answer, then which results
+have a clean control and which of those were on a session never trained on, which is what says training pays off.
 
 `teleop_view.py` (moves the arm: asks a person to run it): the gamepad drives the arm as in `collect_corrections.py`, and one
 window shows the wrist and base cameras side by side with the commanded pose, the tool point and its distance from the
@@ -859,7 +846,7 @@ poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not comman
 `crude_run.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, test 8): the whole face-down turn, crude on purpose, for a list of where it breaks. Lay 13 tiles green side up on the hand's slots and name them with `--hand`, in the layout's order.
 
 ```
-python scripts/holdup_check.py --sessions sessions/20261106_195636_holdup,sessions/20261109_100829_holdup,sessions/20261109_122910_holdup --save-reader   # once: train the reader (GPU, minutes)
+python scripts/base_cam_train.py --sessions sessions/20261106_195636_holdup,sessions/20261109_100829_holdup,sessions/20261109_122910_holdup --save-reader   # once: train the reader (GPU, minutes)
 python scripts/crude_run.py --hand 1C,2C,3C,5C,5C,7C,7C,9C,9C,1B,1B,2C,3C --turns 6        # a wall one tile high
 python scripts/crude_run.py --hand ... --turns 6 --stacked --top-back-mm 10                 # two high: top, bottom, feed
 python scripts/crude_run.py --hand ... --sim                                                # simulated arm and cameras
@@ -892,23 +879,23 @@ draw asks you to put the wall right. `--push-check` wants the wall laid with the
 is left out of `--report` with `--exclude-session SESSION --why "..."`; its files stay.
 Other options: `--layout`, `--policy`. Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
 
-`holdup_arm.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
+`base_cam_collect.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
 on a layout spot, holds it up to the base camera at the saved `base_view_*` poses, saves frames and sets it back down.
 
 ```
-python scripts/holdup_arm.py --empty                       # first: visit each saved pose with nothing in the jaws, one Enter each
-python scripts/holdup_arm.py                               # collect what is short: default tiles, 6 holds per way up
-python scripts/holdup_arm.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
-python scripts/holdup_arm.py --sim                         # simulated arm and cameras
+python scripts/base_cam_collect.py --empty                       # first: visit each saved pose with nothing in the jaws, one Enter each
+python scripts/base_cam_collect.py                               # collect what is short: every tile name, 6 holds per way up
+python scripts/base_cam_collect.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
+python scripts/base_cam_collect.py --sim                         # simulated arm and cameras
 ```
 
 `--empty` writes `sessions/<time>_holdup_dry/` with a base and a wrist frame per pose (`dry_run/`, `dry_run_sheet.jpg`) and prints each
 pose's height above the table (flagged under 30mm), reach and nearest joint limit. A collecting run counts the holds already in every
-real `*_holdup` session (by hand and by arm) and lays the tiles furthest short in groups, one on each `--spots` spot. Each round
+real, interleaved `*_holdup` session (earlier ones, by hand or a tile at a time, let the scene name the tile, so they don't count) and lays the tiles furthest short in groups, one on each `--spots` spot. Each round
 picks every spot once (pick, rest, every pose with a small nudge, `--jitter-deg` 2 or 0 = as taught, rest, set it back down), so
 holds of different tiles alternate; after `--rounds` rounds (at most 2, fewer if fewer holds are short) every tile moves one spot
 along and is laid the other way, until each tile has been held from every spot both ways up. A group short of tiles is filled
-with ones already at target, so no tile is collected alone. This order is what `holdup_check.py`'s control asks for: collected a
+with ones already at target, so no tile is collected alone. This order is what `base_cam_train.py`'s control asks for: collected a
 tile at a time, the scene named the tile (2026-11-06). Several tiles need two or more spots. A tile is laid one of two ways: face
 down where the layout's face-up tile would lie (flipped sideways about its long edge, the top of its picture at the same end), or
 that turned 180° on the mat. Which way up the camera sees each depends on the poses, so after the session's first hold it shows that photo
@@ -920,10 +907,11 @@ tile's picture points to; `far` = away from the robot, which is a guess until yo
 face-down tile, so nothing turns green: line it up by eye. Space/Enter = laid, `s` skips, `q` quits; the window closes before the arm
 moves. After a miss, or a tile lost on the way to a pose, the same window opens again for that tile and laying (same TOP end) to put
 it back by hand: Space/Enter tries again, `s` skips the tile, `q` quits. `--no-view` (and `--sim`) use a terminal prompt instead
-and don't open the RealSense. Other options: `--tiles`, `--target-holds`, `--layout` (the standard setup's),
+and don't open the RealSense. Other options: `--tiles` (default every tile name, flowers too; a name that isn't one fails at once), `--target-holds` (6), `--layout` (the standard setup's),
 `--hover-lower-mm` (as `bench.py`'s, for a spot where the policy closes high), `--spots` (S5,S7,S9, a tile on each; S8 missed every pickup on 2026-11-05), `--max-misses` (2: that many misses in a row on a spot and
 it sits out the rest of that arrangement, instead of asking forever), `--poses`, `--frames` per pose (3), `--settle-s`, `--gap-s`, `--seed`, `--policy`. Photos and
-`holdup_shot` events (with `source: arm` and each frame's pose) go where the hand-held ones do, so `holdup_score.py` and `holdup_check.py` read them.
+`holdup_shot` events (with `source: arm` and each frame's pose) go to `sessions/<time>_holdup/`, which `base_cam_train.py` reads. A
+run of every tile is 60+ arrangements of 3 tiles (~40 min each): quit with `q` whenever, and the next run carries on from what's saved.
 
 ### Blurring faces in the base camera's photos
 

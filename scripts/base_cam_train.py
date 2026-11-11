@@ -1,17 +1,18 @@
-"""Can the base camera's view be learned? Train a small classifier on some hold-up photos, score it on others it never saw.
+"""Train and score the base camera's tile reader on the photos base_cam_collect.py took; --save-reader installs one.
 
-    python scripts/holdup_check.py --mark-boxes                 # once per taught pose: drag a box round where the tile shows
-    python scripts/holdup_check.py                              # every real holdup session; holds out the newest session if
+    python scripts/base_cam_train.py --mark-boxes                 # once per taught pose: drag a box round where the tile shows
+    python scripts/base_cam_train.py                              # every real holdup session; holds out the newest session if
                                                                 # there are two or more, else the last 2 holds of each tile/way up
-    python scripts/holdup_check.py --by hold                    # always split by hold (optimistic: same session's light and hands)
-    python scripts/holdup_check.py --sessions sessions/EVENING_holdup,sessions/DAY_holdup --test-session DAY_holdup
+    python scripts/base_cam_train.py --by hold                    # always split by hold (optimistic: same session's light and hands)
+    python scripts/base_cam_train.py --sessions sessions/EVENING_holdup,sessions/DAY_holdup --test-session DAY_holdup
                                                                 # train on one light, test on another (the tiles both have)
-    python scripts/holdup_check.py --framing whole              # the whole frame's centre square, as before tile boxes
-    python scripts/holdup_check.py --sessions sessions/A_holdup,sessions/B_holdup --epochs 200
+    python scripts/base_cam_train.py --framing whole              # the whole frame's centre square, as before tile boxes
+    python scripts/base_cam_train.py --sessions sessions/A_holdup,sessions/B_holdup --epochs 200
+    python scripts/base_cam_train.py --save-reader --sessions sessions/A_holdup,sessions/B_holdup   # install assets/holdup_reader.pt
+    python scripts/base_cam_train.py --history                    # every result this has written, oldest first (no GPU, no training)
 
-Why: the installed classifier and detector read nothing here (holdup_score.py --installed), because neither was trained on this
-view. `holdup_score.py` lists every result this writes, oldest first.
-This answers the question before a full capture is paid for. It is NOT a fine-tune of the installed weights: it starts a
+Why: the tile detector (RealSense) and the name check (wrist camera) read ~0% on this view (test 1, 2026-11-05/06), because
+neither was trained on it, so the base camera has a reader of its own. A check is NOT a fine-tune of the installed weights: it starts a
 fresh YOLO11n-cls from its ImageNet weights, with a head for just the tiles held in these sessions. Holds are split whole,
 never a shot's near-identical frames across train and test. It runs --seeds times (small sets vary), and prints the
 held-out right rate against chance and against the best constant answer.
@@ -29,6 +30,10 @@ The bar (docs/face_down_plan.md, test 1b, set before the first run): 70% or more
 constant answer -> worth a real capture at the arm's pose. 40% or less -> the view or the hold is the problem, look at the
 photos before capturing more. In between: capture more and rerun. Writes holdup_check.json next to the newest session
 (with --test-session, holdup_check_held_out.json in the session held out).
+
+--history reads those files back (in --sessions, or every real holdup session): what each trained and tested on, the reader's
+right rate, the control and the best constant answer. Training pays off when the reader is well above the constant answer,
+the control is near it (else the background names the tile), and that holds on a session never trained on (--test-session).
 """
 import argparse
 import json
@@ -42,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import camera_poses, config, holdup, name_check
+from mahjong import camera_poses, config, base_cam, name_check
 
 PASS_RATE, FAIL_RATE = 0.70, 0.40
 CONTROL_MARGIN = 0.15           # the tile-less control this far above the best constant answer: the background names the tile
@@ -65,6 +70,8 @@ def parse_args(argv=None):
                    help="instead of scoring: train one reader on every photo of these sessions and save it to assets/holdup_reader.pt (crude_run.py reads with it). Name the clean sessions with --sessions")
     p.add_argument("--mark-boxes", action="store_true",
                    help="draw each pose's tile box on the average of its photos (a window; Enter saves, c keeps the old one), then stop")
+    p.add_argument("--history", action="store_true",
+                   help="list every result this has written (in --sessions, or every real holdup session), oldest first; trains nothing")
     return p.parse_args(argv)
 
 
@@ -73,7 +80,7 @@ def find_sessions(arg):
         folders = [Path(s) for s in arg.split(",")]
     else:
         folders = sorted(config.SESSIONS.glob("*_holdup"))
-    return [f for f in folders if f.is_dir() and not holdup.is_sim(f)]
+    return [f for f in folders if f.is_dir() and not base_cam.is_sim(f)]
 
 
 def _bar(rate, constant):
@@ -104,10 +111,10 @@ def framed(row, framing, boxes, blank=False):
     image = cv2.imread(str(row["path"]))
     box = boxes.get(row.get("pose"))
     if blank:
-        return holdup.whole_frame(holdup.without_tile(image, box))
+        return base_cam.whole_frame(base_cam.without_tile(image, box))
     if framing == "tile":
-        return holdup.tile_frame(image, box)
-    return holdup.whole_frame(image)
+        return base_cam.tile_frame(image, box)
+    return base_cam.whole_frame(image)
 
 
 def train_and_score(train_rows, test_rows, frame, seeds, epochs, train_fn, predict_fn, label):
@@ -121,9 +128,9 @@ def train_and_score(train_rows, test_rows, frame, seeds, epochs, train_fn, predi
             photos.append({"name": r["truth"], "path": path, "session": r["session"]})
         images = [frame(r) for r in test_rows]
         for seed in range(seeds):
-            checkpoint = train_fn(photos, seed=seed, epochs=epochs, log=lambda *_: None, crop_fn=holdup.as_input)
-            said = predict_fn(checkpoint, images, crop_fn=holdup.as_input)
-            runs.append(holdup.check_summary(test_rows, said))
+            checkpoint = train_fn(photos, seed=seed, epochs=epochs, log=lambda *_: None, crop_fn=base_cam.as_input)
+            said = predict_fn(checkpoint, images, crop_fn=base_cam.as_input)
+            runs.append(base_cam.check_summary(test_rows, said))
             print(f"  {label} seed {seed}: right {runs[-1]['right']:.0%}")
     return runs
 
@@ -149,7 +156,7 @@ def mark_boxes(rows, boxes, select=None):
         if r.get("pose"):
             by_pose.setdefault(r["pose"], []).append(r)
     if not by_pose:
-        raise SystemExit("No photo here was taken at a saved pose (held by hand?): boxes come from holdup_arm.py's photos")
+        raise SystemExit("No photo here was taken at a saved pose (held by hand?): boxes come from base_cam_collect.py's photos")
     saved = {}
     for name, items in sorted(by_pose.items()):
         image = mean_photo(items)
@@ -158,7 +165,7 @@ def mark_boxes(rows, boxes, select=None):
             cv2.rectangle(image, (x0, y0), (x1, y1), (0, 220, 255), 2)
         box = select(name, image)
         if box:
-            camera_poses.set_tile_box(name, box, f"drawn with holdup_check.py --mark-boxes on the average of {len(items)} "
+            camera_poses.set_tile_box(name, box, f"drawn with base_cam_train.py --mark-boxes on the average of {len(items)} "
                                                  f"photos, {date.today().isoformat()}")
             saved[name] = box
             print(f"{name}: tile box {box}")
@@ -177,8 +184,8 @@ def save_reader(rows, args, boxes, train_fn):
             path = Path(folder) / f"{i:05d}.png"
             cv2.imwrite(str(path), framed(r, args.framing, boxes))
             photos.append({"name": r["truth"], "path": path, "session": r["session"]})
-        checkpoint = train_fn(photos, seed=0, epochs=args.epochs, log=lambda *_: None, crop_fn=holdup.as_input)
-    saved = name_check.save(checkpoint, holdup.READER)
+        checkpoint = train_fn(photos, seed=0, epochs=args.epochs, log=lambda *_: None, crop_fn=base_cam.as_input)
+    saved = name_check.save(checkpoint, base_cam.READER)
     print(f"Reader on {len(rows)} photos of {', '.join(sorted({r['truth'] for r in rows}))}: {saved}")
     return saved
 
@@ -186,10 +193,14 @@ def save_reader(rows, args, boxes, train_fn):
 def main(argv=None, train_fn=None, predict_fn=None, select=None):
     args = parse_args(argv)
     folders = find_sessions(args.sessions)
-    rows = [r for f in folders for r in holdup.rows(f)]
+    if args.history:
+        results = base_cam.check_results(folders)
+        print("\n".join(base_cam.check_lines(results)))
+        return results
+    rows = [r for f in folders for r in base_cam.rows(f)]
     if not rows:
-        raise SystemExit(f"No holdup photos in {[str(f) for f in folders] or config.SESSIONS}: python scripts/holdup_capture.py")
-    boxes = holdup.tile_boxes()
+        raise SystemExit(f"No holdup photos in {[str(f) for f in folders] or config.SESSIONS}: python scripts/base_cam_collect.py")
+    boxes = base_cam.tile_boxes()
     if args.mark_boxes:
         return mark_boxes(rows, boxes, select)
     if args.framing == "tile":
@@ -204,7 +215,7 @@ def main(argv=None, train_fn=None, predict_fn=None, select=None):
         return save_reader(rows, args, boxes, train_fn or name_check.train)
     test_session = Path(args.test_session).name if args.test_session else None
     try:
-        train_rows, test_rows, how, caveat = holdup.split(rows, args.by, args.test_holds, test_session)
+        train_rows, test_rows, how, caveat = base_cam.split(rows, args.by, args.test_holds, test_session)
     except ValueError as e:
         raise SystemExit(str(e))
     print(f"{len(rows)} photos from {len({r['session'] for r in rows})} session(s), framed: {args.framing}; {how}")
