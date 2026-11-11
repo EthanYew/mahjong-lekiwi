@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-import base_cam_collect as holdup_script
+from mahjong import face_down_rig
 import wall_test as wall_script
 from mahjong import config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, wall_test
 from mahjong.perception import drain_stdin
@@ -193,7 +193,7 @@ class Run:
         while True:
             if frames and self.rig.realsense is not None:      # a real run: the photos, in a window. The tile itself is lying face down by now
                 typed = type_in_window(frames, guess)
-                holdup_script.close_windows()
+                face_down_rig.close_windows()
                 if typed is None:
                     return None
             else:
@@ -319,7 +319,7 @@ def main(argv=None, ask=input):
     all_spots = [station, {"id": "zone", "xy": zone["xy"]}, *layout.load(args.layout)["spots"]]
     reader = base_cam.load_reader()
     print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
-    rig = holdup_script.Rig(args, all_spots, poses)
+    rig = face_down_rig.Rig(args, all_spots, poses)
     run = None
     try:
         conditions = base_cam.ask_lighting(ask)

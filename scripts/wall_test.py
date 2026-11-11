@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-import base_cam_collect as holdup_script
+from mahjong import face_down_rig
 from mahjong import camera_poses, config, gamepad, base_cam, base_cam_collect, layout, privacy, wall_test, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.perception import drain_stdin
@@ -86,9 +86,9 @@ def prompt(rig, station, step, ask):
     if rig.realsense is None:
         return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
     print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")
-    answer = holdup_script.guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
+    answer = face_down_rig.guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
                                  overlay=lambda frame: draw_picture(frame, step["picture"]))
-    holdup_script.close_windows()
+    face_down_rig.close_windows()
     return answer
 
 
@@ -374,7 +374,7 @@ def main(argv=None, ask=input):
         raise SystemExit("No discard pose: teach one with bench.py's teach-discard")
     for name in poses[:1]:
         camera_poses.get(name)
-    rig = holdup_script.Rig(args, list(spots.values()), poses[:1])
+    rig = face_down_rig.Rig(args, list(spots.values()), poses[:1])
     rng = base_cam_collect.rng_for(0)
     ctx = {"n": 0, "back_m": args.hover_back_mm / 1000, "top_back_m": args.top_back_mm / 1000}
     try:

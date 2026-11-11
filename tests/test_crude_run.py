@@ -150,9 +150,9 @@ def test_a_top_tile_is_set_down_from_the_mats_height_not_its_own(monkeypatch, tm
 
 
 def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch, tmp_path):
-    import base_cam_collect as holdup_script
+    from mahjong import face_down_rig
     script = script_in(monkeypatch, tmp_path)
-    real, calls = holdup_script.Rig.pick, []
+    real, calls = face_down_rig.Rig.pick, []
 
     def missing(self, name, spot, raise_m=0.0, back_m=0.0):
         pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
@@ -161,7 +161,7 @@ def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch,
             self.arm.set_gripper(90.0)
             pick["holding"] = False
         return pick
-    monkeypatch.setattr(holdup_script.Rig, "pick", missing)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", missing)
     folder, _ = run(script, ["--turns", "1"], [*LIGHT, "", "", "", "5C", ""])          # ... Enter = try again
     (miss,) = events_of(folder, "crude_break")
     assert miss["step"] == "draw" and "missed" in miss["what"] and not miss["by_hand"]
@@ -170,9 +170,9 @@ def test_a_miss_is_written_down_tried_again_and_can_be_done_by_hand(monkeypatch,
 
 def shallow_first_pick(monkeypatch, stop_reason="cap"):
     """The first pick reads as a shallow grip: Rig.pick says not held, and the arm goes on reading 3.3."""
-    import base_cam_collect as holdup_script
+    from mahjong import face_down_rig
     from mahjong.arm import Arm
-    real, calls, shallow_now = holdup_script.Rig.pick, [], [False]
+    real, calls, shallow_now = face_down_rig.Rig.pick, [], [False]
 
     def pick(self, name, spot, raise_m=0.0, back_m=0.0):
         shallow_now[0] = False          # only the first pick is shallow
@@ -183,7 +183,7 @@ def shallow_first_pick(monkeypatch, stop_reason="cap"):
             out["run"]["stop_reason"] = stop_reason
             shallow_now[0] = True
         return out
-    monkeypatch.setattr(holdup_script.Rig, "pick", pick)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", pick)
     holding = Arm.holding
 
     def holding_shallow(self):
@@ -223,9 +223,9 @@ def test_a_tile_in_the_jaws_when_the_camera_drops_isnt_retried(monkeypatch, tmp_
 
 
 def test_a_missed_draw_says_the_camera_never_saw_it_and_outlines_the_zone(monkeypatch, tmp_path, capsys):
-    import base_cam_collect as holdup_script
+    from mahjong import face_down_rig
     script = script_in(monkeypatch, tmp_path)
-    real = holdup_script.Rig.pick
+    real = face_down_rig.Rig.pick
 
     def missing(self, name, spot, raise_m=0.0, back_m=0.0):
         pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
@@ -233,7 +233,7 @@ def test_a_missed_draw_says_the_camera_never_saw_it_and_outlines_the_zone(monkey
             self.arm.set_gripper(90.0)
             pick["holding"] = False
         return pick
-    monkeypatch.setattr(holdup_script.Rig, "pick", missing)
+    monkeypatch.setattr(face_down_rig.Rig, "pick", missing)
     folder, prompts = run(script, ["--turns", "1"], [*LIGHT, "", "", "h", "", "", "3C", ""])     # h = by hand; the zone step; Enter isn't a name; then the name
     assert any("[by hand] Put the tile on the drop zone" in p for p in prompts)
     assert any("The camera never saw this tile" in p for p in prompts)
