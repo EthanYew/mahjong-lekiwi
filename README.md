@@ -96,7 +96,7 @@ trained with `--augment --replace-mat 0.7`),
 hovers, so they'd steer to the tile; the perturbation test says only partly, ROADMAP 1), `pickup_mat_cl` (v2),
 `pickup_mat_cl_v1`, and `pickup_mat_cl_v2n`: v2's episodes with
 the gripper narrowing trimmed and the eval episodes left out). Why the default is the default, and how each
-did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step).
+did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this paragraph in step). How the versions evolved, what each one's data captured and how each was trained: `docs/policy_history.md`.
 
 ---
 
