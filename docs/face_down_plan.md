@@ -196,6 +196,8 @@ It also tests what 7b asks: each drawn tile is set on the zone and picked up aga
 
 **A held tile's jaw reading has fallen:** 9.5 (2026-11-09 10:08), 7.8 (15:41), 7.0 (21:20), 6.3 (21:43), 3.7 (22:24), 3.0 (2026-11-10 00:19). A person's own grips fell with it, so it isn't how the tile is gripped. Under 5 `holds_tile` fails on a good pick, the policy runs to its 16s cap, and `wall_test.py` won't take `c`: the labels of the last three wall sessions may be forced. Check the gripper before scoring anything.
 
+**The crude run on v9, 2026-11-10/11:** the wall draw works (8 of 8 at F, one tile high), the read works on the reader's tiles, and picking the drawn tile back off the drop zone doesn't (2 of 8: the jaws come down right of the tile and close 12-17mm high, among green backs). Face up, the hand's right end beside the zone (S12-S14) has missed for both v8 and v9 since 2026-11-10. So the next corrections are at the zone: `record.py --wall-station zone --wall-layers flat`, with the hand laid. The held-tile reading is back at ~11, after the owner superglued a crack in the plastic gripper, the likely cause of the fall. `record.py --layout even-hand14 --face-down` records corrections at the hand's own spots with green backs. `docs/retrospectives/2026-11-11_crude_run_zone.md`.
+
 ## The tests
 
 Times are guesses. Each one can stop the plan before the next is paid for. Ten tries gives a signal for a decision, not a

@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from mahjong import config, hardware, layout, wall_test
+from mahjong import config, hardware, layout, markers, wall_test
 from mahjong.hover_correction import HoverCorrection
 from test_record import DescendingPolicy, TouchedAt, episode_rows, run_record
 
@@ -94,6 +94,27 @@ def test_discard_tile_lets_go_over_the_container_and_only_when_holding():
     assert record.discard_tile(Arm()) is False and log == []
 
 
+def test_zone_episodes_aim_at_the_drop_zone_from_the_policys_own_hover(tmp_path, monkeypatch, capsys):
+    import mahjong.policy
+    monkeypatch.setattr(mahjong.policy, "Policy", DescendingPolicy)
+    monkeypatch.setattr(markers, "load_zone", lambda: {"xy": [0.2028, -0.1723]})
+    dataset, _ = run_record(tmp_path, monkeypatch, ["--policy", "fake_v3c", "--wall-station", "zone", "--wall-layers", "flat"], TWO_EPISODES, gamepad=TouchedAt)
+    rows = episode_rows(dataset)
+    x, y = HoverCorrection.load().apply(0.2028, -0.1723)
+    assert [r["wall_layer"] for r in rows] == ["flat", "flat"] and rows[0]["spot"] == "zone" and rows[0]["detection_xy"] == [0.2028, -0.1723]
+    assert rows[0]["hover_xy"] == pytest.approx([x, y]) and rows[0]["hover_raise_m"] == 0.0 and rows[0]["hover_back_m"] == 0.0
+    assert "Clear station zone" in capsys.readouterr().out
+
+
+def test_zone_episodes_need_a_taught_zone(monkeypatch):
+    import record
+    monkeypatch.setattr(markers, "load_zone", lambda: None)
+    monkeypatch.setattr(hardware, "connect", lambda *a, **kw: pytest.fail("connected"))
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils", types.SimpleNamespace(init_keyboard_listener=None))
+    with pytest.raises(SystemExit, match="teach-zone"):
+        record.main(["--dataset", "test/record", "--wall-station", "zone", "--wall-layers", "flat"])
+
+
 @pytest.mark.parametrize("argv", [["--wall-station", "X"], ["--wall-station", "F", "--wall-layers", "middle"], ["--wall-station", "F", "--layout", "even-hand14"],
                                   ["--wall-station", "F", "--wall-top-back-mm", "25"]])
 def test_a_bad_wall_request_fails_before_anything_connects(monkeypatch, argv):
@@ -102,3 +123,41 @@ def test_a_bad_wall_request_fails_before_anything_connects(monkeypatch, argv):
     monkeypatch.setitem(sys.modules, "lerobot.common.control_utils", types.SimpleNamespace(init_keyboard_listener=None))
     with pytest.raises(SystemExit):
         record.main(["--dataset", "test/record", *argv])
+
+
+def run_face_down(tmp_path, monkeypatch, script, argv=(), answers=None, prompts=None):
+    import mahjong.policy
+    monkeypatch.setattr(mahjong.policy, "Policy", DescendingPolicy)
+    return run_record(tmp_path, monkeypatch, ["--policy", "fake_v3c", "--layout", "even-hand14", "--face-down", *argv], script,
+                      answers=answers, prompts=prompts, gamepad=TouchedAt)
+
+
+def test_face_down_episodes_aim_at_each_spots_saved_position_in_turn(tmp_path, monkeypatch, capsys):
+    prompts = []
+    dataset, _ = run_face_down(tmp_path, monkeypatch, TWO_EPISODES, argv=["--start-spot", "S12", "--repeats", "1"], prompts=prompts)
+    rows = episode_rows(dataset)
+    spots = {s["id"]: s for s in layout.load("even-hand14")["spots"]}
+    assert [r["spot"] for r in rows] == ["S12", "S13"] and all(r["face_down"] and r["wall_layer"] == "flat" for r in rows)
+    for r in rows:
+        assert r["detection_xy"] == spots[r["spot"]]["xy"]
+        assert r["hover_xy"] == pytest.approx(list(HoverCorrection.load().apply(*spots[r["spot"]]["xy"])))
+    assert "lay a tile GREEN side up on S12" in capsys.readouterr().out
+    assert not any("Which tile" in p for p in prompts)
+
+
+def test_face_down_tiles_go_in_the_container_and_a_skip_moves_to_the_next_spot(tmp_path, monkeypatch):
+    import record
+    calls, laid = [], iter(["s", "", ""])
+    monkeypatch.setattr(record, "discard_tile", lambda arm: calls.append("discard") or True)
+    monkeypatch.setattr(record, "return_tile", lambda *a, **kw: pytest.fail("a scan can't see a green back land"))
+    monkeypatch.setattr(record, "face_down_placement", (lambda real: lambda name, spot, n: ("skip", None) if next(laid) == "s" else real(name, spot, n))(record.face_down_placement))
+    dataset, _ = run_face_down(tmp_path, monkeypatch, TWO_EPISODES, argv=["--start-spot", "S12", "--repeats", "1"])
+    assert [r["spot"] for r in episode_rows(dataset)] == ["S13", "S14"] and calls == ["discard", "discard"]
+
+
+def test_face_down_needs_a_layout(monkeypatch):
+    import record
+    monkeypatch.setattr(hardware, "connect", lambda *a, **kw: pytest.fail("connected"))
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils", types.SimpleNamespace(init_keyboard_listener=None))
+    with pytest.raises(SystemExit, match="needs --layout"):
+        record.main(["--dataset", "test/record", "--face-down"])

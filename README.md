@@ -515,6 +515,8 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jit
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
 python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v8 --policy pickup_mat_cl_v8                  # DAgger corrections
 python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v8 --policy pickup_mat_cl_v8 --wall-station F --hover-jitter-mm 6   # DAgger on wall picks
+python scripts/record.py --dataset Yewy/mahjong_zone_dagger_<v> --policy <ID> --wall-station zone --wall-layers flat --hover-jitter-mm 6   # DAgger at the drop zone, on the policy crude_run.py drove
+python scripts/record.py --dataset Yewy/mahjong_facedown_dagger_<v> --policy <ID> --layout even-hand14 --face-down --start-spot S11 --repeats 3 --hover-jitter-mm 6   # DAgger on green-back tiles at layout spots
 ```
 
 **DAgger (`--policy ID`)**: the policy does the pickup and you correct it where it goes wrong. After
@@ -532,6 +534,12 @@ with when you took over. Use a dataset of their own, never an eval slice.
 waits for Enter. The layers in `--wall-layers` are taken in turn, and a discarded episode tries the same layer again. The hovers are `wall_test.py`'s: a top tile's is one tile higher and `--wall-top-back-mm` nearer the robot, and a bottom tile's is the policy's own. A
 tile still held afterwards goes in the discard container, which needs a discard pose. For DAgger, take over before the jaws close and bring them down so they close low on the tile and centred along it: a grip near the top edge lets the tile swing round in the jaws.
 
+**Face-down spots (`--layout NAME --face-down`)**: any spot of a layout with the tiles green side up, e.g. the hand's right end with `--layout even-hand14 --face-down --start-spot S11 --repeats 3`. The detector can't see a green back, so each episode names the spot, waits for Enter (`s` skips the spot, `q` quits) and aims at the spot's saved position; `--hover-jitter-mm` stands in for where a real tile sits. Lay the layout's other tiles green side up as they'd be. A held tile goes in the discard container afterwards: a scan can't check where a returned green back landed. Each log row has `face_down`.
+
+**The drop zone (`--wall-station zone --wall-layers flat`)**: the same, aimed at the drop zone, for the tile `crude_run.py` sets there and picks up
+again. Lay the crude run's hand green side up first (S13 stays empty: the zone is there), then one green-back tile on the zone each episode; the
+hover jitter stands in for where the arm's own set-down leaves it.
+
 | Option | What it does |
 |---|---|
 | `--dataset REPO` | **required**. A new name for a new hover; never append to a dataset recorded from a different hover. (One eval set holds all its slices: each episode's row logs its slice, layout and offset) |
@@ -544,14 +552,15 @@ tile still held afterwards goes in the discard container, which needs a discard 
 | `--layout NAME` | guides you to place each tile on a taught spot (outline turns green when it's right) |
 | `--repeats N` | with `--layout`: episodes per spot (default 2) |
 | `--start-spot ID` | with `--layout`: start at this spot |
+| `--face-down` | with `--layout`: tiles lie green side up, so each episode aims at the spot's saved position instead of a detected tile; a tile still held afterwards goes in the discard container (see below) |
 | `--hover-gripper PCT` | gripper opening at the hover (default 90%). A narrower start skips the slow narrowing: v2n's trimmed episodes start at 27.2, so record at that to compare with v2n. Changing it means a new dataset |
 | `--hover-offset-mm`, `--clearance-mm` | the pincer tip is commanded this far above the grasp point (default 45), then settled until it measures this far (default 40) |
 | `--no-correction` | hover over the raw detection |
 | `--no-view` | no wrist camera window |
 | `--no-return` | don't set a held tile back down: it's released at rest, as before |
 | `--policy ID` | DAgger: this registered policy drives from its own hover until you press A on the gamepad (see above) |
-| `--wall-station ID` | record wall picks at this station of `wall-stations` (see above); not with `--layout` |
-| `--wall-layers LIST` | with `--wall-station`: `top` and `bottom`, taken in turn (default `top,bottom`); repeat one for more of it, e.g. `top,top,bottom` |
+| `--wall-station ID` | record wall picks at this station of `wall-stations` (see above), or `zone` for the drop zone's saved position (`data/drop_zone.json`); not with `--layout` |
+| `--wall-layers LIST` | with `--wall-station`: `top`, `bottom` and `flat` (one tile on its own, as on the zone), taken in turn (default `top,bottom`); repeat one for more of it, e.g. `top,top,bottom` |
 | `--wall-top-back-mm N` | with `--wall-station`: a top tile's hover starts this much nearer the robot (default 10, what worked at F) |
 | `--stick-commit-s S` | a gamepad stick moves the arm only once held that long (default 0.1), so flicks don't. The right stick moves height *or* wrist roll: whichever moves first, until it's back at centre |
 | `--deadzone F` | stick deadzone, fraction of its travel (default 0.35, as collect_corrections: a thumb resting past XLeRobot's 0.15 pulled the arm 87mm). The wrist window's bottom line shows what the sticks read (red while they move the arm), and a stick off centre when you take over is said in the terminal. Lower it if gentle pushes don't register |
