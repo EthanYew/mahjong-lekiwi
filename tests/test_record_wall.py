@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from mahjong import config, hardware, layout, wall_test
+from mahjong import config, hardware, layout, markers, wall_test
 from mahjong.hover_correction import HoverCorrection
 from test_record import DescendingPolicy, TouchedAt, episode_rows, run_record
 
@@ -92,6 +92,27 @@ def test_discard_tile_lets_go_over_the_container_and_only_when_holding():
     log.clear()
     Arm.held = False
     assert record.discard_tile(Arm()) is False and log == []
+
+
+def test_zone_episodes_aim_at_the_drop_zone_from_the_policys_own_hover(tmp_path, monkeypatch, capsys):
+    import mahjong.policy
+    monkeypatch.setattr(mahjong.policy, "Policy", DescendingPolicy)
+    monkeypatch.setattr(markers, "load_zone", lambda: {"xy": [0.2028, -0.1723]})
+    dataset, _ = run_record(tmp_path, monkeypatch, ["--policy", "fake_v3c", "--wall-station", "zone", "--wall-layers", "flat"], TWO_EPISODES, gamepad=TouchedAt)
+    rows = episode_rows(dataset)
+    x, y = HoverCorrection.load().apply(0.2028, -0.1723)
+    assert [r["wall_layer"] for r in rows] == ["flat", "flat"] and rows[0]["spot"] == "zone" and rows[0]["detection_xy"] == [0.2028, -0.1723]
+    assert rows[0]["hover_xy"] == pytest.approx([x, y]) and rows[0]["hover_raise_m"] == 0.0 and rows[0]["hover_back_m"] == 0.0
+    assert "Clear station zone" in capsys.readouterr().out
+
+
+def test_zone_episodes_need_a_taught_zone(monkeypatch):
+    import record
+    monkeypatch.setattr(markers, "load_zone", lambda: None)
+    monkeypatch.setattr(hardware, "connect", lambda *a, **kw: pytest.fail("connected"))
+    monkeypatch.setitem(sys.modules, "lerobot.common.control_utils", types.SimpleNamespace(init_keyboard_listener=None))
+    with pytest.raises(SystemExit, match="teach-zone"):
+        record.main(["--dataset", "test/record", "--wall-station", "zone", "--wall-layers", "flat"])
 
 
 @pytest.mark.parametrize("argv", [["--wall-station", "X"], ["--wall-station", "F", "--wall-layers", "middle"], ["--wall-station", "F", "--layout", "even-hand14"],

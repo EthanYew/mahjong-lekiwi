@@ -37,6 +37,8 @@ Wall picks (docs/face_down_plan.md, "The wall: one station"): --wall-station F a
 green back, and walks --wall-layers in turn. Each episode says what to lay, in words and a side view, from the same hovers wall_test.py uses: a top
 tile's is one tile higher and --wall-top-back-mm nearer the robot, a bottom tile's is the policy's own. A tile still held afterwards goes in the discard
 container, since it can't be put back on a stack. Each log row has wall_layer, hover_raise_m and hover_back_m.
+--wall-station zone aims at the drop zone's saved position instead (data/drop_zone.json), with --wall-layers flat: a green-back tile on the
+zone among the green hand, where crude_run.py picks the drawn tile up again and v9 missed 7 of 8 (20261110_111307_crude, 20261111_161703_crude).
 
     python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --task "Pick up the mahjong tile from the mat"
     python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new --repeats 2
@@ -45,6 +47,7 @@ container, since it can't be put back on a stack. Each log row has wall_layer, h
         --hover-offsets-mm 6x,-6y
     python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v3c --policy pickup_mat_cl_v3c
     python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v8 --policy pickup_mat_cl_v8 --wall-station F --hover-jitter-mm 6
+    python scripts/record.py --dataset Yewy/mahjong_zone_dagger_<v> --policy <ID> --wall-station zone --wall-layers flat --hover-jitter-mm 6
 """
 import argparse
 import json
@@ -60,7 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, hardware, kinematics, layout, wall_test
+from mahjong import config, hardware, kinematics, layout, markers, wall_test
 from mahjong.camera import LOST_S
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
@@ -80,6 +83,9 @@ FEATURES = {
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
 SAME_TILE_NO = {"knocked a tile", "hover was wrong"}      # discards after which a same-tile retry defaults to no
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
+
+
+ZONE = "zone"     # --wall-station zone: the drop zone's saved position, not a station of the layout
 
 
 def parse_args(argv=None):
@@ -127,9 +133,9 @@ def parse_args(argv=None):
     p.add_argument("--no-return", action="store_true",
                    help="don't set a held tile back down after an episode: it's released at rest, as before")
     p.add_argument("--wall-station", default=None, metavar="ID",
-                   help=f"record wall picks at this station of layout {wall_test.LAYOUT} (F or L), aiming at its saved position: the detector can't see green backs")
+                   help=f"record wall picks at this station of layout {wall_test.LAYOUT} (F or L), or {ZONE} for the drop zone, aiming at its saved position: the detector can't see green backs")
     p.add_argument("--wall-layers", default="top,bottom",
-                   help="with --wall-station: the layers to record, taken in turn; repeat one to get more of it, e.g. top,top,bottom (default %(default)s)")
+                   help="with --wall-station: the layers to record (top, bottom, flat: one tile alone), taken in turn; repeat one to get more of it, e.g. top,top,bottom (default %(default)s)")
     p.add_argument("--wall-top-back-mm", type=float, default=10.0,
                    help="with --wall-station: start a top tile's hover this much nearer the robot, as wall_test.py --top-back-mm (default %(default)s, what worked at F)")
     return p.parse_args(argv)
@@ -142,11 +148,16 @@ def wall_setup(args):
     if args.layout:
         raise SystemExit("--wall-station or --layout, not both: a wall station is its own saved spot")
     spots = {s["id"]: s for s in layout.load(wall_test.LAYOUT)["spots"]}
+    if args.wall_station == ZONE:
+        zone = markers.load_zone()
+        if zone is None:
+            raise SystemExit("No drop zone saved for this RealSense calibration: teach it with play.py --teach-zone")
+        spots[ZONE] = {"id": ZONE, "xy": [float(v) for v in zone["xy"]], "yaw_deg": 0.0}
     if args.wall_station not in spots:
-        raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.wall_station} (has: {', '.join(spots)})")
+        raise SystemExit(f"layout {wall_test.LAYOUT} has no station {args.wall_station} (has: {', '.join(spots)}; or {ZONE})")
     layers = wall_test.parse_list(args.wall_layers)
-    if not layers or set(layers) - {"top", "bottom"}:
-        raise SystemExit("--wall-layers takes top and bottom, comma separated")
+    if not layers or set(layers) - {"top", "bottom", "flat"}:
+        raise SystemExit("--wall-layers takes top, bottom and flat, comma separated")
     if abs(args.wall_top_back_mm) > wall_test.MAX_HOVER_BACK_MM:
         raise SystemExit(f"--wall-top-back-mm is at most {wall_test.MAX_HOVER_BACK_MM:.0f}mm either way")
     if not config.DISCARD_POSE.exists():
