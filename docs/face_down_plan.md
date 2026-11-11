@@ -118,6 +118,19 @@ Two candidates (`wall-stations` in `data/layouts.json`), both with the jaws stra
 F is where a real wall sits and has far more wrist roll to spare; L has more reach. Test 3 below chooses. If pushes turn out not to repeat, the fallback is three one-stack stations refilled by hand, and if top tiles fail, a wall one layer high.
 The positions come from the RealSense's xy, so lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
 
+**F2 and L2 (added 2026-11-11)** give the hand's neighbouring tiles more room, at the owner's ask: L is used when space is short
+(24 DAgger picks there in `Yewy/mahjong_facedown_dagger_v9`). Computed as above, not run on the arm. F and L stay, because recordings and sessions name them:
+
+| | F2 (0.240, -0.012), F + 5mm out | L2 (0.14, 0.202), L + 10mm left |
+|---|---|---|
+| Wrist roll | -94° | -147° |
+| Gamepad reach left | 10mm | 20mm |
+| Space | 13mm past the far-row tile at S7 | 30mm beside S1/S2 |
+
+F can't go much further: 10mm out leaves 5mm of reach (under `gamepad.REACH_WARNING_M`, 8mm), and 15mm is past it. The policy also reaches 5-10mm
+beyond the hover at F, and far spots sit 10-15mm lower than the FK says (CLAUDE.md), so F2's margin is thinner than F's on the arm too. Joint margins
+fall 3° (F2) and 4° (L2) from their stations'. L2 is further past the area the hover correction was measured in, so start each with `--hover-check`.
+
 The order, each step able to stop the next (`scripts/wall_test.py`, and README). Thresholds are the ones below:
 
 1. `--hover-check`: does the hover centre on a face-up tile on each station? The correction was measured only inside the hand's area, and L is past it.

@@ -65,5 +65,10 @@
   },
   "Yewy/mahjong_wall_dagger_v8": {
     "31": "saved by accident: the owner meant to discard it (84 frames, no takeover)"
+  },
+  "Yewy/mahjong_facedown_dagger_v9": {
+    "2": "saved too early by accident (1.9s, no takeover; owner, 2026-11-11)",
+    "63": "saved prematurely (owner, 2026-11-11)",
+    "72": "saved prematurely (owner, 2026-11-11)"
   }
 }
