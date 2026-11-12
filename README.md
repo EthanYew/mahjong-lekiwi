@@ -91,6 +91,7 @@ Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v10`, 
 turn, `status.py` has the evidence; before it `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
+`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub),
 `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 face down: the hand's spots green side up and station L; trained 2026-11-12, private on the Hub, one crude run so far),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
@@ -673,6 +674,44 @@ So in `jitter_v3_v4`, `jitter_v3` is the recording and `v4` the policy version. 
 show in the name, only in the policy's `notes` in `data/policies.json` (v4 = `jitter_v3` + `dagger_v3c`).
 Record DAgger corrections to a new dataset named after the policy that drove, e.g.
 `mahjong_mat_dagger_v4` for `--policy pickup_mat_cl_v4`, never to a `_224` or `_policy` repo.
+
+## Training on a remote machine: `scripts/train_remote.py`
+
+Runs `make_policy.py` on a Windows/WSL training machine over SSH. The job runs
+detached (a PowerShell keepawake script suppresses sleep and launches WSL via
+`Win32_Process`, which outlives the SSH session). Connection details go in
+`data/train_machine.json` (gitignored; copy from `data/train_machine.example.json`).
+
+```
+# Check the plan before starting (no connection needed)
+python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
+    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
+    --augment --replace-mat 0.7 --trim-narrowing --private --dry-run
+
+# Start training (detaches; prints status/sync commands)
+python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
+    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
+    --augment --replace-mat 0.7 --trim-narrowing --private
+
+# Check whether a detached run has finished
+python scripts/train_remote.py --status --version v12
+
+# Sync results back (data/policies.json + data/offline_eval/)
+python scripts/train_remote.py --sync --version v12
+
+# Shut down both machines when training completes
+python scripts/train_remote.py ... --shutdown-train --shutdown-local
+```
+
+The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--trim-narrowing`,
+`--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
+
+After `--sync`, README.md still needs a manual line for the new policy (the fast tests will say if it's
+missing). The sync step prints the suggested line.
+
+`data/train_machine.example.json` documents the config keys (`ssh`, `wsl_distro`, `wsl_home`,
+`windows_home`, `repo`, `lerobot`). Keep `data/train_machine.json` out of commits — it holds the
+machine's address and is gitignored.
 
 ## Scoring offline: `scripts/offline_eval.py`
 

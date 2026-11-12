@@ -70,5 +70,13 @@
     "2": "saved too early by accident (1.9s, no takeover; owner, 2026-11-11)",
     "63": "saved prematurely (owner, 2026-11-11)",
     "72": "saved prematurely (owner, 2026-11-11)"
+  },
+  "Yewy/mahjong_facedown_dagger_v10": {
+    "25": "erratic or over-long: high jerk/reversals",
+    "27": "erratic or over-long: high jerk/reversals",
+    "30": "erratic or over-long: high jerk/reversals",
+    "33": "erratic or over-long: high jerk/reversals",
+    "36": "erratic or over-long: high jerk/reversals",
+    "38": "erratic or over-long: high jerk/reversals"
   }
 }
