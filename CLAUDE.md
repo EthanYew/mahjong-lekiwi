@@ -43,8 +43,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
   unplugged), then ask the setup questions, then create the session folder.
 - A command that may run an arm script prompts for a person, in auto mode too (`.claude/hooks/arm_run_gate.py`, a
-  hook because no permission rule can exempt `--sim`); reads, `--sim` and `--help` don't. A new script that moves
-  the arm goes in its `ARM_SCRIPTS`.
+  hook because no permission rule can exempt `--sim`); nothing else does: reads, `--sim`, `--help`, linters, flags that
+  never connect (`wall_test.py --report`), command substitutions that only read, and `python -c` code or a helper script
+  (e.g. a patch in the job folder) with nothing that could start a program. Only a likely real arm run should prompt; a
+  prompt on anything else is a hook bug to fix in `tests/test_arm_run_gate.py`. A new script that moves the arm goes in
+  its `ARM_SCRIPTS`.
 - A pickup stops itself once the tile is held and lifted for 1.5s (`policy.py`), capped at 16s.
 - After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane, a tile
   in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken

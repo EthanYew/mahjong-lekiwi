@@ -11,19 +11,22 @@ a name it can't see (`scripts/$s.py`) or a program that runs one itself isn't ca
 arm goes in ARM_SCRIPTS (`tests/test_arm_run_gate.py` fails until it does).
 """
 import json
+import os
 import re
 import shlex
 import sys
+from pathlib import Path
 
 ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run")
 SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run")   # `record` and `collect_corrections` have no --sim
 SAFE_FLAGS = {"--help", "-h"}
+NO_HARDWARE_FLAGS = {"wall_test": {"--report", "--exclude-session"}}   # these return before anything connects
 
 MENTION = re.compile(r"scripts/(%s)\.py" % "|".join(ARM_SCRIPTS))
 # These read, print or track files; none of them runs a file it is given.
 CANT_RUN = {
     "basename", "cat", "cp", "cut", "diff", "dirname", "du", "echo", "egrep", "fgrep", "file", "gh", "git", "grep", "head",
-    "less", "ls", "mv", "printf", "pwd", "readlink", "realpath", "rg", "sed", "sort", "stat", "tail", "tr", "uniq", "wc",
+    "less", "ls", "mv", "printf", "pwd", "readlink", "realpath", "rg", "ruff", "sed", "sort", "stat", "tail", "tr", "uniq", "wc",
 }
 # These run whatever reaches them, possibly through a pipe from another part of the command.
 RUNS_ITS_INPUT = {"bash", "dash", "eval", "exec", "parallel", "sh", "source", ".", "xargs", "zsh"}
@@ -35,7 +38,11 @@ HEREDOC = re.compile(r"<<-?\s*(?:'(\w+)'|\"(\w+)\"|(\w+))")
 LAST_SEGMENT = re.compile(r"&&|\|\||;|\||\$\(|`")
 # Inline Python that edits a script's text mentions its path too; only this vocabulary can start a program.
 STARTS_PROGRAMS = re.compile(r"subprocess|runpy|\bpty\b|importlib|__import__|\bos\.(system|exec|spawn|popen)|\bexec\(|\beval\(")
-CHECK_ONLY_MODULES = {"py_compile", "pyflakes"}     # parse a file without running it
+CHECK_ONLY_MODULES = {"py_compile", "pyflakes", "ruff", "flake8", "pycodestyle", "mypy"}     # read a file without running it
+# Python code (`-c`, or a helper script such as a patch that edits bench.py's text) with none of this can't start an arm script.
+STARTS_ARM = re.compile(STARTS_PROGRAMS.pattern + r"|hardware\.connect|^\s*(?:from|import)\s+(?:scripts\.)?(?:%s)\b"
+                        % "|".join(ARM_SCRIPTS), re.M)
+SUBSTITUTED = "SUBSTITUTED"     # stands in for a `$(...)` once what's inside it has been judged on its own
 
 
 def _head(words):
@@ -89,6 +96,30 @@ def _heredoc_bodies(command):
     return "\n".join(rest), bodies
 
 
+def _substitutions(text):
+    """Each outermost `$(...)` and backtick span in text, as (start, end, inner); ValueError if one is unclosed."""
+    spans, i = [], 0
+    while i < len(text):
+        if text.startswith("$(", i):
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+            if depth:
+                raise ValueError("unclosed $(")
+            spans.append((i, j, text[i + 2:j - 1]))
+            i = j
+        elif text[i] == "`":
+            j = text.find("`", i + 1)
+            if j < 0:
+                raise ValueError("unclosed backtick")
+            spans.append((i, j + 1, text[i + 1:j]))
+            i = j + 1
+        else:
+            i += 1
+    return spans
+
+
 def _subcommands(command):
     lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
     lexer.whitespace = " \t\r"
@@ -105,21 +136,39 @@ def _subcommands(command):
     return [p for p in parts if p]
 
 
-def _is_exempt_run(program, args):
-    """`python [flags] scripts/x.py ... --sim` or `--help`, with x.py the program python actually runs."""
+def _harmless_helper(target, cwd):
+    """A .py file python runs that isn't an arm script and has nothing in it that could start one."""
+    if MENTION.search(target) or not target.endswith(".py") or "$" in target or SUBSTITUTED in target:
+        return False
+    path = Path(os.path.expanduser(target))
+    if not path.is_absolute():
+        path = Path(cwd or os.getcwd()) / path
+    try:
+        return not STARTS_ARM.search(path.read_text())
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _is_exempt_run(program, args, cwd=None):
+    """`python [flags] scripts/x.py ... --sim` or `--help` (x.py the program python actually runs), a flag of x.py that
+    never connects, a linter, `python -c` code that can't start a program, or a helper script that can't either."""
     if not program.startswith("python"):
         return False
     if len(args) > 1 and args[0] == "-m" and args[1] in CHECK_ONLY_MODULES:
         return True
+    if args and args[0] == "-c":
+        return len(args) > 1 and not STARTS_ARM.search(args[1])
     target = next((a for a in args if not a.startswith("-")), "")
     found = MENTION.search(target)
-    if not found or not target.endswith(".py"):
-        return False
+    if not found or not target.endswith(".py") or SUBSTITUTED in target:
+        return _harmless_helper(target, cwd)
     after = args[args.index(target) + 1:]
-    return bool(SAFE_FLAGS & set(after)) or (found.group(1) in SIM_SCRIPTS and "--sim" in after)
+    flags = {a.split("=", 1)[0] for a in after}
+    return (bool(SAFE_FLAGS & flags) or (found.group(1) in SIM_SCRIPTS and "--sim" in flags)
+            or bool(NO_HARDWARE_FLAGS.get(found.group(1), set()) & flags))
 
 
-def reason_to_ask(command):
+def reason_to_ask(command, cwd=None):
     """Why this command needs a person, or None if it can't start an arm script."""
     if not MENTION.search(command):
         return None
@@ -132,6 +181,16 @@ def reason_to_ask(command):
     if not MENTION.search(shell_text):
         return None
     try:
+        spans = _substitutions(shell_text)
+    except ValueError:
+        return "mentions an arm script and couldn't be parsed"
+    for start, end, inner in reversed(spans):
+        why = reason_to_ask(inner, cwd)
+        if why:
+            return f"in a command substitution: {why}"
+        found = MENTION.search(inner)       # keep the name, so `python $(echo scripts/bench.py)` still asks
+        shell_text = shell_text[:start] + SUBSTITUTED + (f"_{found.group(0)}" if found else "") + shell_text[end:]
+    try:
         parts = _subcommands(shell_text)
     except ValueError:
         return "mentions an arm script and couldn't be parsed"
@@ -142,18 +201,16 @@ def reason_to_ask(command):
         text = " ".join(words)
         if not MENTION.search(text):
             continue
-        if any(MENTION.search(w[w.index("$("):]) for w in words if "$(" in w) or "`" in text:
-            return "runs a command substitution next to an arm script"
         if program in CANT_RUN or program.startswith("#"):
             continue
-        if not _is_exempt_run(program, args):
+        if not _is_exempt_run(program, args, cwd):
             return f"may run an arm script: {text[:120]}"
     return None
 
 
 def decision(payload):
     """The hook's output for one tool call, or None for no opinion (the normal permission flow decides)."""
-    why = reason_to_ask(str((payload.get("tool_input") or {}).get("command") or ""))
+    why = reason_to_ask(str((payload.get("tool_input") or {}).get("command") or ""), payload.get("cwd"))
     if why is None:
         return None
     return {"hookSpecificOutput": {
