@@ -73,6 +73,12 @@ daylight) doesn't favour one. Each attempt starts from its own policy's hover (d
 picking the tile detected nearest the spot; a spot it can't attempt is skipped, not the walk.
 session_report.py prints success per spot and policy side by side.
 
+--face-down (with --layout) picks tiles lying GREEN side up: the detector can't see a back, so each pickup aims at its
+spot's saved position (layout.saved_target, as record.py --face-down and the face-down scripts do) instead of a detection,
+and you're asked once to lay a tile on each spot. A return aims at the spot as any return aims at its home, but nothing
+can see where it lands: no landing check, no return or hover samples, and a tile that walked is yours to square up (r).
+Scans still run, so a face-up neighbour that moves is caught. A face-down session is no counted result (scorecard.off_standard).
+
 --unattended runs --trials with no one watching: nothing is asked once the trials start (the setup questions still
 are, before them). A neighbour the scans see move or turn is a self-reported bump, settled by the later scans like
 any other watched change; a tile that isn't found is skipped, a tile that lands far off its home is left there, and a
@@ -160,7 +166,9 @@ class Bench:
             raise SystemExit(f"--carry: {args.layout} has no spot {', '.join(unknown)}")
         if args.sim:
             from mahjong import sim
-            devices = sim.connect(wrist_view=True)
+            # face down: a simulated tile on each spot, as a person lays them (the sim's detector still sees them)
+            tiles = [("5C", *s["xy"]) for s in self.spots] if args.face_down else sim.SIM_TILES
+            devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
@@ -200,6 +208,7 @@ class Bench:
         self.direct = False         # play: from a pickup straight to the discard or the place it's set down, with no trip
                                     # to rest or scan between. Off here: counted bench results keep one motion
         self.unseen = None          # {xy, attempt_dir} of a pickup that had no scan of its own: the next scan answers for it
+        self.laid = set()           # --face-down: the spots a person has said have a tile green side up on them
         self.correction = HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
@@ -221,7 +230,9 @@ class Bench:
                            layout=args.layout, spots=self.spots, unattended=args.unattended, carry=args.carry,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
                            hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper,
-                           hover_lower_mm=args.hover_lower_mm)
+                           hover_lower_mm=args.hover_lower_mm, face_down=args.face_down)
+        if args.face_down:
+            print("Face down: every pickup aims at its spot's saved position, and nothing can see where a return lands")
 
     # --- pieces ---
 
@@ -576,7 +587,10 @@ class Bench:
     def choose(self, tile_name=None, spot=None):
         """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick. In trials, a tile
         that isn't found is repositioned by a person and the mat rescanned (s skips it): a flickering
-        detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run."""
+        detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run.
+        --face-down: the tile at the spot's saved position (choose_saved)."""
+        if self.args.face_down:
+            return self.choose_saved(spot)
         confirmed = None
         while True:
             if not self.arm.is_at_rest():
@@ -594,6 +608,33 @@ class Bench:
             self.session.event("attempt_skipped", reason=reason, tile=tile_name,
                                **({"spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}))
         return tile
+
+    def choose_saved(self, spot):
+        """--face-down: the tile at `spot`'s saved position, as record.py --face-down and the face-down scripts aim (the
+        detector can't see a green back, so a scan can't find it or say it's gone). The mat is still scanned first, so a
+        face-up tile near the arm that moves is caught as on any bench. None (skipped) without a spot."""
+        if not self.arm.is_at_rest():
+            self.arm.rest()
+        self.scan("choose")
+        if not self.defer:
+            self.check_scans()
+        if spot is None:
+            self.session.event("attempt_skipped", reason="cancelled", tile=layout.FACE_DOWN)
+            return None
+        return layout.saved_target(spot)
+
+    def ask_spot(self):
+        """--face-down at the menu: which layout spot to pick from (a face-down tile can't be chosen from a scan). None: cancel."""
+        ids = [s["id"] for s in self.spots]
+        drain_stdin()
+        while True:
+            answer = input(f"Which spot ({', '.join(ids)}; Enter cancels)? ").strip().upper()
+            if not answer:
+                return None
+            spot = next((s for s in self.spots if s["id"].upper() == answer), None)
+            if spot is not None:
+                return spot
+            print(f"Layout {self.args.layout} has no spot {answer}.")
 
     def find(self, tiles, tile_name=None, spot=None):
         """(tile, None) or (None, skip reason, what was missing) from one scan's tiles."""
@@ -660,7 +701,8 @@ class Bench:
     def hover(self):
         if self.held:
             return print(f"Holding {self.held['tile_name']} — return or discard it first.")
-        tile = self.choose()
+        spot = self.ask_spot() if self.args.face_down else None
+        tile = self.choose(spot=spot)
         if tile and (result := self.hover_over(tile)):
             self.session.event("hover", tile=tile["tile_name"], detection_xy=tile["xy"],
                                attempt_dir=self.hover_photo(tile["tile_name"]), **result)
@@ -687,6 +729,10 @@ class Bench:
         if self.held:
             print(f"Holding {self.held['tile_name']} — return or discard it first.")
             return None
+        if self.args.face_down and spot is None:        # the menu's pickup: a spot, so the tile has a home of its own
+            spot = self.ask_spot()
+            if spot is not None:
+                self.lay_face_down([spot])
         tile = self.choose(tile_name, spot)
         if tile is None:
             return None
@@ -740,7 +786,8 @@ class Bench:
             self.to_review.append((attempt.name, tile["tile_name"], run, bool(presses)))
         elif not self.defer:
             review = self.review(attempt.name, tile["tile_name"], run, keyed=bool(presses))
-        name_source = "faint" if tile.get("faint") else "wrist_seen" if tile.get("wrist_seen") else "read"
+        name_source = "faint" if tile.get("faint") else "wrist_seen" if tile.get("wrist_seen") else \
+            "saved_position" if tile.get("saved_position") else "read"
         self.session.event("attempt", tile=tile["tile_name"], name_source=name_source, policy=self.policy.id,
                            placement=self.placements.id_at(spot["id"]) if spot else None, detection_xy=tile["xy"],
                            hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
@@ -752,7 +799,8 @@ class Bench:
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                            **run, **review)
         self.last_attempt = attempt.name
-        if success and run["grasp_xy"] and not self.args.hover_lower_mm:     # a lowered hover says nothing about the usual one
+        # a lowered hover says nothing about the usual one; a saved position isn't a detection, which the correction is fitted from
+        if success and run["grasp_xy"] and not self.args.hover_lower_mm and not tile.get("saved_position"):
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
@@ -763,7 +811,7 @@ class Bench:
                          "home_xy": self.homes(tile, spot), "grasp_xy": run["grasp_xy"] or hover["hover_xy"],
                          "approach_offset_m": hover["offset_m"], "attempt_dir": attempt.name,
                          "grasp_clearance_m": run.get("grasp_clearance_m"),
-                         "spot": spot["id"] if spot else None}
+                         "spot": spot["id"] if spot else None, "saved_position": bool(tile.get("saved_position"))}
         print(f"{tile['tile_name']}: {'picked up' if success else 'missed'}")
         if not self.defer:
             self.check_scans()
@@ -832,7 +880,8 @@ class Bench:
         # a change near its home is the return itself, not a knock
         self.held = None
         tiles = self.scan("after_return", attempt_dir=held["attempt_dir"], target_xy=home)
-        self.check_landing(held, placed, tiles, self.scan_n)
+        if not held.get("saved_position"):     # a green back can't be seen landing: no sample, no reset (a person squares it, r)
+            self.check_landing(held, placed, tiles, self.scan_n)
         if not self.defer:
             self.check_scans()
 
@@ -861,14 +910,11 @@ class Bench:
         self.scan("after_reset", confirmed=["tile_reset"], attempt_dir=held["attempt_dir"])
 
     def discard(self, ask=True):
-        if not config.DISCARD_POSE.exists():
+        pose = config.discard_pose()
+        if pose is None:
             return print("No discard pose yet — use teach-discard first.")
-        pose = json.loads(config.DISCARD_POSE.read_text())["pose"]
         held = self.held or {}
-        self.arm.go_to_pose(pose, direct=self.direct)
-        still_held = self.arm.holding()[0]
-        self.arm.set_gripper(config.GRIPPER_RELEASE)
-        self.arm.rest()
+        still_held = self.arm.discard(pose, direct=self.direct)
         self.session.event("discard", tile=held.get("tile_name"), attempt_dir=held.get("attempt_dir"), held_on_arrival=still_held)
         if held and ask:
             drain_stdin()
@@ -909,6 +955,8 @@ class Bench:
         """Before trials on a layout, once: a person checks what the scan reads at each spot, so every read after this
         can be scored against what's really there (mahjong/placements.py, scripts/name_report.py). An unattended run asks
         this too, like the setup questions: nothing is asked once the trials start."""
+        if self.args.face_down:     # nothing to read on a green back
+            return self.lay_face_down(spots or self.spots)
         todo = [s for s in spots or self.spots or [] if not self.placements.id_at(s["id"])]
         if not todo:
             return
@@ -927,6 +975,19 @@ class Bench:
             named = row["tile_name"] != config.UNNAMED and source != "unconfirmed"
             self.placements.start(row["id"], row["xy"], truth=row["tile_name"] if named else None, truth_source=source,
                                   read=row["detected_as"])
+
+    def lay_face_down(self, spots):
+        """--face-down, once per spot a session: a person lays a tile GREEN side up on each, square to its outline (the
+        RealSense can't check it). Logged as `face_down_laid`. The sim's tiles are already there."""
+        todo = [s["id"] for s in spots if s["id"] not in self.laid]
+        if not todo:
+            return
+        if self.ask_names is not None:
+            drain_stdin()
+            input(f"Lay a tile GREEN side up on {', '.join(todo)}, square to the layout (scripts/layout.py shows the outlines), "
+                  "then Enter: ")
+        self.laid.update(todo)
+        self.session.event("face_down_laid", spots=todo)
 
     def trials(self, n=None, tile_name=None):
         """n rounds on one tile, or at every spot of the layout. A round is one attempt per policy, from
@@ -1122,7 +1183,14 @@ def parse_args(argv=None):
                    help="hover this many mm lower than the policy's own (its offset and clearance both), e.g. 8 at a spot "
                         "where it closes high (v8 at S8, 2026-11-05: 28mm up, missed). An experiment: its attempts save no "
                         "hover samples and the session is no counted result. At most 10 (the arm's own limit)")
+    p.add_argument("--face-down", action="store_true",
+                   help="with --layout: tiles lie GREEN side up, so every pickup aims at its spot's saved position (the detector "
+                        "can't see backs), as record.py --face-down. Returns set it back on its spot unseen: no landing check, "
+                        "no hover or return samples, and someone watching")
     args = p.parse_args(argv)
+    if args.face_down and (not args.layout or args.tile or args.unattended):
+        p.error("--face-down needs --layout (it aims at the spots' saved positions), no --tile, and someone watching: "
+                "nothing can see a green back land, so only a person can square up a tile that walked")
     if args.hover_lower_mm is not None and not -15 <= args.hover_lower_mm <= 10:
         p.error("--hover-lower-mm is from -15 (higher) to 10 (lower): the settle only goes 10mm under the hover's offset")
     if args.unattended and not (args.trials and (args.tile or args.layout)):

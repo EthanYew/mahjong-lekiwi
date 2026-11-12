@@ -245,6 +245,20 @@ Return accuracy, moved to 8, is done (2026-10-28): returns go to the tile's home
   its evidence), `scripts/merge_pr.py` (tests the merged tree, then pulls main and closes the branch), session
   warnings when the checkout is behind origin/main, and the fast tests 96 → 11 s (FK without `np.block`,
   pytest-xdist in the hook).
+- The face-down scripts, part done 2026-11-12 (`worktree-bench-face-down`): one copy each of the discard (`Arm.discard`), the
+  discard pose (`config.discard_pose`), the zone as a spot (`markers.zone_spot`), a saved position as a target
+  (`layout.saved_target`) and the set-down (`Rig.set_down`). Left, largest first:
+  - **The wrist-camera retry around a pick.** `wall_test.py` (`attempt`), `base_cam_collect.py` (`do_placement`) and
+    `crude_run.py` (`Run.pick`) each catch a lost camera, reopen it (`hardware.reopen_wrist_camera`) and pick again. A
+    `Rig.pick` that retries would cover all three. bench, record, setup_check, collect_corrections and wrist_capture have
+    their own loops, each tied to what they log, so leave those.
+  - **One hover adjustment.** The hover raise for a top tile, the shift nearer the robot (`--top-back-mm` /
+    `--wall-top-back-mm`) and `--hover-lower-mm` are each applied separately in `Rig.pick`, `Bench.hover_of` and record.py's
+    hover. One helper, e.g. `kinematics`/`hover_correction`: (xy, raise, back, lower) → hover xy, offset and clearance.
+  - **The shallow-grip question** (`crude_run.maybe_shallow`): jaws shut too narrow for `holds_tile`, which only a
+    person can settle. Bench `--face-down` counts that as a miss. Worth sharing once a session shows it there.
+  - Other scripts that pick by detection only: play's zone pickup already goes by the saved zone. `collect_corrections`
+    and `setup_check` have no face-down case, and none is needed yet.
 - Optional: a Claude Code skill / slash command, "review the latest session". It runs `session_report`, reads
   the contact sheet and compares the run with `--all`. Less needed now that `session_report` covers
   interventions and the CLAUDE.md says to run it first.

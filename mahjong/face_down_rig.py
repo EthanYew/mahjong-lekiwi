@@ -6,7 +6,7 @@ Shared by scripts/base_cam_collect.py (the base camera's training photos), scrip
 """
 import cv2
 
-from . import base_cam_collect, camera_poses, config
+from . import base_cam_collect, camera_poses, config, wall_test
 from .camera import grab_frames
 from .hover_correction import HoverCorrection
 from .return_correction import ReturnCorrection
@@ -116,12 +116,17 @@ class Rig:
             from_pose += [name] * len(got)
         return frames, from_pose, ""
 
-    def put_back(self, spot, pick):
-        """Set the tile down at the spot, aimed as a return is (the spot is its home and its detection). None if out of reach."""
-        home = [float(v) for v in spot["xy"]]
-        x, y = self.returns.target(home, home, pick["run"]["grasp_xy"] or pick["hover"]["hover_xy"])
+    def set_down(self, pick, picked_from, to=None, layer="flat"):
+        """Set the held tile on spot `to` (default: back on `picked_from`), aimed as a return is: `to` is its home and
+        `picked_from`'s saved position stands for its detection. A `layer` "top" pick's raise is taken off, so it's let go at
+        the mat and not a tile's height above it. Returns (Arm.place's result, None if out of reach; the (x, y) asked)."""
+        to = to or picked_from
+        grasp = pick["run"]["grasp_xy"] or pick["hover"]["hover_xy"]
+        x, y = self.returns.target([float(v) for v in to["xy"]], [float(v) for v in picked_from["xy"]], grasp)
         self.arm.rest()
-        return self.arm.place(x, y, pick["hover"]["offset_m"], grasp_clearance_m=pick["run"].get("grasp_clearance_m")), (x, y)
+        placed = self.arm.place(x, y, pick["hover"]["offset_m"] - wall_test.HOVER_RAISE_M[layer],
+                                grasp_clearance_m=wall_test.above_own_level_m(pick["run"].get("grasp_clearance_m"), layer))
+        return placed, (x, y)
 
 
 GUIDE_WINDOW = "lay the tile (RealSense view)"

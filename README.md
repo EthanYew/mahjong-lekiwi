@@ -216,6 +216,7 @@ python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
+python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up, picked by each spot's saved position
 ```
 
 | Option | What it does |
@@ -230,6 +231,7 @@ python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
 | `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
+| `--face-down` | with `--layout`: tiles lie GREEN side up. The detector can't see a back, so every pickup aims at its spot's saved position instead of a detection (as `record.py --face-down` and `crude_run.py` do), and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. Returns aim at the spot like any return, but nothing can see where they land: no landing check, no hover or return samples, and a tile that walked is yours to square up (press `r`). Scans still run, so a face-up neighbour that moves is caught. Needs someone watching (no `--unattended`, no `--tile`); `session_report.py` flags the session and it's no counted result |
 | `--device PATH` | gamepad device path (only for teach-discard) |
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,

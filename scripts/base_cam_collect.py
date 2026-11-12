@@ -189,7 +189,7 @@ def do_placement(rig, rng, placement, spot, ask, counters):
             holding = rig.arm.holding()[0]
             print(f"Stopped: {problem}." + (" The jaws still read as holding it." if holding else " Find the tile before going on."))
         else:
-            placed, asked = rig.put_back(spot, pick)        # before the question, so the arm isn't left holding while you look
+            placed, asked = rig.set_down(pick, spot)        # before the question, so the arm isn't left holding while you look
             if placed is None:
                 session.event("holdup_stopped", tile=tile, reason="return out of reach")
                 print("Couldn't set the tile back down (out of reach): it is still in the jaws.")

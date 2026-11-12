@@ -83,6 +83,16 @@ def load_zone(path=None):
     return zone if zone.get("setup") == setup_fingerprint() else None
 
 
+ZONE_ID = "zone"
+
+
+def zone_spot():
+    """The taught zone as a layout spot ({"id": "zone", "xy", "yaw_deg"}), for the scripts that pick from it or set a tile on
+    it by saved position (record.py --wall-station zone, crude_run.py); None if none is taught for this calibration."""
+    zone = load_zone()
+    return None if zone is None else {"id": ZONE_ID, "xy": [float(v) for v in zone["xy"]], "yaw_deg": 0.0}
+
+
 def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     """Bench attempts at a layout spot within radius_m of xy, over every bench session: (attempts, picked up,
     returns whose landing was scanned). A simulated bench says nothing about the real zone."""

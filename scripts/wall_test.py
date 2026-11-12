@@ -122,14 +122,6 @@ def ask_outcome(ask, held, close_mm, photo):
             return wall_test.OUTCOMES[answer]
 
 
-def discard(rig, pose):
-    """Into the container, as the bench lets go there: a drawn tile isn't put back on the wall in this test."""
-    rig.arm.rest()
-    rig.arm.go_to_pose(pose)
-    rig.arm.set_gripper(config.GRIPPER_RELEASE)
-    rig.arm.rest()
-
-
 def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
     """One pick at the station. layer: a cycle's top or bottom. Returns "ok", "fix" (not clean), "stop" (out of reach) or "quit"."""
     session, table = rig.session, table_of(rig)
@@ -160,7 +152,7 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
             cv2.imwrite(str(photo), privacy.blur_faces(frames[0])[0])
         rig.arm.rest()
         if rig.arm.holding()[0]:
-            discard(rig, ctx["discard_pose"])
+            rig.arm.discard(ctx["discard_pose"])     # a drawn tile isn't put back on the wall in this test
     save_before_after(table, station, before, table.snapshot(), pick["attempt"])
     close = wall_test.above_own_level_m(run.get("grasp_clearance_m"), layer)
     if problem:
@@ -370,8 +362,8 @@ def main(argv=None, ask=input):
     poses = base_cam_collect.pose_names()
     if not poses:
         raise SystemExit(f"no {base_cam_collect.POSE_PREFIX}* poses in {config.CAMERA_POSES}: teach some with scripts/teleop_view.py")
-    if not args.hover_check and not config.DISCARD_POSE.exists():
-        raise SystemExit("No discard pose: teach one with bench.py's teach-discard")
+    if not args.hover_check:
+        config.discard_pose(why="A drawn tile goes in the container")
     for name in poses[:1]:
         camera_poses.get(name)
     rig = face_down_rig.Rig(args, list(spots.values()), poses[:1])
@@ -385,7 +377,7 @@ def main(argv=None, ask=input):
             return rig.session.dir
         conditions = base_cam.ask_lighting(ask)
         ctx["whites"] = {s: ask(f"Apart from the tile being tested, is any tile lying WHITE side up within about 8cm of station {s}? [y/N]: ").strip().lower().startswith("y") for s in wanted}
-        ctx["discard_pose"] = json.loads(config.DISCARD_POSE.read_text())["pose"]
+        ctx["discard_pose"] = config.discard_pose()
         rig.open_session("wall", stations=wanted, cases=cases, trials=args.trials)
         rig.session.conditions = conditions
         rig.session.event("wall_conditions", conditions=conditions, white_tiles_near=ctx["whites"], show_pose=poses[0], hover_back_m=ctx["back_m"], top_back_m=ctx["top_back_m"])
