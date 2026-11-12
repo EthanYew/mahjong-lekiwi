@@ -61,6 +61,17 @@ def labelled(all_photos, review):
 
 # --- the window ---
 
+def name_order(names, start=None, only=False):
+    """`names` from `start` round (or just `start`, with `only`); SystemExit for a name not among them."""
+    names = list(names)
+    if not start:
+        return names
+    start = start.upper()
+    if start not in names:
+        raise SystemExit(f"{start} isn't a tile name")
+    return [start] if only else names[names.index(start):] + names[:names.index(start)]
+
+
 class Reviewer:
     """The pages of one name at a time and the verdicts given on them. Pure logic: tests drive it with clicks and keys;
     `run` draws it. Subclasses say how photos group into rows (`group_of`), what a row's label says (`caption`) and what a

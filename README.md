@@ -75,6 +75,8 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
+| See how many base camera photos each tile has, fewest first (no arm) | `python scripts/base_cam_review.py --counts` |
+| Check the base camera photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/base_cam_review.py` |
 | Teach the base camera's reader more tiles (the arm holds each up; then train, score and install) | `python scripts/base_cam_collect.py`, then `python scripts/base_cam_train.py --test-session <newest>_holdup`, then `--save-reader` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Check the saved base-camera poses with nothing in the jaws, before collecting | `python scripts/base_cam_collect.py --empty` |
@@ -814,6 +816,8 @@ camera has its own reader. Which tiles it knows: `crude_run.py` prints them at t
 python scripts/teleop_view.py                                     # once: drive by gamepad, s saves a base_view_N pose (arm)
 python scripts/base_cam_collect.py --empty                        # after teaching poses: visit them with nothing in the jaws (arm)
 python scripts/base_cam_collect.py                                # collect every tile short of 6 holds each way up (arm, ~13 min a tile)
+python scripts/base_cam_review.py --counts                        # holds per tile, fewest first (no arm)
+python scripts/base_cam_review.py                                 # check no photo is filed under the wrong name (a window)
 python scripts/base_cam_train.py --mark-boxes                     # once per new pose: drag a box round where the held tile shows
 python scripts/base_cam_train.py --test-session <newest>_holdup   # score a fresh reader on a session it never trained on
 python scripts/base_cam_train.py --save-reader --sessions sessions/A_holdup,sessions/B_holdup   # install it (GPU, minutes)
@@ -915,6 +919,28 @@ and don't open the RealSense. Other options: `--tiles` (default every tile name,
 it sits out the rest of that arrangement, instead of asking forever), `--poses`, `--frames` per pose (3), `--settle-s`, `--gap-s`, `--seed`, `--policy`. Photos and
 `holdup_shot` events (with `source: arm` and each frame's pose) go to `sessions/<time>_holdup/`, which `base_cam_train.py` reads. A
 run of every tile is 60+ arrangements of 3 tiles (~40 min each): quit with `q` whenever, and the next run carries on from what's saved.
+
+**Counting and checking the base camera photos** (`base_cam_review.py`, no arm, no GPU). A hold's name is the tile you said you
+laid on that spot, so a tile laid on the wrong spot, or one that slipped out of view, would teach the reader a wrong answer.
+
+```
+python scripts/base_cam_review.py --counts           # per tile: holds each way up, photos, sessions, light, reviewed, short of 6
+python scripts/base_cam_review.py                    # review every name's photos not yet reviewed
+python scripts/base_cam_review.py --name 3C --only   # one name
+python scripts/base_cam_review.py --all              # reviewed ones too
+```
+
+`--counts` lists the playable tiles fewest holds first (a tile never collected at the top), then the flowers (collected, never
+played), and names the sessions from before interleaving it leaves out. Daylight is in holds: `b` bright, `d` dim, `n` none.
+`--target-holds` (6) sets what "short" counts against. The window shows one name at a time, one row per tile laid on one spot in one
+arrangement (each hold there, every pose, cropped to the pose's tile box as the reader sees it). Click a photo to mark it wrong,
+click a row's label for the whole row (a wrong tile laid is wrong in all of them), right-click to give it its right name (asked in the
+terminal), Shift+click for the whole frame. Space marks the page's unmarked photos ok and moves on; `p` back, `]` `[` change name, `q`
+quits. A verdict on a pose's photo goes for its other frames. Way up isn't reviewed (the reader learns names only).
+`--all-sessions` adds the sessions from before interleaving (nothing trains on them). Each verdict is a line in
+`data/holdup_review.jsonl` (commit it; it merges by union), and `base_cam_train.py` and `base_cam_collect.py`'s counts read the photos
+through it: a renamed hold counts under its right name, a photo marked wrong without one is left out. The window and the log are
+shared with `wrist_review.py` (`mahjong/photo_review.py`).
 
 ### Blurring faces in the base camera's photos
 

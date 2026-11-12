@@ -56,22 +56,12 @@ class Reviewer(photo_review.Reviewer):
         return [first["group"].split("/")[0][4:15], detail, f"{first['source']} as {first['name']}"]
 
 
-def order(names, start, only):
-    """`names` from `start` round (or just `start`, with `only`)."""
-    if not start:
-        return list(names)
-    start = start.upper()
-    if start not in names:
-        raise SystemExit(f"{start} isn't a tile name")
-    return [start] if only else names[names.index(start):] + names[:names.index(start)]
-
-
 def main(argv=None, ask=None):
     args = parse_args(argv)
     from wrist_capture import ask_pumping
     ask = ask_pumping(ask or input)
     all_photos = [p for p in wrist_photos.photos() if args.source in ("all", p["source"])]
-    names = order(list(detector.TILE_NAMES), args.name, args.only)
+    names = photo_review.name_order(detector.TILE_NAMES, args.name, args.only)
     reviewer = Reviewer(all_photos, wrist_photos.load_review(), names, show_all=args.all)
     if not reviewer.names:
         print(f"Nothing to review in {config.SESSIONS}" + ("" if args.all else " (--all shows reviewed photos too)"))
