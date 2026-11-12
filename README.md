@@ -280,6 +280,7 @@ prompt or the menu don't count.
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
 | `d` | gripped low on the tile (near its bottom) | precarious, it may slip: counted ("gripped low") but the attempt stands; works during the return too, while you watch it carried |
 | `u` | gripped high on the tile (near its top) | the same, "gripped high" |
+| `s` | gripped shallow: held, but only by the jaw tips (the tile didn't go deep enough between the jaws) | the same, "gripped shallow": it may drop, but the attempt stands |
 | `r` | I moved a tile by hand (e.g. put a knocked one back for the next run) | what that pickup's or return's scan sees change was you: straightening a tile a knock left (a rescue), else putting tiles back (a reset); never a knock or a glitch |
 | `l` | look at this (nothing touched) | an observation |
 
@@ -401,6 +402,10 @@ and a ship / revert / extend verdict when the session paired two policies: `docs
 (rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
 Bench sessions also get close height: how high the tip was as the jaws closed, per policy and spot. Under 10mm
 picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`). It explains a run; it doesn't decide one.
+Layout sessions also get **where to record more**: per spot, the misses, the keys you pressed (pushed, bumped, low,
+high, shallow) and knocks the scans found, closes 20mm or more up, and the wrist camera there (attempts it voided and
+reran, or a pickup it stopped). Then a list of the spots with trouble, most first, each saying whether the camera
+played a part, which is where to point the next demonstrations or DAgger takeovers.
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 

@@ -32,7 +32,8 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed in the bench's own
   terminal while the arm picks up or returns say what happened (`interventions.KEYS`, printed as each starts: `b`
-  bumped another tile, `p` pushed its own, `r` moved by hand, `d` / `u` gripped low / high, `l` look; → marks a moment).
+  bumped another tile, `p` pushed its own, `r` moved by hand, `d` / `u` / `s` gripped low / high / shallow (jaw tips only), `l` look; → marks a moment). The report's "where to record
+  more" puts misses, these keys, high closes and camera losses per spot.
   Scans around each attempt catch the rest: a neighbour that moved is a knock if `b` was pressed, else asked then; other
   changes are settled by the next scans. No questions wait for the end of a batch. "Touched the tile" is a rescue; "the
   arm bumped a tile, no one helped" is a failure. The scorecard's numbers: `docs/scorecard.md`. Rules and cases:
