@@ -52,25 +52,74 @@ def is_sim(session_dir):
     return bool(start.get("sim"))
 
 
-def rows(session_dir):
-    """One row per saved photo (a shot redone with `b` has no files left): truth, kind, hold, daylight, path, session, pose.
-    The first two sessions held tiles at fixed distances and have no holds: their `hold` is None. `pose` is the saved camera
-    pose the arm held the tile at (base_cam_collect.py); None for a tile held by hand."""
+REVIEW = config.DATA / "holdup_review.jsonl"     # a person's verdicts on the photos (scripts/base_cam_review.py)
+
+
+def _shots(session_dir):
+    """Every photo of a session as filed, before review: one row per file (see `rows`)."""
     session_dir = Path(session_dir)
     events = read_events(session_dir)
     conditions = next((e["conditions"] for e in events if e["type"] == "holdup_conditions"), {})
     discarded = {e["shot"] for e in events if e["type"] == "holdup_shot_discarded"}     # a retake reuses the file names
-    out = []
+    out, arrangement = [], None
     for e in events:
+        if e["type"] == "holdup_arrangement":
+            arrangement = e.get("n")
         if e["type"] != "holdup_shot" or e["shot"] in discarded:
             continue
         poses = e.get("frame_poses") or [None] * len(e["files"])        # by the arm: which saved pose each frame is from
+        first_at = {}                       # a pose's first frame stands for its others in a review, as a wrist view's f0 does
         for f, pose in zip(e["files"], poses):
+            key = f"{session_dir.name}/{f}"
+            if pose is not None:
+                key = first_at.setdefault(pose, key)
             if (session_dir / f).exists():
                 out.append({"truth": e["tile"], "kind": e["kind"], "hold": e.get("hold"), "path": session_dir / f,
                             "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name,
-                            "pose": pose})
+                            "pose": pose, "spot": e.get("spot"), "arrangement": arrangement, "key": key})
     return out
+
+
+def rows(session_dir, review=None):
+    """One row per saved photo (a shot redone with `b` has no files left), as a person reviewed it (data/holdup_review.jsonl,
+    scripts/base_cam_review.py): a photo marked wrong is left out, a renamed one gets its right name in `truth` (`filed_as` is
+    what it was saved under). Fields: truth, kind, hold, daylight, path, session, shot, pose, spot, arrangement, key (the
+    review's: the first frame at the photo's pose in its shot), reviewed. The first two sessions held tiles at fixed
+    distances and have no holds: their `hold` is None. `pose` is the saved camera pose the arm held the tile at
+    (base_cam_collect.py); None for a tile held by hand."""
+    from . import photo_review
+    review = load_review() if review is None else review
+    out = []
+    for row in _shots(session_dir):
+        name = photo_review.name_of({"key": row["key"], "name": row["truth"]}, review)
+        if name is not None:
+            out.append({**row, "truth": name, "filed_as": row["truth"], "reviewed": row["key"] in review})
+    return out
+
+
+def load_review(path=None):
+    from . import photo_review
+    return photo_review.load_review(path or REVIEW)
+
+
+def review_photos(folders):
+    """The photos a person reviews, before review: one per pose of each hold (its first frame; the pose's other frames share
+    its verdict), as mahjong.photo_review wants them: key, path, name (as filed), session, group, frames, and the shot's
+    kind, hold, pose, spot and arrangement. A group is one tile laid on one spot in one arrangement (every hold of it there),
+    what a person gets wrong together by laying the wrong tile; a session from before arrangements groups by shot."""
+    out = {}
+    for folder in folders:
+        for row in _shots(folder):
+            photo = out.get(row["key"])
+            if photo is None:
+                where = (f"a{row['arrangement']}/{row['spot']}" if row["arrangement"] is not None
+                         else f"shot{row['shot']}")
+                photo = out[row["key"]] = {
+                    "key": row["key"], "path": row["path"], "name": row["truth"], "session": row["session"],
+                    "group": f"{row['session']}/{where}/{row['truth']}", "frames": [],
+                    **{k: row[k] for k in ("kind", "hold", "shot", "pose", "spot", "arrangement")}}
+            photo["frames"].append(row["path"])
+    return list(out.values())
 
 
 # --- scoring ---

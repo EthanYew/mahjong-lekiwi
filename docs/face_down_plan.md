@@ -339,6 +339,10 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   readers' scoring (`holdup_score.py --installed`) are gone: test 1 is answered, and hand-held photos have no pose, so they can't
   train the reader. Collection now defaults to every tile name, flowers too (the owner's choice), and counts only interleaved
   sessions, so EW (held only a tile at a time on 11-06) is collected again. The reader knows 1B, 2C, 3C, 5C, 7C and 9C; 32 are short.
+- **2026-11-12, the photos can be counted and checked**: `scripts/base_cam_review.py --counts` lists the holds per tile, fewest
+  first, and the window marks a hold filed under the wrong name (a tile laid on the wrong spot) or renames it, in
+  `data/holdup_review.jsonl`, which training and the collect counts read. On 11-12, 17 of 34 playable tiles had photos (3C, 5C, 9C
+  15 holds each way up; 6-9 of most suits and every honour none); no photo reviewed yet.
 - For test 8, `play.py` will stop on face-down tiles in two places: a turn waits for a scan to see a tile on the zone, and
   the table check would take a face-down tile as missing. Test 3 means neither comes free: both need another way to know.
 
