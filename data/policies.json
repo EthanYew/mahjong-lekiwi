@@ -1,10 +1,10 @@
 {
-  "default": "pickup_mat_cl_v8",
+  "default": "pickup_mat_cl_v10",
   "default_note": {
-    "policy": "pickup_mat_cl_v8",
-    "since": "2026-11-05",
-    "evidence": "Owner's decision, 2026-11-05, taking v8 as the best policy trained. 20261104_150542_bench: play-ready, 42/42 clean on the standard setup (its setup check read WARN). 20261103_214640_bench: v8 12/14 clean vs v7 10/14, iteration check Ahead 3-1, but not one change (v8 at its 20.6% hover, v7 at 26.7%). 20261105_142843_play: one hand on v8, 14 pickups, 14 picked, closing 5.7mm median. Open: at S8 a lone tile closes 21-28mm high and misses (20261105_211427_holdup, 20261105_215520_bench), where among a full hand it picked 6/6 at 5-9mm.",
-    "why": "v8 is the best policy trained (play-ready 42/42, ahead of v7 when benched together) and needs play testing"
+    "policy": "pickup_mat_cl_v10",
+    "since": "2026-11-12",
+    "evidence": "Owner's decision, 2026-11-12, taking v10 (v9's data + Yewy/mahjong_facedown_dagger_v9) as the policy to build on for the face-down turn. 20261112_092401_crude: 6 turns of the face-down crude run on v10, 14/14 picks held (station F draws, hand S3, drop zone), one slight bump of a neighbour logged by the owner. 20261112_091817_bench: 1/1 clean on 8D (no layout, surface not recorded). Offline (data/offline_eval/pickup_mat_cl_v10@114000): no freezes on any slice, tilt arm MAE 4.39 vs v9's 5.71. Not checked by docs/scorecard.md: no standard-setup bench session on v10 yet (20261112_092132_bench, v9 vs v10 on even-hand14, was interrupted before any trial), so the iteration and play-ready checks are still owed: bench.py --policy pickup_mat_cl_v8,pickup_mat_cl_v10 --layout even-hand14.",
+    "why": "v10 adds the face-down DAgger data the crude turn needs and held all 14 picks of its first crude run; the bench checks are still owed"
   },
   "policies": {
     "pickup_mat_cl": {
