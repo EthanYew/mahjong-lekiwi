@@ -328,3 +328,71 @@ def test_attended_runs_still_ask(tmp_path, monkeypatch):
         b.close()
     assert len(asked) == 1 and "5C moved 8mm" in asked[0]
     assert [e["label"] for e in read_events(Path(b.session.dir)) if e["type"] == "detections"][-1] == "after_return"
+
+
+# --- face down, with detector weights that have the back class ---
+
+BACK_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]     # as test_bench's face-down spots
+
+
+def face_down_layout(monkeypatch, spots=BACK_SPOTS):
+    from mahjong import layout, sim
+    monkeypatch.setattr(sim, "SEES_BACKS", True)
+    monkeypatch.setattr(layout, "load", lambda name: {"spots": spots})
+
+
+def back_near(b, xy):
+    return min((t for t in b.realsense.tiles if t["tile_name"] == config.BACK),
+               key=lambda t: (t["xy"][0] - xy[0]) ** 2 + (t["xy"][1] - xy[1]) ** 2)
+
+
+def test_face_down_unattended_finds_each_back_checks_its_landing_and_keeps_its_samples_out_of_the_fits(
+        tmp_path, monkeypatch, no_input):
+    face_down_layout(monkeypatch)
+    b = run_bench(tmp_path, monkeypatch, "--trials", "2", "--layout", "down", "--face-down")
+    events = read_events(b.session.dir)
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert [a["spot"] for a in attempts] == ["L", "L", "R", "R"] and all(a["success"] for a in attempts)
+    assert all(a["tile"] == config.BACK and a["name_source"] == "read" for a in attempts)    # found by a scan, not aimed blind
+    landed = [e for e in events if e["type"] == "return_landed"]
+    assert len(landed) == 4 and all(e["landed_xy"] is not None for e in landed)
+    for name in ("hover_corrections.jsonl", "return_corrections.jsonl"):
+        rows = [json.loads(line) for line in (b.session.dir / name).read_text().splitlines()]
+        assert rows and all(r["excluded"].startswith("face down") for r in rows)
+    (seen,) = [e for e in events if e["type"] == "face_down_seen"]
+    assert seen["unseen"] == [] and sorted(seen["spots"]) == ["L", "R"]
+    assert next(e for e in events if e["type"] == "face_down_setup")["sees_backs"] is True
+    assert interventions.derive(events) == []
+
+
+def test_face_down_unattended_reports_a_knocked_back(tmp_path, monkeypatch, no_input):
+    spots = [{"id": "A", "xy": [0.212, 0.021]}, {"id": "B", "xy": [0.212, 0.075]}]    # neighbours 54mm apart, as a hand's
+    face_down_layout(monkeypatch, spots)
+
+    def setup(b):
+        run, count = b.policy.run, [0]
+
+        def wrapped(*args, **kwargs):
+            count[0] += 1
+            if count[0] == 1:           # the pickup at A knocks B's back 8mm
+                back_near(b, spots[1]["xy"])["xy"][0] += 0.008
+            return run(*args, **kwargs)
+        b.policy.run = wrapped
+    b = run_bench(tmp_path, monkeypatch, "--trials", "1", "--layout", "down", "--face-down", setup=setup)
+    events = read_events(b.session.dir)
+    (knock,) = interventions.derive(events)
+    assert (knock["kind"], knock["during"], knock["source"]) == ("knocked", "pickup", "scans")
+    assert [m["tile_name"] for m in knock["changes"]["moved"]] == [config.BACK]
+    assert not scorecard.clean_flags(events)[knock["attempt_dir"]]
+
+
+def test_face_down_unattended_skips_a_spot_with_no_back(tmp_path, monkeypatch, no_input):
+    face_down_layout(monkeypatch)
+
+    def setup(b):
+        b.realsense.tiles.remove(back_near(b, BACK_SPOTS[1]["xy"]))     # nothing laid on R
+    b = run_bench(tmp_path, monkeypatch, "--trials", "1", "--layout", "down", "--face-down", setup=setup)
+    events = read_events(b.session.dir)
+    assert [e["spot"] for e in events if e["type"] == "attempt"] == ["L"]
+    assert [(s["reason"], s["spot"]) for s in events if s["type"] == "attempt_skipped"] == [("not_at_spot", "R")]
+    assert next(e for e in events if e["type"] == "face_down_seen")["unseen"] == ["R"]

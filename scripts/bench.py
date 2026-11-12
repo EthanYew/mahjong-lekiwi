@@ -73,11 +73,13 @@ daylight) doesn't favour one. Each attempt starts from its own policy's hover (d
 picking the tile detected nearest the spot; a spot it can't attempt is skipped, not the walk.
 session_report.py prints success per spot and policy side by side.
 
---face-down (with --layout) picks tiles lying GREEN side up: the detector can't see a back, so each pickup aims at its
-spot's saved position (layout.saved_target, as record.py --face-down and the face-down scripts do) instead of a detection,
-and you're asked once to lay a tile on each spot. A return aims at the spot as any return aims at its home, but nothing
-can see where it lands: no landing check, no return or hover samples, and a tile that walked is yours to square up (r).
-Scans still run, so a face-up neighbour that moves is caught. A face-down session is no counted result (scorecard.off_standard).
+--face-down (with --layout) picks tiles lying GREEN side up, and you're asked once to lay a tile on each spot. With detector
+weights that have the back class (config.BACK), a back is found and checked like any tile: each pickup aims at the back the
+scan sees nearest the spot, a return's landing is checked, a knocked back shows in the scans, and --unattended works. Its
+hover and return samples are logged but excluded from the fits until a back's box is checked against a face's. With older
+weights nothing sees a back, so each pickup aims at its spot's saved position (layout.saved_target, as record.py --face-down
+does), nothing sees where a return lands (no landing check, no samples), and a tile that walked is yours to square up (r).
+A face-down session is no counted result (scorecard.off_standard).
 
 --unattended runs --trials with no one watching: nothing is asked once the trials start (the setup questions still
 are, before them). A neighbour the scans see move or turn is a self-reported bump, settled by the later scans like
@@ -96,7 +98,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import bump_report, config, detector, interventions, layout, placements, takeover, wrist_check
+from mahjong import bump_report, config, detector, interventions, layout, perception, placements, takeover, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
@@ -153,6 +155,15 @@ class KeyMarks:
             self.terminal.stop()
 
 
+BACK_UNCHECKED = ("face down: a back box's centre hasn't been checked against a face box's at the same spots, and the hover "
+                  "and return models are fitted from detections")
+
+
+def back_excluded(tile):
+    """Provenance that keeps a hover or return sample from a back (perception.is_back) out of the fits, logged all the same."""
+    return {"excluded": BACK_UNCHECKED} if perception.is_back(tile) else {}
+
+
 class Bench:
     SESSION_KIND = "bench"          # the session folder's suffix (scripts/play.py builds on the bench as "play")
 
@@ -166,12 +177,14 @@ class Bench:
             raise SystemExit(f"--carry: {args.layout} has no spot {', '.join(unknown)}")
         if args.sim:
             from mahjong import sim
-            # face down: a simulated tile on each spot, as a person lays them (the sim's detector still sees them)
-            tiles = [("5C", *s["xy"]) for s in self.spots] if args.face_down else sim.SIM_TILES
+            # face down: a simulated tile green side up on each spot, as a person lays them (boxed as backs, or by older
+            # weights not at all: sim.SEES_BACKS)
+            tiles = [(config.BACK, *s["xy"]) for s in self.spots] if args.face_down else sim.SIM_TILES
             devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
             self.takeover = takeover.make(args.dagger_dataset, None)     # nothing to hand over in the sim
+            self.sees_backs = self.face_down_detector()       # before the session folder: it may refuse to start
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
                                    detector=detector.weights_id())
         else:
@@ -188,6 +201,7 @@ class Bench:
             self.takeover = takeover.make(args.dagger_dataset, devices.get("gamepad"))
             if self.takeover:
                 self.takeover.expect_hover(self.hover_of(self.policies[0]))
+            self.sees_backs = self.face_down_detector()       # before the session folder: it may refuse to start
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False,
                                    detector=detector.weights_id())
         # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
@@ -241,9 +255,23 @@ class Bench:
                            hover_lower_mm=args.hover_lower_mm, face_down=args.face_down,
                            dagger_dataset=args.dagger_dataset if self.takeover else None)
         if args.face_down:
-            print("Face down: every pickup aims at its spot's saved position, and nothing can see where a return lands")
+            self.session.event("face_down_setup", sees_backs=self.sees_backs, detector=detector.weights_id())
+            print("Face down: the detector sees backs, so pickups aim at the back it finds and returns are checked"
+                  if self.sees_backs else "Face down: the detector can't see backs, so every pickup aims at its spot's saved "
+                                          "position, and nothing can see where a return lands")
 
     # --- pieces ---
+
+    def face_down_detector(self):
+        """--face-down: whether the detector sees backs. Weights with the back class find each tile and its landing as any
+        scan does; older ones can't, so every pickup goes by the spot's saved position and someone has to watch."""
+        if not self.args.face_down:
+            return False
+        sees = perception.sees_backs(self.realsense)
+        if self.args.unattended and not sees:
+            raise SystemExit(f"--face-down --unattended needs detector weights with the {config.BACK!r} class "
+                             f"({config.TILE_DETECTOR.name} has none): nothing else can see a back that walked")
+        return sees
 
     def hover_of(self, policy):
         """The policy's hover (data/policies.json), with --hover-gripper's opening if given. The policy
@@ -570,6 +598,8 @@ class Bench:
         if box:                     # picked up from where the box is, as a named tile would be
             self.mat.restore(tile)
             return {"tile_name": tile["tile_name"], "xy": tuple(box["xy"]), "confidence": 0.0, "faint": True}
+        if self.args.face_down:     # the wrist look finds a white face between the jaws (wrist_check.face_fill), not a back
+            return None
         if self.crowded(tile, tiles, self.scan_n):
             return None
         result = self.wrist_look(tile, self.scan_n)
@@ -597,8 +627,9 @@ class Bench:
         """The tile named `tile_name`, or detected nearest layout `spot`, or one you pick. In trials, a tile
         that isn't found is repositioned by a person and the mat rescanned (s skips it): a flickering
         detection (7D read as 6D, 2026-10-29) otherwise skipped the spot or stopped the run.
-        --face-down: the tile at the spot's saved position (choose_saved)."""
-        if self.args.face_down:
+        --face-down: the back the scan finds at the spot, or with weights that can't see backs, the spot's saved
+        position (choose_saved)."""
+        if self.args.face_down and not self.sees_backs:
             return self.choose_saved(spot)
         confirmed = None
         while True:
@@ -823,7 +854,7 @@ class Bench:
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
-                                  attempt_dir=attempt.name)
+                                  attempt_dir=attempt.name, **back_excluded(tile))
             append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
@@ -911,7 +942,7 @@ class Bench:
         home, name = held["home_xy"], held["tile_name"]
         tile, reset = check_landing(held, placed["xy"], tiles, self.session, self.returns_path, self.correction,
                                     self.hover_of(self.policy), policy=self.policy.id,
-                                    return_correction=self.returns.name)
+                                    return_correction=self.returns.name, **back_excluded(held))
         if not reset:
             return
         # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
@@ -1009,6 +1040,16 @@ class Bench:
                   "then Enter: ")
         self.laid.update(todo)
         self.session.event("face_down_laid", spots=todo)
+        if self.sees_backs:         # the scan can check it: a spot with no back near it is said now, not found mid-trials
+            if not self.arm.is_at_rest():
+                self.arm.rest()
+            tiles = self.scan("face_down_check", look=False)
+            unseen = [s["id"] for s in spots if s["id"] in todo
+                      and layout.nearest_tile([t for t in tiles if perception.is_back(t)], s["xy"]) is None]
+            self.session.event("face_down_seen", spots=[i for i in todo if i not in unseen], unseen=unseen)
+            if unseen:
+                print(f"  No back seen on {', '.join(unseen)}: "
+                      + ("it'll be skipped." if self.args.unattended else "squared up when it's reached, or skipped."))
 
     def trials(self, n=None, tile_name=None):
         """n rounds on one tile, or at every spot of the layout. A round is one attempt per policy, from
@@ -1208,13 +1249,12 @@ def parse_args(argv=None):
                         "where it closes high (v8 at S8, 2026-11-05: 28mm up, missed). An experiment: its attempts save no "
                         "hover samples and the session is no counted result. At most 10 (the arm's own limit)")
     p.add_argument("--face-down", action="store_true",
-                   help="with --layout: tiles lie GREEN side up, so every pickup aims at its spot's saved position (the detector "
-                        "can't see backs), as record.py --face-down. Returns set it back on its spot unseen: no landing check, "
-                        "no hover or return samples, and someone watching")
+                   help="with --layout: tiles lie GREEN side up. With detector weights that have the 'back' class, pickups aim "
+                        "at the back the scan finds and returns are checked, so --unattended works; with older weights, at each "
+                        "spot's saved position, unseen, and someone watching")
     args = p.parse_args(argv)
-    if args.face_down and (not args.layout or args.tile or args.unattended):
-        p.error("--face-down needs --layout (it aims at the spots' saved positions), no --tile, and someone watching: "
-                "nothing can see a green back land, so only a person can square up a tile that walked")
+    if args.face_down and (not args.layout or args.tile):
+        p.error("--face-down needs --layout (each tile has a spot, its home) and no --tile: every back has the same name")
     if args.hover_lower_mm is not None and not -15 <= args.hover_lower_mm <= 10:
         p.error("--hover-lower-mm is from -15 (higher) to 10 (lower): the settle only goes 10mm under the hover's offset")
     if args.unattended and not (args.trials and (args.tile or args.layout)):

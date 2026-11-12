@@ -330,6 +330,11 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - **Test 3, 2026-11-09:** six face-down tiles on the mat, five RealSense frames, the installed detector down to 1% confidence: no boxes.
   The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
   another check.
+- **2026-11-13, that other check: a back class for the detector** (branch `worktree-face-down-backs`). This plan had "a detector for tile
+  backs" out of scope for v1 unless test 7b called for one. It's brought in now because the owner wants face-down benches to run
+  unattended, which needs a scan to see a back move or land. The code is in place, checked in sim only (README "Teaching the detector
+  tile backs"); the weights wait on a capture and the gate there. A back is only where a tile is, never which one: names still come from
+  the base camera and a person.
 - **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
 - `scripts/base_cam_collect.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and

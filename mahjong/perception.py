@@ -112,15 +112,37 @@ class RealSense:
                 if d == 0.0:
                     continue
                 p_cam = np.array([(u - intrinsics.ppx) * d / intrinsics.fx, (v - intrinsics.ppy) * d / intrinsics.fy, d, 1.0])
-                x, y = (self.T_cam_to_base @ p_cam)[:2]
+                x, y, z = (self.T_cam_to_base @ p_cam)[:3]
+                height = float(z) - config.table_z(x, y)
+                if not plausible(box["tile_name"], height):
+                    continue
                 read = {"tile_name": box["tile_name"], "confidence": box["confidence"], "frame": k,
-                        "xy": (float(x), float(y)), "pixel": (u, v), "box_px": (float(x2 - x1), float(y2 - y1))}
+                        "xy": (float(x), float(y)), "height_m": round(height, 4), "pixel": (u, v),
+                        "box_px": (float(x2 - x1), float(y2 - y1))}
                 every.append(read)
                 if box["confidence"] >= config.DETECTION_SAVE_CONFIDENCE:
                     raw.append(read)
         tiles = merge_tiles(raw, n_frames)
         self.faint = faint_tiles(every, tiles, n_frames)
         return tiles
+
+
+def sees_backs(realsense):
+    """Whether `realsense`'s detector has the back class (config.BACK): only then can a scan find a face-down tile. Loads the
+    weights if they aren't yet. Older weights saw no backs even at 1% confidence (2026-11-09)."""
+    getattr(realsense, "_load_detector", lambda: None)()
+    return config.BACK in realsense.names
+
+
+def is_back(tile):
+    """A detection of a tile lying green side up: where a tile is, never which one."""
+    return tile.get("tile_name") == config.BACK
+
+
+def plausible(name, height_m):
+    """Whether a box is a tile by its height above the table: a back box at table height is mat pattern. Face boxes aren't
+    judged by it: they're how every result so far was scanned, and a name is checked by its votes."""
+    return name != config.BACK or height_m >= config.BACK_MIN_HEIGHT_M
 
 
 def run_detector(model, color, conf=config.DETECTION_SAVE_CONFIDENCE):
@@ -175,7 +197,9 @@ def merge_tiles(detections, n_frames=1, radius_m=config.TILE_MERGE_RADIUS_M, min
             continue
         best = max((t for t in cluster if t["tile_name"] == name), key=lambda t: t["confidence"])
         x, y = float(np.mean([t["xy"][0] for t in cluster])), float(np.mean([t["xy"][1] for t in cluster]))
+        heights = [t["height_m"] for t in cluster if t.get("height_m") is not None]
         merged.append({**best, "xy": (x, y), "z": config.grasp_z(x, y), "vote_confidence": round(confidence, 4),
+                       **({"height_m": round(float(np.median(heights)), 4)} if heights else {}),
                        "reads": len(cluster), "frames_seen": len(seen),
                        "votes": {n: round(v, 4) for n, v in sorted(votes.items(), key=lambda nv: -nv[1])}})
     return sorted(merged, key=lambda t: -t["xy"][1])      # left to right

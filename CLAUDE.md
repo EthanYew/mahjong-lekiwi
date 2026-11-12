@@ -233,6 +233,11 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `setup_check.py` doesn't check this yet. Evidence: `docs/face_down_plan.md`.
 - **The detector doesn't see tile backs, even at 1% confidence** (6 face-down tiles, 5 frames, no boxes; 34 on a face-up scan, 2026-11-09). A
   face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
+  The fix is a 39th class, `back` (`config.BACK`, README "Teaching the detector tile backs"), not colour (see the pale-mat invariant). A back box
+  proves a tile and which way up, never its name: `identity.scan_votes` gives it no votes, and its hover and return samples are logged
+  `excluded` until a back's box is checked against a face's at the same spots. Back boxes under `config.BACK_MIN_HEIGHT_M` above the table
+  are mat pattern (`perception.plausible`). The scripts ask `perception.sees_backs` and keep the saved-position path for weights without the
+  class. Untrained as of 2026-11-13.
 - **A classifier learns whatever separates the tiles, the scene included.** Each tile's base-camera holds taken in a row, a classifier with the tile
   blacked out still scored 99% (2026-11-06). So tiles are collected interleaved and moved between spots, `base_cam_train.py` runs a greyed-out control,
   and a score counts on a session never trained on. Collected that way and cropped to the tile, a reader trained on either the cluttered room or a blank white

@@ -97,7 +97,7 @@ class SimPerception:
     intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
     tile_boxes = None       # no detector on a rendered frame: layout.find_tile reads the colour alone
 
-    def __init__(self, tiles=SIM_TILES):
+    def __init__(self, tiles=SIM_TILES, sees_backs=True):
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
         self.hidden = {}            # {tile name: scans it's still left out of} (flicker)
@@ -109,12 +109,16 @@ class SimPerception:
         # position, which is what a carried tile's aim has to get right). None: the two agree.
         self.arm_offset = None
         from .detector import TILE_NAMES
-        self.names = TILE_NAMES
+        # tiles named config.BACK lie green side up: boxed as backs by weights with the class, unseen by older ones (a mat
+        # with no backs keeps the deployed weights' classes, which exports and label maps are checked against)
+        self.names = TILE_NAMES + [config.BACK] if sees_backs and any(t["tile_name"] == config.BACK for t in self.tiles) \
+            else TILE_NAMES
 
     def detect_tiles(self, n_frames=None):
         """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
         from .layout import table_to_pixel, tile_corners
-        boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])]
+        boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])
+                                       and (t["tile_name"] != config.BACK or config.BACK in self.names)]
         self.hidden = {name: n - 1 for name, n in self.hidden.items() if n > 1}
         for t in seen:
             corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
@@ -124,7 +128,7 @@ class SimPerception:
             pixels.append((round(float(u0 + u1) / 2), round(float(v0 + v1) / 2)))
         self.last_frames = [{"color": self.snapshot(), "boxes": boxes}]
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
-                 "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
+                 "height_m": config.TILE_THICKNESS_M, "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
 
     def in_arm_frame(self, xy):
         """Where the arm must go to reach what the camera sees at xy (tiles and detections are the camera's)."""
@@ -276,12 +280,16 @@ class SimBaseCamera:
         pass
 
 
-def connect(tiles=SIM_TILES, wrist_view=False):
+SEES_BACKS = True          # whether connect()'s simulated detector boxes backs; a test sets False for the older weights
+
+
+def connect(tiles=SIM_TILES, wrist_view=False, sees_backs=None):
     """The simulated counterpart of hardware.connect(["arm", "wrist_camera", "realsense"]): a mat of `tiles`
     that a release near the table puts the held tile back on, an arm that doesn't wait, and a wrist camera
-    that renders the mat under it (wrist_view) or gives blank frames."""
+    that renders the mat under it (wrist_view) or gives blank frames. sees_backs: whether the simulated detector boxes
+    tiles named config.BACK (weights trained on backs) or not (the older ones)."""
     from .arm import Arm
-    mat = SimPerception(tiles)
+    mat = SimPerception(tiles, sees_backs=SEES_BACKS if sees_backs is None else sees_backs)
     arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
     return {"arm": arm, "wrist_camera": SimWristCamera(arm, mat) if wrist_view else SimCamera(), "realsense": mat}
 
