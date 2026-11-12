@@ -12,6 +12,8 @@ stay 0, the ask rate as low as that allows) and say so here.
 import re
 from collections import defaultdict
 
+from . import config
+
 MIN_SHARE = 0.8             # the leading name's share of all the votes a slot has collected
 MIN_SCANS = 2               # scans a slot needs to have been seen in before its name counts
 DRAWN_MIN_SHARE = 0.9       # the drawn tile's name is new information: a stricter bar
@@ -40,8 +42,10 @@ TILE_NAME = re.compile(r"\b(?:[1-9][BCD]|[ESWN]W|[RGW]D)\b")
 
 
 def scan_votes(tile):
-    """{name: weight} that one scan's detection of a tile gives."""
-    return dict(tile.get("votes") or {tile["tile_name"]: tile["confidence"]})
+    """{name: weight} that one scan's detection of a tile gives. A back (config.BACK) is never a name: it votes for nothing."""
+    votes = dict(tile.get("votes") or {tile["tile_name"]: tile["confidence"]})
+    votes.pop(config.BACK, None)
+    return votes
 
 
 def misread_from(read):
@@ -61,7 +65,7 @@ class Votes:
         for name, weight in scan_votes(tile).items():
             self.totals[slot][name] += weight
         self.scans[slot] += 1
-        if tile.get("confidence"):      # 0.0: a tile the wrist camera or a faint box found, with no read of its name
+        if tile.get("confidence") and tile["tile_name"] != config.BACK:      # 0.0: a tile the wrist camera or a faint box found, with no read of its name
             self.confidences[slot][tile["tile_name"]].append(tile["confidence"])
 
     def known(self, slot, name, weight=10.0):

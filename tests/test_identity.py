@@ -1,4 +1,13 @@
+from mahjong import config
 from mahjong.identity import Votes, scan_votes
+
+
+def test_a_back_is_never_a_name():
+    v = Votes()
+    v.add(0, {"tile_name": config.BACK, "confidence": 0.9, "votes": {config.BACK: 4.5}})
+    v.add(0, {"tile_name": config.BACK, "confidence": 0.9, "votes": {config.BACK: 3.0, "2C": 1.0}})
+    assert scan_votes({"tile_name": config.BACK, "confidence": 0.9}) == {}
+    assert v.leader(0)[0] == "2C" and config.BACK not in v.confidences[0]
 
 
 def tile(name, confidence=0.9, votes=None):
