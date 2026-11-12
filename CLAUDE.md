@@ -240,6 +240,10 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `disabled by hub (EMI?)`; 0 disconnects in 446 picks to 2026-10-27, 89 since): no driver or `uvcvideo` option can fix it, and
   the kernel's own port power cycles haven't. Which part: `scripts/wrist_usb_watch.py`. Whether the wait and our power
   cycle work is unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
+- **A wrist camera that comes back can come back slow.** After a replug on 2026-11-12 it enumerated at 12 Mbit/s (USB 1.1;
+  the kernel: "not running at top speed") and gave 160x120 magenta frames. It opened and read, so the reopen took it, and v8 ran on
+  them to the 16s cap closing 13mm high: that looked like a policy freeze (`20261112_155318_holdup`, attempts 050-051). So every
+  camera open checks the frame size (`hardware.check_resolution`, with the link speed in its message) and a wrong one is not ready.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a

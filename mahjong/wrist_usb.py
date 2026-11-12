@@ -43,6 +43,15 @@ def port_of(path=config.WRIST_CAM, sys_class="/sys/class/video4linux"):
     return interface.split(":")[0] if ":" in interface else None
 
 
+def link_speed(port, sys_bus="/sys/bus/usb/devices"):
+    """The USB link's speed in Mbit/s (480 high speed, 12 full speed), or None if it can't be read. A camera that comes
+    back at 12 gives only 160x120 frames (2026-11-12, after a replug)."""
+    try:
+        return int(float((Path(sys_bus) / port / "speed").read_text().strip()))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def remember_port(path=config.WRIST_CAM):
     """Note the camera's port while it's there: once it has dropped, nothing says where it was."""
     global _last_port

@@ -29,15 +29,31 @@ def open_arm():
         raise NotReady(f"couldn't open {config.FOLLOWER_PORT} (another program using it?)") from e
 
 
+def check_resolution(camera, frame, path, sys_bus="/sys/bus/usb/devices"):
+    """Raise NotReady (releasing the camera) unless `frame` is config.WRIST_RESOLUTION. On 2026-11-12 a replugged wrist
+    camera came back on a 12 Mbit/s USB link giving 160x120 magenta frames; it opened and read fine, so the reopen took
+    it, and the policy ran on them to its time cap (20261112_155318_holdup, 050)."""
+    width, height = config.WRIST_RESOLUTION
+    if frame is None or frame.shape[:2] == (height, width):
+        return
+    camera.release()
+    port = wrist_usb.port_of(path)
+    speed = wrist_usb.link_speed(port, sys_bus) if port else None
+    link = f", USB link at {speed} Mbit/s instead of 480" if speed is not None and speed < 480 else ""
+    raise NotReady(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
+                   "unplug it and plug it back in firmly (a slow link means the cable or its plug isn't making good contact)")
+
+
 def open_wrist_camera():
     from .camera import WristCamera
     if not os.path.exists(config.WRIST_CAM):
         raise NotReady(f"no wrist camera at {config.WRIST_CAM}: plug in / replug the wrist camera's USB")
     camera = WristCamera()
-    ok, _ = camera.read()
+    ok, frame = camera.read()
     if not ok:
         camera.release()
         raise NotReady("the wrist camera opened but gives no frames: replug it")
+    check_resolution(camera, frame, config.WRIST_CAM)
     wrist_usb.remember_port()
     return camera
 
@@ -65,10 +81,11 @@ def open_base_camera():
         raise NotReady(f"no base camera at {config.BASE_CAM}: plug it in, and check `ls -l /dev/basecam /dev/wristcam` "
                        "(docs/face_down_plan.md, 'The camera fix')")
     camera = BaseCamera()
-    ok, _ = read_within(camera)
+    ok, frame = read_within(camera)
     if not ok:
         camera.release()
         raise NotReady("the base camera opened but gives no frames: replug it")
+    check_resolution(camera, frame, config.BASE_CAM)
     return camera
 
 
