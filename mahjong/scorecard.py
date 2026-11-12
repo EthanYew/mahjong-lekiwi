@@ -13,7 +13,7 @@ from . import config, interventions
 from .session import read_events
 
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
-# that already counted), grip_low / grip_high (precarious, but the attempt stands), and rescan, interrupted, crashed and
+# that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
 # killed, which derive() pins on the most recent attempt whatever caused them.
 NOT_CLEAN = {"knocked", "collided", "pushed_target", "aborted", "touched_tile", "helped_arm", "caught_drop", "other",
              "unspecified", "discard_missed", "takeover"}

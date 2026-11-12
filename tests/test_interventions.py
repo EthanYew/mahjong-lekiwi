@@ -359,3 +359,14 @@ def test_a_persons_changes_are_straightening_where_a_knock_left_a_tile():
     diff = iv.scene_diff(MAT, [MAT[0], tile("2D", 0.225, -0.025), tile("9D", 0.216, 0.070)])
     straightened, reset = mat.by_hand(diff)
     assert iv.changes_text(straightened) == "9D moved 10mm" and iv.changes_text(reset) == "2D moved 10mm"
+
+
+def test_s_flags_a_shallow_grip_which_is_counted_but_leaves_the_attempt_clean():
+    from mahjong import scorecard
+    assert iv.KEYS["s"] == "grip_shallow" and iv.class_of("grip_shallow") == iv.OBSERVATION
+    assert "grip_shallow" not in scorecard.NOT_CLEAN
+    events = [{"type": "attempt", "attempt_dir": "001", "tile": "4D", "success": True, "stop_reason": "done"},
+              {"type": "keys", "attempt_dir": "001", "during": "pickup", "presses": [{"key": "s", "kind": "grip_shallow", "t_s": 9.0}]},
+              {"type": "session_end", "reason": "quit"}]
+    found = iv.derive(events)
+    assert iv.summary(found, events[:1])["shallow_grips"] == 1

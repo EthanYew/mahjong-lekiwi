@@ -42,6 +42,8 @@ KINDS = {
     # a held tile gripped near its bottom or its top: precarious, it may slip out (keys d / u); the attempt stands
     "grip_low": ("gripped low on the tile", OBSERVATION),
     "grip_high": ("gripped high on the tile", OBSERVATION),
+    # held, but only by the jaw tips: the tile didn't go deep enough between the jaws and may drop (key s); the attempt stands
+    "grip_shallow": ("gripped shallow: only the jaw tips held the tile", OBSERVATION),
     "other": ("other", RESCUE),
     "unspecified": ("marked, not explained", RESCUE),       # you pressed it for a reason
     # the bench's note command
@@ -82,9 +84,11 @@ MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught
 # r says what the scan after it will show (a person moved tiles: putting a knocked one back for the next run),
 # so it's no intervention by itself (BY_HAND): the scan's changes become straightened / tile_reset.
 BY_HAND = "by_hand"
-KEYS = {"b": "collided", "p": "pushed_target", "r": BY_HAND, "d": "grip_low", "u": "grip_high", "l": "look"}
+KEYS = {"b": "collided", "p": "pushed_target", "r": BY_HAND, "d": "grip_low", "u": "grip_high",
+        "s": "grip_shallow", "l": "look"}
 KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "r": "I moved a tile by hand",
-              "d": "gripped low", "u": "gripped high", "l": "look at this"}
+              "d": "gripped low", "u": "gripped high", "s": "gripped shallow",
+              "l": "look at this"}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
@@ -545,6 +549,7 @@ def summary(interventions, attempts):
             "target_pushes": sum(i["kind"] == "pushed_target" for i in interventions),
             "low_grips": sum(i["kind"] == "grip_low" for i in interventions),
             "high_grips": sum(i["kind"] == "grip_high" for i in interventions),
+            "shallow_grips": sum(i["kind"] == "grip_shallow" for i in interventions),
             "successes": len(successes), "clean_successes": len(successes) - assisted, "assisted_successes": assisted}
 
 
