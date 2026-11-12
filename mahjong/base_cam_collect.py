@@ -36,18 +36,50 @@ def interleaved(session_dir):
     return any(e["type"] == "holdup_conditions" and e.get("order") == "interleaved" for e in read_events(session_dir))
 
 
-def hold_counts(sessions_dir=None):
-    """{(tile, kind): distinct holds} over every real, interleaved hold-up session (`interleaved`); simulated ones don't count."""
+def counted_sessions(sessions_dir=None):
+    """(the real, interleaved hold-up sessions, the real ones left out): only the first count (`interleaved`)."""
     folder = sessions_dir or config.SESSIONS
-    seen = defaultdict(set)
-    for session in sorted(folder.glob("*_holdup")):
-        if base_cam.is_sim(session) or not interleaved(session):
-            continue
-        for row in base_cam.rows(session):
+    real = [s for s in sorted(folder.glob("*_holdup")) if not base_cam.is_sim(s)]
+    counted = [s for s in real if interleaved(s)]
+    return counted, [s for s in real if s not in counted]
+
+
+def hold_counts(sessions_dir=None, review=None):
+    """{(tile, kind): distinct holds} over every real, interleaved hold-up session (`interleaved`); simulated ones don't count.
+    By a person's review (base_cam.rows): a hold renamed counts under its right name, one whose photos are all wrong not at all."""
+    return {key: len(v["holds"]) for key, v in _tallies(sessions_dir, review).items()}
+
+
+def _tallies(sessions_dir, review):
+    review = base_cam.load_review() if review is None else review
+    seen = defaultdict(lambda: {"holds": set(), "photos": 0, "reviewed": 0, "sessions": set(), "daylight": defaultdict(set)})
+    for session in counted_sessions(sessions_dir)[0]:
+        for row in base_cam.rows(session, review):
             if row["hold"] is None:         # a fixed-distance session from before holds: nothing to count
                 continue
-            seen[(row["truth"], row["kind"])].add((row["session"], row["hold"]))
-    return {key: len(holds) for key, holds in seen.items()}
+            t = seen[(row["truth"], row["kind"])]
+            hold = (row["session"], row["shot"])        # by shot: a renamed hold's number can be one the right name has too
+            t["holds"].add(hold)
+            t["photos"] += 1
+            t["reviewed"] += row["reviewed"]
+            t["sessions"].add(row["session"])
+            t["daylight"][row["daylight"] or "unknown"].add(hold)
+    return seen
+
+
+def tile_counts(sessions_dir=None, review=None, tiles=DEFAULT_TILES, kinds=base_cam.KINDS):
+    """{tile: {"holds": {kind: n}, "photos", "reviewed" (photos a person has looked at), "sessions", "daylight": {bright / dim / none: holds}}} for
+    every tile in `tiles`, 0s for one never collected: how well each is represented in what the reader trains on."""
+    tallies = _tallies(sessions_dir, review)
+    out = {}
+    for tile in tiles:
+        parts = [tallies[(tile, k)] for k in kinds if (tile, k) in tallies]
+        out[tile] = {"holds": {k: len(tallies[(tile, k)]["holds"]) if (tile, k) in tallies else 0 for k in kinds},
+                     "photos": sum(p["photos"] for p in parts), "reviewed": sum(p["reviewed"] for p in parts),
+                     "sessions": len(set().union(*(p["sessions"] for p in parts))),
+                     "daylight": {light: sum(len(p["daylight"].get(light, ())) for p in parts)
+                                  for light in sorted({light for p in parts for light in p["daylight"]})}}
+    return out
 
 
 def wanted(tiles, counts, target=DEFAULT_TARGET_HOLDS, kinds=base_cam.KINDS):

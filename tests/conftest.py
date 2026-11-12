@@ -16,3 +16,11 @@ def no_face_model(monkeypatch, request):
     from mahjong import privacy
     monkeypatch.setattr(privacy, "find_faces", lambda image: [])
     monkeypatch.setattr(privacy, "require", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def no_holdup_review(monkeypatch, tmp_path_factory):
+    """Fake hold-up sessions reuse real session names, so a person's real verdicts (data/holdup_review.jsonl) would apply
+    to them: every test starts with an empty review of its own."""
+    from mahjong import base_cam
+    monkeypatch.setattr(base_cam, "REVIEW", tmp_path_factory.mktemp("review") / "holdup_review.jsonl")
