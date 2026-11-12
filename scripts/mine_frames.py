@@ -11,6 +11,12 @@ the current scene and plain frames teach it too.
     python scripts/mine_frames.py --all --per-session 10 # plus plain frames, up to 10 a session
     python scripts/mine_frames.py --since 20261027       # sessions from that date (name prefix) on
     python scripts/mine_frames.py --exam                 # the exam sessions' frames, for labelling the exam
+    python scripts/mine_frames.py 20261113_101500_capture --backs-layout even-hand14   # face-down frames, backs pre-labelled
+
+--backs-layout NAME is for capture sessions with tiles laid GREEN side up on that layout's spots: every scan's frame 0 goes
+out, and each spot without a face box on it gets a `back` box at its outline (detector.back_labels), since no detector yet
+boxes backs. Name only those sessions: a spot with nothing on it would still get a box. Scans saved before 2026-11-13 have
+no camera in them and are refused.
 
 The export (data/detector/<name>/) is laid out as Roboflow's own YOLO export: data.yaml (the label
 map) and <split>/images/ + <split>/labels/ with the detector's own boxes as a start (split train, or
@@ -43,7 +49,13 @@ def parse_args(argv=None):
                    help="export the exam sessions' frames (one a scan) instead of training frames")
     p.add_argument("--list", action="store_true", help="print what would be exported, write nothing")
     p.add_argument("--out", type=Path, default=None, help="export folder (default data/detector/<kind>_<time>)")
-    return p.parse_args(argv)
+    p.add_argument("--backs-layout", default=None, metavar="NAME",
+                   help="the named sessions had tiles GREEN side up on this layout's spots: pre-label a back box at each "
+                        "(implies --all with every scan; name the sessions)")
+    args = p.parse_args(argv)
+    if args.backs_layout and not args.sessions:
+        p.error("--backs-layout needs the sessions named: in any other, a spot's outline isn't a tile back")
+    return args
 
 
 def spread(rows, n):
@@ -95,7 +107,12 @@ def main(argv=None):
     if args.since:
         folders = [f for f in folders if f.name >= args.since]
     exam = detector.load_exam()
-    rows, left_out = pick(folders, exam, args.all, args.per_session, args.exam)
+    back_spots = None
+    if args.backs_layout:
+        from mahjong import layout
+        back_spots = [tuple(s["xy"]) for s in layout.load(args.backs_layout)["spots"]]
+    rows, left_out = pick(folders, exam, args.all or bool(back_spots),
+                          10 ** 6 if back_spots else args.per_session, args.exam)
     reasons = Counter(r.split(":")[0] for row in rows for r in row["reasons"])
     per_session = Counter(r["session"] for r in rows)
     for session, n in per_session.items():
@@ -108,7 +125,7 @@ def main(argv=None):
     if args.list or not rows:
         return
     out = args.out or config.DETECTOR_DATA / f"{'exam' if args.exam else 'mined'}_{datetime.now():%Y%m%d_%H%M%S}"
-    detector.export(rows, out, split="test" if args.exam else "train")
+    detector.export(rows, out, split="test" if args.exam else "train", back_spots=back_spots)
     print(f"Exported to {out} (why each frame: {detector.manifest_path(out).name}).\nDrag that whole folder "
           f"(data.yaml included) into Roboflow's "
           f"{'exam project (kept apart from training)' if args.exam else 'training project'} and correct the labels.")

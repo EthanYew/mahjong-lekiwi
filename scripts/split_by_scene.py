@@ -11,7 +11,8 @@ until it holds --valid of the frames, apart for the July frames and the frames f
 in valid. Roboflow's test split goes into the pool: the exam is the detector's test.
 
 On the way, labels are made into what train_detector expects: only the 38 tile names (aruco_marker
-and other classes dropped, so the head still matches the live weights), polygons as their boxes, and a
+and other classes dropped, so the head still matches the live weights; --with-backs keeps `back`, tiles lying
+green side up, as a 39th class after them), polygons as their boxes, and a
 label drawn twice on one tile merged. A frame with two names on one tile is left out and listed, to fix
 in Roboflow; so is any exam frame.
 """
@@ -26,7 +27,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import detector
+from mahjong import config, detector
 
 
 def parse_args(argv=None):
@@ -38,11 +39,21 @@ def parse_args(argv=None):
                    help="frames sharing this much of their tiles both ways are one scene (default 0.6)")
     p.add_argument("--seed", type=int, default=0, help="which scenes go to valid (default 0)")
     p.add_argument("--list", action="store_true", help="print the split, write nothing")
+    p.add_argument("--with-backs", action="store_true",
+                   help="keep the 'back' class (tiles lying green side up) as a 39th, after the 38 tile names: the head then "
+                        "has one more class than the live weights, which train_detector's start carries over all but the head")
     return p.parse_args(argv)
 
 
-def load(data_yaml):
+def class_names(with_backs=False):
+    """The classes train_detector gets: the 38 tile names, and with_backs the back class (config.BACK) last, so every tile
+    name keeps its index."""
+    return detector.TILE_NAMES + [config.BACK] if with_backs else detector.TILE_NAMES
+
+
+def load(data_yaml, with_backs=False):
     """[{"image", "boxes", "split"}] for every labelled image of the export, plus what was set aside."""
+    keep = set(class_names(with_backs))
     import cv2
     root = Path(data_yaml).parent
     names = yaml.safe_load(Path(data_yaml).read_text())["names"]
@@ -54,7 +65,7 @@ def load(data_yaml):
         label = image.parent.parent / "labels" / f"{image.stem}.txt"
         h, w = cv2.imread(str(image)).shape[:2]
         boxes = detector.read_yolo_labels(label, names, (w, h)) if label.exists() else []
-        tiles = [b for b in boxes if b["tile_name"] in detector.TILE_NAMES]
+        tiles = [b for b in boxes if b["tile_name"] in keep]
         notes["other boxes dropped"] += len(boxes) - len(tiles)
         tiles, twins = detector.dedupe(tiles)
         notes["labels drawn twice merged"] += len(twins)
@@ -88,24 +99,24 @@ def split(frames, valid=0.2, share=0.6, seed=0):
     return frames
 
 
-def write(frames, out):
+def write(frames, out, with_backs=False):
+    names = class_names(with_backs)
     for f in frames:
         images, labels = out / f["to"] / "images", out / f["to"] / "labels"
         images.mkdir(parents=True, exist_ok=True)
         labels.mkdir(parents=True, exist_ok=True)
         shutil.copy(f["image"], images / f["image"].name)
-        lines = detector.yolo_lines(f["boxes"], detector.TILE_NAMES, f["size"])
+        lines = detector.yolo_lines(f["boxes"], names, f["size"])
         (labels / f"{f['image'].stem}.txt").write_text("".join(line + "\n" for line in lines))
     (out / "data.yaml").write_text(yaml.safe_dump({"train": "../train/images", "val": "../valid/images",
-                                                   "nc": len(detector.TILE_NAMES), "names": detector.TILE_NAMES},
-                                                  sort_keys=False))
+                                                   "nc": len(names), "names": names}, sort_keys=False))
 
 
 def main(argv=None):
     args = parse_args(argv)
     if args.out.exists() and not args.list:
         raise SystemExit(f"{args.out} exists: pick a new folder")
-    frames, notes = load(args.data)
+    frames, notes = load(args.data, args.with_backs)
     exam = detector.exam_frames([f["image"] for f in frames])
     clashes = {f["image"].name: two_names_on_a_tile(f["boxes"]) for f in frames}
     kept = [f for f in frames if f["image"] not in exam and not clashes[f["image"].name]]
@@ -130,7 +141,7 @@ def main(argv=None):
     print("  from Roboflow's split: " + ", ".join(f"{a}->{b} {n}" for (a, b), n in sorted(moved.items())))
     if args.list:
         return
-    write(kept, args.out)
+    write(kept, args.out, args.with_backs)
     print(f"Written to {args.out}. Next: python scripts/train_detector.py --data {args.out / 'data.yaml'} --name NAME --dry-run")
 
 
