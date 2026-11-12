@@ -96,7 +96,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import bump_report, config, detector, interventions, layout, placements, wrist_check
+from mahjong import bump_report, config, detector, interventions, layout, placements, takeover, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
@@ -171,6 +171,7 @@ class Bench:
             devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
+            self.takeover = takeover.make(args.dagger_dataset, None)     # nothing to hand over in the sim
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
                                    detector=detector.weights_id())
         else:
@@ -178,8 +179,15 @@ class Bench:
             from mahjong.policy import Policy
             self.policies = [Policy(i) for i in ids]       # before connecting, so a mistyped id fails fast
             # hardware first: nothing (not even the session folder) is created until it's all there
-            devices = hardware.connect(["arm", "wrist_camera", "realsense"])
+            if args.dagger_dataset:         # one dataset, one hover: before connecting, so it fails fast
+                takeover.same_hover([self.hover_of(p) for p in self.policies])
+            devices = hardware.connect(["arm", "wrist_camera", "realsense"] + takeover.devices(args.dagger_dataset),
+                                       gamepad_kwargs=takeover.gamepad_kwargs(args.device))
             self.arm, self.camera, self.realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
+            # A during a pickup hands a person the arm, and the recovery is a DAgger episode (mahjong/takeover.py)
+            self.takeover = takeover.make(args.dagger_dataset, devices.get("gamepad"))
+            if self.takeover:
+                self.takeover.expect_hover(self.hover_of(self.policies[0]))
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False,
                                    detector=detector.weights_id())
         # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
@@ -230,7 +238,8 @@ class Bench:
                            layout=args.layout, spots=self.spots, unattended=args.unattended, carry=args.carry,
                            correction=self.correction.summary(), return_correction=self.returns.summary(),
                            hover_perturb_offsets_m=args.hover_perturb_mm, hover_gripper_override=args.hover_gripper,
-                           hover_lower_mm=args.hover_lower_mm, face_down=args.face_down)
+                           hover_lower_mm=args.hover_lower_mm, face_down=args.face_down,
+                           dagger_dataset=args.dagger_dataset if self.takeover else None)
         if args.face_down:
             print("Face down: every pickup aims at its spot's saved position, and nothing can see where a return lands")
 
@@ -750,14 +759,22 @@ class Bench:
             self.arm.rest()
             return None
         self.abort.clear()
-        run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark)
+        run = self.policy.run(self.arm, self.camera, attempt, abort=self.abort, mark=self.mark,
+                              **({"takeover": self.takeover} if self.takeover else {}))
         squeezed_from = self.arm.squeeze()     # a policy that stopped closing short of 0 on the tile
         if not (self.direct and not run["aborted"] and not run["marks_s"] and self.arm.holding()[0] and self.arm.lift_clear()):
             self.arm.rest()
         presses = self.keys.stop()
         holding, command, measured = self.arm.holding()
-        if presses or not holding:      # something happened, or a miss to aim at again: look at the mat now
+        if presses or not holding or run.get("takeover_step") is not None:    # something happened, or a miss: look at the mat now
             self.arm.rest()
+        if self.takeover:               # a recovery a person showed is saved (and logged as a rescue) before anything is asked
+            self.takeover.save(run, self.session, self.policy.id, tile_name=tile["tile_name"], detection_xy=list(tile["xy"]),
+                               hover=self.hover_of(self.policy), hover_xy=hover["hover_xy"],
+                               hover_clearance_m=hover["clearance_m"], hover_jitter_xy=list(perturb),
+                               hover_correction=self.correction.name, attempt_dir=attempt.name,
+                               **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
+                               **({"face_down": True} if self.args.face_down else {}))
         if run["stop_reason"] == "camera" and not holding:
             self.session.event("attempt_void", reason="wrist camera stopped giving frames", tile=tile["tile_name"],
                                policy=self.policy.id, attempt_dir=attempt.name, hover_perturb_xy=list(perturb),
@@ -797,10 +814,12 @@ class Bench:
                            hover_sag_xyz_m=hover.get("sag_xyz_m"), hover_gripper=self.hover_of(self.policy)["gripper"],
                            **({"gripper_squeezed_from": squeezed_from} if squeezed_from is not None else {}),
                            **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
-                           **run, **review)
+                           **takeover.policy_view(run), **review)
         self.last_attempt = attempt.name
         # a lowered hover says nothing about the usual one; a saved position isn't a detection, which the correction is fitted from
-        if success and run["grasp_xy"] and not self.args.hover_lower_mm and not tile.get("saved_position"):
+        # ...and a person's grasp after a takeover isn't the policy's
+        if success and run["grasp_xy"] and not self.args.hover_lower_mm and not tile.get("saved_position") \
+                and run.get("takeover_step") is None:
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
@@ -927,7 +946,8 @@ class Bench:
     def teach_discard(self):
         from mahjong import hardware
         try:
-            gamepad = hardware.connect(["gamepad"], gamepad_kwargs={"device": self.args.device, "commit_s": 0.0})["gamepad"]
+            gamepad = self.takeover.gamepad if self.takeover else \
+                hardware.connect(["gamepad"], gamepad_kwargs={"device": self.args.device, "commit_s": 0.0})["gamepad"]
         except SystemExit:
             return print("teach-discard cancelled")
         self.arm.raise_from_rest()
@@ -943,7 +963,8 @@ class Bench:
                 time.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
         finally:
             self.terminal.stop()
-        gamepad.close()
+        if not self.takeover:           # the takeover's gamepad stays connected for the pickups
+            gamepad.close()
         if not self.events["stop_recording"]:
             pose = {j: self.arm.commanded()[j] for j in config.ARM_JOINTS}
             config.DISCARD_POSE.write_text(json.dumps({"pose": pose, "session": self.session.dir.name}, indent=2) + "\n")
@@ -1140,6 +1161,8 @@ class Bench:
             self.camera.release()
             self.realsense.close()
             self.keys.close()
+            if self.takeover:
+                self.takeover.close()
             self.session.close()
 
 
@@ -1169,7 +1192,8 @@ def parse_args(argv=None):
     p.add_argument("--tile", default=None, help="tile name for --trials")
     p.add_argument("--layout", default=None, help="trials walk this layout's spots (scripts/layout.py)")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
-    p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard)")
+    p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard, --dagger-dataset)")
+    takeover.add_argument(p)
     p.add_argument("--hover-perturb-mm", type=parse_offsets, default=None,
                    help="hover offsets the trials cycle through, e.g. 0,6x,-6x,6y,-6y (policy sensitivity test)")
     p.add_argument("--carry", type=lambda text: text.split(","), default=None, metavar="FROM,TO",

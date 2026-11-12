@@ -66,6 +66,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
 | Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v8 --policy pickup_mat_cl_v8` (press A on the gamepad to take over) |
+| Show the policy how to recover, from where it went wrong in a bench or face-down run (DAgger) | add `--dagger-dataset Yewy/<new dagger set>` to `bench.py`, `base_cam_collect.py`, `wall_test.py` or `crude_run.py`, and press A on the gamepad when a pickup goes wrong ([below](#taking-over-mid-pickup---dagger-dataset)) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
@@ -219,6 +220,7 @@ python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_n
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
 python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up, picked by each spot's saved position
+python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/mahjong_bench_dagger_v8   # A on the gamepad takes over a pickup going wrong
 ```
 
 | Option | What it does |
@@ -234,7 +236,8 @@ python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles
 | `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
 | `--face-down` | with `--layout`: tiles lie GREEN side up. The detector can't see a back, so every pickup aims at its spot's saved position instead of a detection (as `record.py --face-down` and `crude_run.py` do), and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. Returns aim at the spot like any return, but nothing can see where they land: no landing check, no hover or return samples, and a tile that walked is yours to square up (press `r`). Scans still run, so a face-up neighbour that moves is caught. Needs someone watching (no `--unattended`, no `--tile`); `session_report.py` flags the session and it's no counted result |
-| `--device PATH` | gamepad device path (only for teach-discard) |
+| `--dagger-dataset REPO` | connect the gamepad too: A during any pickup hands you the arm, and your recovery is saved to REPO as a DAgger episode ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). The attempt counts as a rescue, not clean. With `--policy a,b` both must start from the same hover |
+| `--device PATH` | gamepad device path (teach-discard, `--dagger-dataset`) |
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,
 `5 teach-discard` (drive the arm over the discard bin with the gamepad and save it), `6 trials`,
@@ -534,6 +537,28 @@ over is saved, but it isn't trained on. Take over as soon as you see the mistake
 about to drag the table or bump a neighbour), not after it. The policy's own hover (offset, clearance,
 gripper) replaces `--hover-*`. Each takeover is logged as a rescue, and `session_report.py` lists them
 with when you took over. Use a dataset of their own, never an eval slice.
+
+### Taking over mid-pickup (`--dagger-dataset`)
+
+`bench.py`, `base_cam_collect.py`, `wall_test.py` and `crude_run.py` take `--dagger-dataset REPO`. It does the same as `record.py --policy` at
+the moment a pickup goes wrong, without setting the failure up again in `record.py`. The gamepad connects with the arm. During any pickup
+the policy drives as usual. When you see it going wrong, press **A** (the rightmost face button). The policy stops and you have the arm from where it last
+put it, with the gripper held. Show the recovery and finish the pickup.
+
+- **A again** ends it and saves it. It also ends by itself once the tile is held and lifted for 1.5s, as a policy's pickup does, or after 30s.
+- **Esc** throws the recovery away. A camera dropout during the recovery throws it away too, because its frames have a gap.
+
+Then the script carries on as it would after the policy's pickup: bench returns the tile home, and base_cam_collect shows it to the camera. Writing the
+episode takes a few seconds after the pickup. A pickup nobody took over isn't saved, and the loop runs as fast as it does without the option.
+
+The episode is the whole attempt from the hover, in `record.py`'s format: the `episode_log.jsonl` row has `policy`, `takeover_frame`, the hover, the
+spot and the session. `make_policy.py --add REPO` trains only on your frames, from the takeover on. One dataset holds one hover, so the scripts refuse a dataset
+recorded from another hover, and `bench.py --policy a,b` refuses policies whose hovers differ. Name the dataset after the policy that drove, as for
+`record.py --policy`.
+
+Each takeover is logged as a `takeover` rescue on its attempt, so the attempt isn't clean (`docs/scorecard.md`). `wall_test.py` won't take `c` for one.
+The attempt's `grasp_clearance_m` is still the policy's own close, so close-height reports judge the policy. The return aims from where your jaws closed.
+A takeover's grasp saves no hover sample. With `--sim` the option does nothing, because there's no gamepad.
 
 **Wall picks (`--wall-station ID`)**: aims at that station of the layout `wall-stations` instead of a tile the detector found, because it can't see green backs. Before each episode the terminal says what to lay, with a side view, and
 waits for Enter. The layers in `--wall-layers` are taken in turn, and a discarded episode tries the same layer again. The hovers are `wall_test.py`'s: a top tile's is one tile higher and `--wall-top-back-mm` nearer the robot, and a bottom tile's is the policy's own. A
@@ -861,7 +886,7 @@ python scripts/crude_run.py --hand ... --sim                                    
 
 A turn: the arm draws from the station, holds the tile up at each saved `base_view_*` pose, and sets it on the drop zone. A window shows the photos and the reader's guess: Enter accepts it, or type the name, and `X` says the face wasn't visible. `game.py` chooses the discard, and the arm plays it. Whatever fails is written down
 (`crude_break`, printed as "Noted for the list") and you do that step by hand, in the outline the window shows; each turn ends by asking if anything else went wrong. If the jaws read too low for the held check but not as low as empty (the held reading fell from 9.5 to 3.0 over 2026-11-09), it asks whether there's a tile in them, and carries on if so.
-`--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
+`--dagger-dataset REPO`: A on the gamepad takes over a draw or a pick going wrong, and your recovery is saved ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). `--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
 you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left; `F2` 5mm further out and `L2` 10mm further left, for more room beside the hand's tiles, e.g. `--stations F2,L2`, `record.py --wall-station L2`): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
@@ -884,7 +909,7 @@ draw asks you to put the wall right. `--push-check` wants the wall laid with the
 `--stations F,L --cases top --trials 5 --hover-back-mm 10`; `--report` keeps shifted tries apart from unshifted ones. Leave the mat alone until the outcome keys appear, since the photo after each try is taken just before them.
 `--top-back-mm N` shifts top tiles only and leaves bottom tiles at the regular hover, which is what worked at F: `--stations F --cases cycle --trials 12 --top-back-mm 10`. A run that wasn't the test it was logged as (a wall laid another way, say)
 is left out of `--report` with `--exclude-session SESSION --why "..."`; its files stay.
-Other options: `--layout`, `--policy`. Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
+Other options: `--layout`, `--policy`, `--dagger-dataset REPO` (A takes over a pick going wrong; [Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
 
 `base_cam_collect.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
 on a layout spot, holds it up to the base camera at the saved `base_view_*` poses, saves frames and sets it back down.
@@ -894,6 +919,7 @@ python scripts/base_cam_collect.py --empty                       # first: visit 
 python scripts/base_cam_collect.py                               # collect what is short: every tile name, 6 holds per way up
 python scripts/base_cam_collect.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
 python scripts/base_cam_collect.py --sim                         # simulated arm and cameras
+python scripts/base_cam_collect.py --dagger-dataset Yewy/mahjong_facedown_dagger_v8   # A on the gamepad takes over a pick going wrong
 ```
 
 `--empty` writes `sessions/<time>_holdup_dry/` with a base and a wrist frame per pose (`dry_run/`, `dry_run_sheet.jpg`) and prints each
