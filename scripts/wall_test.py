@@ -31,7 +31,7 @@ import cv2
 import numpy as np
 
 from mahjong import face_down_rig
-from mahjong import camera_poses, config, gamepad, base_cam, base_cam_collect, layout, privacy, wall_test, wrist_check
+from mahjong import camera_poses, config, gamepad, base_cam, base_cam_collect, layout, privacy, takeover, wall_test, wrist_check
 from mahjong.camera import grab_frames
 from mahjong.perception import drain_stdin
 from mahjong.session import Session, read_events
@@ -57,6 +57,7 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true", help="score every real wall-test session so far; no hardware")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
+    takeover.add_argument(p)
     p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what base_cam_collect's Rig reads
     return p.parse_args(argv)
 
@@ -104,11 +105,13 @@ def save_before_after(table, station, before, after, folder):
     cv2.imwrite(str(Path(folder) / "table_before_after.jpg"), np.hstack([before[y0:y1, x0:x1], after[y0:y1, x0:x1]]))
 
 
-def ask_outcome(ask, held, close_mm, photo):
-    """One key for how the attempt went; None if the person quit. Clean needs the jaws to have read a tile."""
+def ask_outcome(ask, held, close_mm, photo, taken_s=None):
+    """One key for how the attempt went; None if the person quit. Clean needs the jaws to have read a tile, and no takeover
+    (taken_s: when a person took the gamepad, --dagger-dataset)."""
     drain_stdin()           # keys pressed during the pickup aren't answers
     close = "no close logged" if close_mm is None else f"closed {close_mm:.0f}mm above its level"
-    print(f"Jaws read {'a tile' if held else 'nothing'}, {close}." + (f" Base photo: {photo}" if photo else ""))
+    print(f"Jaws read {'a tile' if held else 'nothing'}, {close}." + (f" Base photo: {photo}" if photo else "")
+          + (f" You took over at {taken_s:.1f}s: the outcome is the policy's, up to then." if taken_s is not None else ""))
     print("Press the key for the WORST thing that happened:")
     for key, what in wall_test.OUTCOMES.items():
         print(f"  {key}  {what}" + ("  (picked the tile, nothing else moved, no help)" if what == wall_test.CLEAN else ""))
@@ -118,6 +121,8 @@ def ask_outcome(ask, held, close_mm, photo):
             return None
         if answer == "c" and not held:
             print("The jaws read nothing, so that isn't clean: which was it?")
+        elif answer == "c" and taken_s is not None:
+            print("You took the arm over, so that isn't clean: what was the policy doing when you did?")
         elif answer in wall_test.OUTCOMES:
             return wall_test.OUTCOMES[answer]
 
@@ -154,17 +159,18 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
         if rig.arm.holding()[0]:
             rig.arm.discard(ctx["discard_pose"])     # a drawn tile isn't put back on the wall in this test
     save_before_after(table, station, before, table.snapshot(), pick["attempt"])
-    close = wall_test.above_own_level_m(run.get("grasp_clearance_m"), layer)
+    close = wall_test.above_own_level_m(takeover.policy_view(run).get("grasp_clearance_m"), layer)     # the policy's close, not a person's
     if problem:
         print(f"Stopped showing it: {problem}.")
     ctx["n"] += 1
     print(f"\nTry {ctx['n']}: station {station['id']}, {case}" + (f" ({layer} tile)" if case == wall_test.CYCLE else ""))
-    outcome = ask_outcome(ask, held, None if close is None else close * 1000, photo)
+    taken_s = run.get("takeover_s")
+    outcome = ask_outcome(ask, held, None if close is None else close * 1000, photo, taken_s)
     session.event("wall_attempt", n=ctx["n"], station=station["id"], station_xy=station["xy"], case=case, layer=layer, face=settings["face"],
                   behind=settings["behind"], policy=rig.policy.id, hover_raise_m=raise_m, hover_back_m=back_m, hover_xy=hover["hover_xy"], hover_clearance_m=hover["clearance_m"],
                   hover_tilt_deg=hover["tilt_deg"], attempt_dir=pick["attempt"].name, stop_reason=run["stop_reason"], duration_s=run["duration_s"], held=held,
                   gripper_command=pick["gripper_command"], gripper_measured=pick["gripper_measured"], grasp_clearance_m=run.get("grasp_clearance_m"),
-                  above_own_level_m=close, base_photo=photo.name if photo else None, show_problem=problem or None,
+                  above_own_level_m=close, base_photo=photo.name if photo else None, takeover_s=taken_s, show_problem=problem or None,
                   white_tiles_near=ctx["whites"][station["id"]], outcome=outcome, **extra)
     if outcome is None:
         return "quit"

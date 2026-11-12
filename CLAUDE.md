@@ -19,7 +19,9 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   same hover offset, so N × 2 × spots pickups; each attempt saves `wrist.mp4`).
 - DAgger (on the default policy; wall picks add `--wall-station F`): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v10`. The policy drives, and a press of A
   (the rightmost face button, `gamepad.TAKEOVER_KEY`) hands you the arm. Training uses only the frames from the takeover on, as deltas from
-  the hover: `make_policy.py --source <main> --add <dagger>`.
+  the hover: `make_policy.py --source <main> --add <dagger>`. The same from wherever a pickup fails in `bench.py`, `base_cam_collect.py`,
+  `wall_test.py` or `crude_run.py`: `--dagger-dataset Yewy/<new>` (`mahjong/takeover.py`; A again saves, Esc throws away; a takeover is a
+  rescue, so the attempt isn't clean).
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
   learned a fixed move per position). Eval recordings have no random jitter; the golden set's `jitter`
   slice uses a fixed list (`--hover-offsets-mm 6x,-6y`) so it can be recorded again identically.
@@ -67,6 +69,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 | `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command`, `grasp_point` |
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
+| `mahjong/takeover.py` | A on the gamepad mid-pickup hands a person the arm in any script that runs the policy (`--dagger-dataset`); the recovery saved in record.py's DAgger format, which record.py shares |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
 | `mahjong/wrist_usb.py`, `scripts/wrist_usb_watch.py`, `scripts/wrist_usb/` | a wrist camera that fell off USB: wait, port power cycle (root helper, installed once), then a person; a watch of the link to find which part fails |
 | `mahjong/handoff_trace.py`, `scripts/handoff_report.py` | what the arm does once the gamepad has it (collect_corrections' `handoff/` traces): sag, drift, command moves |

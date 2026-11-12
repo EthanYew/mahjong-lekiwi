@@ -289,20 +289,34 @@ def connect(tiles=SIM_TILES, wrist_view=False):
 class SimPolicy:
     """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
     policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it
-    (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s."""
+    (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s. With a
+    `takeover` (mahjong.takeover.Takeover) whose A reads pressed once the descent is done, a person "takes over" there
+    (step 2 of 5 kept frames) and finishes the same pickup, so a script's takeover path runs end to end."""
     id = "sim"
     hover = dict(config.DEFAULT_HOVER)
 
     def __init__(self, mat=None, policy_id="sim"):
         self.mat, self.id = mat, policy_id
 
-    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
+    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print, takeover=None):
+        def keep():
+            if takeover is not None:
+                q = arm.commanded()
+                takeover.add(camera.read()[1], [arm.measured()[j] for j in config.JOINTS], q)
+        if takeover is not None:
+            takeover.begin()
+        keep()
         x, y, _ = kinematics.tool_point(arm.commanded())
         tile = self.mat.nearest(x, y) if self.mat is not None else None
         if tile is not None:
             x, y = self.mat.in_arm_frame(tile["xy"])
         down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
         arm.move_to(down, 2.0)
+        keep()
+        taken = None
+        if takeover is not None and takeover.pressed():
+            taken = 2
+            takeover.start(arm, taken)
         marks = []
         if mark is not None and mark.is_set():
             mark.clear()
@@ -316,7 +330,13 @@ class SimPolicy:
             up, _ = kinematics.hover_command(x, y, height, 0.0)
             if up is not None:
                 break
+        keep()
         arm.move_to(up, 2.0)
-        return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
+        keep()
+        keep()
+        person = {} if takeover is None else {"takeover_step": taken} if taken is None else {
+            "takeover_step": taken, "takeover_s": taken / config.FPS, "takeover_end": "pressed",
+            "policy_grasp_xy": None, "policy_grasp_clearance_m": None}
+        return {**person, "steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
                 "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks}

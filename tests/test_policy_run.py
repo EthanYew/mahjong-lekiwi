@@ -146,3 +146,100 @@ def test_a_dropped_frame_or_two_carries_on(tmp_path):
     arm = hovering_arm()
     summary = run(ScriptedPickup(arm), arm, FailingCamera(lambda n: n in (50, 51)), tmp_path, log=lambda *a: None)
     assert summary["stop_reason"] == "done"
+
+
+# --- a person takes over (mahjong/takeover.py) ---
+
+class Stuck:
+    """A policy that never leaves the hover: the failure a person steps in on."""
+    id = "stuck"
+
+    def __init__(self):
+        self.calls = 0
+
+    def reset(self):
+        pass
+
+    def step(self, frame, state_delta):
+        self.calls += 1
+        return np.zeros(6)
+
+
+class Pad:
+    """A gamepad whose A reads pressed at its `presses` (calls to takeover_pressed, 1-based), and whose sticks drive the
+    scripted pickup from wherever the takeover found the arm."""
+
+    def __init__(self, arm, presses=(10,)):
+        self.arm, self.presses, self.calls, self.starts, self.path = arm, set(presses), 0, 0, None
+
+    def arm_takeover(self):
+        pass
+
+    def takeover_pressed(self):
+        self.calls += 1
+        return self.calls in self.presses
+
+    def start(self, arm):
+        self.starts += 1
+        self.pickup = ScriptedPickup(arm)
+        self.pickup.reset()
+
+    def step(self, arm, dt):
+        delta = self.pickup.step(None, None)
+        command = {j: float(self.pickup.anchor[i] + delta[i]) for i, j in enumerate(config.JOINTS)}
+        arm.send(command)
+        return command
+
+
+def take(arm, presses=(10,)):
+    from test_record import FakeDataset
+
+    from mahjong.takeover import Takeover
+    return Takeover(Pad(arm, presses), "Yewy/test_takeover", dataset=FakeDataset("/nonexistent"), log=lambda *a: None)
+
+
+def test_a_takeover_hands_the_gamepad_the_arm_and_keeps_every_frame(tmp_path):
+    arm = hovering_arm()
+    policy, takeover = Stuck(), take(arm)
+    summary = run(policy, arm, SimCamera(), tmp_path, takeover=takeover, log=lambda *a: None)
+    assert summary["takeover_step"] == 9 and summary["takeover_end"] == "done"     # the 10th check is step 9
+    assert summary["stop_reason"] == "done" and takeover.gamepad.starts == 1
+    assert policy.calls == 9                       # the policy drove until the takeover, never after
+    assert len(takeover.frames) == summary["steps"]
+    assert summary["policy_grasp_xy"] is None      # the stuck policy never closed: the grasp is the person's
+    assert np.allclose(summary["grasp_xy"], (X, Y), atol=0.002)
+    assert int(np.load(tmp_path / "act_trace.npz")["takeover_step"]) == 9
+
+
+def test_a_takeover_outlasts_the_policys_cap(tmp_path):
+    arm = hovering_arm()
+    late = int(config.ACT_DURATION_S * config.FPS) - 5          # A just before the 16s cap
+    summary = run(Stuck(), arm, SimCamera(), tmp_path, takeover=take(arm, presses=(late,)), log=lambda *a: None)
+    assert summary["takeover_end"] == "done" and summary["duration_s"] > config.ACT_DURATION_S
+
+
+def test_a_again_ends_the_recovery_and_esc_throws_it_away(tmp_path):
+    arm = hovering_arm()
+    summary = run(Stuck(), arm, SimCamera(), tmp_path, takeover=take(arm, presses=(10, 40)), log=lambda *a: None)
+    assert summary["stop_reason"] == summary["takeover_end"] == "pressed" and summary["steps"] == 39
+
+    arm = hovering_arm()
+    abort = threading.Event()
+    takeover = take(arm)
+    step = takeover.step
+
+    def step_then_esc(arm_, dt):
+        if len(takeover.frames) == 30:
+            abort.set()
+        return step(arm_, dt)
+
+    takeover.step = step_then_esc
+    summary = run(Stuck(), arm, SimCamera(), tmp_path, abort=abort, takeover=takeover, log=lambda *a: None)
+    assert summary["aborted"] and summary["takeover_end"] == "discarded"
+
+
+def test_no_press_runs_the_policy_as_before(tmp_path):
+    arm = hovering_arm()
+    summary = run(ScriptedPickup(arm), arm, SimCamera(), tmp_path, takeover=take(arm, presses=()), log=lambda *a: None)
+    assert summary["stop_reason"] == "done" and summary["takeover_step"] is None
+    assert np.allclose(summary["grasp_xy"], (X, Y), atol=0.002)
