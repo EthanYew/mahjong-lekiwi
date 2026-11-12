@@ -250,7 +250,9 @@ def main():
         print(f"  hover {bench_setup['hover_lower_mm']:g}mm lower than the policy's own (bench --hover-lower-mm): an experiment, "
               "not a counted result")
     if bench_setup.get("face_down"):
-        print("  face-down tiles (bench --face-down): picked by saved position, landings unseen; not a counted result")
+        aim = scorecard.face_down_aim(events)
+        print(f"  face-down tiles (bench --face-down): {aim}"
+              + ("" if "back boxes" in aim else ", landings unseen") + "; not a counted result")
     if bench_setup.get("unattended"):
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "

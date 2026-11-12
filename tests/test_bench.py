@@ -411,9 +411,11 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
 FACE_DOWN_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]
 
 
-def face_down_bench(tmp_path, monkeypatch, argv=()):
+def face_down_bench(tmp_path, monkeypatch, argv=(), sees_backs=False):
+    """A face-down bench on the sim. sees_backs: detector weights with the back class (False: the older ones, which box none)."""
     import bench
-    from mahjong import layout
+    from mahjong import layout, sim
+    monkeypatch.setattr(sim, "SEES_BACKS", sees_backs)
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
     layout.save("down", FACE_DOWN_SPOTS)
@@ -456,12 +458,16 @@ def test_face_down_pickup_at_the_menu_asks_which_spot(tmp_path, monkeypatch):
     assert b.held["home_xy"] == FACE_DOWN_SPOTS[1]["xy"] and b.held["saved_position"]
 
 
-@pytest.mark.parametrize("argv", [["--face-down"], ["--face-down", "--layout", "x", "--trials", "1", "--unattended"],
-                                  ["--face-down", "--layout", "x", "--tile", "8D"]])
-def test_face_down_needs_a_layout_and_someone_watching(argv):
+@pytest.mark.parametrize("argv", [["--face-down"], ["--face-down", "--layout", "x", "--tile", "8D"]])
+def test_face_down_needs_a_layout_and_no_tile_name(argv):
     import bench
     with pytest.raises(SystemExit):
         bench.parse_args(argv)
+
+
+def test_face_down_unattended_needs_weights_that_see_backs(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="back"):
+        face_down_bench(tmp_path, monkeypatch, ["--trials", "1", "--unattended"])
 
 
 def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monkeypatch):

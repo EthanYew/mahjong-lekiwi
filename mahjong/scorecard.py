@@ -133,7 +133,14 @@ def off_standard(events, standard=None):
     return ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
-        + (["face-down tiles, picked by saved position"] if setup.get("face_down") else [])
+        + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") else [])
+
+
+def face_down_aim(events):
+    """How a bench --face-down session found its tiles: by the scan's back boxes (weights with the class), or by saved
+    position (older weights, and sessions from before the class: no face_down_setup event)."""
+    setup = next((e for e in events if e["type"] == "face_down_setup"), {})
+    return "found by the scans' back boxes" if setup.get("sees_backs") else "picked by saved position"
 
 
 def iteration_check(events, baseline, candidate, found=None):
