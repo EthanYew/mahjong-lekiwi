@@ -71,6 +71,7 @@ not a worktree, or the sessions go when the worktree does.
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
+| Teach the detector tile backs, so face-down benches can run unattended | capture, then `python scripts/mine_frames.py <session> --backs-layout even-hand14` ([below](#teaching-the-detector-tile-backs)) |
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
 | Photograph every tile on the mat with the wrist camera from jittered hovers | `python scripts/wrist_capture.py` (rings when a set is done) |
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
@@ -220,7 +221,8 @@ python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
-python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up, picked by each spot's saved position
+python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up (found by the scan once the detector sees backs)
+python scripts/bench.py --unattended --layout even-hand14 --trials 3 --face-down   # face down, no one watching: needs weights with the back class
 python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/mahjong_bench_dagger_v10   # A on the gamepad takes over a pickup going wrong
 ```
 
@@ -236,7 +238,7 @@ python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/ma
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
 | `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
-| `--face-down` | with `--layout`: tiles lie GREEN side up. The detector can't see a back, so every pickup aims at its spot's saved position instead of a detection (as `record.py --face-down` and `crude_run.py` do), and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. Returns aim at the spot like any return, but nothing can see where they land: no landing check, no hover or return samples, and a tile that walked is yours to square up (press `r`). Scans still run, so a face-up neighbour that moves is caught. Needs someone watching (no `--unattended`, no `--tile`); `session_report.py` flags the session and it's no counted result |
+| `--face-down` | with `--layout` (no `--tile`): tiles lie GREEN side up, and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. What happens next depends on the detector. **Weights with the `back` class** ([teaching it backs](#teaching-the-detector-tile-backs)): a scan right after you lay them says any spot with no back seen; each pickup aims at the back the scan finds nearest its spot, a return's landing is checked, and a knocked back shows in the scans as any tile does, so `--unattended` works. Their hover and return samples are logged but kept out of the fits (`excluded`) until a back's box is checked against a face's. **Older weights** see no backs: every pickup aims at its spot's saved position (as `record.py --face-down` and `crude_run.py` do), nothing sees where a return lands (no landing check, no samples), a tile that walked is yours to square up (press `r`), and `--unattended` is refused. Either way `session_report.py` flags the session and it's no counted result |
 | `--dagger-dataset REPO` | connect the gamepad too: A during any pickup hands you the arm, and your recovery is saved to REPO as a DAgger episode ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). The attempt counts as a rescue, not clean. With `--policy a,b` both must start from the same hover |
 | `--device PATH` | gamepad device path (teach-discard, `--dagger-dataset`) |
 
@@ -1133,6 +1135,36 @@ python scripts/hand_frames.py 20261104_183142_play --out data/detector/train_v8 
 python scripts/hand_frames.py 20261104_150542_bench --weights NEW.pt --against assets/tile_detector.pt
 # --sessions-dir DIR (from a worktree), --per-arrangement N (default 2), --per-hard-name N (default 40)
 ```
+
+### Teaching the detector tile backs
+
+The live weights box no tile backs, even at 1% confidence, so face-down scripts aim at saved positions and nothing sees a back
+move or land. A 39th class, `back` (`config.BACK`), fixes that: a back box says a tile is there and which way up, never which
+tile (play and the name ledger give it no votes). With it, `bench.py --face-down` finds each back, checks landings, and runs
+`--unattended`. A back box under 8mm above the table is mat pattern and dropped (`config.BACK_MIN_HEIGHT_M`).
+
+1. **Capture** (RealSense only, no arm): lay `even-hand14` GREEN side up to the layout's outlines (`layout.py` shows them face up;
+   place, then flip) and `capture_frames.py`: 2-3 arrangements per light, some spots left face up, some backs turned or nudged,
+   a short wall. Then one more session with `--exam` and arrangements of its own, plus a few frames of the empty mat.
+2. **Export pre-labelled**: each scan's frame 0, with a back box at every spot that has no face box on it. Scans saved before
+   2026-11-13 lack the camera this needs and are refused.
+   ```
+   python scripts/mine_frames.py 20261113_101500_capture --backs-layout even-hand14
+   python scripts/mine_frames.py 20261113_104000_capture --backs-layout even-hand14 --exam
+   ```
+   Correct the boxes in Roboflow (a back you nudged off its spot; an empty spot that got a box): training frames to the training
+   project, the exam to its own. List the exam session in `data/detector_exam.json` as usual.
+3. **Split and train** with the class kept (`--with-backs`; without it the back labels are dropped). The new head has one more
+   class than the live weights; the rest carries over from `--start`.
+   ```
+   python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_backs --with-backs
+   python scripts/train_detector.py --data data/detector/train_backs/data.yaml --name backs_v1 --dry-run
+   ```
+4. **The gate, set before training**: on the face-down exam at least 95% of backs found; on the face-up exam no more than 1 false
+   back per 5 frames and right overall no worse than the live weights (`detector_eval.py --against`). Only then copy `best.pt`
+   to `assets/tile_detector.pt`.
+5. **On the arm**: one attended `bench.py --face-down --layout even-hand14 --trials 2`, then `bump_report.py`: the scans' calls should
+   agree with yours. Then `--unattended`.
 
 **4. Wrist-camera photos (for a name check at the hover).** The wrist camera sees a tile from ~4 cm at
 the hover, far sharper than the RealSense. `wrist_capture.py` collects photos to train a check there:
