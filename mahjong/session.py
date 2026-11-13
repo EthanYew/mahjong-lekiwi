@@ -122,6 +122,10 @@ class Session:
         print(f"Session: {self.dir}" + (f"\nSetup: {conditions_text(conditions)}" if conditions else ""))
         for warning in checkout.warnings():
             print(f"WARNING: {warning}")
+        if not setup.get("sim"):
+            from . import owed      # here, not at the top: owed reads sessions with this module
+            for line in owed.items():
+                print(f"OWED: {line}")
 
     def event(self, type, **fields):
         record = {"time": datetime.now().isoformat(timespec="seconds"), "type": type, **fields}

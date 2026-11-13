@@ -1304,6 +1304,11 @@ pulled past (merge_pr.py stops on uncommitted changes to a file the PR also chan
 Every hardware session also warns at its start if the checkout is behind origin/main (as last fetched), has
 uncommitted code, or is a worktree, and logs that in `session_start`.
 
+**Owed and overdue** (`mahjong/owed.py`), in `status.py` and as `OWED:` lines at the start of every real hardware session: the
+default policy if it hasn't passed a scorecard check on the standard setup since it became the default; a policy registered after
+the default that ROADMAP.md doesn't name, or a status table dated before the default changed; merged branches not closed; and how
+many invariants still say "Unconfirmed". They're reminders, never blocks: written down once, these went unseen for days.
+
 ## Approving merges: `scripts/merge_pr.py`
 
 Branches (usually Claude's, each in a worktree) come back as draft PRs. You approve each one from the main

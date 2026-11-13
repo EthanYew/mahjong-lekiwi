@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, layout, markers, name_ledger, scorecard
+from mahjong import checkout, config, layout, markers, name_ledger, owed, scorecard
 from mahjong.session import is_sim, read_events
 
 
@@ -81,6 +81,8 @@ def report(sessions_dir=None):
     branch = checkout.git("rev-parse", "--abbrev-ref", "HEAD")
     lines.append(f"Checkout: {branch} at {checkout.git('rev-parse', '--short', 'HEAD')}"
                  + "".join(f"\n  WARNING: {w}" for w in checkout.warnings()))
+    if (due := owed.items(sessions_dir=sessions_dir)):
+        lines.append("\nOwed and overdue (mahjong/owed.py):" + "".join(f"\n  - {line}" for line in due))
 
     note = reg.get("default_note", {})
     lines.append(f"\nDefault policy: {reg['default']} (since {note.get('since', '?')})"
