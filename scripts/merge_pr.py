@@ -236,11 +236,14 @@ def close_all(ask=input):
 def merge(number, slow=False, ask=input):
     must_be_main_checkout()
     pr = json.loads(gh("pr", "view", str(number), "--json",
-                       "number,title,state,isDraft,headRefName,body,url,files,mergeCommit"))
+                       "number,title,state,isDraft,headRefName,baseRefName,body,url,files,mergeCommit"))
     if pr["state"] == "MERGED":
         return resume(pr, ask)
     if pr["state"] != "OPEN":
         raise SystemExit(f"#{number} is {pr['state'].lower()}")
+    if pr.get("baseRefName", "main") != "main":       # stacked on another PR: it would merge into that branch, tested against main
+        raise SystemExit(f"#{number} is built on {pr['baseRefName']}, not main: merge that PR first, and GitHub moves this one "
+                         "onto main once its branch is closed")
     branch = pr["headRefName"]
     run(["git", "fetch", "--prune", "origin"])
     ref = f"origin/{branch}"

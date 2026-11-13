@@ -255,3 +255,13 @@ def test_a_pr_changing_play_without_a_review_asks_before_testing(repo, monkeypat
     questions = []
     merge_pr.merge(7, ask=lambda q: questions.append(q) or "n")
     assert "scripts/play.py" in questions[0] and "Not merged: no review." in capsys.readouterr().out
+
+
+def test_a_pr_stacked_on_another_waits_for_it(repo, monkeypatch):
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+        {"number": 9, "title": "t", "state": "OPEN", "isDraft": True, "headRefName": "followups",
+         "baseRefName": "worktree-post-merge-review", "body": "", "url": "u", "files": []}))
+    with pytest.raises(SystemExit, match="built on worktree-post-merge-review, not main"):
+        merge_pr.merge(9, ask=lambda q: pytest.fail("it asked"))
