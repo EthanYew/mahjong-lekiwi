@@ -101,6 +101,16 @@ def test_a_session_from_before_the_torn_frame_check_doesnt_say_the_camera_was_fi
     assert "torn frames weren't checked" in out
 
 
+def test_a_pre_check_spot_with_a_voided_attempt_still_says_tears_werent_checked(capsys):
+    """A lost-camera void on the spot used to win: "no counted attempt lost the camera" hid the unchecked tears."""
+    attempts = [{"type": "attempt", "attempt_dir": "001", "policy": "p", "spot": "S3", "tile": "4D", "success": False,
+                 "stop_reason": "cap"}]
+    session_report.recording_focus(attempts + [{"type": "attempt_void", "spot": "S3", "policy": "p"}], attempts, [])
+    out = capsys.readouterr().out
+    assert "torn frames weren't checked in 1" in out and "1 voided and rerun" in out
+    assert "no counted attempt lost the camera" not in out
+
+
 def test_no_recording_focus_without_spots(capsys):
     session_report.recording_focus([], [{"policy": "p", "tile": "4D", "success": False, "attempt_dir": "001"}], [])
     assert capsys.readouterr().out == ""

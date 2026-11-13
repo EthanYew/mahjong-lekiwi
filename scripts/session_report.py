@@ -266,10 +266,10 @@ def recording_focus(events, attempts, found):
         why += [f"{REMARKS[k]} {n}" for k, n in r["remarks"].items()] + ([f"closed 20mm+ up {r['high']}"] if r["high"] else [])
         camera = (f"the camera stopped {r['stopped']} of them: those may not be the policy's" if r["stopped"]
                   else f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look" if r["torn"]
-                  else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
                   # 20261113_100710_bench, logged before the check: 34 of 53 attempts on torn frames, and this said "no camera loss"
                   else f"torn frames weren't checked in {r['unchecked']} (logged before 2026-11-13): watch wrist.mp4 before "
-                       "recording for them" if r["unchecked"]
+                       "recording for them" + (f" ({r['voided']} voided and rerun)" if r["voided"] else "") if r["unchecked"]
+                  else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
                   else "no camera loss")
         print(f"    {r['spot']}" + (f" {r['policy']}" if many else "") + f": {', '.join(why)}; {camera}")
 
