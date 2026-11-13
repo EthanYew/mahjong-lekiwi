@@ -51,6 +51,18 @@ spec.loader.exec_module(gate)
     f"{PY} -c \"exec(open('scripts/bench.py').read())\"",
     f"{PY} scripts/wall_test.py --stations F",                        # a real wall test, not --report
     f"{PY} scripts/bench.py --report",                                # --report is wall_test's alone
+    # Ways round the 2026-11-13 changes that must still ask.
+    f"T=/tmp/x && mkfifo $T/in && nohup {PY} -u scripts/bench.py --policy a,b < $T/in > $T/log 2>&1 &",
+    f"for f in scripts/bench.py; do bash -c \"{PY} $f\"; done",
+    f"L=scripts/bench.py; {PY} $L",
+    f"L='scripts/play.py scripts/bench.py'; for f in $L; do {PY} $f; done",
+    f"{PY} - <<'EOF'\nimport subprocess, sys\nsubprocess.run([sys.executable, 'scripts/bench.py'])\nEOF",
+    f"{PY} - <<'EOF'\nimport subprocess\ncmd = ['python', 'x']\nsubprocess.run(cmd)\n# scripts/bench.py\nEOF",
+    f"{PY} - <<'EOF'\nimport os\nos.system('python scripts/play.py --layout even-hand13')\nEOF",
+    f"{PY} - <<'EOF'\nfrom scripts import bench\nbench.main()\nEOF",
+    f"echo x | xargs -n1 {PY} scripts/bench.py",
+    f"/usr/bin/time -f '%e' {PY} scripts/bench.py",
+    f"timeout 30 bash -c '{PY} scripts/play.py --layout even-hand13'",
 ])
 def test_a_run_of_an_arm_script_asks(command):
     assert gate.reason_to_ask(command)
@@ -95,6 +107,21 @@ def test_a_run_of_an_arm_script_asks(command):
     "for f in $(git ls-files scripts); do grep -c def $f; done; wc -l scripts/bench.py",
     "echo \"$(grep -c def scripts/bench.py)\"",
     "wc -l `ls scripts/bench.py`",
+    # Prompts in the sessions to 2026-11-13 that weren't arm runs (the transcripts, home paths taken out).
+    'gh pr create --draft --title "Torn frames" --body "## What changed\nRun \\`scripts/bench.py --sim\\` to see it.\n"',
+    "gh pr create --draft --title \"Wall stations; the drop zone\" --body-file - <<'EOF'\npython scripts/record.py --wall-station zone\nEOF",
+    'grep -n "^- \\`scripts/base_cam_collect.py\\`: the arm collects" docs/face_down_plan.md',
+    f"{PY} - <<'PYEOF'\nimport subprocess\nbase = subprocess.check_output(['git', 'merge-base', 'HEAD', 'origin/main'], text=True)\n"
+    "print(open('scripts/bench.py').read().count(base))\nPYEOF",
+    f"{PY} - <<'EOF'\ns = 'import record\\nmonkeypatch.setattr(hardware, \"connect\", None)'\nopen('tests/t.py', 'w').write(s)  # scripts/record.py\nEOF",
+    "python3 -B - <<'EOF'\nsrc = open('.claude/hooks/arm_run_gate.py').read(); ns = {}\nexec(compile(src, 'g', 'exec'), ns)\n"
+    "print(ns['reason_to_ask']('python scripts/bench.py'))\nEOF",
+    'L="mahjong/base_cam.py scripts/base_cam_collect.py"; for f in $L; do cp $f /tmp/x/$f; git show origin/main:$f > $f; done',
+    "for f in CLAUDE.md scripts/play.py; do /usr/bin/time -f '  %es' python3 -I .claude/hooks/overlap_warning.py <<< \"$PWD/$f\"; done",
+    "pkill -f 'sleep infinity' ; timeout 30 bash -c 'while pgrep -f \"scripts/bench.py --policy\" >/dev/null; do sleep 1; done'",
+    "M=$(git log --merges -40 --format=%h); echo \"$M\" | tail -1 | xargs git log -1 --format='%h'; "
+    "for f in scripts/bench.py scripts/play.py; do git log --format=%h -- $f | wc -l; done",
+    "grep -rln 'hardware.connect' scripts/ | xargs -n1 basename; grep -c def scripts/bench.py",
     # Not arm scripts.
     f"{PY} scripts/status.py",
     f"{PY} scripts/session_report.py --all",
@@ -102,7 +129,7 @@ def test_a_run_of_an_arm_script_asks(command):
     "",
 ])
 def test_anything_else_stays_silent(command):
-    assert gate.reason_to_ask(command) is None
+    assert gate.reason_to_ask(command, cwd=str(REPO)) is None
 
 
 @pytest.mark.parametrize("helper, asks", [
@@ -177,9 +204,12 @@ def test_no_ask_rule_undoes_the_sim_exemption():
 
 
 def test_every_script_that_connects_the_arm_is_gated():
-    connects = {p.stem for p in (REPO / "scripts").glob("*.py")
-                if re.search(r"hardware\.connect\(\s*\[\s*\"arm\"", p.read_text())}
-    assert connects and connects <= set(gate.ARM_SCRIPTS)
+    """A script connects the arm itself, or through bench.Bench (play.py) or face_down_rig.Rig (wall_test, crude_run...): the
+    hand-kept list missed the indirect ones until 2026-11-13."""
+    moves = re.compile(r"hardware\.connect\(\s*\[\s*\"arm\"|\bbench\.\w*Bench\b|class \w+\(\s*(?:bench\.)?Bench\b|\bRig\(|face_down_rig")
+    connects = {p.stem for p in (REPO / "scripts").glob("*.py") if moves.search(p.read_text())}
+    assert {"bench", "play", "wall_test", "crude_run", "base_cam_collect"} <= connects
+    assert connects <= set(gate.ARM_SCRIPTS), f"move the arm but aren't gated: {sorted(connects - set(gate.ARM_SCRIPTS))}"
 
 
 def test_sim_exemption_only_for_scripts_that_define_it():
