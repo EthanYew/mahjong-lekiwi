@@ -248,14 +248,29 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `hardware.reopen_wrist_camera` in any new script: it waits, cuts the port's power once, and only then asks a person, and each
   one logs how it ended (`wrist_camera_recovery`; `session_report.py`). The cause is the USB link, not the driver (`error -71`,
   `disabled by hub (EMI?)`; 0 disconnects in 446 picks to 2026-10-27, 89 since): no driver or `uvcvideo` option can fix it, and
-  the kernel's own port power cycles haven't. Which part: `scripts/wrist_usb_watch.py`. Whether the wait and our power
-  cycle work is unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
+  the kernel's own port power cycles haven't. **The 10s wait is what recovers it; our power cycle never has** (94 losses to
+  2026-11-13): 85 came back by themselves (median 1.55s), and all 9 that reached the cycle still needed a person (7) or a quit
+  (2) — 0 for 9. Once the wait has failed the port needs hands, so the cycle only adds ~10s before the prompt. Which part:
+  `scripts/wrist_usb_watch.py --kernel-only`, in a second terminal during a real run; its `still` and `by-hand` watches are
+  controls and catch nothing (4 watches, 16 min, 0 drops, against ~19 disconnects/h while a script was running).
+  Evidence: `docs/invariant_notes.md`.
   **It can also keep sending torn frames** (rows shifted or smeared by lost USB data; it streams YUYV, so nothing fails to
   decode): 20261113_100710_bench ran 25 minutes on them, both policies closing 35-78mm in the air, 10/34 picked against 18/19
   on clean frames, and nothing stopped it. `camera.torn` (a share of rows jumping between frames, which the arm's own motion
   doesn't do: no clean attempt in 1591 videos reached the stop) makes `policy.run` stop as "camera" after
   `TORN_STOP_FRAMES` before the first hold (`camera_problem` "torn"). Tears had been there since 2026-10-28 in short runs.
   Unconfirmed on the arm.
+  **It can also come back on USB and still be deaf, which looks like a hang, not a drop.** After a replug on 2026-11-13 the
+  camera enumerated but every UVC control transfer timed out (`-110`), each taking 5s: `uvcvideo` permanently disabled
+  Saturation, auto White Balance, Gamma, Gain and Power Line Frequency on that instance, and streaming never started (a frame
+  read still hung 3 minutes later). The readiness check blocks in the kernel per query and a blocking ioctl swallows Ctrl-C, so
+  the terminal sat silent ~3 minutes before the interrupt landed (`20261113_110111_holdup`, which then quit cleanly with its 50
+  holds). Those controls stay disabled until it re-enumerates, and exposure and white balance are part of the policy's input, so
+  replug it and run `setup_check.py` rather than carrying on. Connected but silent is also the one case `usbreset` fits.
+- **The wrist camera's USB storm takes Bluetooth audio down with it.** The camera (3-8) and the Bluetooth radio (3-14) are on
+  the same root hub, so a flapping camera port starves it: on 2026-11-13 the bluez transport failed mid-storm and Firefox's
+  audio stream died with an I/O error, in a session with 72 re-enumerations of 3-8. Desktop audio or Bluetooth going strange
+  during a bad session is this fault, not a second one to chase.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a

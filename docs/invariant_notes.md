@@ -72,8 +72,57 @@ collect_corrections reopens it and restarts the gamepad from the held pose. Each
   the long-run rate predicts only 0.7 there, so that's weak evidence.
 - **Online fixes that don't apply**: `modprobe -r uvcvideo` acts above the failure, and the RealSense shares the driver.
   `nodrop=1` is already the value on this kernel. `quirks=0x80` is `UVC_QUIRK_FIX_BANDWIDTH`, not a memory setting, and the logs
-  show no bandwidth problem. `usbreset` needs a device still on the bus; no log has one connected but silent. Resetting the
-  controller would take the arm and RealSense with it.
+  show no bandwidth problem. `usbreset` needs a device still on the bus; no log had one connected but silent **until
+  2026-11-13, which did** (below), so that is the one case it fits. Resetting the controller would take the arm and RealSense
+  with it.
+
+2026-11-13, `20261113_110111_holdup` (base camera collect; kernel log, session events, pipewire/bluez journal):
+
+- **The wait earns its keep, the power cycle does not: 0 for 9.** Over 94 logged losses, 85 came back by themselves (median
+  1.55s, range 1.55-5.23s) and 2 were quit at the prompt. The power cycle ran 9 times — every one still ended with a person
+  (7, median 66s) or a quit (2). It only runs after the 10s wait has already failed, i.e. on the hard cases, and on this
+  evidence those need hands. So it buys nothing and delays the prompt by `AFTER_CYCLE_WAIT_S` (10s). This answers the open
+  question in `mahjong/wrist_usb.py`'s docstring. Whether it does harm is not shown: on 2026-11-13 the port was already
+  failing to enumerate before our cycle ran (`unable to enumerate` at 12:14:39, cycle at ~12:14:55), so the 2.5 minutes of
+  dead port after it can't be pinned on it.
+- **Connected but silent.** The port flapped from 11:51, hard from 12:13:12 (`error -71`, `Device not responding to setup
+  address`, ~10 cycles), then `disabled by hub (EMI?)` at 12:14:34 and `Cannot enable. Maybe the USB cable is bad?` at
+  12:17:28. A replug at 12:17:29 enumerated it as device 123 — and then every control transfer timed out with `-110` for just
+  under 3 minutes (~35 queries at 5s each). `uvcvideo` logged "UVC non compliance: permanently disabling control" for
+  Saturation, auto White Balance, Gamma, Gain and Power Line Frequency; `v4l2-ctl --list-ctrls` still showed them missing
+  afterwards, with `exposure_time_absolute` and `white_balance_temperature` `inactive`, and a 30s open-and-read hung and had
+  to be killed. The script was at the person prompt throughout and the terminal looked hung because each query blocks in the
+  kernel; the Ctrl-C landed at 12:20:25 and it exited cleanly with its 50 holds, parking the arm.
+- **78 re-enumerations of 3-8 in one boot** (08:33-12:51, ~19/h), accelerating: 21 in the ten minutes from 11:50, 11 more
+  from 12:10. The same link had produced the torn frames of `20261113_100710_bench` earlier the same morning. Two failure
+  modes from one cause, a few hours apart.
+- **It's a one-way regime change, not damage per replug.** Grouping every kernel line by enumeration: 61 of the 78 came up
+  clean (high speed, UVC found, no errors), and before 12:17 the failures were all `-71` or a UVC device never found — the
+  link dropped, but when it came up it worked. From 12:17:29 on, all three successful enumerations came up deaf (`-110`).
+  Their counts of permanently disabled controls were 5, then 1, then 7 — **not monotonic**, so a replug costing more
+  controls each time is not supported; which controls fail depends on where the timeouts land. The `-110` totals (45, 54,
+  142) mostly track how long each instance sat being probed, including by pipewire and by checks run while debugging, so
+  they don't measure damage either. What the data supports is that replugging stopped fixing it after 12:17, not that it
+  made it worse.
+- **A fallback to low or full speed is a retry, not a separate fault.** At 12:50 the ladder was high (failed) → low
+  (failed, `-71`) → full (failed) → high (up, deaf): the kernel stepping down speeds after a failed enumeration. It is a
+  symptom of a bad link, as the 2026-11-05 notes already had it, but it doesn't localise the fault to a conductor.
+- **Camera board or cable is still open.** Every symptom here belongs to the whole path (host port, cable, the camera's own
+  USB interface), so the log can't separate them. What leans cable/connector: drops track arm position (6.5% right vs 1.3%
+  centre), the step change of 2026-10-28 followed a mechanical event with 446 clean picks before it, and the slack change of
+  2026-11-10 moved the rate (0 in 13 runs, though 1 in 7 by chance). The host is ruled out — no `-71` on the arm's board, the
+  LifeCam or the RealSense. README's rule decides it: a fault that follows the camera onto a known-good cable is the board.
+- **Bluetooth audio shares the root hub.** `lsusb -t` puts the camera on bus 3 port 8 and `btusb` on bus 3 port 14. At
+  12:19:10 wireplumber logged `Failure in Bluetooth audio transport /org/bluez/hci0/dev_*/sep1/fd0` and the bluez output node
+  went `running -> error`; at 12:20:24 `pipewire-pulse` gave client `[Firefox]` `error:25 (Input/output error)`, which is
+  what the owner saw as Spotify hanging. bluetoothd recovered at 12:21:43. pipewire was also probing `/dev/video0` and
+  blocking on the same timeouts (`spa.v4l2: VIDIOC_QUERYCTRL: Connection timed out`), since it re-probes on every hotplug.
+  Ruled out as causes of the desktop symptoms: the `i915_flip` kworker (it alternates between PIDs — normal page-flip work,
+  not a stall) and Firefox's NVIDIA apparmor denials (every ~3 minutes all boot, routine).
+- **Why the watch script catches nothing.** All 4 watches to date total 16 minutes and are `still` (arm idle) or `by-hand`
+  (motors off), both controls, and all show 0 drops. The failures track powered arm motion, and `--kernel-only` — made for a
+  second terminal during a real run — has never been used. A 10-minute kernel-only watch during a bench should expect ~3
+  disconnects at the rate above.
 
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
