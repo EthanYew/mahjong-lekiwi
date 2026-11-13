@@ -230,8 +230,15 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   which blurred the tile's printing; the held tile close to the camera is seen as a person, so a "person" over 65% of the frame is
   ignored (`mahjong/privacy.py`). The blur lowers the chance of a face in a photo; it doesn't rule it out.
 - **The wrist and base cameras can only be told apart by USB port.** They report the same ID and serial, and on 2026-11-05 `/dev/wristcam`
-  pointed at the base camera. The udev rule names them by port (wrist 3-8, base 3-9 on the NUC), so keep each cable in its port.
-  `setup_check.py` doesn't check this yet. Evidence: `docs/face_down_plan.md`.
+  pointed at the base camera. The udev rule names them by port (wrist **3-5**, base 3-9 on the NUC), so keep each cable in its port —
+  and moving one means editing `/etc/udev/rules.d/99-mahjong-cameras.rules` and `config.WRIST_USB_PORT`, or `/dev/wristcam` simply
+  isn't there and every script stops at `hardware.connect`. `setup_check.py` doesn't check this yet. Evidence: `docs/face_down_plan.md`.
+- **The wrist camera's USB trouble was the NUC's port 3-8, not the camera and not the cable** (2026-11-13). Same camera, same cable,
+  a different receptacle on the same root hub: on 3-8 it enumerated fine and then timed out (`-110`) setting the UVC probe control, so it
+  never streamed — in Cheese or anywhere; moved to 3-5 it gave 267 frames in 10s at 26.7fps, 0 failed reads, 0 kernel lines. So the 94
+  logged losses, the `-71`s, the `EMI?` disables and the position-correlated drop rate were all one marginal receptacle. Don't put the
+  wrist camera back on 3-8, and treat a port as a suspect before the camera: the swap takes a minute and the cable swap needs a spare.
+  Evidence: `docs/invariant_notes.md`.
 - **The detector doesn't see tile backs, even at 1% confidence** (6 face-down tiles, 5 frames, no boxes; 34 on a face-up scan, 2026-11-09). A
   face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
   The fix is a 39th class, `back` (`config.BACK`, README "Teaching the detector tile backs"), not colour (see the pale-mat invariant). A back box

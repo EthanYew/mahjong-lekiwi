@@ -32,7 +32,8 @@ RAISED_REST = {**REST_POSE, "shoulder_lift": -40.0, "elbow_flex": 40.0}
 FPS = 30
 WRIST_CAM = "/dev/wristcam"            # udev symlink
 BASE_CAM = "/dev/basecam"              # the LeKiwi base's front camera (same model as the wrist's): udev symlink by USB port, 3-9 on the NUC
-WRIST_USB_PORT = "3-8"                 # its USB port, for a power cycle if it dropped before this run saw where it was
+WRIST_USB_PORT = "3-5"                 # its USB port, for a power cycle if it dropped before this run saw where it was.
+                                       # Was 3-8 until 2026-11-13: that receptacle is the fault (invariants), so the camera lives on 3-5
 WRIST_RESOLUTION = (640, 480)          # what every dataset was recorded at (resized to 224 for training)
 REALSENSE_SERIAL = "825312070255"
 REALSENSE_RESOLUTION = (848, 480)

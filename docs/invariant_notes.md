@@ -107,11 +107,55 @@ collect_corrections reopens it and restarts the gamepad from the held pose. Each
 - **A fallback to low or full speed is a retry, not a separate fault.** At 12:50 the ladder was high (failed) → low
   (failed, `-71`) → full (failed) → high (up, deaf): the kernel stepping down speeds after a failed enumeration. It is a
   symptom of a bad link, as the 2026-11-05 notes already had it, but it doesn't localise the fault to a conductor.
-- **Camera board or cable is still open.** Every symptom here belongs to the whole path (host port, cable, the camera's own
-  USB interface), so the log can't separate them. What leans cable/connector: drops track arm position (6.5% right vs 1.3%
-  centre), the step change of 2026-10-28 followed a mechanical event with 446 clean picks before it, and the slack change of
-  2026-11-10 moved the rate (0 in 13 runs, though 1 in 7 by chance). The host is ruled out — no `-71` on the arm's board, the
-  LifeCam or the RealSense. README's rule decides it: a fault that follows the camera onto a known-good cable is the board.
+- **Camera board or cable was open on the log alone.** Every symptom here belongs to the whole path (host port, cable, the
+  camera's own USB interface), so the log couldn't separate them. What leaned cable/connector: drops track arm position (6.5%
+  right vs 1.3% centre), the step change of 2026-10-28 followed a mechanical event with 446 clean picks before it, and the
+  slack change of 2026-11-10 moved the rate (0 in 13 runs, though 1 in 7 by chance). The host was ruled out — no `-71` on the
+  arm's board, the LifeCam or the RealSense. The port swap below then answered it, and the answer was neither.
+
+### 2026-11-13, the port swap: the fault is the NUC's receptacle 3-8
+
+The owner moved the wrist camera to a different USB socket on the NUC, with the same camera and the same cable. That is a
+one-variable test the log couldn't do, and it is decisive.
+
+- **On 3-8 it enumerates and then can't stream.** Two attempts after the deaf regime had lifted — the camera came up clean
+  both times, no `-71`, no `EMI?`, high speed, `uvcvideo ... Found UVC 1.00 device`:
+
+  | | 14:31:59 on 3-8 | 14:35:42 on 3-8 | 14:36:34 on 3-5 |
+  |---|---|---|---|
+  | enumerated | clean | clean | clean |
+  | control `-110` | 1 (Exposure Time disabled) | 1 (White Balance disabled) | **0** |
+  | `Failed to set UVC probe control` | 3 | 1 | **0** |
+  | streamed | no | no | **yes** |
+
+  The probe control is the format negotiation `VIDIOC_STREAMON` does, so a `-110` there is exactly "Cheese opens the camera
+  and then errors". It is not a driver state: `uvcvideo` disables a control per device instance and that resets on every
+  re-enumeration, and both instances above were fresh.
+
+- **On 3-5 it just works.** 267 frames in 10s at 26.7fps, 0 failed reads, worst gap 40ms (one frame period), and not one
+  kernel line about the port during the run. First try, no coaxing.
+
+- **What that rules out.** The camera board: it streamed within seconds of the move. The cable: the same cable carried that
+  stream. The controller and the software stack: 3-5 and 3-8 are both ports of the same xHCI root hub (`usb3`, 16 ports,
+  `0000:80:14.0`) with the same `uvcvideo`. What is left is the receptacle on 3-8 and its short path to the root hub —
+  contacts sprung or dirty, or a cracked joint at the connector. A marginal contact fits the signature: enough margin for the
+  short, retried descriptor reads of enumeration, not enough for correct signalling afterwards.
+
+- **It also explains the old evidence better than the cable did.** Arm motion tugs the cable, and the tug lands at the
+  connector, so a marginal receptacle gives the same position-correlated drop rate; the mechanical event of 2026-10-27 would
+  have levered the plug in that socket; and adding slack reduces the tug, which is why 2026-11-10 looked promising.
+
+- **Replugging over the day probably did make it worse, but not the way first claimed.** The mechanism is insertion-cycle
+  wear on a receptacle already marginal, not controls accumulating: the per-enumeration counts of permanently disabled
+  controls were 5, 1, 7 — not monotonic (above). Moot either way now: the port is retired.
+
+- **Moving it breaks `/dev/wristcam`.** The udev rule matches `KERNELS=="3-8"`, so after the move the symlink was simply
+  absent and every script stopped at `hardware.connect` with "no wrist camera at /dev/wristcam" — which reads like the camera
+  is still broken. The rule and `config.WRIST_USB_PORT` both have to move with the cable.
+
+- **Still unmeasured.** Whether another device also fails on 3-8 (that would separate a worn receptacle from a worn plug end
+  that happens to seat well in 3-5), and whether 3-5 holds up over a real session with the arm moving. One disconnect at
+  14:38:32 on 3-5 was the owner replugging, not a drop.
 - **Bluetooth audio shares the root hub.** `lsusb -t` puts the camera on bus 3 port 8 and `btusb` on bus 3 port 14. At
   12:19:10 wireplumber logged `Failure in Bluetooth audio transport /org/bluez/hci0/dev_*/sep1/fd0` and the bluez output node
   went `running -> error`; at 12:20:24 `pipewire-pulse` gave client `[Firefox]` `error:25 (Input/output error)`, which is
