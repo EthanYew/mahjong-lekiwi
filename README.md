@@ -1342,6 +1342,7 @@ Don't merge on GitHub's page: it runs no tests, and this checkout stays behind.
 
 If it stops after the merge on GitHub (the pull failed, say), run the same `merge_pr.py N` again: it picks up from the pull,
 tests `main`, closes the branch, and says so once there's nothing left to do.
+A PR built on another PR's branch (stacked) is refused until that one merges: merged first, it would land on that branch, not `main`.
 
 It stops before asking, with nothing changed, if the pull after the merge would fail: `main` here has commits GitHub doesn't, or
 the PR changes a data file with uncommitted changes here. Uncommitted data the PR doesn't touch is fine.
