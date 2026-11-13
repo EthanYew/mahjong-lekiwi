@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 
 from mahjong import config, hardware, kinematics
-from mahjong.camera import TORN_STOP_FRAMES
 from mahjong.hover_correction import parse_offsets
 from mahjong.session import read_events
 
@@ -487,26 +486,19 @@ def test_an_episode_on_torn_frames_says_how_many_in_its_log_row(tmp_path, monkey
     assert torn["frames"] >= 2 and torn["torn_frames"] == torn["frames"] - 1      # every frame after the first
 
 
-class BlurredCamera(TornCamera):
-    """Clean frames except one bright one: a jump into it and out of it, a fast lift's blur under camera.TORN_STOP_FRAMES."""
-    def __init__(self, bright):
-        super().__init__()
-        self.bright = bright
-
-    def read(self):
-        self.reads += 1
-        return True, np.full((480, 640, 3), 255 if self.reads == self.bright else 0, dtype=np.uint8)
-
-
-def test_a_few_blurred_frames_are_counted_but_not_warned_about(tmp_path, monkeypatch, capsys):
-    """record.py counts past the hold, where policy.run stops counting: 1-3 blurred frames there are a fast lift."""
-    camera = TornCamera()          # how many reads two episodes take, to put the bright frame inside the first
-    (tmp_path / "count").mkdir()
-    run_record(tmp_path / "count", monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[camera])
-    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2,
-                            cameras=[BlurredCamera(bright=camera.reads // 4)])
-    assert 0 < episode_rows(dataset)[0]["torn_frames"] < TORN_STOP_FRAMES
+def test_frames_that_jump_once_the_jaws_hold_arent_counted_as_torn(tmp_path, monkeypatch, capsys):
+    """Counted until the first hold, as policy.run does: a fast lift after it blurs 1-3 frames into a tear's numbers, and
+    warning on those fired on ordinary episodes."""
+    import record
+    monkeypatch.setattr(record, "holds_tile", lambda command, measured: True)       # held from the first frame
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[TornCamera()])
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [0, 0]
     assert "torn wrist camera frames in it" not in capsys.readouterr().out
+
+
+def test_an_episode_torn_before_the_hold_is_warned_about(tmp_path, monkeypatch, capsys):
+    run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[TornCamera()])
+    assert "torn wrist camera frames in it (USB data lost)" in capsys.readouterr().out
 
 
 def test_an_episode_on_clean_frames_has_no_torn_ones(tmp_path, monkeypatch):
