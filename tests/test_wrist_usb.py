@@ -313,4 +313,36 @@ def test_a_camera_at_the_wrong_size_ends_the_wait_at_once():
         tries.append(1)
         raise hardware.WrongResolution("160x120 frames")
     camera, record = wrist_usb.recover(slow, wait_s=10, clock=lambda: 0.0, sleep=lambda s: pytest.fail("waited"))
-    assert camera is None and record["outcome"] == "not_back" and tries == [1]
+    assert camera is None and record["outcome"] == "not_back" and tries == [1] and record["refused"] == "160x120 frames"
+
+
+def test_a_reopen_on_a_slow_link_says_replug_now_and_logs_why(tmp_path, monkeypatch, quick, capsys):
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    session = Session("bench", ask_setup=False)
+    new = Camera()
+    opened = iter([hardware.WrongResolution("160x120 frames, USB link at 12 Mbit/s"), new])
+
+    def opener():
+        got = next(opened)
+        if isinstance(got, Exception):
+            raise got
+        return got
+    got = hardware.reopen_wrist_camera(Camera(), ask=lambda _: "", openers={"wrist_camera": opener})
+    session.close()
+    assert got is new and "came back wrong (160x120 frames, USB link at 12 Mbit/s). Replug it now." in capsys.readouterr().out
+    record = next(e for e in read_events(session.dir) if e["type"] == "wrist_camera_recovery")
+    assert record["outcome"] == "person" and record["refused"].startswith("160x120")
+    assert "1 came back wrong" in wrist_usb.recovery_summary([record])
+
+
+def test_a_wrong_size_on_a_link_that_reads_fast_is_waited_for(tmp_path):
+    """The first frame of a camera still coming up can be the wrong size; only a slow link says waiting won't fix it."""
+    import numpy as np
+    (tmp_path / "3-8").mkdir()
+    (tmp_path / "3-8" / "speed").write_text("480\n")
+    import unittest.mock
+    with unittest.mock.patch.object(hardware.wrist_usb, "port_of", lambda path: "3-8"):
+        with pytest.raises(hardware.NotReady) as refused:
+            hardware.check_resolution(type("C", (), {"label": "wrist camera", "release": lambda self: None})(),
+                                      np.zeros((120, 160, 3), np.uint8), "/dev/wristcam", sys_bus=tmp_path)
+    assert not isinstance(refused.value, hardware.WrongResolution)

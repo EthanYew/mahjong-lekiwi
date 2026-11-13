@@ -85,7 +85,7 @@ def test_a_camera_at_the_wrong_resolution_is_not_ready(tmp_path, monkeypatch):
     (tmp_path / "3-8" / "speed").write_text("12\n")
     monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: "3-8")
     camera = Camera()
-    with pytest.raises(NotReady, match=r"160x120 frames, not 640x480, USB link at 12 Mbit/s"):
+    with pytest.raises(hardware.WrongResolution, match=r"160x120 frames, not 640x480, USB link at 12 Mbit/s"):
         hardware.check_resolution(camera, np.zeros((120, 160, 3), np.uint8), "/dev/wristcam", sys_bus=tmp_path)
     assert camera.released
 
@@ -111,10 +111,10 @@ def test_the_wrist_camera_opener_refuses_the_wrong_size_and_notes_its_port(monke
     monkeypatch.setattr(hardware.os.path, "exists", lambda path: True)
     noted = []
     monkeypatch.setattr(hardware.wrist_usb, "remember_port", lambda: noted.append(True))
-    monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: None)
-    with pytest.raises(hardware.WrongResolution, match="160x120"):
+    monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: None)          # speed unknown: maybe still coming up
+    with pytest.raises(NotReady, match="160x120") as refused:
         hardware.open_wrist_camera()
-    assert small.released and noted
+    assert small.released and noted and not isinstance(refused.value, hardware.WrongResolution)
 
 
 def test_the_base_camera_opener_refuses_the_wrong_size(monkeypatch):
@@ -125,7 +125,7 @@ def test_the_base_camera_opener_refuses_the_wrong_size(monkeypatch):
     monkeypatch.setattr(mahjong.camera, "read_within", lambda camera, **k: (True, np.zeros((120, 160, 3), np.uint8)))
     monkeypatch.setattr(hardware.os.path, "exists", lambda path: True)
     monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: None)
-    with pytest.raises(hardware.WrongResolution):
+    with pytest.raises(NotReady, match="160x120"):
         hardware.open_base_camera()
     assert small.released
 

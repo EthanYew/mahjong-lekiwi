@@ -17,8 +17,8 @@ class NotReady(Exception):
 
 
 class WrongResolution(NotReady):
-    """A camera giving frames of the wrong size: a USB link stuck slow, which only a replug fixes, so a reopen's wait for
-    it to come back by itself ends at once (wrist_usb._wait_for) rather than tell the person not to replug it for 10s."""
+    """A camera giving frames of the wrong size on a USB link that reads slow: only a replug fixes that, so the wrist
+    camera's reopen asks for one at once (wrist_usb.recover) rather than wait 10s telling the person not to replug."""
     waiting_wont_fix = True
 
 
@@ -36,17 +36,19 @@ def open_arm():
 
 
 def check_resolution(camera, frame, path, sys_bus="/sys/bus/usb/devices"):
-    """Raise NotReady (releasing the camera) unless `frame` is config.WRIST_RESOLUTION. On 2026-11-12 a replugged wrist
-    camera came back on a 12 Mbit/s USB link giving 160x120 magenta frames; it opened and read fine, so the reopen took
-    it, and the policy ran on them to its time cap (20261112_155318_holdup, 050)."""
+    """Raise NotReady (releasing the camera) unless `frame` is config.WRIST_RESOLUTION, which the base camera shares. On
+    2026-11-12 a replugged wrist camera came back on a 12 Mbit/s USB link giving 160x120 magenta frames; it opened and read
+    fine, so the reopen took it, and the policy ran on them to its time cap (20261112_155318_holdup, 050). WrongResolution
+    when the link reads slow (waiting won't fix it); plain NotReady otherwise, as a camera still coming up might be."""
     width, height = config.WRIST_RESOLUTION
     if frame is None or frame.shape[:2] == (height, width):
         return
     camera.release()
     port = wrist_usb.port_of(path)
     speed = wrist_usb.link_speed(port, sys_bus) if port else None
-    link = f", USB link at {speed:g} Mbit/s instead of 480" if speed is not None and speed < 480 else ""
-    raise WrongResolution(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
+    slow = speed is not None and speed < 480
+    link = f", USB link at {speed:g} Mbit/s instead of 480" if slow else ""
+    raise (WrongResolution if slow else NotReady)(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
                    "unplug it and plug it back in firmly (a slow link means the cable or its plug isn't making good contact)")
 
 
@@ -135,6 +137,8 @@ def reopen_wrist_camera(camera, ask=None, openers=None):
     drain_stdin()          # keys pressed while it was lost would answer connect's retry prompt
     opener = (openers or OPENERS)["wrist_camera"]
     recovered, record = wrist_usb.recover(lambda: _settled(opener))
+    if record.get("refused"):
+        print(f"The wrist camera came back wrong ({record['refused']}). Replug it now.")
     if recovered is None:
         drain_stdin()      # and so would keys pressed during the wait
         start = time.monotonic()

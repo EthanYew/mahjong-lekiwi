@@ -81,14 +81,14 @@ def power_cycle(port=None, run=subprocess.run, helper=HELPER):
 
 def _wait_for(open_camera, wait_s, clock, sleep):
     """A camera from open_camera() within wait_s, or None; tries at least once. An error that says waiting won't fix it
-    (hardware.WrongResolution: a link stuck slow) ends the wait at once."""
+    (`waiting_wont_fix`: hardware.WrongResolution, a link confirmed slow) is raised at once instead."""
     end = clock() + wait_s
     while True:
         try:
             return open_camera()
         except Exception as e:
             if getattr(e, "waiting_wont_fix", False):
-                return None
+                raise
         if clock() >= end:
             return None
         sleep(POLL_S)
@@ -106,7 +106,11 @@ def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S,
     def done(camera, outcome):
         return camera, {**record, "outcome": outcome, "seconds": round(clock() - start, 2)}
 
-    camera = _wait_for(open_camera, wait_s, clock, sleep)
+    try:
+        camera = _wait_for(open_camera, wait_s, clock, sleep)
+    except Exception as e:          # waiting won't fix it (a link stuck slow): to the person now, and the log says why
+        record["refused"] = str(e)
+        return done(None, "not_back")
     if camera is not None:
         return done(camera, "came_back")
     if cycle is None:
@@ -133,4 +137,5 @@ def recovery_summary(events):
         seconds = [r["seconds"] for r in records if r.get("outcome") == outcome]
         if seconds:
             parts.append(f"{len(seconds)} {OUTCOME_TEXT[outcome]} (median {statistics.median(seconds):.1f}s)")
-    return f"{len(records)} losses: " + ", ".join(parts)
+    refused = sum(bool(r.get("refused")) for r in records)
+    return f"{len(records)} losses: " + ", ".join(parts) + (f"; {refused} came back wrong (frame size), no wait" if refused else "")

@@ -119,8 +119,8 @@ did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this para
 A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s and then shows "Fix
 that, then Enter". **Don't replug during the wait**: a replug there would be counted as the camera coming back by itself.
 `session_report.py` prints how each loss ended, and `wrist_usb_watch.py --report` totals them.
-A camera that comes back giving the wrong frame size ("160x120 frames, not 640x480, USB link at 12 Mbit/s") is refused at
-once, with no wait: a link stuck slow only comes back right after a firm replug, so replug it then.
+A camera that comes back giving the wrong frame size on a slow link ("160x120 frames, not 640x480, USB link at 12 Mbit/s")
+is refused with no wait, and it says "Replug it now": a link stuck slow only comes back right after a firm replug.
 
 The wait is all it does: over 94 logged losses the wait recovered 85 (median 1.55s) and the port power cycle 0 of the 9
 it ran on, so the cycle is off and the prompt comes 10s sooner (`mahjong/wrist_usb.py`; pass `cycle=power_cycle` to
