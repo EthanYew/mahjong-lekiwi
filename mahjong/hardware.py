@@ -98,9 +98,9 @@ def _log_recovery(record):
 
 
 def reopen_wrist_camera(camera, ask=None, openers=None):
-    """Release a wrist camera that stopped giving frames (camera.LOST_S) and get it back: give it a moment, cut its
-    port's power, and only then the usual retry / quit (connect). Each one logs how it ended (wrist_usb). Returns the
-    new camera; a simulated one comes back as is."""
+    """Release a wrist camera that stopped giving frames (camera.LOST_S) and get it back: give it a moment, then the
+    usual retry / quit (connect). No power cycle: it has never recovered one, 0 of 9 (wrist_usb). Each one logs how it
+    ended (wrist_usb). Returns the new camera; a simulated one comes back as is."""
     if getattr(camera, "simulated", False):
         return camera
     try:

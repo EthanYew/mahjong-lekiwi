@@ -109,10 +109,13 @@ did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this para
 
 ## When the wrist camera drops out: `scripts/wrist_usb_watch.py`
 
-A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s, cuts the power of the
-camera's USB port once, and only then shows "Fix that, then Enter". **Don't replug during the wait**: a replug there would
-be counted as the camera coming back by itself. `session_report.py` prints how each loss ended, and
-`wrist_usb_watch.py --report` totals them.
+A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s and then shows "Fix
+that, then Enter". **Don't replug during the wait**: a replug there would be counted as the camera coming back by itself.
+`session_report.py` prints how each loss ended, and `wrist_usb_watch.py --report` totals them.
+
+The wait is all it does: over 94 logged losses the wait recovered 85 (median 1.55s) and the port power cycle 0 of the 9
+it ran on, so the cycle is off and the prompt comes 10s sooner (`mahjong/wrist_usb.py`; pass `cycle=power_cycle` to
+`recover` to try it again on a new cable or port).
 
 The same link can also keep sending frames that are **torn**: bands of rows shifted or smeared where USB data was lost.
 The policy can't see the tile in them and closes in the air (20261113_100710_bench: 10 of 34 such attempts picked).
@@ -121,7 +124,8 @@ A pickup that sees 5 torn frames before its jaws hold a tile stops the same way 
 it as a dropout. `session_report.py` lists the voids by reason, and counted attempts that saw a few torn frames. Torn
 frames that keep coming back mean the cable or its port: reseat it and watch the link with `wrist_usb_watch.py`.
 
-The power cycle and turning autosuspend off need root, so run this once per machine (`--remove` takes it out again):
+The power cycle (now off by default, above) and turning autosuspend off need root, so run this once per machine
+(`--remove` takes it out again):
 
 ```
 sudo scripts/wrist_usb/setup.sh
@@ -145,6 +149,12 @@ python scripts/wrist_usb_watch.py --report                        # every watch,
 
 Drops by hand point to the cable or connector; drops only with the motors on point to electrical noise; drops that follow
 the camera onto a new cable point to the camera board. Run it from the main checkout, like other hardware scripts.
+
+Each watch prints every kind it counted, `other` included, and says `kernel` instead of a frame count when it was
+`--kernel-only`. Two kinds matter besides drops: `-110` is the camera answering on USB but not to control transfers
+(it enumerates and gives no frames), and `slow` is an enumeration falling back to low or full speed. Both used to land
+in `other`, which wasn't printed, so `20261113_123953_usbwatch` reported zeros across the board on a camera that gave
+no frames for 10 minutes.
 Options: `--label`, `--seconds`, `--kernel-only` (the camera stays with another script), `--port` (default: where the
 camera is now), `--report`, `--sim`.
 
