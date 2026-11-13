@@ -49,7 +49,7 @@ def link_speed(port, sys_bus="/sys/bus/usb/devices"):
     """The USB link's speed in Mbit/s (480 high speed, 12 full speed), or None if it can't be read. A camera that comes
     back at 12 gives only 160x120 frames (2026-11-12, after a replug)."""
     try:
-        return int(float((Path(sys_bus) / port / "speed").read_text().strip()))
+        return float((Path(sys_bus) / port / "speed").read_text().strip())      # 1.5 for low speed
     except (OSError, ValueError, TypeError):
         return None
 
@@ -80,13 +80,15 @@ def power_cycle(port=None, run=subprocess.run, helper=HELPER):
 
 
 def _wait_for(open_camera, wait_s, clock, sleep):
-    """A camera from open_camera() within wait_s, or None; tries at least once."""
+    """A camera from open_camera() within wait_s, or None; tries at least once. An error that says waiting won't fix it
+    (hardware.WrongResolution: a link stuck slow) ends the wait at once."""
     end = clock() + wait_s
     while True:
         try:
             return open_camera()
-        except Exception:
-            pass
+        except Exception as e:
+            if getattr(e, "waiting_wont_fix", False):
+                return None
         if clock() >= end:
             return None
         sleep(POLL_S)

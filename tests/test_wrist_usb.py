@@ -303,3 +303,14 @@ def test_watch_kernel_only_never_opens_the_camera():
     clock = Clock()
     totals = w.watch(Kernel(), "3-8", 1.0, lambda *a, **k: None, open_camera=None, clock=clock, sleep=clock.sleep)
     assert totals["disconnect"] == 1 and totals["drops"] == 0 and totals["frames"] == 0
+
+
+def test_a_camera_at_the_wrong_size_ends_the_wait_at_once():
+    """A link stuck slow doesn't come back by waiting; the person was told not to replug for 10s while it did."""
+    tries = []
+
+    def slow():
+        tries.append(1)
+        raise hardware.WrongResolution("160x120 frames")
+    camera, record = wrist_usb.recover(slow, wait_s=10, clock=lambda: 0.0, sleep=lambda s: pytest.fail("waited"))
+    assert camera is None and record["outcome"] == "not_back" and tries == [1]

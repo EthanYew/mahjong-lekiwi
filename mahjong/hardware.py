@@ -16,6 +16,12 @@ class NotReady(Exception):
     """A device that isn't there or isn't answering, with what to do about it."""
 
 
+class WrongResolution(NotReady):
+    """A camera giving frames of the wrong size: a USB link stuck slow, which only a replug fixes, so a reopen's wait for
+    it to come back by itself ends at once (wrist_usb._wait_for) rather than tell the person not to replug it for 10s."""
+    waiting_wont_fix = True
+
+
 def open_arm():
     from .arm import Arm
     if not Path(config.FOLLOWER_PORT).exists():
@@ -39,8 +45,8 @@ def check_resolution(camera, frame, path, sys_bus="/sys/bus/usb/devices"):
     camera.release()
     port = wrist_usb.port_of(path)
     speed = wrist_usb.link_speed(port, sys_bus) if port else None
-    link = f", USB link at {speed} Mbit/s instead of 480" if speed is not None and speed < 480 else ""
-    raise NotReady(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
+    link = f", USB link at {speed:g} Mbit/s instead of 480" if speed is not None and speed < 480 else ""
+    raise WrongResolution(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
                    "unplug it and plug it back in firmly (a slow link means the cable or its plug isn't making good contact)")
 
 
@@ -53,8 +59,8 @@ def open_wrist_camera():
     if not ok:
         camera.release()
         raise NotReady("the wrist camera opened but gives no frames: replug it")
+    wrist_usb.remember_port()          # before the size check: a slow camera is still on this port
     check_resolution(camera, frame, config.WRIST_CAM)
-    wrist_usb.remember_port()
     return camera
 
 

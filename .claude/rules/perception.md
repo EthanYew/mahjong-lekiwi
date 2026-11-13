@@ -53,7 +53,8 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   **It can also come back slow.** After a replug on 2026-11-12 it enumerated at 12 Mbit/s (USB 1.1; the kernel: "not running
   at top speed") and gave 160x120 magenta frames. It opened and read, so the reopen took it, and v8 ran on them to the 16s cap
   closing 13mm high: that looked like a policy freeze (`20261112_155318_holdup`, attempts 050-051). So every camera open checks
-  the frame size (`hardware.check_resolution`, with the link speed in its message) and a wrong one is not ready.
+  the frame size (`hardware.check_resolution`, with the link speed in its message) and a wrong one is not ready. Waiting
+  doesn't fix a slow link, so a reopen asks for the replug at once rather than wait 10s saying not to replug.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a
