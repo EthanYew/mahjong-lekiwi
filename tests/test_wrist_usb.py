@@ -45,7 +45,17 @@ def test_a_drop_that_comes_back_needs_no_power_cycle():
     assert camera == "camera" and record["outcome"] == "came_back" and record["seconds"] == 0.75
 
 
+def test_a_dead_port_goes_straight_to_the_person_with_no_power_cycle():
+    """The default: the cycle recovered 0 of 9 real losses, so it no longer runs or delays the prompt."""
+    clock = Clock()
+    camera, record = wrist_usb.recover(opens_after(10 ** 6), clock=clock, sleep=clock.sleep)
+    assert camera is None and record["outcome"] == "not_back"
+    assert "cycled" not in record and "cycle_failed" not in record
+    assert clock.now == wrist_usb.RETURN_WAIT_S      # no AFTER_CYCLE_WAIT_S on top
+
+
 def test_a_dead_port_gets_one_power_cycle_after_the_wait():
+    """Still available on request (cycle=power_cycle), for trying it again on a new cable or port."""
     clock, cycles = Clock(), []
     tries = int(wrist_usb.RETURN_WAIT_S / wrist_usb.POLL_S) + 3
 
@@ -240,6 +250,29 @@ def test_classify_only_takes_lines_about_the_port():
     assert w.classify("kernel: usb 3-3: USB disconnect, device number 5", "3-8") is None
     assert w.classify("kernel: usb 4-3: USB disconnect", "3-2.4") is None
     assert w.classify("kernel: usb 3-2-port4: Cannot enable", "3-2.4") == "other"
+
+
+def test_classify_sees_a_camera_that_enumerates_but_cannot_talk():
+    """20261113_123953_usbwatch: 51 of these counted as "other", which summary didn't print, so a camera giving no
+    frames at all read as a clean run."""
+    import wrist_usb_watch as w
+    assert w.classify("kernel: uvcvideo 3-8:1.1: Failed to set UVC probe control : -110 (exp. 26).", "3-8") == "control_timeout"
+    assert w.classify("kernel: uvcvideo 3-8:1.0: Failed to query (GET_DEF) UVC control 9 on unit 2: -110 (exp. 2).",
+                      "3-8") == "control_timeout"
+    assert w.classify("kernel: usb 3-8: new low-speed USB device number 126 using xhci_hcd", "3-8") == "speed_fallback"
+    assert w.classify("kernel: usb 3-8: new full-speed USB device number 5 using xhci_hcd", "3-8") == "speed_fallback"
+    assert w.classify("kernel: usb 3-8: new high-speed USB device number 12 using xhci_hcd", "3-8") == "other"
+
+
+def test_summary_prints_every_kind_including_other_and_old_watches():
+    import wrist_usb_watch as w
+    line = w.summary("more-slack", {"seconds": 600.1, "frames": 0, "drops": 0, "worst_gap_s": 0.0, "control_timeout": 51,
+                                    "speed_fallback": 2, "other": 3, "disconnect": 0, "emi": 0, "protocol_error": 0})
+    assert "51 -110" in line and "2 slow" in line and "3 other" in line and "0 frames" in line
+    assert "nan" not in w.summary("old", {"seconds": 60.0, "drops": 0})      # a watch from before these kinds existed
+    # a kernel-only watch has no frames by design, so it must not read as a camera giving none
+    assert "kernel" in w.summary("bench", {"seconds": 60.0, "frames": 0, "kernel_only": True, "control_timeout": 9})
+    assert "0 frames" not in w.summary("bench", {"seconds": 60.0, "frames": 0, "kernel_only": True})
 
 
 def test_watch_sim_runs_end_to_end_and_reports(tmp_path, monkeypatch, capsys):

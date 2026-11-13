@@ -24,8 +24,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, session, wrist_usb    # noqa: E402
 
 GAP_S = 0.15        # a frame this late is worth a line; 30fps is 0.033s
-KINDS = (("emi", "EMI?"), ("disconnect", "USB disconnect"), ("protocol_error", "-71"), ("power_cycle", "attempt power cycle"),
-         ("no_enumerate", "unable to enumerate"), ("reset", "reset high-speed"), ("connect", "New USB device found"))
+# Each kind matches any of its texts. `control_timeout` and `speed_fallback` are here because without them a camera that
+# enumerates but can't talk counted as "other", which `summary` didn't print: 20261113_123953_usbwatch logged 51 of them
+# and still reported 0 drops, 0 disconnects, 0 EMI?, 0 -71, reading like a clean run on a camera that gave no frames at all.
+KINDS = (("emi", ("EMI?",)), ("disconnect", ("USB disconnect",)), ("protocol_error", ("-71",)),
+         ("control_timeout", ("-110",)), ("speed_fallback", ("new low-speed", "new full-speed")),
+         ("power_cycle", ("attempt power cycle",)), ("no_enumerate", ("unable to enumerate",)),
+         ("reset", ("reset high-speed",)), ("connect", ("New USB device found",)))
 
 
 def classify(line, port):
@@ -38,7 +43,7 @@ def classify(line, port):
         name = f"usb{bus}-port{number}"
     if not re.search(rf"(usb|uvcvideo) {re.escape(port)}[: ]|\b{re.escape(name)}\b", line):
         return None
-    return next((kind for kind, text in KINDS if text in line), "other")
+    return next((kind for kind, texts in KINDS if any(text in line for text in texts)), "other")
 
 
 class KernelLog:
@@ -83,6 +88,7 @@ def watch(kernel, port, seconds, log, open_camera=None, clock=time.monotonic, sl
     from mahjong.camera import LOST_S
     lost_s = LOST_S if lost_s is None else lost_s
     totals = {"seconds": 0.0, "frames": 0, "drops": 0, "worst_gap_s": 0.0, "back_after_s": [],
+              "kernel_only": open_camera is None,      # frames are 0 by design then, not a sign of a dead camera
               **{kind: 0 for kind, _ in KINDS}, "other": 0}
     start = clock()
 
@@ -143,10 +149,14 @@ def watch(kernel, port, seconds, log, open_camera=None, clock=time.monotonic, sl
 
 
 def summary(label, totals):
-    hours = max(totals["seconds"], 1e-9) / 3600
-    return (f"{label:<16} {totals['seconds'] / 60:>6.1f} min  {totals['drops']:>3} drops  {totals['disconnect']:>3} disconnects "
-            f"({totals['disconnect'] / hours:>5.1f}/h)  {totals['emi']:>2} EMI?  {totals['protocol_error']:>2} -71  "
-            f"worst gap {totals['worst_gap_s']:.2f}s")
+    """One line per watch. Every kind is printed, `other` included: a count that goes nowhere hides a dead link."""
+    get = totals.get          # watches recorded before a kind existed simply have no count for it
+    hours = max(get("seconds", 0.0), 1e-9) / 3600
+    frames = "  kernel" if get("kernel_only") else f"{get('frames', 0):>6} frames"
+    return (f"{label:<16} {get('seconds', 0.0) / 60:>6.1f} min  {frames}  {get('drops', 0):>3} drops  "
+            f"{get('disconnect', 0):>3} disconnects ({get('disconnect', 0) / hours:>5.1f}/h)  {get('emi', 0):>2} EMI?  "
+            f"{get('protocol_error', 0):>2} -71  {get('control_timeout', 0):>3} -110  {get('speed_fallback', 0):>2} slow  "
+            f"{get('other', 0):>3} other  worst gap {get('worst_gap_s', 0.0):.2f}s")
 
 
 def report(sessions=None):
