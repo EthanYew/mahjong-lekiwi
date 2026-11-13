@@ -170,3 +170,10 @@ def read_jsonl(path):
 
 def read_events(session_dir):
     return read_jsonl(session_dir / "events.jsonl")
+
+
+def is_sim(session_dir):
+    """A run of the simulated arm (`--sim`), whatever its folder is called: sim sessions are named like real ones."""
+    path = Path(session_dir) / "events.jsonl"
+    start = next((e for e in read_jsonl(path) if e.get("type") == "session_start"), {}) if path.exists() else {}
+    return bool(start.get("sim"))

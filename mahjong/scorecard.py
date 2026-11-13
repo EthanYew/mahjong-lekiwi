@@ -130,7 +130,8 @@ def off_standard(events, standard=None):
     start = next((e for e in events if e["type"] == "session_start"), {})
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
-    return ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
+    return (["a simulated run (--sim)"] if start.get("sim") else []) \
+        + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
         + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") else [])

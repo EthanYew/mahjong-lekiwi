@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 
 from . import config, name_check, privacy
-from .session import ask_conditions, previous_conditions, read_events
+from .session import ask_conditions, is_sim, previous_conditions, read_events  # noqa: F401 (is_sim: callers use base_cam.is_sim)
 
 KINDS = ("upright", "turned")            # a tile held right way up, and turned 180 degrees
 BOX_PAD = 1.3                            # the square around a detector box is this much wider than its longer side
@@ -45,11 +45,6 @@ def save_shot(folder, shot, frames):
         cv2.imwrite(str(path), privacy.blur_faces(frame)[0])
         files.append(str(path.relative_to(folder)))
     return files
-
-
-def is_sim(session_dir):
-    start = next((e for e in read_events(Path(session_dir)) if e["type"] == "session_start"), {})
-    return bool(start.get("sim"))
 
 
 REVIEW = config.DATA / "holdup_review.jsonl"     # a person's verdicts on the photos (scripts/base_cam_review.py)

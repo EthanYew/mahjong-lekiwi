@@ -487,9 +487,11 @@ def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monke
     finally:
         b.close()
     events = read_events(b.session.dir)
+    assert "a simulated run (--sim)" in scorecard.off_standard(events)                     # as run, it never counts
     for e in events:
         if e["type"] == "session_start":
             e["conditions"] = {"surface": standard["surface"]}                             # --sim asks no setup questions
+            e["sim"] = False                                                               # stand in for a real run
     assert [e for e in events if e["type"] == "attempt_skipped"] == []
     assert len(scorecard.pairs(events, "a", "b")) == len(spots)
     assert scorecard.off_standard(events) == []

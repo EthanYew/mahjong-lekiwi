@@ -66,3 +66,13 @@ def test_stale_docs_finds_an_old_dagger_example(tmp_path):
     (tmp_path / "CLAUDE.md").write_text("record.py --dataset Yewy/x --policy pickup_mat_cl_v7\n")
     (tmp_path / "ROADMAP.md").write_text("# R\n\n## Status\n\n| Default | new |\n")
     assert [s.split(":")[0] for s in status.stale_docs("new", tmp_path)] == ["CLAUDE.md"]
+
+
+def test_a_simulated_bench_adds_nothing_to_a_real_policys_totals(tmp_path):
+    """bench.py --sim --policy <id> logs attempts under the real id: 20261112_091817_bench gave v10 a pickup that never happened."""
+    bench_session(tmp_path, "20261112_091817", "pickup_mat_cl_v10", [True])
+    events = tmp_path / "20261112_091817_bench" / "events.jsonl"
+    events.write_text(json.dumps({"type": "session_start", "kind": "bench", "sim": True}) + "\n" + events.read_text())
+    bench_session(tmp_path, "20261112_202418", "pickup_mat_cl_v10", [True, False])
+    assert status.bench_results(tmp_path)["pickup_mat_cl_v10"]["attempts"] == 2
+    assert status.bench_clean(tmp_path).get("pickup_mat_cl_v10", 0) <= 1

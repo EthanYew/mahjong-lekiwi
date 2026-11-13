@@ -1,5 +1,6 @@
 """merge_pr.py and mahjong/checkout.py on a scratch repo with its own origin: what a merge would bring in, which
 branches are merged, and CLAUDE.md's closing step (no GitHub: the gh calls aren't exercised)."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -205,3 +206,14 @@ def test_a_pr_description_is_checked_for_its_sections():
     body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n"
     assert merge_pr.missing_sections(body) == ["Unverified on the arm"]
     assert merge_pr.missing_sections(body + "## Unverified on the arm\nall of it\n") == []
+
+
+def test_closing_leaves_a_simulated_session_behind_though_its_name_looks_real(repo):
+    """move_sessions only skipped sim_ folders, and 40 sim runs named like real ones reached the real sessions/ by 2026-11-13."""
+    tree = repo / "tree"
+    for name, start in (("20261113_092441_bench", {"type": "session_start", "sim": True}),
+                        ("20261113_100710_bench", {"type": "session_start", "sim": False})):
+        (tree / "sessions" / name).mkdir(parents=True)
+        (tree / "sessions" / name / "events.jsonl").write_text(json.dumps(start) + "\n")
+    assert merge_pr.move_sessions(tree, repo=repo) == []
+    assert sorted(p.name for p in (repo / "sessions").iterdir()) == ["20261113_100710_bench"]

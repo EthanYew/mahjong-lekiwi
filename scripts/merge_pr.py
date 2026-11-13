@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config
+from mahjong import checkout, config, session
 
 SECTIONS = ["What changed", "Files", "Overlaps", "Unverified on the arm"]
 SLOW_FILES = ("mahjong/policy.py", "mahjong/dataset.py")      # CLAUDE.md: run the slow tests too
@@ -105,8 +105,8 @@ def move_sessions(tree, repo=None):
     target = Path(repo or config.REPO) / "sessions"
     left = []
     for folder in sorted((Path(tree) / "sessions").glob("*")):
-        if folder.name.startswith("sim_"):
-            continue                    # a simulated run's reference, not a session
+        if folder.name.startswith("sim_") or session.is_sim(folder):
+            continue                    # a simulated run, named like a real one: 40 had reached sessions/ by 2026-11-13
         if (target / folder.name).exists():
             left.append(folder.name)
             continue

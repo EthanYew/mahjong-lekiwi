@@ -1288,7 +1288,7 @@ python scripts/status.py --set-default pickup_mat_cl_v5 --evidence "sessions/202
 ```
 
 It prints this checkout against origin/main (and warns if it's behind or has uncommitted code), the default
-policy with the evidence it was chosen on, every registered policy's bench total over all sessions, the eval
+policy with the evidence it was chosen on, every registered policy's bench total over all real sessions (`--sim` runs left out), the eval
 sets and detector exam, the layouts and their notes, the drop zone and whether the bench has checked a pickup
 there, the worst-read tiles on the standard surface (`name_report.py`), and how many merged branches are waiting to be
 closed.
