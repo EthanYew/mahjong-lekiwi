@@ -217,3 +217,22 @@ def test_closing_leaves_a_simulated_session_behind_though_its_name_looks_real(re
         (tree / "sessions" / name / "events.jsonl").write_text(json.dumps(start) + "\n")
     assert merge_pr.move_sessions(tree, repo=repo) == []
     assert sorted(p.name for p in (repo / "sessions").iterdir()) == ["20261113_100710_bench"]
+
+
+def test_a_merge_whose_pull_failed_is_finished_by_running_it_again(repo, monkeypatch):
+    """#76 merged on GitHub, an SSH drop stopped the pull, and a rerun only said it was merged: untested and never closed."""
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    branch_in_worktree(repo, "feature", "mahjong/x.py", "X = 1\n")
+    tip = git(repo, "rev-parse", "feature")
+    git(repo, "push", "-q", "origin", "feature:main")              # merged on GitHub; main here never pulled it
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+        {"number": 7, "title": "t", "state": "MERGED", "isDraft": False, "headRefName": "feature", "body": "", "url": "u",
+         "files": [{"path": "mahjong/x.py"}], "mergeCommit": {"oid": tip}}))
+    monkeypatch.setattr(merge_pr, "test_command", lambda slow=False: ["true"])
+    monkeypatch.setattr(merge_pr, "offer_review", lambda ask=None: None)
+    merge_pr.merge(7, ask=lambda q: "y")
+    assert git(repo, "rev-parse", "HEAD") == tip and not (repo / ".claude" / "worktrees" / "feature").exists()
+    assert "feature" not in git(repo, "branch", "--list", "feature")
+    with pytest.raises(SystemExit, match="nothing left to do"):
+        merge_pr.merge(7, ask=lambda q: "y")

@@ -224,7 +224,10 @@ def close_all(ask=input):
 
 def merge(number, slow=False, ask=input):
     must_be_main_checkout()
-    pr = json.loads(gh("pr", "view", str(number), "--json", "number,title,state,isDraft,headRefName,body,url,files"))
+    pr = json.loads(gh("pr", "view", str(number), "--json",
+                       "number,title,state,isDraft,headRefName,body,url,files,mergeCommit"))
+    if pr["state"] == "MERGED":
+        return resume(pr, ask)
     if pr["state"] != "OPEN":
         raise SystemExit(f"#{number} is {pr['state'].lower()}")
     branch = pr["headRefName"]
@@ -250,6 +253,12 @@ def merge(number, slow=False, ask=input):
     if pr["isDraft"]:
         gh("pr", "ready", str(number))
     gh("pr", "merge", str(number), "--merge")
+    finish(number, branch, ask)
+
+
+def finish(number, branch, ask=input):
+    """Everything after the merge on GitHub: pull main here, test it, close the branch, offer the review. Each step is safe to run
+    again, so resume() can start it over."""
     run(["git", "pull", "--ff-only", "origin", "main"])
     if run(test_command(), check=False):
         print("WARNING: the fast tests fail on main after the pull: fix main before the next hardware session")
@@ -260,6 +269,23 @@ def merge(number, slow=False, ask=input):
     else:
         print(f"\nMerged #{number}; {branch} isn't closed (above): python scripts/merge_pr.py --close")
     offer_review(ask)
+
+
+def resume(pr, ask=input):
+    """A PR merged on GitHub whose steps here didn't all run: on 2026-11-04 #76 merged, then an SSH drop stopped the pull, and running
+    this again only said "#76 is merged", leaving main here untested and the branch open. Picks up from the pull, or says it's done."""
+    number, branch = pr["number"], pr["headRefName"]
+    run(["git", "fetch", "--prune", "origin"])
+    commit = (pr.get("mergeCommit") or {}).get("oid")
+    pulled = bool(commit) and subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=config.REPO,
+                                             env=checkout.ENV, capture_output=True).returncode == 0
+    if pulled and not any(i["branch"] == branch for i in checkout.leftovers()):
+        raise SystemExit(f"#{number} is merged, pulled here and closed: nothing left to do")
+    print(f"#{number} is merged on GitHub, but " + ("its branch isn't closed" if pulled else "main here doesn't have it yet")
+          + ": picking up from the pull")
+    if not pulled and (problems := pull_blockers(checkout.BASE, [f["path"] for f in pr["files"]])):
+        raise SystemExit(f"#{number} can't be pulled yet:\n" + "\n".join(f"- {p}" for p in problems))
+    finish(number, branch, ask)
 
 
 def start_review():
