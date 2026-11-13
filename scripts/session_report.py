@@ -1,5 +1,6 @@
 """Summarise a session folder: setup, pickup success per tile and policy, stalls, clearances, trials,
 where returned tiles landed from their home, the scorecard (clean attempts, a paired verdict: docs/scorecard.md), interventions (what a person had to do; rescues per 10 attempts, unassisted vs assisted successes),
+where to record more (misses, keyed remarks, high closes and the wrist camera per spot),
 a play session's hand (scripts/play.py: result, grade, questions, turn times); and a contact sheet (one
 row per attempt: overview before/after, wrist frames).
 
@@ -18,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import bump_report, config, interventions, name_ledger, scorecard
+from mahjong import bump_report, config, interventions, name_ledger, scorecard, wrist_usb
+from mahjong.camera import TORN_STOP_FRAMES
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
@@ -194,12 +196,77 @@ def interventions_report(events, trials, unit):
         print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
               f"overrides {s['overrides']}, knocked {s['knocks']}, collided {s['collisions']}, "
               f"pushed the target {s['target_pushes']}, gripped low {s['low_grips']}, high {s['high_grips']}, "
+              f"shallow {s['shallow_grips']}, "
               f"observations {s['observations']}")
         if unit == "attempt":
             print(f"  successes: {s['successes']} = {s['clean_successes']} unassisted + {s['assisted_successes']} assisted")
     if not any(e["type"] == "detections" for e in events):
         print("  (no scans logged: knocked tiles and tiles put back by hand can't be seen in this session)")
     return found
+
+
+# What a person's keys (or the scans) said about an attempt that points at the policy, in the order the table shows them
+REMARKS = {"pushed_target": "pushed", "collided": "bumped", "knocked": "knocked", "grip_low": "low", "grip_high": "high",
+           "grip_shallow": "shallow", "aborted": "Esc", "touched_tile": "helped", "takeover": "takeover"}
+KEYED = set(interventions.KEYS.values()) & set(REMARKS)     # always a column: a dash says no one pressed it
+
+
+def recording_focus(events, attempts, found):
+    """Where more demonstrations would help: per spot (and policy), the misses, every remark a person keyed or the
+    scans found (REMARKS), closes 20mm or more up, and the wrist camera at that spot (attempts it voided and reran,
+    or a pickup it stopped). A spot with a miss or a remark is listed under "record more at", most trouble first.
+    The camera column is there to say whether a spot's trouble was the camera's: a voided attempt isn't counted,
+    but a stop_reason "camera" one is, so its miss may not be the policy's."""
+    if not any(a.get("spot") for a in attempts):
+        return
+    by_dir = defaultdict(Counter)
+    for i in found:
+        if i["kind"] in REMARKS and i.get("attempt_dir"):
+            by_dir[i["attempt_dir"]][i["kind"]] += 1
+    voided = Counter((e.get("spot"), e.get("policy")) for e in events if e["type"] == "attempt_void")
+    policies = sorted({a["policy"] for a in attempts})
+    rows = []
+    for w in dict.fromkeys(where(a) for a in attempts):
+        for p in policies:
+            group = [a for a in attempts if where(a) == w and a["policy"] == p]
+            if not group:
+                continue
+            remarks = Counter()
+            for a in group:
+                remarks.update({k: 1 for k in by_dir.get(a["attempt_dir"], ())})   # attempts with it, not presses
+            misses = sum(not a["success"] for a in group)
+            high = sum((a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
+            stopped = sum(a.get("stop_reason") == "camera" for a in group)
+            torn = sum(bool(a.get("torn_frames")) for a in group)      # a few torn frames, under the stop: counted
+            trouble = sum(not a["success"] or bool(by_dir.get(a["attempt_dir"]))
+                          or (a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
+            rows.append({"spot": w, "policy": p, "n": len(group), "misses": misses, "remarks": remarks, "high": high,
+                         "voided": voided[(w, p)], "stopped": stopped, "torn": torn, "trouble": trouble})
+    print("\nwhere to record more: misses and remarks per spot (keys during the pickup or return, and the scans); "
+          "camera: attempts it voided (rerun, not counted), stopped (counted) or that saw a few torn frames (counted)")
+    many = len(policies) > 1
+    # remark columns no attempt had are left out, except the keys; misses, 20mm+ and the camera always show
+    shown = [k for k in REMARKS if k in KEYED or any(r["remarks"][k] for r in rows)]
+    print(f"  {'spot':<6}" + (f" {'policy':<20}" if many else "") + f" {'missed':>7} " + " ".join(f"{REMARKS[k]:>8}" for k in shown)
+          + f" {'20mm+':>6} {'camera':>20}")
+    for r in rows:
+        camera = ", ".join(([f"{r['voided']} voided"] if r["voided"] else []) + ([f"{r['stopped']} stopped"] if r["stopped"] else [])
+                           + ([f"{r['torn']} torn"] if r["torn"] else []))
+        print(f"  {r['spot']:<6}" + (f" {r['policy']:<20}" if many else "") + f" {f'{r['misses']}/{r['n']}':>7} "
+              + " ".join(f"{r['remarks'][k] or '-':>8}" for k in shown) + f" {r['high'] or '-':>6} {camera or '-':>20}")
+    focus = sorted((r for r in rows if r["trouble"]), key=lambda r: (-r["trouble"], -r["misses"]))
+    if not focus:
+        print("  record more at: nowhere stands out (no misses, remarks or high closes)")
+        return
+    print("  record more at (attempts with trouble, most first):")
+    for r in focus:
+        why = [f"missed {r['misses']}/{r['n']}"] if r["misses"] else []
+        why += [f"{REMARKS[k]} {n}" for k, n in r["remarks"].items()] + ([f"closed 20mm+ up {r['high']}"] if r["high"] else [])
+        camera = (f"the camera stopped {r['stopped']} of them: those may not be the policy's" if r["stopped"]
+                  else f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look" if r["torn"]
+                  else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
+                  else "no camera loss")
+        print(f"    {r['spot']}" + (f" {r['policy']}" if many else "") + f": {', '.join(why)}; {camera}")
 
 
 def all_sessions():
@@ -246,10 +313,20 @@ def main():
     bench_setup = next((e for e in events if e["type"] == "bench_setup"), {})
     if bench_setup.get("hover_gripper_override") is not None:
         print(f"  hover gripper {bench_setup['hover_gripper_override']:g}% (bench --hover-gripper), not the policy's own")
+    if bench_setup.get("hover_lower_mm"):
+        print(f"  hover {bench_setup['hover_lower_mm']:g}mm lower than the policy's own (bench --hover-lower-mm): an experiment, "
+              "not a counted result")
+    if bench_setup.get("face_down"):
+        aim = scorecard.face_down_aim(events)
+        print(f"  face-down tiles (bench --face-down): {aim}"
+              + ("" if "back boxes" in aim else ", landings unseen") + "; not a counted result")
     if bench_setup.get("unattended"):
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "
               f"Unchecked ones count as knocks below: python scripts/bump_report.py {session_dir}")
+    recoveries = wrist_usb.recovery_summary(events)
+    if recoveries:
+        print(f"  wrist camera: {recoveries}")
     attempts =[e for e in events if e["type"] == "attempt"]
     if attempts:
         print(f"\n{len(attempts)} pickup attempt(s), {sum(a['success'] for a in attempts)} picked up")
@@ -270,9 +347,13 @@ def main():
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
-        void = sum(e["type"] == "attempt_void" for e in events)
-        if void:
-            print(f"  {void} attempt(s) left out: the wrist camera stopped giving frames (the bench reopened it)")
+        voids = Counter(e.get("reason", "wrist camera stopped giving frames") for e in events if e["type"] == "attempt_void")
+        for reason, n in voids.items():
+            print(f"  {n} attempt(s) left out: {reason} (the bench reopened it and ran them again)")
+        torn = [a for a in attempts if a.get("torn_frames")]
+        if torn:
+            print(f"  {len(torn)} counted attempt(s) saw torn wrist frames before the hold, under the "
+                  f"{TORN_STOP_FRAMES} that stop one: " + ", ".join(f"{a['attempt_dir'][:3]} ({a['torn_frames']})" for a in torn))
         success_map(attempts)
         close_height_report(attempts)
         perturbation_report(attempts)
@@ -286,6 +367,7 @@ def main():
               + (f"; {len(dagger) - len(taken)} the policy's alone (not trained on)" if len(taken) < len(dagger) else ""))
     found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
     if attempts:
+        recording_focus(events, attempts, found)
         print("\n" + "\n".join(scorecard.report(events, found)))
         tags = defaultdict(set)
         for i in found:

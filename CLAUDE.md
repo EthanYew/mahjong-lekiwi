@@ -15,7 +15,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
 - Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored. Read a session with
   `python scripts/session_report.py [folder]` before asking what happened.
 - A command that may run an arm script prompts for a person, in auto mode too (`.claude/hooks/arm_run_gate.py`); reads,
-  `--sim` and `--help` don't. A new script that moves the arm goes in its `ARM_SCRIPTS`.
+  `--sim`, `--help`, linters and flags that never connect don't (a prompt on those is a hook bug: `tests/test_arm_run_gate.py`). A new script that moves the arm goes in its `ARM_SCRIPTS`.
 
 ## Rules for each part of the code
 
@@ -31,6 +31,7 @@ Each invariant cost a debugging round on hardware. They live in `.claude/rules/`
 | `perception.md` | setup check, wrist camera loss, wrist look, presence vs name, pale mats, the detector's exam |
 | `play.md` | autonomous play, stricter reads, second read, votes, a person's word, the window, the drop zone |
 | `bench.md` | sim runs, sessions, interventions, unattended runs, what counts as a bench result |
+| `face_down.md` | the wall station, the base camera's reader and its controls, face blurring |
 | `merging.md` | the full merge and closing rules, and the incidents behind them |
 
 Learned something about the hardware? Add it to the rule it belongs to, with the reason; full evidence goes in

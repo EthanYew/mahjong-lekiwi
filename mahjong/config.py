@@ -4,6 +4,7 @@ The SO101 follower sits on a LeKiwi base, ~9cm above a green mat; a RealSense on
 detects tiles; a wrist camera feeds the ACT policy. Per-policy hover settings (how the episodes a
 policy was trained on began) live in data/policies.json, not here.
 """
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -30,6 +31,9 @@ RAISED_REST = {**REST_POSE, "shoulder_lift": -40.0, "elbow_flex": 40.0}
 # --- cameras ---
 FPS = 30
 WRIST_CAM = "/dev/wristcam"            # udev symlink
+BASE_CAM = "/dev/basecam"              # the LeKiwi base's front camera (same model as the wrist's): udev symlink by USB port, 3-9 on the NUC
+WRIST_USB_PORT = "3-5"                 # its USB port, for a power cycle if it dropped before this run saw where it was.
+                                       # Was 3-8 until 2026-11-13: that receptacle is the fault (invariants), so the camera lives on 3-5
 WRIST_RESOLUTION = (640, 480)          # what every dataset was recorded at (resized to 224 for training)
 REALSENSE_SERIAL = "825312070255"
 REALSENSE_RESOLUTION = (848, 480)
@@ -41,6 +45,11 @@ DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the on
 # read at a median of 0.18 in 20261103_121112_bench, and looked gone in 45 of 46 scans. All 14 tiles in all 46 scans at this
 # cutoff; none at 31 spots just emptied by a pickup; on the mat at no tile, 0 in 74 scans and 2 in 42 on the black top.
 DETECTION_PRESENCE_CONFIDENCE = 0.1
+# A tile lying green side up, as the detector names it once its weights have the class (perception.sees_backs). It says a
+# tile is there and which way up, never which tile: nothing reads a back. A back box whose centre sits under this above the
+# table is mat pattern, not a tile (a tile's top is ~20mm up; the table plane's reading wanders ~3mm, 2026-11-11).
+BACK = "back"
+BACK_MIN_HEIGHT_M = 0.008
 UNNAMED = "unnamed"                    # a tile's name when no scan or person has given it one: never a spot id or a layout label
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile
@@ -102,7 +111,20 @@ DETECTOR_EXAM = DATA / "detector_exam.json"   # sessions whose frames are the ti
 DETECTOR_EVAL = DATA / "detector_eval"        # detector scores on the exam
 DETECTOR_DATA = DATA / "detector"             # exports for labelling and labelled exports (local; Roboflow keeps the labels)
 OFFLINE_EVAL = DATA / "offline_eval"      # offline scores per policy and eval set
-DISCARD_POSE = DATA / "discard_pose.json"
+DISCARD_POSE = DATA / "discard_pose.json"      # over the discard container (bench.py's teach-discard): discard_pose()
+CAMERA_POSES = DATA / "camera_poses.json"       # arm poses that hold a tile up to the base camera (scripts/teleop_view.py)
+
+
+def discard_pose(why=None):
+    """The taught pose over the discard container ({joint: deg}), or None if none is taught. With `why` (what needs it):
+    SystemExit instead, saying so, for a script that checks before any hardware connects."""
+    if DISCARD_POSE.exists():
+        return json.loads(DISCARD_POSE.read_text())["pose"]
+    if why:
+        raise SystemExit(f"No discard pose: teach one with bench.py's teach-discard. {why}")
+    return None
+
+
 HF_USER = "Yewy"
 LEROBOT_REPO = Path.home() / "Projects" / "lerobot"     # lerobot-train runs from here (outputs/train/...)
 XLEROBOT_EXAMPLES = Path.home() / "Projects" / "XLeRobot" / "software" / "examples"

@@ -487,3 +487,15 @@ class Arm:
             duration = self.travel_time(pose)
         self.raise_from_rest()
         self.move_to({j: pose[j] for j in config.ARM_JOINTS}, duration)
+
+    def discard(self, pose, direct=False):
+        """Let the held tile go over the discard container (`pose`: config.discard_pose()), then rest. Goes via rest
+        first (go_to_pose doesn't lift from over the mat) unless `direct`, where the caller has lifted clear (play).
+        Returns whether the jaws still read as holding a tile on arrival. Bench, record, wall_test and crude_run share it."""
+        if not direct:
+            self.rest()
+        self.go_to_pose(pose, direct=direct)
+        held = self.holding()[0]
+        self.set_gripper(config.GRIPPER_RELEASE)
+        self.rest()
+        return held

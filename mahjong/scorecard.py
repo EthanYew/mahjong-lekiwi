@@ -13,10 +13,10 @@ from . import config, interventions
 from .session import read_events
 
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
-# that already counted), grip_low / grip_high (precarious, but the attempt stands), and rescan, interrupted, crashed and
+# that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
 # killed, which derive() pins on the most recent attempt whatever caused them.
 NOT_CLEAN = {"knocked", "collided", "pushed_target", "aborted", "touched_tile", "helped_arm", "caught_drop", "other",
-             "unspecified", "discard_missed"}
+             "unspecified", "discard_missed", "takeover"}
 MIN_PAIRS = 20          # inherited from the 2026-10-23 draft's 4 spots x 5, not calculated (docs/scorecard.md, which has the odds)
 ALPHA = 0.1             # exact McNemar: 5-0 pairs is p 0.06, 6-1 is 0.125, 7-1 is 0.07
 SPOT_WORSE_BY = 2       # a candidate this many clean attempts worse at one spot gets more attempts there
@@ -132,7 +132,15 @@ def off_standard(events, standard=None):
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
     return ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
-        + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else [])
+        + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
+        + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") else [])
+
+
+def face_down_aim(events):
+    """How a bench --face-down session found its tiles: by the scan's back boxes (weights with the class), or by saved
+    position (older weights, and sessions from before the class: no face_down_setup event)."""
+    setup = next((e for e in events if e["type"] == "face_down_setup"), {})
+    return "found by the scans' back boxes" if setup.get("sees_backs") else "picked by saved position"
 
 
 def iteration_check(events, baseline, candidate, found=None):

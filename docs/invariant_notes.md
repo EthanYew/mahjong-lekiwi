@@ -55,6 +55,119 @@ record.py discards the episode ("wrist camera lost"); wrist_capture.py and setup
 collect_corrections reopens it and restarts the gamepad from the held pose. Each reopens it with
 `hardware.reopen_wrist_camera` (retry / quit if it won't open): use that in any new script.
 
+2026-11-05, why it drops (kernel log of every boot since 2026-10-08, every session's events and logs):
+
+- **It's the USB link, not the driver.** On port 3-8 the log has `error -71`, `disabled by hub (EMI?)`, `Cannot enable. Maybe
+  the USB cable is bad?` and fallbacks to full speed. 22 of 24 voided attempts had a USB disconnect in the 30s before them.
+  Nothing else on the controller shows this: no `-71` on the arm's board, the LifeCam on the next port or the RealSense, and
+  no over-current on 3-8.
+- **It started at once**: 0 disconnects in 446 picks and episodes, 10-23 to 10-27, then the first at 08:41 on 10-28, on the
+  same kernel. The cause of that step is unknown. Candidates: cable strain from the wrist-roll incident of 10-27 (a guess from
+  the date). Ruled out: the LifeCam (first seen 3 hours after the first drop), RealSense resets (1 of 96 within 10s of one).
+- **Two kinds of drop**: 82 plain disconnects (median 0.42s back, 64 under 1s), and 14 `EMI?` port disables (25s to hours).
+  **The slow times can't show whether waiting helps**: they include how fast a person replugged (the owner's point). Only
+  sub-second returns are clearly unaided. That's why each recovery now logs its outcome, and the wait is short.
+- **Drops lean to the right** (6.5% of attempts, against 1.3% centre, 2.4% left; 25 events, on the right in 6 of the 10 sessions with
+  voids, last known position before each). A lead for cable tension, not proof. A 10-minute stream with no arm script running had 0 drops, but
+  the long-run rate predicts only 0.7 there, so that's weak evidence.
+- **Online fixes that don't apply**: `modprobe -r uvcvideo` acts above the failure, and the RealSense shares the driver.
+  `nodrop=1` is already the value on this kernel. `quirks=0x80` is `UVC_QUIRK_FIX_BANDWIDTH`, not a memory setting, and the logs
+  show no bandwidth problem. `usbreset` needs a device still on the bus; no log had one connected but silent **until
+  2026-11-13, which did** (below), so that is the one case it fits. Resetting the controller would take the arm and RealSense
+  with it.
+
+2026-11-13, `20261113_110111_holdup` (base camera collect; kernel log, session events, pipewire/bluez journal):
+
+- **The wait earns its keep, the power cycle does not: 0 for 9.** Over 94 logged losses, 85 came back by themselves (median
+  1.55s, range 1.55-5.23s) and 2 were quit at the prompt. The power cycle ran 9 times — every one still ended with a person
+  (7, median 66s) or a quit (2). It only runs after the 10s wait has already failed, i.e. on the hard cases, and on this
+  evidence those need hands. So it buys nothing and delays the prompt by `AFTER_CYCLE_WAIT_S` (10s). This answers the open
+  question in `mahjong/wrist_usb.py`'s docstring. Whether it does harm is not shown: on 2026-11-13 the port was already
+  failing to enumerate before our cycle ran (`unable to enumerate` at 12:14:39, cycle at ~12:14:55), so the 2.5 minutes of
+  dead port after it can't be pinned on it.
+- **Connected but silent.** The port flapped from 11:51, hard from 12:13:12 (`error -71`, `Device not responding to setup
+  address`, ~10 cycles), then `disabled by hub (EMI?)` at 12:14:34 and `Cannot enable. Maybe the USB cable is bad?` at
+  12:17:28. A replug at 12:17:29 enumerated it as device 123 — and then every control transfer timed out with `-110` for just
+  under 3 minutes (~35 queries at 5s each). `uvcvideo` logged "UVC non compliance: permanently disabling control" for
+  Saturation, auto White Balance, Gamma, Gain and Power Line Frequency; `v4l2-ctl --list-ctrls` still showed them missing
+  afterwards, with `exposure_time_absolute` and `white_balance_temperature` `inactive`, and a 30s open-and-read hung and had
+  to be killed. The script was at the person prompt throughout and the terminal looked hung because each query blocks in the
+  kernel; the Ctrl-C landed at 12:20:25 and it exited cleanly with its 50 holds, parking the arm.
+- **78 re-enumerations of 3-8 in one boot** (08:33-12:51, ~19/h), accelerating: 21 in the ten minutes from 11:50, 11 more
+  from 12:10. The same link had produced the torn frames of `20261113_100710_bench` earlier the same morning. Two failure
+  modes from one cause, a few hours apart.
+- **It's a one-way regime change, not damage per replug.** Grouping every kernel line by enumeration: 61 of the 78 came up
+  clean (high speed, UVC found, no errors), and before 12:17 the failures were all `-71` or a UVC device never found — the
+  link dropped, but when it came up it worked. From 12:17:29 on, all three successful enumerations came up deaf (`-110`).
+  Their counts of permanently disabled controls were 5, then 1, then 7 — **not monotonic**, so a replug costing more
+  controls each time is not supported; which controls fail depends on where the timeouts land. The `-110` totals (45, 54,
+  142) mostly track how long each instance sat being probed, including by pipewire and by checks run while debugging, so
+  they don't measure damage either. What the data supports is that replugging stopped fixing it after 12:17, not that it
+  made it worse.
+- **A fallback to low or full speed is a retry, not a separate fault.** At 12:50 the ladder was high (failed) → low
+  (failed, `-71`) → full (failed) → high (up, deaf): the kernel stepping down speeds after a failed enumeration. It is a
+  symptom of a bad link, as the 2026-11-05 notes already had it, but it doesn't localise the fault to a conductor.
+- **Camera board or cable was open on the log alone.** Every symptom here belongs to the whole path (host port, cable, the
+  camera's own USB interface), so the log couldn't separate them. What leaned cable/connector: drops track arm position (6.5%
+  right vs 1.3% centre), the step change of 2026-10-28 followed a mechanical event with 446 clean picks before it, and the
+  slack change of 2026-11-10 moved the rate (0 in 13 runs, though 1 in 7 by chance). The host was ruled out — no `-71` on the
+  arm's board, the LifeCam or the RealSense. The port swap below then answered it, and the answer was neither.
+
+### 2026-11-13, the port swap: the fault is the NUC's receptacle 3-8
+
+The owner moved the wrist camera to a different USB socket on the NUC, with the same camera and the same cable. That is a
+one-variable test the log couldn't do, and it is decisive.
+
+- **On 3-8 it enumerates and then can't stream.** Two attempts after the deaf regime had lifted — the camera came up clean
+  both times, no `-71`, no `EMI?`, high speed, `uvcvideo ... Found UVC 1.00 device`:
+
+  | | 14:31:59 on 3-8 | 14:35:42 on 3-8 | 14:36:34 on 3-5 |
+  |---|---|---|---|
+  | enumerated | clean | clean | clean |
+  | control `-110` | 1 (Exposure Time disabled) | 1 (White Balance disabled) | **0** |
+  | `Failed to set UVC probe control` | 3 | 1 | **0** |
+  | streamed | no | no | **yes** |
+
+  The probe control is the format negotiation `VIDIOC_STREAMON` does, so a `-110` there is exactly "Cheese opens the camera
+  and then errors". It is not a driver state: `uvcvideo` disables a control per device instance and that resets on every
+  re-enumeration, and both instances above were fresh.
+
+- **On 3-5 it just works.** 267 frames in 10s at 26.7fps, 0 failed reads, worst gap 40ms (one frame period), and not one
+  kernel line about the port during the run. First try, no coaxing.
+
+- **What that rules out.** The camera board: it streamed within seconds of the move. The cable: the same cable carried that
+  stream. The controller and the software stack: 3-5 and 3-8 are both ports of the same xHCI root hub (`usb3`, 16 ports,
+  `0000:80:14.0`) with the same `uvcvideo`. What is left is the receptacle on 3-8 and its short path to the root hub —
+  contacts sprung or dirty, or a cracked joint at the connector. A marginal contact fits the signature: enough margin for the
+  short, retried descriptor reads of enumeration, not enough for correct signalling afterwards.
+
+- **It also explains the old evidence better than the cable did.** Arm motion tugs the cable, and the tug lands at the
+  connector, so a marginal receptacle gives the same position-correlated drop rate; the mechanical event of 2026-10-27 would
+  have levered the plug in that socket; and adding slack reduces the tug, which is why 2026-11-10 looked promising.
+
+- **Replugging over the day probably did make it worse, but not the way first claimed.** The mechanism is insertion-cycle
+  wear on a receptacle already marginal, not controls accumulating: the per-enumeration counts of permanently disabled
+  controls were 5, 1, 7 — not monotonic (above). Moot either way now: the port is retired.
+
+- **Moving it breaks `/dev/wristcam`.** The udev rule matches `KERNELS=="3-8"`, so after the move the symlink was simply
+  absent and every script stopped at `hardware.connect` with "no wrist camera at /dev/wristcam" — which reads like the camera
+  is still broken. The rule and `config.WRIST_USB_PORT` both have to move with the cable.
+
+- **Still unmeasured.** Whether another device also fails on 3-8 (that would separate a worn receptacle from a worn plug end
+  that happens to seat well in 3-5), and whether 3-5 holds up over a real session with the arm moving. One disconnect at
+  14:38:32 on 3-5 was the owner replugging, not a drop.
+- **Bluetooth audio shares the root hub.** `lsusb -t` puts the camera on bus 3 port 8 and `btusb` on bus 3 port 14. At
+  12:19:10 wireplumber logged `Failure in Bluetooth audio transport /org/bluez/hci0/dev_*/sep1/fd0` and the bluez output node
+  went `running -> error`; at 12:20:24 `pipewire-pulse` gave client `[Firefox]` `error:25 (Input/output error)`, which is
+  what the owner saw as Spotify hanging. bluetoothd recovered at 12:21:43. pipewire was also probing `/dev/video0` and
+  blocking on the same timeouts (`spa.v4l2: VIDIOC_QUERYCTRL: Connection timed out`), since it re-probes on every hotplug.
+  Ruled out as causes of the desktop symptoms: the `i915_flip` kworker (it alternates between PIDs — normal page-flip work,
+  not a stall) and Firefox's NVIDIA apparmor denials (every ~3 minutes all boot, routine).
+- **Why the watch script catches nothing.** All 4 watches to date total 16 minutes and are `still` (arm idle) or `by-hand`
+  (motors off), both controls, and all show 0 drops. The failures track powered arm motion, and `--kernel-only` — made for a
+  second terminal during a real run — has never been used. A 10-minute kernel-only watch during a bench should expect ~3
+  disconnects at the rate above.
+
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
 The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep what loads small.
@@ -150,4 +263,4 @@ The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep wh
   bench voids and reruns the attempt, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script. Evidence: `docs/invariant_notes.md`. It can also fall off
   USB altogether (`/dev/wristcam` gone, 2026-10-30 `20261030_115706_bench`, 3 dropouts in 5 min first): only a
-  replug brings it back, and the bench waits at "Fix that, then Enter".
+  replug brought it back, and the bench waits at "Fix that, then Enter".

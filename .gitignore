@@ -5,6 +5,8 @@ sessions/
 outputs/
 # layout ghost photos and captures: valid only for the current camera placement (data/layouts.json is committed)
 data/layouts/
+# training machine connection details (SSH address, paths): copy from data/train_machine.example.json
+data/train_machine.json
 *.rrd
 .DS_Store
 # tile detector exports and labelled copies: Roboflow keeps the labels (data/detector_exam.json is committed)

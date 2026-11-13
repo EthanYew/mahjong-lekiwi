@@ -108,6 +108,36 @@ def test_split_by_scene_keeps_each_scene_on_one_side(tmp_path):
     assert len((tmp_path / "out" / out["twins"] / "labels" / "twins.txt").read_text().splitlines()) == 1
 
 
+@pytest.mark.parametrize("with_backs", [False, True])
+def test_split_by_scene_keeps_backs_only_when_asked(tmp_path, with_backs):
+    import cv2
+    import yaml
+    import split_by_scene
+    src = tmp_path / "export"
+    names = detector.TILE_NAMES + [config.BACK]
+    for stem, boxes in {"a": [box("1B", 1, 100, 100), box(config.BACK, 1, 200, 100)],
+                        "b": [box(config.BACK, 1, 100, 300), box(config.BACK, 1, 200, 300)]}.items():
+        (src / "train" / "images").mkdir(parents=True, exist_ok=True)
+        (src / "train" / "labels").mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(src / "train" / "images" / f"{stem}.jpg"), np.zeros((480, 848, 3), np.uint8))
+        (src / "train" / "labels" / f"{stem}.txt").write_text("\n".join(detector.yolo_lines(boxes, names, (848, 480))))
+    (src / "data.yaml").write_text(f"nc: {len(names)}\nnames: {names}\n")
+    split_by_scene.main(["--data", str(src / "data.yaml"), "--out", str(tmp_path / "out"), "--valid", "0.5"]
+                        + (["--with-backs"] if with_backs else []))
+    data = yaml.safe_load((tmp_path / "out" / "data.yaml").read_text())
+    assert data["names"] == (names if with_backs else detector.TILE_NAMES) and data["nc"] == len(data["names"])
+    (a,) = (tmp_path / "out").glob("*/labels/a.txt")
+    kept = sorted(x["tile_name"] for x in detector.read_yolo_labels(a, data["names"], (848, 480)))
+    assert kept == (["1B", config.BACK] if with_backs else ["1B"])
+
+
+def test_a_back_is_scored_like_any_class():
+    truth = [box(config.BACK, 1, 100, 100), box("5C", 1, 200, 100), box(config.BACK, 1, 300, 100)]
+    said = [box(config.BACK, 0.8, 101, 100), box(config.BACK, 0.7, 200, 100)]     # one missed, 5C taken for a back
+    s = detector.summary(detector.score([{"truth": truth, "said": said}])["all"])
+    assert (s["tiles"], s["found"], s["named_right"], s["missed"]) == (3, 2, 1, 1)
+
+
 def test_ignore_option_expands_groups_and_rejects_unknown_names():
     import detector_eval
     assert detector_eval.parse_names("flowers,ew") == ("1F", "2F", "3F", "4F", "EW")
@@ -186,6 +216,48 @@ def test_capture_then_mine_exports_prelabelled_frames(tmp_path, monkeypatch):
     assert mine_frames.session_folders([Path(session.dir.name)]) == [session.dir]
     with pytest.raises(SystemExit, match="No scans in"):
         mine_frames.session_folders([Path("20990101_000000_capture")])
+
+
+def test_face_down_frames_export_a_back_box_at_each_spot_with_no_face_on_it(tmp_path, monkeypatch):
+    import json
+    import capture_frames
+    from mahjong.sim import SimPerception
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    spots = [(0.160, -0.165), (0.21, 0.02)]
+    # 8D face up on the first spot, a back on the second that this detector can't see (the deployed weights)
+    mat = SimPerception(tiles=[("8D", *spots[0]), (config.BACK, *spots[1])], sees_backs=False)
+    session = Session("capture", ask_setup=False)
+    tiles, _ = capture_frames.take_scan(mat, session, 1)
+    session.close()
+    assert [t["tile_name"] for t in tiles] == ["8D"]
+    rows, _ = __import__("mine_frames").pick([session.dir], {"sessions": {}}, everything=True)
+    out = tmp_path / "export"
+    detector.export(rows, out, back_spots=spots)
+    import yaml
+    names = yaml.safe_load((out / "data.yaml").read_text())["names"]
+    assert names == detector.TILE_NAMES + [config.BACK]
+    (label_file,) = (out / "train" / "labels").iterdir()
+    labels = detector.read_yolo_labels(label_file, names, (848, 480))
+    assert sorted(b["tile_name"] for b in labels) == sorted(["8D", config.BACK])
+    # where a face-up tile's box would be on that spot: the outline is the same projection
+    face = SimPerception(tiles=[("2C", *spots[1])])
+    face.detect_tiles()
+    (expected,) = face.last_frames[0]["boxes"]
+    (back,) = [b for b in labels if b["tile_name"] == config.BACK]
+    assert detector.iou(back["xyxy"], expected["xyxy"]) > 0.9
+
+    # a scan saved before the camera went into reads.json can't be pre-labelled
+    reads_path = rows[0]["folder"] / "reads.json"
+    reads = json.loads(reads_path.read_text())
+    reads_path.write_text(json.dumps({k: v for k, v in reads.items() if k not in ("intrinsics", "T_cam_to_base")}))
+    with pytest.raises(SystemExit, match="without its camera"):
+        detector.export(rows, tmp_path / "export2", back_spots=spots)
+
+
+def test_mine_frames_backs_layout_needs_the_sessions_named():
+    import mine_frames
+    with pytest.raises(SystemExit):
+        mine_frames.parse_args(["--backs-layout", "even-hand14"])
 
 
 def test_sim_sessions_are_never_mined(tmp_path, monkeypatch):

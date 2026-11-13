@@ -44,6 +44,13 @@ spec.loader.exec_module(gate)
     f"{PY} - <<'EOF'\nimport subprocess; subprocess.run(['python', 'scripts/bench.py'])\nEOF",
     f"if {PY} scripts/bench.py; then echo done; fi",
     "python scripts/bench.py 'unterminated",
+    f"{PY} $(echo scripts/bench.py)",                                 # the substitution hands python the script
+    f"{PY} \"$(echo scripts/bench.py)\" --sim",
+    f"echo `{PY} scripts/bench.py`",
+    f"{PY} -c \"import subprocess; subprocess.run(['python', 'scripts/bench.py'])\"",
+    f"{PY} -c \"exec(open('scripts/bench.py').read())\"",
+    f"{PY} scripts/wall_test.py --stations F",                        # a real wall test, not --report
+    f"{PY} scripts/bench.py --report",                                # --report is wall_test's alone
 ])
 def test_a_run_of_an_arm_script_asks(command):
     assert gate.reason_to_ask(command)
@@ -77,6 +84,17 @@ def test_a_run_of_an_arm_script_asks(command):
     f"{PY} -m pyflakes scripts/record.py",
     f"P={PY}; $P scripts/wrist_capture.py --help",
     f"P={PY}; $P scripts/setup_check.py --sim --save-reference 2>&1",
+    # Prompts that came up in the sessions to 2026-11-11 without being arm runs.
+    f"{PY} scripts/wall_test.py --report 2>&1",
+    f"{PY} scripts/wall_test.py --exclude-session 20261109_1200_wall --why test",
+    f"{PY} -m ruff check --select F scripts/base_cam_collect.py scripts/bench.py scripts/wall_test.py",
+    "ruff check scripts/bench.py",
+    f"{PY} -m mypy scripts/play.py",
+    "python3 -c \"\nfrom pathlib import Path\nprint(Path('scripts/bench.py').read_text().count('import'))\"",
+    "git diff $(git merge-base HEAD main) -- scripts/bench.py",
+    "for f in $(git ls-files scripts); do grep -c def $f; done; wc -l scripts/bench.py",
+    "echo \"$(grep -c def scripts/bench.py)\"",
+    "wc -l `ls scripts/bench.py`",
     # Not arm scripts.
     f"{PY} scripts/status.py",
     f"{PY} scripts/session_report.py --all",
@@ -85,6 +103,21 @@ def test_a_run_of_an_arm_script_asks(command):
 ])
 def test_anything_else_stays_silent(command):
     assert gate.reason_to_ask(command) is None
+
+
+@pytest.mark.parametrize("helper, asks", [
+    ("from pathlib import Path\nimport sys\np = Path(sys.argv[1]); p.write_text(p.read_text().replace('a', 'b'))\n", False),
+    ("import subprocess, sys\nsubprocess.run([sys.executable, sys.argv[1]])\n", True),
+    ("import runpy, sys\nrunpy.run_path(sys.argv[1])\n", True),
+    ("import sys\nsys.path.insert(0, 'scripts')\nimport bench\nbench.main()\n", True),
+    ("from mahjong import hardware\nhardware.connect([\"arm\"])\n", True),
+])
+def test_a_helper_script_handed_an_arm_script_is_read_first(tmp_path, helper, asks):
+    """A patch script in the job folder that edits play.py's text asked on 2026-11-10; one that could run it must still ask."""
+    (tmp_path / "patch.py").write_text(helper)
+    for command in (f"{PY} {tmp_path}/patch.py scripts/play.py", f"{PY} patch.py scripts/play.py"):
+        assert bool(gate.reason_to_ask(command, cwd=str(tmp_path))) == asks
+    assert gate.reason_to_ask(f"{PY} missing.py scripts/play.py", cwd=str(tmp_path))    # can't read it: ask
 
 
 def run_hook(stdin):

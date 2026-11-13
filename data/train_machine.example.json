@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this to data/train_machine.json (gitignored) and fill in your values.",
+  "ssh": "user@host",
+  "wsl_distro": "Ubuntu-24.04",
+  "wsl_home": "/home/user",
+  "windows_home": "C:\\Users\\user",
+  "repo": "~/Projects/mahjong-lekiwi",
+  "lerobot": "~/Projects/lerobot"
+}

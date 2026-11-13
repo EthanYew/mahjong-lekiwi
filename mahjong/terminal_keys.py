@@ -54,6 +54,18 @@ def parse(data, more=lambda: b""):
     return [k for k in keys if k]
 
 
+class Abort:
+    """Esc, from the bench's terminal (mahjong/terminal_keys.py), as an Event-like flag for policy.run."""
+    def __init__(self, events):
+        self.events = events
+
+    def clear(self):
+        self.events["stop_recording"] = self.events["exit_early"] = self.events["rerecord_episode"] = False
+
+    def is_set(self):
+        return self.events["stop_recording"]
+
+
 class TerminalKeys:
     def __init__(self, events, on_char=lambda char: None, stream=None):
         self.events, self.on_char = events, on_char

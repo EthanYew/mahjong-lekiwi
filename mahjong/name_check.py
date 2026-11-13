@@ -143,9 +143,9 @@ def build_model(n_classes):
     return model
 
 
-def _tensor(images, device):
+def _tensor(images, device, crop_fn=crop):
     import torch
-    array = np.stack([crop(image)[:, :, ::-1] for image in images])       # RGB
+    array = np.stack([crop_fn(image)[:, :, ::-1] for image in images])       # RGB
     return torch.from_numpy(array.copy()).permute(0, 3, 1, 2).float().div(255).to(device)
 
 
@@ -162,8 +162,9 @@ def _augment(x):
     return (x * uniform(0.75, 1.25, 3, 1, 1) + uniform(-0.1, 0.1, 1, 1, 1)).clamp(0, 1)
 
 
-def train(photos, seed=0, epochs=EPOCHS, batch=BATCH, device=None, log=print):
-    """A checkpoint trained on `photos`: {"classes", "model", ...}. Thin names are drawn as often as common ones."""
+def train(photos, seed=0, epochs=EPOCHS, batch=BATCH, device=None, log=print, crop_fn=crop):
+    """A checkpoint trained on `photos`: {"classes", "model", ...}. Thin names are drawn as often as common ones.
+    `crop_fn` frames each photo (default: the wrist camera's crop; base_cam_train.py trains on the base camera's view)."""
     import random
 
     import torch
@@ -172,7 +173,7 @@ def train(photos, seed=0, epochs=EPOCHS, batch=BATCH, device=None, log=print):
     random.seed(seed), np.random.seed(seed), torch.manual_seed(seed)
     classes = sorted({p["name"] for p in photos})
     index = {name: i for i, name in enumerate(classes)}
-    x = _tensor([cv2.imread(str(p["path"])) for p in photos], device)
+    x = _tensor([cv2.imread(str(p["path"])) for p in photos], device, crop_fn)
     y = torch.tensor([index[p["name"]] for p in photos], device=device)
     counts = Counter(p["name"] for p in photos)
     weights = torch.tensor([1 / counts[p["name"]] for p in photos], device=device)
@@ -198,6 +199,20 @@ def train(photos, seed=0, epochs=EPOCHS, batch=BATCH, device=None, log=print):
             "trained": datetime.now().isoformat(timespec="seconds")}
 
 
+def predict(checkpoint, images, crop_fn=crop, device=None, batch=64):
+    """The names a checkpoint from train() gives `images`, framed by `crop_fn`."""
+    import torch
+    device = device or _device()
+    model = checkpoint["model"].to(device).float().eval()
+    out = []
+    with torch.no_grad():
+        for part in _tensor(images, device, crop_fn).split(batch):
+            result = model(part)
+            probs = result[0] if isinstance(result, (tuple, list)) else result.softmax(1)
+            out.extend(checkpoint["classes"][int(i)] for i in probs.argmax(1).cpu())
+    return out
+
+
 def save(checkpoint, path=None):
     import torch
     path = Path(path or WEIGHTS)
@@ -209,9 +224,9 @@ def save(checkpoint, path=None):
 class Reader:
     """Reads a tile's name from a wrist frame: {"name", "confidence"}."""
 
-    def __init__(self, path=None, device=None):
+    def __init__(self, path=None, device=None, crop_fn=crop):
         import torch
-        self.path = Path(path or WEIGHTS)
+        self.path, self.crop_fn = Path(path or WEIGHTS), crop_fn
         self.device = device or _device()
         checkpoint = torch.load(self.path, map_location=self.device, weights_only=False)      # our own file, in assets/
         self.classes = checkpoint["classes"]
@@ -221,7 +236,7 @@ class Reader:
         import torch
         out = []
         with torch.no_grad():
-            for part in _tensor(images, self.device).split(batch):
+            for part in _tensor(images, self.device, self.crop_fn).split(batch):
                 result = self.model(part)
                 probs = result[0] if isinstance(result, (tuple, list)) else result.softmax(1)
                 for p in probs.float().cpu().numpy():

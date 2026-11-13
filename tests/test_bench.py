@@ -127,6 +127,34 @@ def test_hover_gripper_overrides_the_policys_opening_and_is_logged(tmp_path, mon
     assert [e["hover_gripper"] for e in events if e["type"] == "attempt"] == [25.0]
 
 
+def test_hover_lower_mm_lowers_the_hover_saves_no_samples_and_is_logged(tmp_path, monkeypatch):
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--tile", "8D", "--hover-lower-mm", "6"]))
+    own = b.policy.hover
+    lowered = b.hover_of(b.policy)
+    assert lowered["offset_m"] == pytest.approx(own["offset_m"] - 0.006) and lowered["clearance_m"] == pytest.approx(own["clearance_m"] - 0.006)
+    assert lowered["gripper"] == own["gripper"]
+    try:
+        b.arm.rest()
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    session = next(tmp_path.iterdir())
+    events = read_events(session)
+    assert next(e for e in events if e["type"] == "bench_setup")["hover_lower_mm"] == 6.0
+    attempt = next(e for e in events if e["type"] == "attempt")
+    assert attempt["success"] and attempt["hover_clearance_m"] < own["clearance_m"] - 0.002       # it hovered lower
+    assert not (session / "hover_corrections.jsonl").exists()                                    # and saved no sample of it
+
+
+def test_hover_lower_mm_is_limited_to_what_the_settle_can_reach():
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(["--sim", "--hover-lower-mm", "12"])
+    assert bench.parse_args(["--sim", "--hover-lower-mm", "-8"]).hover_lower_mm == -8.0
+
+
 def sim_bench(tmp_path, monkeypatch, trials=2):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
@@ -380,6 +408,68 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert len(asked) == 1 and "spot empty" in asked[0]
 
 
+FACE_DOWN_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]
+
+
+def face_down_bench(tmp_path, monkeypatch, argv=(), sees_backs=False):
+    """A face-down bench on the sim. sees_backs: detector weights with the back class (False: the older ones, which box none)."""
+    import bench
+    from mahjong import layout, sim
+    monkeypatch.setattr(sim, "SEES_BACKS", sees_backs)
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
+    layout.save("down", FACE_DOWN_SPOTS)
+    return bench.Bench(bench.parse_args(["--sim", "--layout", "down", "--face-down", *argv]))
+
+
+def test_face_down_trials_aim_at_each_spots_saved_position_and_log_no_samples_or_landings(tmp_path, monkeypatch):
+    from mahjong import scorecard
+    b = face_down_bench(tmp_path, monkeypatch, ["--trials", "2"])
+    try:
+        b.arm.rest()
+        b.trials(2)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    attempts = [e for e in events if e["type"] == "attempt"]
+    spot_xy = {s["id"]: s["xy"] for s in FACE_DOWN_SPOTS}
+    assert [a["spot"] for a in attempts] == ["L", "L", "R", "R"] and all(a["success"] for a in attempts)
+    assert all(a["name_source"] == "saved_position" and a["detection_xy"] == spot_xy[a["spot"]] for a in attempts)
+    assert len([e for e in events if e["type"] == "return"]) == 4
+    assert not [e for e in events if e["type"] == "return_landed"]      # a green back can't be seen landing
+    assert not (b.session.dir / "hover_corrections.jsonl").exists()      # a saved position isn't a detection
+    assert not (b.session.dir / "return_corrections.jsonl").exists()
+    assert [e["spots"] for e in events if e["type"] == "face_down_laid"] == [["L", "R"]]    # asked once, not per round
+    assert "face-down tiles, picked by saved position" in scorecard.off_standard(events, {"surface": None, "layout": "down"})
+
+
+def test_face_down_pickup_at_the_menu_asks_which_spot(tmp_path, monkeypatch):
+    answers = iter(["X", "r", "", "y"])        # no such spot, R, the lay-it prompt's Enter, "picked it up?"
+    monkeypatch.setattr("builtins.input", lambda *_: next(answers))
+    b = face_down_bench(tmp_path, monkeypatch)
+    try:
+        b.ask_names = input             # a real mat: the person is asked to lay it
+        b.arm.rest()
+        assert b.pickup() is True
+    finally:
+        b.close()
+    (attempt,) = [e for e in read_events(b.session.dir) if e["type"] == "attempt"]
+    assert attempt["spot"] == "R" and attempt["detection_xy"] == FACE_DOWN_SPOTS[1]["xy"]
+    assert b.held["home_xy"] == FACE_DOWN_SPOTS[1]["xy"] and b.held["saved_position"]
+
+
+@pytest.mark.parametrize("argv", [["--face-down"], ["--face-down", "--layout", "x", "--tile", "8D"]])
+def test_face_down_needs_a_layout_and_no_tile_name(argv):
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(argv)
+
+
+def test_face_down_unattended_needs_weights_that_see_backs(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="back"):
+        face_down_bench(tmp_path, monkeypatch, ["--trials", "1", "--unattended"])
+
+
 def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monkeypatch):
     import builtins
     import bench
@@ -475,6 +565,30 @@ def test_an_attempt_the_wrist_camera_dropped_out_of_is_void_and_run_again(tmp_pa
     assert [a["success"] for a in attempts] == [True]
     assert void[0]["attempt_dir"] != attempts[0]["attempt_dir"]
     assert next(e for e in events if e["type"] == "trials_done")["results"] == [True]
+
+
+def test_an_attempt_on_torn_wrist_frames_is_void_and_run_again_with_its_reason(tmp_path, monkeypatch):
+    import bench
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    run = b.policy.run
+    calls = []
+
+    def torn_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:         # frames kept coming, torn, until the policy loop stopped it short of the tile
+            return {"steps": 40, "duration_s": 1.3, "stop_reason": "camera", "camera_problem": "torn", "torn_frames": 5,
+                    "aborted": False, "held_at_s": None, "slipped": False, "stall_warning": False, "descended": True,
+                    "floored_steps": 0, "grasp_step": None, "grasp_xy": None, "marks_s": []}
+        return run(*args, **kwargs)
+    b.policy.run = torn_once
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(next(tmp_path.iterdir()))
+    void = [e for e in events if e["type"] == "attempt_void"]
+    assert len(calls) == 2 and [v["reason"] for v in void] == [bench.VOID_TORN]
+    assert [a["success"] for a in events if a["type"] == "attempt"] == [True]
 
 
 def test_returns_aim_at_the_home_so_a_crept_tile_goes_back(tmp_path, monkeypatch):

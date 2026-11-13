@@ -11,12 +11,16 @@ paths:
   - "scripts/spot_novelty.py"
   - "data/policies.json"
   - "data/eval_split.json"
+  - "mahjong/takeover.py"
+  - "scripts/train_remote.py"
 ---
 Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_notes.md`.
 
-- DAgger (on the default policy): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v7`. The policy drives, and a press of A
+- DAgger (on the default policy; wall picks add `--wall-station F`): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v10`. The policy drives, and a press of A
   (the rightmost face button, `gamepad.TAKEOVER_KEY`) hands you the arm. Training uses only the frames from the takeover on, as deltas from
-  the hover: `make_policy.py --source <main> --add <dagger>`.
+  the hover: `make_policy.py --source <main> --add <dagger>`. The same from wherever a pickup fails in `bench.py`, `base_cam_collect.py`,
+  `wall_test.py` or `crude_run.py`: `--dagger-dataset Yewy/<new>` (`mahjong/takeover.py`; A again saves, Esc throws away; a takeover is a
+  rescue, so the attempt isn't clean).
 - Training recordings: `record.py --hover-jitter-mm 6`, so the policy finds the tile in the image (v2
   learned a fixed move per position). Eval recordings have no random jitter; the golden set's `jitter`
   slice uses a fixed list (`--hover-offsets-mm 6x,-6y`) so it can be recorded again identically.
@@ -61,3 +65,10 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
   `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).
   Folding an eval set into training retires it: record the next one. Don't change an existing split
   (scores stop comparing). Offline scores screen; the bench decides what ships.
+- **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05). What seems to matter is white
+  face-up tiles near the target: about 8mm with them, 13-18mm with none or only green backs, and turning the lights on doesn't close the gap (a pattern across 4
+  sessions, not a deliberate test: `docs/retrospectives/2026-11-09_face_down_progress.md`).
+  v8 at S8, from the same hover pose and 41mm hover as when it picked 6/6 at 5-9mm among a full hand, closed 21-28mm up on a lone
+  tile and missed 7/7, face down and face up; with neighbours around it, 14-16mm and 1 of 2 completed picked. A hover 4mm lower
+  closed only 2-3mm lower, so the hover isn't the lever. Bench and collect near-row spots with their neighbours in place, and
+  record demos on isolated tiles. Evidence: `docs/retrospectives/2026-11-05_arm_collects_base_camera_photos.md`.

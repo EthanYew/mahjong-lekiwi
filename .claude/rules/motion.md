@@ -51,3 +51,4 @@ What must stay true of anything that moves the arm. Each cost a debugging round 
 - The hover correction, the return correction and the table plane are tied to `assets/T_cam_to_base.npy`;
   recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
   then aim at home + the grasp's offset until new returns are logged) and may move the plane.
+- **A held tile's jaw reading can drift under `holds_tile`'s margin.** It fell from 9.5 to 3.0 over 2026-11-09 with the command at 0 and empty jaws still at 0.6-0.9. Below 5 a good pick reads as not held, runs to the 16s cap, and a retry opens the jaws. Likely cause: the plastic gripper was found cracked and was superglued (owner, reported 2026-11-11); held tiles read 10.9-11.0 again afterwards (`20261111_161703_crude`). A held reading falling over a session is a sign to check the jaws for cracks. Evidence: `docs/face_down_plan.md`.

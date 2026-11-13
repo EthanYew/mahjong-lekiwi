@@ -10,6 +10,8 @@ paths:
   - "mahjong/bump_report.py"
   - "tests/test_bench.py"
   - "tests/test_bump_report.py"
+  - ".claude/hooks/arm_run_gate.py"
+  - "tests/test_arm_run_gate.py"
 ---
 Running and counting the bench, what a person did, what a session records.
 
@@ -24,7 +26,8 @@ Running and counting the bench, what a person did, what a session records.
   worktree's sessions go with it.
 - Interventions (`mahjong/interventions.py` has the classes and why, ROADMAP 3): keys pressed in the bench's own
   terminal while the arm picks up or returns say what happened (`interventions.KEYS`, printed as each starts: `b`
-  bumped another tile, `p` pushed its own, `r` moved by hand, `d` / `u` gripped low / high, `l` look; → marks a moment).
+  bumped another tile, `p` pushed its own, `r` moved by hand, `d` / `u` / `s` gripped low / high / shallow (jaw tips only), `l` look; → marks a moment). The report's "where to record
+  more" puts misses, these keys, high closes and camera losses per spot.
   Scans around each attempt catch the rest: a neighbour that moved is a knock if `b` was pressed, else asked then; other
   changes are settled by the next scans. No questions wait for the end of a batch. "Touched the tile" is a rescue; "the
   arm bumped a tile, no one helped" is a failure. The scorecard's numbers: `docs/scorecard.md`. Rules and cases:
@@ -39,3 +42,9 @@ Running and counting the bench, what a person did, what a session records.
 - **Counted bench results run on the standard setup** (`data/standard_setup.json`: one mat, one layout), with a passing
   `setup_check.py` and one hover opening within a comparison. Other surfaces are generalisation checks and never block.
   Which check answers which question: `docs/scorecard.md`. Don't change the setup to explain away a result.
+- A command that may run an arm script prompts for a person, in auto mode too (`.claude/hooks/arm_run_gate.py`, a
+  hook because no permission rule can exempt `--sim`); nothing else does: reads, `--sim`, `--help`, linters, flags that
+  never connect (`wall_test.py --report`), command substitutions that only read, and `python -c` code or a helper script
+  (e.g. a patch in the job folder) with nothing that could start a program. Only a likely real arm run should prompt; a
+  prompt on anything else is a hook bug to fix in `tests/test_arm_run_gate.py`. A new script that moves the arm goes in
+  its `ARM_SCRIPTS`.

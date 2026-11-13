@@ -13,16 +13,13 @@ only counted, by their episode logs.)
 
 A name came from the detector (confirmed by a person in wrist_capture, not at the bench), so a few can
 be wrong. scripts/wrist_review.py shows them by name; each verdict is a line in data/wrist_review.jsonl
-(the last line for a photo wins): "ok", or "wrong" with the right name, or "wrong" with none (not a
-usable photo of any tile). labelled() applies them; counts and training sets go through it.
+(the last line for a photo wins; the log and the review window are mahjong/photo_review.py, shared with the base
+camera's photos). labelled() applies them; counts and training sets go through it.
 """
-import json
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 
-from . import config
-from .session import read_jsonl
+from . import config, photo_review
 
 REVIEW = config.DATA / "wrist_review.jsonl"
 SOURCES = ("wrist_capture", "bench")
@@ -54,36 +51,16 @@ def photos(sessions_dir=None):
 
 def load_review(path=None):
     """{photo key: its latest verdict record}."""
-    return {record["photo"]: record for record in read_jsonl(path or REVIEW)}
+    return photo_review.load_review(path or REVIEW)
 
 
 def record(keys, verdict, name=None, path=None):
     """Append a verdict ("ok" / "wrong", with the right name if known) for each photo key. Returns the records."""
-    path = Path(path or REVIEW)
-    time = datetime.now().isoformat(timespec="seconds")
-    records = [{"photo": key, "verdict": verdict, "name": name, "time": time} for key in keys]
-    with open(path, "a") as f:
-        for r in records:
-            f.write(json.dumps(r) + "\n")
-    return records
+    return photo_review.record(keys, verdict, name, path or REVIEW)
 
 
-def name_of(photo, review):
-    """The photo's name after review: the corrected one, its own, or None (wrong, no right name)."""
-    verdict = review.get(photo["key"])
-    if verdict is None or verdict["verdict"] == "ok":   # a photo no scan named waits for a person's name
-        return None if photo["name"] == config.UNNAMED else photo["name"]
-    return verdict.get("name")
-
-
-def labelled(all_photos, review):
-    """The usable photos, each with "name" as reviewed (photos marked wrong without a name left out)."""
-    out = []
-    for photo in all_photos:
-        name = name_of(photo, review)
-        if name is not None:
-            out.append({**photo, "name": name, "reviewed": photo["key"] in review})
-    return out
+name_of = photo_review.name_of           # the photo's name after review: the corrected one, its own, or None
+labelled = photo_review.labelled         # the usable photos, each with "name" as reviewed
 
 
 def counts(sessions_dir=None, review=None):

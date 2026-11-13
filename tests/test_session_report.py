@@ -62,3 +62,35 @@ def test_the_interventions_section_counts_rescues_and_lists_the_rest(capsys):
     assert "rescues: 1 in 2 attempts (5.0 per 10 attempts, one per 2.0)" in out
     assert "resets 1" in out and "observations 1" in out and "1 unassisted + 1 assisted" in out
     assert "marked at 6.2s" in out and "no scans logged" in out
+
+
+def test_where_to_record_lists_spots_with_misses_remarks_and_the_camera(capsys):
+    def attempt(n, spot, success=True, **fields):
+        return {"type": "attempt", "attempt_dir": f"00{n}", "policy": "p", "spot": spot, "tile": "face_down",
+                "success": success, "stop_reason": "done", **fields}
+
+    def keys(n, *kinds):
+        return {"type": "keys", "attempt_dir": f"00{n}", "during": "pickup",
+                "presses": [{"key": k, "kind": k, "t_s": 1.0} for k in kinds]}
+    events = [attempt(1, "S1"), attempt(2, "S1"),
+              attempt(3, "S6", False, stop_reason="cap"), keys(3, "pushed_target"),
+              attempt(4, "S6", False, stop_reason="camera"),
+              {"type": "attempt_void", "attempt_dir": "005", "policy": "p", "spot": "S10"},
+              attempt(6, "S10"), keys(6, "grip_shallow", "grip_shallow"),
+              attempt(7, "S12", grasp_clearance_m=0.024)]
+    found = session_report.interventions.derive(events)
+    session_report.recording_focus(events, [e for e in events if e["type"] == "attempt"], found)
+    lines = capsys.readouterr().out.splitlines()
+    row = lambda spot: next(line for line in lines if line.strip().startswith(spot + " ")).split()
+    assert row("S6") == ["S6", "2/2", "1", "-", "-", "-", "-", "-", "1", "stopped"]
+    assert row("S10") == ["S10", "0/1", "-", "-", "-", "-", "1", "-", "1", "voided"]    # attempts, not presses
+    focus = lines[lines.index("  record more at (attempts with trouble, most first):") + 1:]
+    assert [line.split(":")[0].strip() for line in focus] == ["S6", "S10", "S12"]      # S1 had no trouble
+    assert "the camera stopped 1 of them" in focus[0]
+    assert "shallow 1" in focus[1] and "1 voided and rerun" in focus[1]
+    assert "closed 20mm+ up 1" in focus[2]
+
+
+def test_no_recording_focus_without_spots(capsys):
+    session_report.recording_focus([], [{"policy": "p", "tile": "4D", "success": False, "attempt_dir": "001"}], [])
+    assert capsys.readouterr().out == ""

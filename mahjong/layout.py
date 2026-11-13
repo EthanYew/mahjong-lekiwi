@@ -446,6 +446,15 @@ def nearest_tile(tiles, xy, radius_m=config.TILE_MERGE_RADIUS_M, name=None):
     return min([t for t in near if t["tile_name"] == name] or near, key=distance, default=None)
 
 
+FACE_DOWN = "face_down"     # the name a face-down tile goes by: nothing can read a back
+
+
+def saved_target(spot, name=FACE_DOWN):
+    """A tile at `spot`'s saved position, standing in for a detection: the detector can't see a green back, so a face-down
+    pick aims where the spot was taught (record.py --face-down / --wall-station, bench.py --face-down)."""
+    return {"tile_name": name, "xy": [float(v) for v in spot["xy"]], "saved_position": True}
+
+
 def schedule(spots, repeats=1, start=None):
     """Spot ids in recording order, each `repeats` times in a row, starting at spot id `start`."""
     ids = [s["id"] for s in spots]
