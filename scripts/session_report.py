@@ -237,7 +237,7 @@ def recording_focus(events, attempts, found):
             misses = sum(not a["success"] for a in group)
             high = sum((a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
             stopped = sum(a.get("stop_reason") == "camera" for a in group)
-            torn = sum(bool(a.get("torn_frames")) for a in group)      # a few torn frames, under the stop: counted
+            torn = sum(bool(a.get("torn_frames")) and a.get("stop_reason") != "camera" for a in group)  # under the stop: counted
             unchecked = sum("torn_frames" not in a for a in group)     # logged before policy.run counted torn frames
             trouble = sum(not a["success"] or bool(by_dir.get(a["attempt_dir"]))
                           or (a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
@@ -264,13 +264,16 @@ def recording_focus(events, attempts, found):
     for r in focus:
         why = [f"missed {r['misses']}/{r['n']}"] if r["misses"] else []
         why += [f"{REMARKS[k]} {n}" for k, n in r["remarks"].items()] + ([f"closed 20mm+ up {r['high']}"] if r["high"] else [])
-        camera = (f"the camera stopped {r['stopped']} of them: those may not be the policy's" if r["stopped"]
-                  else f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look" if r["torn"]
-                  # 20261113_100710_bench, logged before the check: 34 of 53 attempts on torn frames, and this said "no camera loss"
-                  else f"torn frames weren't checked in {r['unchecked']} (logged before 2026-11-13): watch wrist.mp4 before "
-                       "recording for them" + (f" ({r['voided']} voided and rerun)" if r["voided"] else "") if r["unchecked"]
-                  else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
-                  else "no camera loss")
+        # every camera remark that applies, not the first: one hid another (a void hid unchecked tears, which on
+        # 20261113_100710_bench, logged before the check, were 34 of 53 attempts, and the line said "no camera loss")
+        camera = ([f"the camera stopped {r['stopped']} of them: those may not be the policy's"] if r["stopped"] else []) \
+            + ([f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look"] if r["torn"] else []) \
+            + ([f"torn frames weren't checked in {r['unchecked']} (logged before 2026-11-13): watch wrist.mp4 before "
+                "recording for them"] if r["unchecked"] else [])
+        if r["voided"]:
+            camera.append(f"{r['voided']} voided and rerun" if camera
+                          else f"no counted attempt lost the camera ({r['voided']} voided and rerun)")
+        camera = "; ".join(camera) or "no camera loss"
         print(f"    {r['spot']}" + (f" {r['policy']}" if many else "") + f": {', '.join(why)}; {camera}")
 
 

@@ -111,6 +111,17 @@ def test_a_pre_check_spot_with_a_voided_attempt_still_says_tears_werent_checked(
     assert "no counted attempt lost the camera" not in out
 
 
+def test_a_spot_s_camera_remark_says_every_camera_problem_it_had(capsys):
+    """Stopped, a few torn, unchecked and voided were one chain: the first that applied hid the rest."""
+    attempts = [{"type": "attempt", "attempt_dir": f"00{n}", "policy": "p", "spot": "S4", "tile": "4D", "success": n != 1,
+                 **fields} for n, fields in enumerate([{"stop_reason": "camera", "torn_frames": 5},
+                                                       {"stop_reason": "done", "torn_frames": 2},
+                                                       {"stop_reason": "done"}], start=1)]
+    session_report.recording_focus(attempts + [{"type": "attempt_void", "spot": "S4", "policy": "p"}], attempts, [])
+    line = next(line for line in capsys.readouterr().out.splitlines() if line.strip().startswith("S4:"))
+    assert "stopped 1" in line and "1 saw a few torn" in line and "weren't checked in 1" in line and "1 voided" in line
+
+
 def test_no_recording_focus_without_spots(capsys):
     session_report.recording_focus([], [{"policy": "p", "tile": "4D", "success": False, "attempt_dir": "001"}], [])
     assert capsys.readouterr().out == ""
