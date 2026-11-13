@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from mahjong import config, hardware, kinematics
+from mahjong.sim import SimCamera
 from mahjong.hover_correction import parse_offsets
 from mahjong.session import read_events
 
@@ -462,20 +463,13 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
 
 
-class TornCamera:
+class TornCamera(SimCamera):
     """A wrist camera that keeps streaming but tears (20261113_100710_bench): here every row jumps from one frame to the next."""
-    def __init__(self):
-        self.reads = 0
+    reads = 0
 
     def read(self):
         self.reads += 1
         return True, np.full((480, 640, 3), 255 * (self.reads % 2), dtype=np.uint8)
-
-    def flush(self, frames=10):
-        pass
-
-    def release(self):
-        pass
 
 
 def test_an_episode_on_torn_frames_says_how_many_in_its_log_row(tmp_path, monkeypatch):
