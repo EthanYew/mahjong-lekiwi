@@ -462,6 +462,36 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
 
 
+class TornCamera:
+    """A wrist camera that keeps streaming but tears (20261113_100710_bench): here every row jumps from one frame to the next."""
+    def __init__(self):
+        self.reads = 0
+
+    def read(self):
+        self.reads += 1
+        return True, np.full((480, 640, 3), 255 * (self.reads % 2), dtype=np.uint8)
+
+    def flush(self, frames=10):
+        pass
+
+    def release(self):
+        pass
+
+
+def test_an_episode_on_torn_frames_says_how_many_in_its_log_row(tmp_path, monkeypatch):
+    """policy.run stops on torn frames; a recording trains on every frame, so its row has to say they were torn."""
+    script = [("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+    dataset, _ = run_record(tmp_path, monkeypatch, [], script, cameras=[TornCamera()])
+    torn, = episode_rows(dataset)[:1]
+    assert torn["frames"] >= 2 and torn["torn_frames"] == torn["frames"] - 1      # every frame after the first
+
+
+def test_an_episode_on_clean_frames_has_no_torn_ones(tmp_path, monkeypatch):
+    from mahjong.sim import SimCamera
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[SimCamera()])
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [0, 0]
+
+
 def test_keys_pressed_while_the_camera_was_lost_dont_answer_the_same_tile_question(tmp_path, monkeypatch):
     """The ← / → pressed while recording sat in stdin: the first answer to "Same tile" came out garbled, so it
     was asked twice and only the second answer counted. Nothing flushed them on the camera-lost path."""

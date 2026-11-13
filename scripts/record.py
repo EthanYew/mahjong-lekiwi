@@ -68,7 +68,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, kinematics, layout, markers, wall_test
-from mahjong.camera import LOST_S
+from mahjong.camera import LOST_S, torn
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
@@ -359,6 +359,7 @@ def main(argv=None):
             frames, roll, actions, states, takeover = 0, RollTrace(), [], [], None
             started = time.time()
             failed_reads, camera_lost = 0, False
+            previous, torn_frames = None, 0     # camera.torn: frames the USB link corrupted, all trained on
             while True:
                 if events["exit_early"]:
                     if time.time() - started >= KEY_REPEAT_S or events["rerecord_episode"] or events["stop_recording"]:
@@ -384,6 +385,8 @@ def main(argv=None):
                         break
                     continue
                 failed_reads = 0
+                torn_frames += torn(previous, frame)
+                previous = frame
                 state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
                 if policy is not None and takeover is None:
                     command, _ = next_command(policy, frame, state, anchor, limits, last_safe)
@@ -438,7 +441,8 @@ def main(argv=None):
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
-                      "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "session": session.dir.name, "slice": args.slice,
+                      "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "torn_frames": torn_frames,
+                      "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
@@ -446,6 +450,8 @@ def main(argv=None):
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s"
                   + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None
                      else f", no takeover: {policy.id}'s alone, not trained on)"))
+            if torn_frames:         # a fast move can blur 1-3 frames into a tear's numbers; more is the USB link
+                print(f"  {torn_frames} torn wrist camera frames in it (USB data lost): look at it before training on it")
             offset = None          # the next episode draws its own
             if placement and args.layout:
                 todo.pop(0)
