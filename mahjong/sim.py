@@ -370,4 +370,5 @@ class SimPolicy:
             "policy_grasp_xy": None, "policy_grasp_clearance_m": None}
         return {**person, "steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
-                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks}
+                "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks,
+                "torn_frames": 0}       # policy.run's count; session_report reads its absence as a session from before it
