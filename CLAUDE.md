@@ -55,7 +55,7 @@ Learned something about the hardware? Add it to the rule it belongs to, with the
 Git catches overlapping lines, not overlapping intent. `merging.md` has the detail.
 
 - Parallel work: a helper, constant or option several tasks need lands on `main` first. Two branches shouldn't both change
-  `bench.py`, `record.py` or `config.py`. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
+  `bench.py`, `record.py` or `config.py`; `.claude/hooks/overlap_warning.py` says so after the first edit to a file another open branch changes. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
 - **Handing a branch back** (Claude's job; the person approves the merge): merge the latest `main` into it, rerun the tests, push,
   and open a draft PR (`gh pr create --draft`) whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or
   other open branches), `## Unverified on the arm`, and `## Review` (what `/code-review` found and what was done) if it changes

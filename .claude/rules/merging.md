@@ -5,6 +5,8 @@ paths:
   - "scripts/review_brief.py"
   - "mahjong/code_health.py"
   - ".gitattributes"
+  - ".claude/hooks/overlap_warning.py"
+  - "tests/test_overlap_hook.py"
 ---
 Several worktrees run in parallel. On 2026-10-23 seven merged in one evening, and every bug that cost
 time merged *without a conflict*: two `--hover-jitter-mm` options (record.py wouldn't start), a log row
@@ -45,3 +47,7 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   (`tests/test_bench.py`, `tests/test_record.py`). A new user-run script gets one.
 - `data/hover_corrections.jsonl`, `data/return_corrections.jsonl` and `data/wrist_review.jsonl` merge by union
   (`.gitattributes`): both sides' samples are kept.
+- **An edit to a file another open branch changes gets a note** (`.claude/hooks/overlap_warning.py`, after every Edit and Write,
+  once per file per session). 10 of the 12 PRs from #67 to #78 changed `play.py`, and `merge_pr.py` only shows an overlap at
+  merge time. Open branches are `origin`'s as last fetched, less those on `main` and this branch's own base. It never blocks:
+  act on it (merge the other first, or build on it) and name it under `## Overlaps`.

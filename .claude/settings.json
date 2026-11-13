@@ -9,7 +9,7 @@
     ],
     "ask": [
       "Bash(*scripts/status.py --set-default*)",
-    "Bash(*scripts/save_samples.py*)"
+      "Bash(*scripts/save_samples.py*)"
     ],
     "deny": [
       "Bash(git push --force*)",
@@ -30,6 +30,18 @@
             "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/arm_run_gate.py\"; [ -f \"$f\" ] || f=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/arm_run_gate.py\"; python3 -I \"$f\"",
             "timeout": 10,
             "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/overlap_warning.py\"; [ -f \"$f\" ] || f=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/overlap_warning.py\"; python3 -I \"$f\"",
+            "timeout": 20
           }
         ]
       }
