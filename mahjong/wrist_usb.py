@@ -45,6 +45,15 @@ def port_of(path=config.WRIST_CAM, sys_class="/sys/class/video4linux"):
     return interface.split(":")[0] if ":" in interface else None
 
 
+def link_speed(port, sys_bus="/sys/bus/usb/devices"):
+    """The USB link's speed in Mbit/s (480 high speed, 12 full speed), or None if it can't be read. A camera that comes
+    back at 12 gives only 160x120 frames (2026-11-12, after a replug)."""
+    try:
+        return float((Path(sys_bus) / port / "speed").read_text().strip())      # 1.5 for low speed
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def remember_port(path=config.WRIST_CAM):
     """Note the camera's port while it's there: once it has dropped, nothing says where it was."""
     global _last_port
@@ -71,13 +80,15 @@ def power_cycle(port=None, run=subprocess.run, helper=HELPER):
 
 
 def _wait_for(open_camera, wait_s, clock, sleep):
-    """A camera from open_camera() within wait_s, or None; tries at least once."""
+    """A camera from open_camera() within wait_s, or None; tries at least once. An error that says waiting won't fix it
+    (`waiting_wont_fix`: hardware.WrongResolution, a link confirmed slow) is raised at once instead."""
     end = clock() + wait_s
     while True:
         try:
             return open_camera()
-        except Exception:
-            pass
+        except Exception as e:
+            if getattr(e, "waiting_wont_fix", False):
+                raise
         if clock() >= end:
             return None
         sleep(POLL_S)
@@ -95,7 +106,13 @@ def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S,
     def done(camera, outcome):
         return camera, {**record, "outcome": outcome, "seconds": round(clock() - start, 2)}
 
-    camera = _wait_for(open_camera, wait_s, clock, sleep)
+    try:
+        camera = _wait_for(open_camera, wait_s, clock, sleep)
+    except Exception as e:          # waiting won't fix it (a link stuck slow): to the person now, and the log says why
+        if not getattr(e, "waiting_wont_fix", False):
+            raise
+        record["refused"] = str(e)
+        return done(None, "not_back")
     if camera is not None:
         return done(camera, "came_back")
     if cycle is None:
@@ -122,4 +139,5 @@ def recovery_summary(events):
         seconds = [r["seconds"] for r in records if r.get("outcome") == outcome]
         if seconds:
             parts.append(f"{len(seconds)} {OUTCOME_TEXT[outcome]} (median {statistics.median(seconds):.1f}s)")
-    return f"{len(records)} losses: " + ", ".join(parts)
+    refused = sum(bool(r.get("refused")) for r in records)
+    return f"{len(records)} losses: " + ", ".join(parts) + (f"; of these, {refused} came back wrong (frame size) and skipped the wait" if refused else "")
