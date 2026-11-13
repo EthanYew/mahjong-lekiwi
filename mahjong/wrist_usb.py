@@ -109,6 +109,8 @@ def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S,
     try:
         camera = _wait_for(open_camera, wait_s, clock, sleep)
     except Exception as e:          # waiting won't fix it (a link stuck slow): to the person now, and the log says why
+        if not getattr(e, "waiting_wont_fix", False):
+            raise
         record["refused"] = str(e)
         return done(None, "not_back")
     if camera is not None:
@@ -138,4 +140,4 @@ def recovery_summary(events):
         if seconds:
             parts.append(f"{len(seconds)} {OUTCOME_TEXT[outcome]} (median {statistics.median(seconds):.1f}s)")
     refused = sum(bool(r.get("refused")) for r in records)
-    return f"{len(records)} losses: " + ", ".join(parts) + (f"; {refused} came back wrong (frame size), no wait" if refused else "")
+    return f"{len(records)} losses: " + ", ".join(parts) + (f"; of these, {refused} came back wrong (frame size) and skipped the wait" if refused else "")

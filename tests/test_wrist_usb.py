@@ -332,10 +332,10 @@ def test_a_reopen_on_a_slow_link_says_replug_now_and_logs_why(tmp_path, monkeypa
     assert got is new and "came back wrong (160x120 frames, USB link at 12 Mbit/s). Replug it now." in capsys.readouterr().out
     record = next(e for e in read_events(session.dir) if e["type"] == "wrist_camera_recovery")
     assert record["outcome"] == "person" and record["refused"].startswith("160x120")
-    assert "1 came back wrong" in wrist_usb.recovery_summary([record])
+    assert "of these, 1 came back wrong" in wrist_usb.recovery_summary([record])
 
 
-def test_a_wrong_size_on_a_link_that_reads_fast_is_waited_for(tmp_path):
+def test_a_wrong_size_on_a_link_that_reads_fast_is_not_refused_at_once(tmp_path):
     """The first frame of a camera still coming up can be the wrong size; only a slow link says waiting won't fix it."""
     import numpy as np
     (tmp_path / "3-8").mkdir()

@@ -46,10 +46,11 @@ def check_resolution(camera, frame, path, sys_bus="/sys/bus/usb/devices"):
     camera.release()
     port = wrist_usb.port_of(path)
     speed = wrist_usb.link_speed(port, sys_bus) if port else None
-    slow = speed is not None and speed < 480
-    link = f", USB link at {speed:g} Mbit/s instead of 480" if slow else ""
-    raise (WrongResolution if slow else NotReady)(f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}{link}: "
-                   "unplug it and plug it back in firmly (a slow link means the cable or its plug isn't making good contact)")
+    size = f"the {camera.label} gives {frame.shape[1]}x{frame.shape[0]} frames, not {width}x{height}"
+    if speed is not None and speed < 480:
+        raise WrongResolution(f"{size}, USB link at {speed:g} Mbit/s instead of 480: unplug it and plug it back in firmly "
+                              "(a slow link means the cable or its plug isn't making good contact)")
+    raise NotReady(f"{size}: it may still be coming up, so retry; if it stays that size, unplug it and plug it back in firmly")
 
 
 def open_wrist_camera():
