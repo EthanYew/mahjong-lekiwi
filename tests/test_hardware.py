@@ -66,3 +66,71 @@ def test_bench_creates_no_session_when_you_quit_at_preflight(tmp_path, monkeypat
     with pytest.raises(SystemExit):
         bench.Bench(bench.parse_args([]))
     assert list(tmp_path.iterdir()) == []
+
+
+class Camera:
+    label = "wrist camera"
+
+    def __init__(self):
+        self.released = False
+
+    def release(self):
+        self.released = True
+
+
+def test_a_camera_at_the_wrong_resolution_is_not_ready(tmp_path, monkeypatch):
+    """20261112_155318_holdup: a replug left the wrist camera at 12 Mbit/s and 160x120, and the reopen took it."""
+    import numpy as np
+    (tmp_path / "3-8").mkdir()
+    (tmp_path / "3-8" / "speed").write_text("12\n")
+    monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: "3-8")
+    camera = Camera()
+    with pytest.raises(hardware.WrongResolution, match=r"160x120 frames, not 640x480, USB link at 12 Mbit/s"):
+        hardware.check_resolution(camera, np.zeros((120, 160, 3), np.uint8), "/dev/wristcam", sys_bus=tmp_path)
+    assert camera.released
+
+
+def test_a_camera_at_the_recorded_resolution_passes(tmp_path):
+    import numpy as np
+    camera = Camera()
+    hardware.check_resolution(camera, np.zeros((480, 640, 3), np.uint8), "/dev/wristcam", sys_bus=tmp_path)
+    assert not camera.released
+
+
+def test_link_speed_unreadable_is_none(tmp_path):
+    assert hardware.wrist_usb.link_speed("3-8", sys_bus=tmp_path) is None
+
+
+def test_the_wrist_camera_opener_refuses_the_wrong_size_and_notes_its_port(monkeypatch):
+    """The check has to be in the opener: the reopen and connect both go through it."""
+    import numpy as np
+    import mahjong.camera
+    small = Camera()
+    small.read = lambda: (True, np.zeros((120, 160, 3), np.uint8))
+    monkeypatch.setattr(mahjong.camera, "WristCamera", lambda: small)
+    monkeypatch.setattr(hardware.os.path, "exists", lambda path: True)
+    noted = []
+    monkeypatch.setattr(hardware.wrist_usb, "remember_port", lambda: noted.append(True))
+    monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: None)          # speed unknown: maybe still coming up
+    with pytest.raises(NotReady, match="160x120") as refused:
+        hardware.open_wrist_camera()
+    assert small.released and noted and not isinstance(refused.value, hardware.WrongResolution)
+
+
+def test_the_base_camera_opener_refuses_the_wrong_size(monkeypatch):
+    import numpy as np
+    import mahjong.camera
+    small = Camera()
+    monkeypatch.setattr(mahjong.camera, "BaseCamera", lambda: small)
+    monkeypatch.setattr(mahjong.camera, "read_within", lambda camera, **k: (True, np.zeros((120, 160, 3), np.uint8)))
+    monkeypatch.setattr(hardware.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(hardware.wrist_usb, "port_of", lambda path: None)
+    with pytest.raises(NotReady, match="160x120"):
+        hardware.open_base_camera()
+    assert small.released
+
+
+def test_a_low_speed_link_reads_as_one_and_a_half(tmp_path):
+    (tmp_path / "3-8").mkdir()
+    (tmp_path / "3-8" / "speed").write_text("1.5\n")
+    assert hardware.wrist_usb.link_speed("3-8", sys_bus=tmp_path) == 1.5
