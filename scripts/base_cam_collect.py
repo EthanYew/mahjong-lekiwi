@@ -31,7 +31,6 @@ Run `setup_check.py` first, and from the main checkout (sessions are per-checkou
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -358,7 +357,7 @@ def main(argv=None, ask=input):
         if rig.session:
             rig.session.event("holdup_done", shots_taken=counters["shots"])
             print(f"{counters['shots']} hold(s) saved in {folder}" + ("" if args.empty else
-                  f"\nScore a reader trained on them: python scripts/base_cam_train.py (--history lists every result)"))
+                  "\nScore a reader trained on them: python scripts/base_cam_train.py (--history lists every result)"))
             rig.session.close()
     return folder
 

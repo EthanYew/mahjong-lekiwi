@@ -73,7 +73,7 @@ person was involved in nearly every step.
   on the mat and the black-and-white pattern is new to the wrist camera; (2) the 38-class detector
   (no ArUco class) reads the marker's edge around the tile as a tile, or misnames the drawn tile. The
   bench can test both before play: `--layout` with a spot on the marker, paired against a mat spot.
-- **Superseded 2026-11-04: the marker is read only to teach the zone**, and later hands carry the saved position over (CLAUDE.md, invariants). The original decision:
+- **Superseded 2026-11-04: the marker is read only to teach the zone**, and later hands carry the saved position over (`.claude/rules/play.md`). The original decision:
   **Re-detect the marker every turn once the zone is empty** (just after the drawn tile is picked).
   If it moved more than a few mm, the LeKiwi base or camera moved: pause. This catches the
   calibration drift that ties hover correction and table plane to `T_cam_to_base.npy`. Cache the

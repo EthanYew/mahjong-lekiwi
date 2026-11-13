@@ -53,9 +53,9 @@ POLL_INTERVAL_S = 60
 def load_config():
     if not CONFIG_PATH.exists():
         raise SystemExit(
-            f"data/train_machine.json not found.\n"
-            f"Copy data/train_machine.example.json to data/train_machine.json "
-            f"and fill in your machine's details."
+            "data/train_machine.json not found.\n"
+            "Copy data/train_machine.example.json to data/train_machine.json "
+            "and fill in your machine's details."
         )
     cfg = json.loads(CONFIG_PATH.read_text())
     for key in ("ssh", "wsl_distro", "wsl_home", "windows_home", "repo", "lerobot"):
@@ -71,13 +71,13 @@ def load_config():
 def run_script(cfg, version, make_policy_args, comment=""):
     """Content of the WSL bash script that runs make_policy.py."""
     log = f"{cfg['lerobot']}/outputs/train/{version}_make_policy.log"
-    cmd = (f"python -u scripts/make_policy.py "
+    cmd = ("python -u scripts/make_policy.py "
            + " ".join(f"'{a}'" if " " in a else a for a in make_policy_args))
     lines = ["#!/bin/bash"]
     if comment:
         lines.append(f"# {comment}")
     lines += [
-        f"export PATH=\"$HOME/miniforge3/envs/lerobot/bin:$PATH\"",
+        "export PATH=\"$HOME/miniforge3/envs/lerobot/bin:$PATH\"",
         f"LOG={log}",
         f"cd {cfg['repo']}",
         f"rm -f ~/{version}_exit",
@@ -89,7 +89,6 @@ def run_script(cfg, version, make_policy_args, comment=""):
 
 def keepawake_script(cfg, version, shutdown_train=False):
     """Content of the Windows PowerShell keepawake script."""
-    ps1_path = f"{cfg['windows_home']}\\{version}_run.sh"
     # Escape the path for WSL: convert backslashes, spaces quoted
     wsl_run = f"~/{version}_run.sh"
     lines = [
@@ -209,7 +208,6 @@ def cmd_start(args, cfg):
     run_sh_remote = f"~/{version}_run.sh"
     ps1_remote = f"{cfg['windows_home']}\\{version}_keepawake.ps1"
     log_remote = f"{cfg['lerobot']}/outputs/train/{version}_make_policy.log"
-    exit_remote = f"~/{version}_exit"
 
     # Check the remote's data/ for uncommitted changes that would be overwritten
     result = wsl_run(cfg, f"cd {cfg['repo']} && git status --short data/", check=False)
@@ -347,7 +345,7 @@ def cmd_sync(args, cfg):
         if steps:
             hint.append(f"{steps.group(1)} steps")
         hint.append(f"trained {time.strftime('%Y-%m-%d')}")
-        print(f"Add this to the policies list in README.md (then run the fast tests):")
+        print("Add this to the policies list in README.md (then run the fast tests):")
         print(f"  `{policy_id}` ({'; '.join(hint)}),")
     else:
         print(f"README.md already names `{policy_id}`.")

@@ -71,7 +71,7 @@ def test_dropped_episodes_are_kept_per_dataset_with_their_reason(tmp_path):
 
 
 def test_gripper_fixes_and_undropping(tmp_path):
-    from mahjong.quality import drop_episodes, dropped_episodes, fix_gripper, gripper_fixes, undrop_episodes
+    from mahjong.quality import drop_episodes, fix_gripper, gripper_fixes, undrop_episodes
     fixes, drops = tmp_path / "fixes.json", tmp_path / "dropped.json"
     drop_episodes("a/b", [75, 86], "loose grip", drops)
     assert fix_gripper("a/b", [75], "stopped at 5.5%", fixes) == {75: "stopped at 5.5%"}

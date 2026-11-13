@@ -240,7 +240,7 @@ def evaluate(policy, split=None, max_episodes=None, stride=EVAL_STRIDE, log=prin
             meta = ds.meta.episodes[built_ep]
             a, b = int(meta["dataset_from_index"]), int(meta["dataset_to_index"])
             states, actions, actions_raw = (np.stack(h[k][a:b]) for k in ("observation.state", "action", "action_raw"))
-            metrics = score_episode(policy.plan, lambda i: bgr_frame(ds, a + i), states, actions, actions_raw,
+            metrics = score_episode(policy.plan, lambda i: bgr_frame(ds, a + i), states, actions, actions_raw,  # noqa: B023 used only during this call
                                     fps=ds.fps, stride=stride)
             rows.append({"source": src, "episode": src_ep, **labels(records.get(src_ep, {}), default_slice), **metrics})
             log(f"  {src.split('/')[-1]} ep {src_ep:>3} [{rows[-1]['slice']}/{rows[-1]['spot']}]: arm {metrics['arm_mae']:.2f}° "

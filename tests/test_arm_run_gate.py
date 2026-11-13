@@ -91,9 +91,9 @@ def test_a_run_of_an_arm_script_asks(command):
     "ruff check scripts/bench.py",
     f"{PY} -m mypy scripts/play.py",
     "python3 -c \"\nfrom pathlib import Path\nprint(Path('scripts/bench.py').read_text().count('import'))\"",
-    f"git diff $(git merge-base HEAD main) -- scripts/bench.py",
-    f"for f in $(git ls-files scripts); do grep -c def $f; done; wc -l scripts/bench.py",
-    f"echo \"$(grep -c def scripts/bench.py)\"",
+    "git diff $(git merge-base HEAD main) -- scripts/bench.py",
+    "for f in $(git ls-files scripts); do grep -c def $f; done; wc -l scripts/bench.py",
+    "echo \"$(grep -c def scripts/bench.py)\"",
     "wc -l `ls scripts/bench.py`",
     # Not arm scripts.
     f"{PY} scripts/status.py",

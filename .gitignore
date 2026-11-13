@@ -14,6 +14,8 @@ data/detector/
 # Claude Code worktrees (git worktrees of their own) and the base weights Ultralytics downloads when fine-tuning
 .claude/*
 !.claude/skills/
+!.claude/agents/
+!.claude/rules/
 !.claude/hooks/
 !.claude/settings.json
 /yolo*.pt

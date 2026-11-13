@@ -32,7 +32,6 @@ import numpy as np
 
 from mahjong import face_down_rig
 from mahjong import camera_poses, config, gamepad, base_cam, base_cam_collect, layout, privacy, takeover, wall_test, wrist_check
-from mahjong.camera import grab_frames
 from mahjong.perception import drain_stdin
 from mahjong.session import Session, read_events
 

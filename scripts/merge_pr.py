@@ -4,6 +4,7 @@
     python scripts/merge_pr.py 34            # check PR 34, ask, merge it, pull main, test main, close its branch
     python scripts/merge_pr.py 34 --slow     # ... with the slow (GPU) tests on the merged tree too
     python scripts/merge_pr.py --close       # close every merged branch: worktree, local and GitHub branch (asks)
+    python scripts/merge_pr.py --review      # start the post-merge review of what's merged since the last one
 
 Run it from the main checkout. It stops, with nothing changed, if the pull after the merge would fail: main has commits
 GitHub doesn't, or the PR changes a data file with uncommitted changes here. Before asking, it shows what you're approving:
@@ -32,6 +33,8 @@ from mahjong import checkout, config
 SECTIONS = ["What changed", "Files", "Overlaps", "Unverified on the arm"]
 SLOW_FILES = ("mahjong/policy.py", "mahjong/dataset.py")      # CLAUDE.md: run the slow tests too
 DEF = re.compile(r"^\+\s*def (\w+)\(|^\+([A-Z][A-Z0-9_]+) = |add_argument\(\s*\"(--[\w-]+)\"")
+REVIEW_PROMPT = ("Review the merges since the last post-merge review. Start with scripts/review_brief.py. Fix what's clearly broken "
+                 "in a draft PR, and list what needs a person's judgement.")
 
 
 def run(cmd, cwd=None, check=True):
@@ -192,10 +195,10 @@ def show_status():
         for item in left:
             print(f"  {item['branch']:<36} {where(item)}")
     if gone:
-        print(f"\nPR closed without merging (--close asks about these separately):")
+        print("\nPR closed without merging (--close asks about these separately):")
         for item in gone:
             print(f"  {item['branch']:<36} {where(item)}  (#{item['pr']}, last commit {item['tip']})")
-    print(f"\nTo approve one: python scripts/merge_pr.py <number>")
+    print("\nTo approve one: python scripts/merge_pr.py <number>")
 
 
 def close_all(ask=input):
@@ -256,6 +259,28 @@ def merge(number, slow=False, ask=input):
         print(f"\nMerged #{number} and closed {branch}.")
     else:
         print(f"\nMerged #{number}; {branch} isn't closed (above): python scripts/merge_pr.py --close")
+    offer_review(ask)
+
+
+def start_review():
+    """The post-merge review, as a background session of its own: `claude agents` lists it, and it ends in a draft PR. It enters its
+    own worktree, so this checkout isn't touched."""
+    if not shutil.which("claude"):
+        raise SystemExit("claude isn't on the PATH: open Claude Code here and run /post-merge-review")
+    subprocess.run(["claude", "--bg", "--agent", "merge-reviewer", REVIEW_PROMPT], cwd=config.REPO, env=checkout.claude_env(), check=True)
+
+
+def offer_review(ask=input):
+    """The review belongs at the end of a batch, not after each merge: asks only once no PR is waiting, and says so otherwise."""
+    merges = checkout.unreviewed_merges()
+    if not merges:
+        return
+    waiting = json.loads(gh("pr", "list", "--json", "number,isDraft"))
+    if [pr for pr in waiting if not pr["isDraft"]] or waiting:
+        print(f"\n{len(merges)} merged PR(s) since the last review, {len(waiting)} still open. When the batch is done: "
+              "python scripts/merge_pr.py --review")
+    elif confirm(f"\n{len(merges)} merged PR(s) since the last review, none left open. Start the review in the background (uses your Claude plan's limits: past reviews took ~150 calls)?", ask):
+        start_review()
 
 
 def parse_args(argv=None):
@@ -263,12 +288,15 @@ def parse_args(argv=None):
     p.add_argument("number", nargs="?", type=int, help="the PR to check, approve and merge")
     p.add_argument("--slow", action="store_true", help="run every test on the merged tree, not just the fast ones")
     p.add_argument("--close", action="store_true", help="close every merged branch (worktree, local, GitHub); asks first")
+    p.add_argument("--review", action="store_true", help="start the post-merge review of what's merged since the last one, in the background")
     return p.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    if args.close:
+    if args.review:
+        start_review()
+    elif args.close:
         must_be_main_checkout()
         run(["git", "fetch", "--prune", "origin"])
         close_all()

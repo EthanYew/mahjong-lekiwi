@@ -148,7 +148,6 @@ def test_summary_table_prints_every_slice():
 
 
 def test_episodes_are_labelled_by_the_surface_they_were_recorded_on():
-    from mahjong import config
     green = offline_eval.labels({"conditions": {"surface": "green cutting mat"}}, "heldout")
     assert green["surface"] == "green cutting mat"
     assert offline_eval.labels({"conditions": {"daylight": "bright"}}, "heldout")["surface"] == config.SURFACE_BEFORE_ASKED

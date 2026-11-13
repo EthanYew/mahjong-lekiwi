@@ -262,7 +262,7 @@ def check_lines(results):
         lines.append(f"So far: {len(clean)} of {len(results)} result(s) with a clean control; the best {best['mean_right']:.0%} "
                      f"against a constant {best['runs'][0]['best_constant_answer']:.0%} on {best['runs'][0]['tiles']} tile(s) "
                      f"({best['file']})")
-        lines.append(f"  on a session never trained on: " + ("; ".join(
+        lines.append("  on a session never trained on: " + ("; ".join(
             f"{d['mean_right']:.0%} on {', '.join(d['runs'][0]['per_tile'])} ({d['file'].split('/')[0]})" for d in across)
             if across else "none yet (base_cam_train.py --test-session), the test that says it carries to new light or rooms"))
     return lines
