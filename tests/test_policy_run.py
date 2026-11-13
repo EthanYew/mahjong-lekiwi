@@ -142,6 +142,40 @@ def test_a_camera_that_stops_giving_frames_stops_the_attempt(tmp_path):
     assert camera.reads == 40 + config.FPS             # a second of failed reads, not the 16s cap
 
 
+class TearingCamera(SimCamera):
+    """A wrist camera that keeps giving frames, torn (bands of noise, as USB data loss leaves them: 20261113_100710_bench)
+    on reads n (1-based) where `tears(n)`."""
+
+    def __init__(self, tears):
+        self.reads, self.tears, self.rng = 0, tears, np.random.default_rng(0)
+
+    def read(self):
+        self.reads += 1
+        frame = np.full((480, 640, 3), 120, np.uint8)
+        if self.tears(self.reads):
+            frame[100:400] = self.rng.integers(0, 255, (300, 640, 3), dtype=np.uint8)
+        return True, frame
+
+
+def test_torn_frames_before_the_hold_stop_the_attempt_as_a_camera_problem(tmp_path):
+    from mahjong.camera import TORN_STOP_FRAMES
+    arm = hovering_arm()
+    camera = TearingCamera(lambda n: n > 30)
+    summary = run(ScriptedPickup(arm), arm, camera, tmp_path, log=lambda *a: None)
+    assert summary["stop_reason"] == "camera" and summary["camera_problem"] == "torn"
+    assert summary["torn_frames"] == TORN_STOP_FRAMES and summary["steps"] == 30 + TORN_STOP_FRAMES - 1
+
+
+def test_a_torn_frame_or_two_and_tears_once_the_tile_is_held_carry_on(tmp_path):
+    arm = hovering_arm()
+    summary = run(ScriptedPickup(arm), arm, TearingCamera(lambda n: n in (20, 21)), tmp_path, log=lambda *a: None)
+    # 3: into the tear, between its two frames, and back out of it (a jump either way; what TORN_STOP_FRAMES was set on)
+    assert summary["stop_reason"] == "done" and summary["torn_frames"] == 3 and "camera_problem" not in summary
+    arm = hovering_arm()        # torn all through the lift: the jaws closed on the tile at ~step 70
+    summary = run(ScriptedPickup(arm), arm, TearingCamera(lambda n: n > 90), tmp_path, log=lambda *a: None)
+    assert summary["stop_reason"] == "done" and summary["torn_frames"] == 0
+
+
 def test_a_dropped_frame_or_two_carries_on(tmp_path):
     arm = hovering_arm()
     summary = run(ScriptedPickup(arm), arm, FailingCamera(lambda n: n in (50, 51)), tmp_path, log=lambda *a: None)

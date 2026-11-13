@@ -250,6 +250,12 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   `disabled by hub (EMI?)`; 0 disconnects in 446 picks to 2026-10-27, 89 since): no driver or `uvcvideo` option can fix it, and
   the kernel's own port power cycles haven't. Which part: `scripts/wrist_usb_watch.py`. Whether the wait and our power
   cycle work is unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
+  **It can also keep sending torn frames** (rows shifted or smeared by lost USB data; it streams YUYV, so nothing fails to
+  decode): 20261113_100710_bench ran 25 minutes on them, both policies closing 35-78mm in the air, 10/34 picked against 18/19
+  on clean frames, and nothing stopped it. `camera.torn` (a share of rows jumping between frames, which the arm's own motion
+  doesn't do: no clean attempt in 1591 videos reached the stop) makes `policy.run` stop as "camera" after
+  `TORN_STOP_FRAMES` before the first hold (`camera_problem` "torn"). Tears had been there since 2026-10-28 in short runs.
+  Unconfirmed on the arm.
 - **The wrist look sees a tile face, not which tile.** A knocked tile near a lost one fills the same disc, so the
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a

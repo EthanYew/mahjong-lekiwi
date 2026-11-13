@@ -155,6 +155,11 @@ class KeyMarks:
             self.terminal.stop()
 
 
+# why an attempt was voided and rerun (policy.run's camera_problem)
+VOID_LOST = "wrist camera stopped giving frames"
+VOID_TORN = "wrist camera frames torn (USB data lost)"
+
+
 BACK_UNCHECKED = ("face down: a back box's centre hasn't been checked against a face box's at the same spots, and the hover "
                   "and return models are fitted from detections")
 
@@ -807,14 +812,15 @@ class Bench:
                                **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
                                **({"face_down": True} if self.args.face_down else {}))
         if run["stop_reason"] == "camera" and not holding:
-            self.session.event("attempt_void", reason="wrist camera stopped giving frames", tile=tile["tile_name"],
+            torn = run.get("camera_problem") == "torn"
+            self.session.event("attempt_void", reason=VOID_TORN if torn else VOID_LOST, tile=tile["tile_name"],
                                policy=self.policy.id, attempt_dir=attempt.name, hover_perturb_xy=list(perturb),
                                **({"spot": spot["id"]} if spot else {}))
             self.reopen_camera()
             if camera_retries:
                 print("Wrist camera reopened — running the attempt again.")
                 return self.pickup(tile_name, ask, perturb, spot, camera_retries - 1)
-            print("The wrist camera dropped out again.")
+            print("The wrist camera " + ("gave torn frames" if torn else "dropped out") + " again: skipping this attempt.")
             return None
         if self.arm.is_at_rest():   # else the scan after it's set down: a frame with the arm out shows it across the tiles
             self.snapshot(attempt / "overview_after.jpg")

@@ -143,7 +143,7 @@ class Takeover:
         session.intervention("takeover", attempt_dir=attempt_dir, frame=taken, tile=fields.get("tile_name"),
                              ended=run.get("takeover_end"), dataset=self.repo_id,
                              **({"sticks_off_centre": self.off_centre} if self.off_centre else {}))
-        why = {"discarded": "Esc", "camera": "the wrist camera dropped out: a gap in its frames"}.get(run.get("takeover_end"))
+        why = {"discarded": "Esc", "camera": "the wrist camera dropped out or tore: frames missing or corrupt"}.get(run.get("takeover_end"))
         if why or not frames:
             session.event("takeover_discarded", attempt_dir=attempt_dir, frames=len(frames), dataset=self.repo_id,
                           why=why or "no frames")

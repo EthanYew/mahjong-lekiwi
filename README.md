@@ -114,6 +114,13 @@ camera's USB port once, and only then shows "Fix that, then Enter". **Don't repl
 be counted as the camera coming back by itself. `session_report.py` prints how each loss ended, and
 `wrist_usb_watch.py --report` totals them.
 
+The same link can also keep sending frames that are **torn**: bands of rows shifted or smeared where USB data was lost.
+The policy can't see the tile in them and closes in the air (20261113_100710_bench: 10 of 34 such attempts picked).
+A pickup that sees 5 torn frames before its jaws hold a tile stops the same way a lost camera does: the bench voids it
+("wrist camera frames torn"), reopens the camera and runs it again, and record.py's DAgger and the face-down scripts treat
+it as a dropout. `session_report.py` lists the voids by reason, and counted attempts that saw a few torn frames. Torn
+frames that keep coming back mean the cable or its port: reseat it and watch the link with `wrist_usb_watch.py`.
+
 The power cycle and turning autosuspend off need root, so run this once per machine (`--remove` takes it out again):
 
 ```

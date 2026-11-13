@@ -567,6 +567,30 @@ def test_an_attempt_the_wrist_camera_dropped_out_of_is_void_and_run_again(tmp_pa
     assert next(e for e in events if e["type"] == "trials_done")["results"] == [True]
 
 
+def test_an_attempt_on_torn_wrist_frames_is_void_and_run_again_with_its_reason(tmp_path, monkeypatch):
+    import bench
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    run = b.policy.run
+    calls = []
+
+    def torn_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:         # frames kept coming, torn, until the policy loop stopped it short of the tile
+            return {"steps": 40, "duration_s": 1.3, "stop_reason": "camera", "camera_problem": "torn", "torn_frames": 5,
+                    "aborted": False, "held_at_s": None, "slipped": False, "stall_warning": False, "descended": True,
+                    "floored_steps": 0, "grasp_step": None, "grasp_xy": None, "marks_s": []}
+        return run(*args, **kwargs)
+    b.policy.run = torn_once
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    events = read_events(next(tmp_path.iterdir()))
+    void = [e for e in events if e["type"] == "attempt_void"]
+    assert len(calls) == 2 and [v["reason"] for v in void] == [bench.VOID_TORN]
+    assert [a["success"] for a in events if a["type"] == "attempt"] == [True]
+
+
 def test_returns_aim_at_the_home_so_a_crept_tile_goes_back(tmp_path, monkeypatch):
     import builtins
     from mahjong.return_correction import landings
