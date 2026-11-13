@@ -21,7 +21,7 @@ import torchvision.transforms.functional as F
 
 from . import config, kinematics
 from .arm import holds_tile
-from .camera import LOST_S
+from .camera import LOST_S, TORN_STOP_FRAMES, torn
 
 STALL_CHECK_S = 4.0
 STALL_MOVE_DEG = 2.0
@@ -155,7 +155,8 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     cleared, and the policy carries on. Saves to trace_dir: act_trace.npz, wrist.mp4 (every frame; frame k
     is the image behind act_trace row k, plus one more when it stops on the done check) and a wrist jpg
     every 100 steps. Returns a summary: stop_reason (done / cap / aborted / camera: no wrist frames for
-    CAMERA_LOST_S, so the attempt says nothing about the policy), duration_s, held_at_s, slipped
+    CAMERA_LOST_S, or TORN_STOP_FRAMES torn frames before the tile was first held: camera_problem "lost" / "torn"; either
+    way the attempt says nothing about the policy), torn_frames (torn frames before the first hold), duration_s, held_at_s, slipped
     (held, then lost during the hold check), stall_warning, descended, floored_steps, grasp_step,
     grasp_xy (the tool point where the gripper was first commanded shut — where a return should put
     the tile), marks_s (when it was marked, s).
@@ -177,6 +178,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     states, actions, floored_steps, warned, marks = [], [], 0, False, []
     stop_reason, done_since, held_at, slipped = "cap", None, None, False
     failed_reads = 0
+    previous, torn_frames, ever_held, camera_problem = None, 0, False, None
     stall_step = int(STALL_CHECK_S * config.FPS)
     confirm_steps = int(HOLD_CONFIRM_S * config.FPS)
     log(f"ACT ({policy.id}) for up to {duration_s:.0f}s, stopping once the tile is held and lifted — Esc stops it"
@@ -216,7 +218,7 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
                 if failed_reads == 1:
                     log(f"  wrist camera read failed at step {step}")
                 if failed_reads >= CAMERA_LOST_S * config.FPS:
-                    stop_reason = "camera"
+                    stop_reason, camera_problem = "camera", "lost"
                     log(f"  no wrist camera frames for {CAMERA_LOST_S:.0f}s — attempt stopped")
                     break
                 arm.sleep(max(0.0, 1.0 / config.FPS - (time.time() - t0)))
@@ -232,6 +234,17 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
                 cv2.imwrite(str(trace_dir / f"wrist_{step:04d}.jpg"), frame)
             # Done check, on the state the previous command produced.
             holding = holds_tile(last_safe["gripper"], measured["gripper"])
+            # torn frames count until the jaws first hold: a fast lift after it blurs 1-3 frames into a tear's numbers
+            ever_held = ever_held or holding
+            if not ever_held and torn(previous, frame):
+                torn_frames += 1
+                if torn_frames == 1:
+                    log(f"  wrist camera frame torn at step {step}")
+                if torn_frames >= TORN_STOP_FRAMES:
+                    stop_reason, camera_problem = "camera", "torn"
+                    log(f"  {torn_frames} torn wrist camera frames — attempt stopped (the policy can't see the tile)")
+                    break
+            previous = frame
             tip = kinematics.pincer_tip(measured)
             lifted = tip[2] - config.grasp_z(tip[0], tip[1]) >= LIFTED_M
             if holding and lifted:
@@ -296,4 +309,5 @@ def run(policy, arm, camera, trace_dir, abort=None, mark=None, duration_s=config
     return {**person, "steps": len(actions), "duration_s": len(actions) / config.FPS, "stop_reason": stop_reason,
             "aborted": stop_reason == "aborted", "held_at_s": held_at, "slipped": slipped, "stall_warning": warned,
             "descended": descended, "floored_steps": int(floored_steps), "grasp_step": grasp, "grasp_xy": grasp_xy,
-            "grasp_clearance_m": clearance, "marks_s": marks}
+            "grasp_clearance_m": clearance, "marks_s": marks, "torn_frames": torn_frames,
+            **({"camera_problem": camera_problem} if camera_problem else {})}

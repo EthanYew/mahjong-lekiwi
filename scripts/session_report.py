@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from mahjong import bump_report, config, interventions, name_ledger, scorecard, wrist_usb
+from mahjong.camera import TORN_STOP_FRAMES
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events
 
@@ -236,19 +237,21 @@ def recording_focus(events, attempts, found):
             misses = sum(not a["success"] for a in group)
             high = sum((a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
             stopped = sum(a.get("stop_reason") == "camera" for a in group)
+            torn = sum(bool(a.get("torn_frames")) for a in group)      # a few torn frames, under the stop: counted
             trouble = sum(not a["success"] or bool(by_dir.get(a["attempt_dir"]))
                           or (a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
             rows.append({"spot": w, "policy": p, "n": len(group), "misses": misses, "remarks": remarks, "high": high,
-                         "voided": voided[(w, p)], "stopped": stopped, "trouble": trouble})
+                         "voided": voided[(w, p)], "stopped": stopped, "torn": torn, "trouble": trouble})
     print("\nwhere to record more: misses and remarks per spot (keys during the pickup or return, and the scans); "
-          "camera: attempts it voided (rerun, not counted) or stopped (counted)")
+          "camera: attempts it voided (rerun, not counted), stopped (counted) or that saw a few torn frames (counted)")
     many = len(policies) > 1
     # remark columns no attempt had are left out, except the keys; misses, 20mm+ and the camera always show
     shown = [k for k in REMARKS if k in KEYED or any(r["remarks"][k] for r in rows)]
     print(f"  {'spot':<6}" + (f" {'policy':<20}" if many else "") + f" {'missed':>7} " + " ".join(f"{REMARKS[k]:>8}" for k in shown)
           + f" {'20mm+':>6} {'camera':>20}")
     for r in rows:
-        camera = ", ".join(([f"{r['voided']} voided"] if r["voided"] else []) + ([f"{r['stopped']} stopped"] if r["stopped"] else []))
+        camera = ", ".join(([f"{r['voided']} voided"] if r["voided"] else []) + ([f"{r['stopped']} stopped"] if r["stopped"] else [])
+                           + ([f"{r['torn']} torn"] if r["torn"] else []))
         print(f"  {r['spot']:<6}" + (f" {r['policy']:<20}" if many else "") + f" {f'{r['misses']}/{r['n']}':>7} "
               + " ".join(f"{r['remarks'][k] or '-':>8}" for k in shown) + f" {r['high'] or '-':>6} {camera or '-':>20}")
     focus = sorted((r for r in rows if r["trouble"]), key=lambda r: (-r["trouble"], -r["misses"]))
@@ -260,6 +263,7 @@ def recording_focus(events, attempts, found):
         why = [f"missed {r['misses']}/{r['n']}"] if r["misses"] else []
         why += [f"{REMARKS[k]} {n}" for k, n in r["remarks"].items()] + ([f"closed 20mm+ up {r['high']}"] if r["high"] else [])
         camera = (f"the camera stopped {r['stopped']} of them: those may not be the policy's" if r["stopped"]
+                  else f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look" if r["torn"]
                   else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
                   else "no camera loss")
         print(f"    {r['spot']}" + (f" {r['policy']}" if many else "") + f": {', '.join(why)}; {camera}")
@@ -343,9 +347,13 @@ def main():
         capped = sum(a.get("stop_reason") == "cap" for a in attempts)
         if capped:
             print(f"  {capped} attempt(s) ran to the {config.ACT_DURATION_S:.0f}s cap without a confirmed hold")
-        void = sum(e["type"] == "attempt_void" for e in events)
-        if void:
-            print(f"  {void} attempt(s) left out: the wrist camera stopped giving frames (the bench reopened it)")
+        voids = Counter(e.get("reason", "wrist camera stopped giving frames") for e in events if e["type"] == "attempt_void")
+        for reason, n in voids.items():
+            print(f"  {n} attempt(s) left out: {reason} (the bench reopened it and ran them again)")
+        torn = [a for a in attempts if a.get("torn_frames")]
+        if torn:
+            print(f"  {len(torn)} counted attempt(s) saw torn wrist frames before the hold, under the "
+                  f"{TORN_STOP_FRAMES} that stop one: " + ", ".join(f"{a['attempt_dir'][:3]} ({a['torn_frames']})" for a in torn))
         success_map(attempts)
         close_height_report(attempts)
         perturbation_report(attempts)
