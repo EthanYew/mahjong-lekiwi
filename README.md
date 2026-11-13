@@ -1288,7 +1288,7 @@ python scripts/status.py --set-default pickup_mat_cl_v5 --evidence "sessions/202
 ```
 
 It prints this checkout against origin/main (and warns if it's behind or has uncommitted code), the default
-policy with the evidence it was chosen on, every registered policy's bench total over all sessions, the eval
+policy with the evidence it was chosen on, every registered policy's bench total over all real sessions (`--sim` runs left out), the eval
 sets and detector exam, the layouts and their notes, the drop zone and whether the bench has checked a pickup
 there, the worst-read tiles on the standard surface (`name_report.py`), and how many merged branches are waiting to be
 closed.
@@ -1303,6 +1303,11 @@ pulled past (merge_pr.py stops on uncommitted changes to a file the PR also chan
 
 Every hardware session also warns at its start if the checkout is behind origin/main (as last fetched), has
 uncommitted code, or is a worktree, and logs that in `session_start`.
+
+**Owed and overdue** (`mahjong/owed.py`), in `status.py` and as `OWED:` lines at the start of every real hardware session: the
+default policy if it hasn't passed a scorecard check on the standard setup since it became the default; a policy registered after
+the default that ROADMAP.md doesn't name, or a status table dated before the default changed; merged branches not closed; and how
+many invariants still say "Unconfirmed". They're reminders, never blocks: written down once, these went unseen for days.
 
 ## Approving merges: `scripts/merge_pr.py`
 
@@ -1319,7 +1324,8 @@ python scripts/merge_pr.py --review     # start the post-merge review of what's 
 
 What `merge_pr.py 34` shows you before it asks:
 1. The PR's description, and which of its sections are missing: **What changed**, **Files**, **Overlaps**,
-   **Unverified on the arm**. The last one is what to try on hardware after merging.
+   **Unverified on the arm** (what to try on hardware after merging), and **Review** if the PR changes play, bench,
+   the arm or policy (`REVIEW_FILES`): what `/code-review` found and what was done. Without one it asks before going on.
 2. Files both `main` and the branch changed since the branch started, and any function, constant or option
    added on **both** sides. Git merges those without a conflict, and that's how duplicate options and
    helpers broke `record.py` on 2026-10-23. If it lists one, ask Claude to reconcile before you say yes.
@@ -1334,8 +1340,41 @@ was closed without merging (printing the commit they can be recovered from).
 
 Don't merge on GitHub's page: it runs no tests, and this checkout stays behind.
 
+If it stops after the merge on GitHub (the pull failed, say), run the same `merge_pr.py N` again: it picks up from the pull,
+tests `main`, closes the branch, and says so once there's nothing left to do.
+A PR built on another PR's branch (stacked) is refused until that one merges: merged first, it would land on that branch, not `main`.
+
 It stops before asking, with nothing changed, if the pull after the merge would fail: `main` here has commits GitHub doesn't, or
 the PR changes a data file with uncommitted changes here. Uncommitted data the PR doesn't touch is fine.
+
+### The merge queue: `merge_pr.py --auto`
+
+Claude sessions merge their own PRs through the queue once their checks pass (`/hand-back`); a person merges only decisions.
+
+```
+python scripts/merge_pr.py --auto          # every open, ready PR, oldest first; asks nothing
+python scripts/merge_pr.py --auto 34       # just PR 34 (exit 1 if it didn't merge, with why)
+```
+
+For each PR, in order, each a refusal rather than a warning:
+1. **A decision waits for you**: a change to `data/eval_split.json`, `data/detector_exam.json`, `data/name_check_exam.json`,
+   `data/standard_setup.json`, `docs/scorecard.md`, `mahjong/scorecard.py`, installed weights (`assets/*.pt`) or the default policy in
+   `data/policies.json` (registering one is fine), or a PR labelled `owner`. It gets the `needs-owner` label; `status.py` lists those,
+   and you merge them with `merge_pr.py N` as before.
+2. **The description is finished**: every section has something under it (a template comment doesn't count), and a PR changing play,
+   bench, the arm or policy (`REVIEW_FILES`) has `## Review` saying what `/code-review` found and what was done.
+3. **Nothing was added on both sides** (the same function, constant or option on `main` and the branch).
+4. **The merged tree passes**: `main` + the branch in a scratch worktree, the fast tests (the slow ones too if `policy.py` or
+   `dataset.py` changed), then `bench.py --sim --unattended` and `play.py --sim`. Every simulated arm command in all of them goes
+   through the motion watchdog (`mahjong/motion_watch.py`).
+5. **It merges the head it tested** (`--match-head-commit`), and if `main` moved while it tested, it tests the new `main` again.
+
+A PR that fails a check gets the output as a comment and goes back to draft. One queue runs at a time (a lock in the git dir).
+After a merge it pulls this checkout, unless an arm script is running here: then it leaves it, the checkout's warnings say it's
+behind, and the next run pulls. When a batch that merged something leaves nothing ready, it starts the post-merge review in the
+background, on your claude.ai login (no API key, so no extra cost; it uses your plan's limits, ~150 calls).
+
+Closing a branch first moves any PR built on it onto `main` (GitHub closed #109 when #80's branch was deleted under it).
 
 ### Reviewing a batch of merges
 
@@ -1373,12 +1412,22 @@ The arm's scripts append to files in `data/` as they run, so this checkout is of
 | Samples the scripts log (`hover_corrections.jsonl`, `return_corrections.jsonl`, reviews) | straight to `main`, in one step below | after a hardware session |
 | A decision (the default policy, exam lists, scores, new weights) | a PR, with its evidence; commit an exam list the session it's added, so no training can pick those frames up | when it's made |
 
-Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub:
+Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub. `scripts/save_samples.py`
+does it, from the main checkout after a hardware session:
+
+```
+python scripts/save_samples.py               # shows the changed sample files, asks, commits "Samples from <latest session>", pulls, pushes
+python scripts/save_samples.py --dry-run     # only shows them
+python scripts/save_samples.py --session 20261113_100710_bench   # name another session in the message
+```
+
+The sample files are the ones `.gitattributes` merges by union, less `data/post_merge_reviews.jsonl` (a review's PR writes it); it
+never adds anything else. `status.py` and each hardware session say when samples are waiting. By hand, the same is:
 
 ```
 git add data/hover_corrections.jsonl data/return_corrections.jsonl
 git commit -m "Samples from 20261104_150542_bench"
-git pull --rebase origin main && git push origin main
+git pull --rebase --autostash origin main && git push origin main
 ```
 
 Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach

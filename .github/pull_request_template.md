@@ -13,3 +13,8 @@
 ## Unverified on the arm
 
 <!-- what was checked offline (tests, --sim) and what still needs hardware, as steps to run -->
+
+## Review
+
+<!-- needed if it changes play.py, bench.py, arm.py, kinematics.py, policy.py, dataset.py, game.py or identity.py
+     (merge_pr.py REVIEW_FILES): what /code-review found on the branch and what was done about each, or why it wasn't run -->

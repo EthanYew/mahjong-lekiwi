@@ -65,6 +65,8 @@ def set_default(policy_id, evidence, why="", since=None):
         raise SystemExit("say what the switch rests on (--evidence, e.g. a bench session folder)")
     reg["default"] = policy_id
     reg["default_note"] = {"policy": policy_id, "since": since or time.strftime("%Y-%m-%d"), "evidence": evidence, "why": why}
+    if not since:                   # decided now: the time too, so a bench earlier that day doesn't count as checking it (owed.py)
+        reg["default_note"]["at"] = time.strftime("%Y%m%d_%H%M%S")
     config.POLICIES.write_text(json.dumps(reg, indent=2) + "\n")
     return reg["default_note"]
 

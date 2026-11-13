@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
-from .session import read_events
+from .session import is_sim, read_events  # noqa: F401 (is_sim: callers use detector.is_sim)
 
 # the deployed detector's classes (assets/tile_detector.pt), for the sim and tests
 TILE_NAMES = ["1B", "1C", "1D", "1F", "2B", "2C", "2D", "2F", "3B", "3C", "3D", "3F", "4B", "4C", "4D", "4F",
@@ -250,11 +250,6 @@ def mine(session_dir, everything=False):
             rows.append({"session": session_dir.name, "scan": folder.name, "folder": folder,
                          "frame": frame if reasons else 0, "reasons": reasons, "conditions": conditions})
     return rows
-
-
-def is_sim(session_dir):
-    start = next((e for e in read_events(Path(session_dir)) if e["type"] == "session_start"), {})
-    return bool(start.get("sim"))
 
 
 def yolo_lines(boxes, names, size):
