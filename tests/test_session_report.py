@@ -67,7 +67,7 @@ def test_the_interventions_section_counts_rescues_and_lists_the_rest(capsys):
 def test_where_to_record_lists_spots_with_misses_remarks_and_the_camera(capsys):
     def attempt(n, spot, success=True, **fields):
         return {"type": "attempt", "attempt_dir": f"00{n}", "policy": "p", "spot": spot, "tile": "face_down",
-                "success": success, "stop_reason": "done", **fields}
+                "success": success, "stop_reason": "done", "torn_frames": 0, **fields}
 
     def keys(n, *kinds):
         return {"type": "keys", "attempt_dir": f"00{n}", "during": "pickup",
@@ -88,7 +88,17 @@ def test_where_to_record_lists_spots_with_misses_remarks_and_the_camera(capsys):
     assert [line.split(":")[0].strip() for line in focus] == ["S6", "S10", "S12"]      # S1 had no trouble
     assert "the camera stopped 1 of them" in focus[0]
     assert "shallow 1" in focus[1] and "1 voided and rerun" in focus[1]
-    assert "closed 20mm+ up 1" in focus[2]
+    assert "closed 20mm+ up 1" in focus[2] and "no camera loss" in focus[2]
+
+
+def test_a_session_from_before_the_torn_frame_check_doesnt_say_the_camera_was_fine(capsys):
+    """20261113_100710_bench: 34 of 53 attempts on torn frames, logged before policy.run counted them (no torn_frames)."""
+    events = [{"type": "attempt", "attempt_dir": "001", "policy": "p", "spot": "S2", "tile": "4D", "success": False,
+               "stop_reason": "cap", "grasp_clearance_m": 0.05}]
+    session_report.recording_focus(events, events, [])
+    out = capsys.readouterr().out
+    assert "no camera loss" not in out
+    assert "torn frames weren't checked" in out
 
 
 def test_no_recording_focus_without_spots(capsys):
