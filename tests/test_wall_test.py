@@ -294,6 +294,29 @@ def test_a_cycle_asks_for_a_feed_every_second_draw_and_for_the_wall_put_right_af
     assert [e["draw"] for e in events if e["type"] == "wall_put_right"] == [2]
 
 
+def test_a_try_voided_for_torn_frames_says_torn_not_lost(monkeypatch, tmp_path):
+    from mahjong import face_down_rig, hardware
+    script = script_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(hardware, "reopen_wrist_camera", lambda cam: cam)
+    real = face_down_rig.Rig.pick
+
+    def torn(self, name, spot, raise_m=0.0, back_m=0.0):
+        pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
+        self.arm.set_gripper(90.0)
+        pick["holding"] = False
+        pick["run"].update(stop_reason="camera", camera_problem="torn")
+        return pick
+    monkeypatch.setattr(face_down_rig.Rig, "pick", torn)
+    prompts, answers = [], iter([*LIGHT, "n", "", "q"])        # lighting, whites, lay; q at the void
+
+    def ask(prompt):
+        prompts.append(prompt)
+        return next(answers, "q")
+    folder = script.main(["--sim", "--trials", "1"], ask=ask)
+    (void,) = [e for e in read_events(folder) if e["type"] == "wall_void"]
+    assert "torn" in void["why"] and any("torn" in p for p in prompts)
+
+
 def test_quitting_at_the_outcome_keeps_the_attempt_but_doesnt_score_it(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
     folder = run(script, ["--trials", "3"], [*LIGHT, "n", "", "c", "", "q"])
