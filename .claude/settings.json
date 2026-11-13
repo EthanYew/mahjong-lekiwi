@@ -5,7 +5,14 @@
       "Bash(~/miniforge3/envs/lerobot/bin/python scripts/session_report.py*)",
       "Bash(~/miniforge3/envs/lerobot/bin/python scripts/handoff_report.py*)",
       "Bash(~/miniforge3/envs/lerobot/bin/python scripts/quality_report.py*)",
-      "Bash(~/miniforge3/envs/lerobot/bin/python -m pytest*)"
+      "Bash(~/miniforge3/envs/lerobot/bin/python -m pytest*)",
+      "Bash(*scripts/merge_pr.py*)",
+      "Bash(gh pr *)",
+      "Bash(git push origin worktree-*)",
+      "Bash(git push -u origin worktree-*)",
+      "Bash(git push -q -u origin worktree-*)",
+      "Bash(git push -q origin worktree-*)",
+      "Bash(git worktree *)"
     ],
     "ask": [
       "Bash(*scripts/status.py --set-default*)",
@@ -17,7 +24,11 @@
       "Bash(git reset --hard*)",
       "Bash(git clean -f*)",
       "Bash(rm -rf *sessions*)",
-      "Bash(rm -rf *data*)"
+      "Bash(rm -rf *data*)",
+      "Bash(gh pr merge*)",
+      "Bash(git push origin main*)",
+      "Bash(git push -q origin main*)",
+      "Bash(git push origin HEAD:main*)"
     ]
   },
   "hooks": {

@@ -56,10 +56,10 @@ Git catches overlapping lines, not overlapping intent. `merging.md` has the deta
 
 - Parallel work: a helper, constant or option several tasks need lands on `main` first. Two branches shouldn't both change
   `bench.py`, `record.py` or `config.py`; `.claude/hooks/overlap_warning.py` says so after the first edit to a file another open branch changes. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
-- **Handing a branch back** (Claude's job; the person approves the merge): merge the latest `main` into it, rerun the tests, push,
-  and open a draft PR (`gh pr create --draft`) whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or
-  other open branches), `## Unverified on the arm`, and `## Review` (what `/code-review` found and what was done) if it changes
-  play, bench, the arm or policy (`merge_pr.REVIEW_FILES`). Don't merge it yourself unless the person asks.
-- **Merging** is the person's: `python scripts/merge_pr.py N` from the main checkout, which also closes the branch. A Claude session
-  can't delete worktrees or branches, and doesn't push to `main`; never `--no-verify` a merge.
+- **Handing a branch back is `/hand-back`**: merge `main` in, ruff and the tests (the motion watchdog checks every sim arm command),
+  `/code-review` until clean, a ready PR with `## What changed`, `## Files`, `## Overlaps`, `## Review`, `## Unverified on the arm`,
+  then the queue, `python scripts/merge_pr.py --auto N` from the main checkout, which merges it, pulls and closes the branch.
+- **Only decisions wait for the person** (`needs-owner`: the default policy, eval/exam splits, the standard setup, the scorecard,
+  installed weights; `merge_pr.HOLD_FILES`); they merge those with `merge_pr.py N`. Merge only through the queue, never `gh pr merge`
+  or a push to `main`; never `--no-verify`.
 - A new user-run script gets an end-to-end sim test (`tests/test_bench.py`, `tests/test_record.py`).

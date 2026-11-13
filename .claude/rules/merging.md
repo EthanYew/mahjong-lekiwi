@@ -20,13 +20,13 @@ constants. Git catches overlapping lines, not overlapping intent. So:
 - **In a branch**: touch CLAUDE.md, ROADMAP.md and README.md only for that branch's own items; the merge
   reconciles them (they took 14, 11 and 3 commits from separate branches that day and drifted). Run
   hardware from the main checkout (sessions are per-checkout).
-- **Handing a branch back** (Claude's job; the person approves the merge): merge the latest `main` into it,
-  rerun the tests, push, and open a draft PR (`gh pr create --draft`) whose body has these sections, which
-  `merge_pr.py` checks for: `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or other open
-  branches), `## Unverified on the arm`, and `## Review` if it changes a file in `merge_pr.REVIEW_FILES` (play, bench, the
-  arm, policy): run `/code-review` on the branch first, fix what's clearly a bug, and list each finding with what was done.
-  `merge_pr.py` asks before merging one without it. Don't merge it yourself unless the person asks.
-- **Merging** (the person): `python scripts/merge_pr.py N` from the main checkout, one PR at a time. It shows
+- **Handing a branch back** (Claude's job, `/hand-back`): merge the latest `main` into it, ruff and the tests, `/code-review` until
+  clean, and a ready PR whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or other open branches),
+  `## Review` (each finding and what was done) and `## Unverified on the arm`. Then the queue merges it:
+  `python scripts/merge_pr.py --auto N` (README, "The merge queue"). It refuses rather than asks: an unfinished description, a missing
+  review for `REVIEW_FILES`, a name added on both sides, a merged tree that fails the tests or the sim runs. A sent-back PR has the
+  output as a comment; fix and requeue. A decision (`HOLD_FILES`, weights, the default policy) gets `needs-owner` and waits.
+- **Merging by hand** (the person, for held PRs): `python scripts/merge_pr.py N` from the main checkout, one PR at a time. It shows
   the description, what `main` and the branch both changed since they split (and any function, constant or
   option added on both sides: a duplicate to resolve, conflict or not), runs the tests on `main` + the branch
   in a scratch worktree, asks, merges, pulls `main` here and tests it. Don't merge on GitHub's page: it skips
@@ -35,7 +35,7 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   because `main` here had a commit GitHub didn't, so nothing was pulled, tested or closed.
 - **Data the scripts log** (samples, reviews) goes straight to `main` from the main checkout, committed and pushed in one step
   after a hardware session (README, "Data files and merging"); uncommitted until then is normal. A branch doesn't carry it. A decision
-  (default policy, exam list, scores, weights) goes in a PR with its evidence. A Claude session doesn't push to `main`.
+  (default policy, exam list, scores, weights) goes in a PR with its evidence. A Claude session doesn't push to `main` (samples go by `save_samples.py`, merges by the queue).
 - **Closing** (part of `merge_pr.py N`): the branch's worktree `sessions/` are moved into the main checkout's,
   then the worktree, local branch and GitHub branch are removed. `python scripts/merge_pr.py` lists anything
   merged but not closed; `--close` closes it (35 branches had piled up by 2026-10-29). A Claude session can't

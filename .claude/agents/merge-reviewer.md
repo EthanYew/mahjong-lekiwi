@@ -60,4 +60,5 @@ Otherwise, fix what's clearly a bug or a copy, in a new worktree (EnterWorktree,
 - Don't change thresholds, gates, the default policy, `data/` logs or weights: those go under decisions in the PR.
 - Add a line to `data/post_merge_reviews.jsonl`: `{"reviewed_from": "<sha>", "reviewed_to": "<sha>", "at": "<ISO time>", "findings": <n>, "fixed": <n>, "kinds": {...}}`. That's what
   marks the range reviewed once the PR merges, so write it even with nothing to fix, in a PR of its own.
-- Open a draft PR. Never merge it, and don't push to `main`.
+- Hand it back with `/hand-back`: the queue merges it like any PR (a threshold or gate you only list under decisions isn't changed,
+  so it isn't held). Don't push to `main`.
