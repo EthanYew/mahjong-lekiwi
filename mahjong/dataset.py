@@ -105,7 +105,7 @@ def finish_close(grip, default_rate=1.67):
     """A commanded gripper series that stopped short of 0 on a tile, carried on to 0 at the rate it was
     closing (default: ZL at the default speed, %/frame) and held there until it opens again. The jaws stall
     on the tile at ~11 either way, so the frames still show what happened; a policy learns to command 0
-    (CLAUDE.md: policies grip by commanding 0). Unchanged if it already reaches 0."""
+    (.claude/rules/motion.md: policies grip by commanding 0). Unchanged if it already reaches 0."""
     grip = np.asarray(grip, dtype=float).copy()
     low = int(np.argmin(grip))
     if grip[low] <= 0.5:

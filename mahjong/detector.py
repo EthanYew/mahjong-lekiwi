@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
-from .session import read_events
+from .session import is_sim, read_events  # noqa: F401 (is_sim: callers use detector.is_sim)
 
 # the deployed detector's classes (assets/tile_detector.pt), for the sim and tests
 TILE_NAMES = ["1B", "1C", "1D", "1F", "2B", "2C", "2D", "2F", "3B", "3C", "3D", "3F", "4B", "4C", "4D", "4F",
@@ -61,8 +61,9 @@ def wrong_rate_bound(wrong, n, confidence=0.95):
 
 # --- scans ---
 
-def save_scan(folder, frames, names):
-    """Write a scan's frames ([{"color", "boxes", "depth"?, "depth_scale_m"?}]) to `folder`."""
+def save_scan(folder, frames, names, intrinsics=None, T_cam_to_base=None):
+    """Write a scan's frames ([{"color", "boxes", "depth"?, "depth_scale_m"?}]) to `folder`. With the camera's intrinsics and
+    hand-eye transform, a point on the table can be found in the frames later (back_labels: pre-labels for a face-down layout)."""
     import cv2
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -72,7 +73,9 @@ def save_scan(folder, frames, names):
     if depths:
         np.savez_compressed(folder / "depth.npz", depth=depths[-1]["depth"], depth_scale_m=depths[-1]["depth_scale_m"])
     h, w = frames[0]["color"].shape[:2]
-    (folder / "reads.json").write_text(json.dumps({"names": list(names), "size": [w, h],
+    camera = {**({"intrinsics": dict(intrinsics)} if intrinsics else {}),
+              **({"T_cam_to_base": np.asarray(T_cam_to_base).tolist()} if T_cam_to_base is not None else {})}
+    (folder / "reads.json").write_text(json.dumps({"names": list(names), "size": [w, h], **camera,
                                                    "frames": [f["boxes"] for f in frames]}) + "\n")
 
 
@@ -82,7 +85,8 @@ def save_session_scan(realsense, session, scan_n, label):
     if not getattr(realsense, "last_frames", None):
         return {}
     folder = session.dir / "scans" / f"{scan_n:03d}_{label}"
-    save_scan(folder, realsense.last_frames, realsense.names)
+    save_scan(folder, realsense.last_frames, realsense.names, getattr(realsense, "intrinsics", None),
+              getattr(realsense, "T_cam_to_base", None))
     return {"frames": str(folder.relative_to(session.dir))}
 
 
@@ -248,11 +252,6 @@ def mine(session_dir, everything=False):
     return rows
 
 
-def is_sim(session_dir):
-    start = next((e for e in read_events(Path(session_dir)) if e["type"] == "session_start"), {})
-    return bool(start.get("sim"))
-
-
 def yolo_lines(boxes, names, size):
     """Boxes as YOLO label lines: "<class> <cx> <cy> <w> <h>", normalised to the image size."""
     w, h = size
@@ -288,12 +287,35 @@ def manifest_path(out_dir):
     return Path(out_dir).parent / f"{Path(out_dir).name}_manifest.csv"
 
 
-def export(rows, out_dir, split="train"):
+def back_labels(reads, spots_xy, face_boxes):
+    """Pre-labels for tiles laid green side up on a layout's spots (mine_frames.py --backs-layout): a back box at each spot's
+    tile outline, projected into the frame with the scan's own camera (reads.json's intrinsics and T_cam_to_base), except
+    where a face box already covers the spot (a face-up tile there). The detector of the day can't see backs, so these are
+    the only boxes they get before a person corrects them in Roboflow. Scans saved before 2026-11-13 have no camera: None."""
+    from .layout import table_to_pixel, tile_corners
+    if "intrinsics" not in reads or "T_cam_to_base" not in reads:
+        return None
+    T = np.array(reads["T_cam_to_base"])
+    boxes = []
+    for x, y in spots_xy:
+        corners = table_to_pixel(tile_corners(x, y, 0.0), reads["intrinsics"], T)
+        (u0, v0), (u1, v1) = corners.min(axis=0), corners.max(axis=0)
+        box = [round(float(c), 1) for c in (u0, v0, u1, v1)]
+        if not any(iou(box, f["xyxy"]) >= BACK_FACE_IOU for f in face_boxes):
+            boxes.append({"tile_name": config.BACK, "confidence": 0.0, "xyxy": box})
+    return boxes
+
+
+BACK_FACE_IOU = 0.3     # a face box overlapping a spot's outline this much: that spot's tile is face up
+
+
+def export(rows, out_dir, split="train", back_spots=None):
     """A pre-labelled batch for Roboflow, laid out as Roboflow's own YOLO export (which it imports back
     with its class names; a bare images/ + labels/ folder was refused for want of a label map):
     out_dir/<split>/images/<session>__<scan>__f<i>.jpg, the detector's own boxes above the cut in
     out_dir/<split>/labels/, and data.yaml (split paths, nc, names). The manifest goes beside the folder
-    (manifest_path). Returns the number of frames."""
+    (manifest_path). back_spots: [(x, y)] where tiles lay green side up (back_labels): the label map gains the back class.
+    Returns the number of frames."""
     out_dir = Path(out_dir)
     images, labels = out_dir / split / "images", out_dir / split / "labels"
     images.mkdir(parents=True, exist_ok=True)
@@ -305,13 +327,20 @@ def export(rows, out_dir, split="train"):
         for row in rows:
             reads = load_reads(row["folder"])
             if names is None:
-                names = reads["names"]
-            elif reads["names"] != names:
+                source = reads["names"]
+                names = source + [config.BACK] if back_spots is not None and config.BACK not in source else source
+            elif reads["names"] != source:
                 raise SystemExit(f"{row['folder']}: a detector with other class names than the rest — export it apart")
             stem = frame_stem(row["session"], row["scan"], row["frame"])
-            shutil.copy(Path(row["folder"]) / f"f{row['frame']}.jpg", images / f"{stem}.jpg")
             boxes = one_box_per_tile([b for b in reads["frames"][row["frame"]]
                                       if b["confidence"] >= config.DETECTION_CONFIDENCE])
+            if back_spots is not None:
+                backs = back_labels(reads, back_spots, boxes)
+                if backs is None:
+                    raise SystemExit(f"{row['folder']}: saved without its camera (before 2026-11-13), so the layout's spots "
+                                     "can't be found in it: capture the face-down frames again")
+                boxes += backs
+            shutil.copy(Path(row["folder"]) / f"f{row['frame']}.jpg", images / f"{stem}.jpg")
             lines = yolo_lines(boxes, names, reads["size"])
             (labels / f"{stem}.txt").write_text("".join(line + "\n" for line in lines))
             manifest.writerow([f"{stem}.jpg", row["session"], row["scan"], row["frame"], " ".join(row["reasons"]),
@@ -437,8 +466,8 @@ def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_C
             continue
         image = cv2.imread(str(image_path))
         h, w = image.shape[:2]
-        group = {"lighting": lambda: lighting(exam["sessions"][session].get("conditions")),
-                 "session": lambda: session}.get(by, lambda: "all")()
+        group = {"lighting": lambda: lighting(exam["sessions"][session].get("conditions")),  # noqa: B023 called just below
+                 "session": lambda: session}.get(by, lambda: "all")()  # noqa: B023
         truth, dropped = dedupe(read_yolo_labels(label_path, names, (w, h)))
         duplicates += [(image_path, b) for b in dropped]
         images.append({"truth": truth, "group": group,

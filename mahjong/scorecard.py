@@ -13,10 +13,10 @@ from . import config, interventions
 from .session import read_events
 
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
-# that already counted), grip_low / grip_high (precarious, but the attempt stands), and rescan, interrupted, crashed and
+# that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
 # killed, which derive() pins on the most recent attempt whatever caused them.
 NOT_CLEAN = {"knocked", "collided", "pushed_target", "aborted", "touched_tile", "helped_arm", "caught_drop", "other",
-             "unspecified", "discard_missed"}
+             "unspecified", "discard_missed", "takeover"}
 MIN_PAIRS = 20          # inherited from the 2026-10-23 draft's 4 spots x 5, not calculated (docs/scorecard.md, which has the odds)
 ALPHA = 0.1             # exact McNemar: 5-0 pairs is p 0.06, 6-1 is 0.125, 7-1 is 0.07
 SPOT_WORSE_BY = 2       # a candidate this many clean attempts worse at one spot gets more attempts there
@@ -25,7 +25,7 @@ ITERATION_DROP_BEHIND = 3   # this many clean pairs behind the default: drop the
 PLAY_READY_ATTEMPTS = 28    # the play-ready check: two rounds of even-hand14 in one session...
 PLAY_READY_MISSES = 2       # ...at most this many not clean (26/28)...
 PLAY_READY_SPOT_MISSES = 2  # ...and no spot not clean this many times
-HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: CLAUDE.md, "Datasets store..."
+HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: .claude/rules/policy_data.md, "Datasets store..."
 STANDARD_SETUP = config.DATA / "standard_setup.json"
 
 
@@ -130,10 +130,18 @@ def off_standard(events, standard=None):
     start = next((e for e in events if e["type"] == "session_start"), {})
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
-    return ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
+    return (["a simulated run (--sim)"] if start.get("sim") else []) \
+        + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
-        + (["face-down tiles, picked by saved position"] if setup.get("face_down") else [])
+        + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") else [])
+
+
+def face_down_aim(events):
+    """How a bench --face-down session found its tiles: by the scan's back boxes (weights with the class), or by saved
+    position (older weights, and sessions from before the class: no face_down_setup event)."""
+    setup = next((e for e in events if e["type"] == "face_down_setup"), {})
+    return "found by the scans' back boxes" if setup.get("sees_backs") else "picked by saved position"
 
 
 def iteration_check(events, baseline, candidate, found=None):
@@ -200,18 +208,44 @@ def play_ready_chance(rate):
     return sum(comb(n, k) * (1 - rate) ** k * rate ** (n - k) for k in range(most + 1))
 
 
-def session_clean(session_dir):
-    """policy -> clean attempts in a session folder, saved beside its events: status.py reads every session, and
-    deriving them all takes minutes. Redone if the events grow (a keys_void) or NOT_CLEAN changes."""
-    events_file, saved = session_dir / "events.jsonl", session_dir / "clean_counts.json"
-    key = {"size": events_file.stat().st_size, "not_clean": sorted(NOT_CLEAN)}
+SUMMARY_VERSION = 2       # 2: the gates too (mahjong/owed.py), so a session's interventions are derived once for both
+
+
+def _summary_key(session_dir):
+    return {"size": (session_dir / "events.jsonl").stat().st_size, "not_clean": sorted(NOT_CLEAN), "v": SUMMARY_VERSION}
+
+
+def cached_summary(session_dir):
+    """session_summary's saved result if it's still good, else None, without deriving anything."""
+    saved = session_dir / "clean_counts.json"
     if saved.exists():
         old = json.loads(saved.read_text())
-        if old["key"] == key:
-            return old["clean"]
-    clean = {policy: row["clean"] for policy, row in policy_rows(read_events(session_dir)).items() if policy}
-    saved.write_text(json.dumps({"key": key, "clean": clean}))
-    return clean
+        if old.get("key") == _summary_key(session_dir):
+            return old
+    return None
+
+
+def session_summary(session_dir):
+    """{"clean": policy -> clean attempts, "gates": policy -> {"play_ready", "ahead_of": [policies]}} for a session folder,
+    saved beside its events: status.py reads every session, and deriving them all takes minutes. Redone if the events grow
+    (a keys_void) or NOT_CLEAN changes."""
+    if (old := cached_summary(session_dir)):
+        return old
+    events = read_events(session_dir)
+    found = interventions.derive(events)
+    clean = {policy: row["clean"] for policy, row in policy_rows(events, found).items() if policy}
+    policies = sorted(clean)
+    gates = {p: {"play_ready": play_ready(events, p, found)["ok"],
+                 "ahead_of": [q for q in policies if q != p and iteration_check(events, q, p, found)["result"] == "ahead"]}
+             for p in policies}
+    summary = {"key": _summary_key(session_dir), "clean": clean, "gates": gates}
+    (session_dir / "clean_counts.json").write_text(json.dumps(summary))
+    return summary
+
+
+def session_clean(session_dir):
+    """policy -> clean attempts in a session folder (session_summary, saved beside its events)."""
+    return session_summary(session_dir)["clean"]
 
 
 def report(events, found=None):

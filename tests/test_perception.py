@@ -1,5 +1,23 @@
 from mahjong import config
-from mahjong.perception import merge_tiles, choose_tile
+from mahjong.perception import merge_tiles, choose_tile, is_back, plausible, sees_backs
+
+
+def test_a_back_box_at_table_height_is_mat_pattern_and_a_face_box_isnt_judged_by_height():
+    assert plausible(config.BACK, 0.019) and not plausible(config.BACK, 0.003)
+    assert plausible("2C", 0.003)           # every face result so far was scanned without this check
+
+
+def test_a_merged_tile_keeps_its_median_height():
+    raw = [{**det(config.BACK, 0.20, 0.05, 0.8), "frame": k, "height_m": h} for k, h in enumerate((0.018, 0.020, 0.035))]
+    (tile,) = merge_tiles(raw, n_frames=3)
+    assert is_back(tile) and tile["height_m"] == 0.020
+
+
+def test_sees_backs_only_with_the_class():
+    class Weights:
+        def __init__(self, names):
+            self.names = names
+    assert sees_backs(Weights(["2C", config.BACK])) and not sees_backs(Weights(["2C"]))
 
 
 def det(name, x, y, conf):

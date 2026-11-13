@@ -3,14 +3,16 @@
 The kernel log says this is an electrical fault on the camera's USB link, not a driver one (`error -71`, `disabled by
 hub (EMI?)`; docs/invariant_notes.md), so this doesn't fix the cause, only what a drop costs. Most drops come back by
 themselves in under a second, some flap for a few seconds, and in some the port stays dead until a replug. So: wait a
-little, cut the port's power once, then ask a person.
+little, then ask a person.
 
-Whether the wait and the power cycle earn their keep isn't known yet: older recovery times can't say, since they
-include how fast a person replugged. Every recovery is logged (`wrist_camera_recovery`) with how it ended, so
-`recovery_summary` answers it from sessions where nobody touched the cable first.
+The wait earns its keep; the power cycle doesn't, so it's off by default. Over 94 logged losses to 2026-11-13 the wait
+recovered 85 (median 1.55s) and the power cycle 0 of the 9 it ran on — every one of those still needed a person (7) or
+a quit (2). It only ever runs after the wait has failed, i.e. on the hard cases, and those want hands on the cable; all
+it bought was another `AFTER_CYCLE_WAIT_S` before the prompt. `recover` takes `cycle=power_cycle` to try it anyway, and
+every recovery is still logged (`wrist_camera_recovery`), so `recovery_summary` keeps answering the question.
 
 The power cycle needs root: scripts/wrist_usb/setup.sh (once) installs a helper that only cycles the camera's own port.
-Without it, this step is skipped and everything else works.
+Without it, the step is skipped and everything else works.
 """
 import os
 import statistics
@@ -90,9 +92,12 @@ def _wait_for(open_camera, wait_s, clock, sleep):
         sleep(POLL_S)
 
 
-def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S, cycle=power_cycle, clock=time.monotonic,
+def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S, cycle=None, clock=time.monotonic,
             sleep=time.sleep):
-    """(camera or None, record) with no person involved. The record is what `wrist_camera_recovery` logs."""
+    """(camera or None, record) with no person involved. The record is what `wrist_camera_recovery` logs.
+
+    `cycle=None` (the default) goes straight from the wait to the person, because the power cycle has never recovered
+    it: 0 of 9, against 85 of 94 for the wait alone (module docstring). Pass `cycle=power_cycle` to try it anyway."""
     start = clock()
     record = {"port": current_port()}
 
@@ -102,6 +107,8 @@ def recover(open_camera, wait_s=RETURN_WAIT_S, after_cycle_s=AFTER_CYCLE_WAIT_S,
     camera = _wait_for(open_camera, wait_s, clock, sleep)
     if camera is not None:
         return done(camera, "came_back")
+    if cycle is None:
+        return done(None, "not_back")
     cycled, why = cycle(record["port"])
     record.update(cycled=cycled, **({"cycle_failed": why} if why else {}))
     if cycled:

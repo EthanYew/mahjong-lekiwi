@@ -1,0 +1,72 @@
+{
+  "scoring": "HIT: the finding names the same defect: the same mechanism, in the same function or file, so a person acting on it would fix this bug. PARTIAL: it points at the right function or the right symptom, but states a different cause or would not lead to this fix. MISS: nothing does. A finding that is only about the same file or topic is a miss. One finding can hit only one known item unless it plainly describes both. Grade what the finding says, not what it might have meant.",
+  "cases": {
+    "evening-11-04": {
+      "about": "PRs #67-#75 merged the evening of 2026-11-04, then reviewed by hand in a session of 162 tool calls, which became PR #76.",
+      "base": "4196743",
+      "head": "8a15cc2",
+      "prs": [67, 68, 69, 70, 72, 73, 74, 75],
+      "sessions_before": "20261104_2029",
+      "blindness": "Not blind. The person writing the reviewer's method had read this list first, and the method's question 2 (sequences) and question 1 (new feature against old readers) were written knowing these bugs. Treat as an upper bound.",
+      "known": [
+        {"id": "E1", "kind": "bug", "text": "layout.nearest_tile takes the closest tile of the expected name and only then checks the distance. A carried tile that reads a different name near home loses to a real tile of that name far away, so a good landing is logged as not seen, and the zone gate's median becomes inf and blocks play."},
+        {"id": "E2", "kind": "bug", "text": "play.py: --resume repeats a finished turn after the zone/marker-moved stop, because check_zone runs before save() in the turn's finish."},
+        {"id": "E3", "kind": "bug", "text": "play.py Player.pick: a corrected drawn tile's name is lost when it reads differently at the pickup. While discarding this loops with no answer able to end it; while placing it stops and --resume restores the old name."},
+        {"id": "E4", "kind": "bug", "text": "play.py check_counts can hang or never let you past: five of a tile with none in the hand spins forever, and a misread drawn tile or discard could only be passed with a false answer."},
+        {"id": "E5", "kind": "bug", "text": "markers.benched_at counts simulated sessions towards the zone gate."},
+        {"id": "E6", "kind": "bug", "text": "identity Votes.leader and rivals can divide by zero on a tile seen with no read of its name."},
+        {"id": "E7", "kind": "bug", "text": "scorecard.off_standard doesn't exclude --carry sessions, so they count towards the standard setup's gates (v6 reads 4/18, not 2/14)."},
+        {"id": "E8", "kind": "bug", "text": "status.py prints 'infmm' and doesn't say when the live detector has no name scores."},
+        {"id": "E9", "kind": "tidy", "text": "predictor is copied whole between scripts/detector_eval.py and scripts/hand_frames.py."},
+        {"id": "E10", "kind": "tidy", "text": "hand_truth.scans has a redundant or repeated where.update."},
+        {"id": "E11", "kind": "tidy", "text": "Unused imports: json in mahjong/return_correction.py and FACE_MIN_V in mahjong/setup_check.py."}
+      ]
+    },
+    "merges-10-23": {
+      "about": "Seven worktrees merged on 2026-10-23, then reviewed by hand in a session of 149 calls, which became the post-merge-cleanup branch. This is the batch that was meant to show merge collisions.",
+      "base": "fd2cb00",
+      "head": "a7be2dd",
+      "prs": [],
+      "sessions_before": "20261023_1918",
+      "blindness": "Partly blind. The writer read this list before finishing the reviewer's method, but wrote no question from it apart from the general ones on copies and docs.",
+      "known": [
+        {"id": "M1", "kind": "bug", "text": "scripts/record.py sets offset = None and then builds the episode-log row with list(offset): TypeError on every saved episode, right after save_episode, so its log row is never written and the session ends."},
+        {"id": "M2", "kind": "copy", "text": "Two or three episode-log readers: dataset.episode_log, hover_samples.episode_log, and dataset.hover_settings parsing the log itself."},
+        {"id": "M3", "kind": "copy", "text": "Gripper constants copied: GRIP_CLOSED_BELOW in arm.py, policy.py and dataset.py, HOLDING_MARGIN in arm.py and policy.py, and the held check written twice (Arm.holding and inline in policy.run)."},
+        {"id": "M4", "kind": "copy", "text": "The default hover dict rebuilt in policy.py, sim.py and record.py."},
+        {"id": "M5", "kind": "copy", "text": "Setup answers formatted twice: session._shown and session_report.conditions_text."},
+        {"id": "M6", "kind": "copy", "text": "make_policy.evaluate re-implements offline_eval's descent onset and frame conversion, with a hardcoded threshold."},
+        {"id": "M7", "kind": "seam", "text": "Seams left by merges: bench.py's getattr(args, 'layout', None) because test Namespaces lack it, the alias parse_offsets as parse_perturb, import time inside a method, session.conditions assigned twice. Any one of them named counts."},
+        {"id": "M8", "kind": "docs", "text": "README's paired comparison example would run 240 pickups, because --trials counts rounds per spot per policy."},
+        {"id": "M9", "kind": "docs", "text": "The docs say v2n's hover gripper is ~23%, but it is registered at 27.2."},
+        {"id": "M10", "kind": "docs", "text": "README is missing about eight options, or --help descriptions are cut off mid-sentence."}
+      ]
+    },
+    "consolidation-10-28": {
+      "about": "Everything merged from the 10-23 review to 2026-10-28 evening, then reviewed by hand, which became the consolidation PRs #25-#29.",
+      "base": "ef87315",
+      "head": "3364697",
+      "prs": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+      "sessions_before": "20261028_2341",
+      "blindness": "The most blind of the three. These items were written from PRs #25-#27 and #29 after the reviewer's method was committed (3ce2794), and the method wasn't changed afterwards. The writer had seen #28's description in an earlier review, before writing the method.",
+      "known": [
+        {"id": "C1", "kind": "bug", "text": "scripts/record.py sets a held tile down where the jaws closed rather than at its home, so each episode's off-centre grip carries into the next and tiles walk. The bench already aims at homes (return_correction); record.py missed it."},
+        {"id": "C2", "kind": "gap", "text": "The gamepad fix (0.35 deadzone, warning for a stick resting off centre) reached only collect_corrections.py. record.py's handoffs and DAgger takeovers, and bench's teach-discard, still use XLeRobot's 0.15 and give no warning."},
+        {"id": "C3", "kind": "bug", "text": "play.py: bench.pickup(ask=False) queues pickups marked with the arrow key or stopped with Esc for review_queued, which only Bench.trials calls. In play they leave no attempt_review, so the hand grade never sees them."},
+        {"id": "C4", "kind": "bug", "text": "hover_samples doesn't exclude bench attempts made from a perturbed hover, though the bench's own samples do: the exclusion rule lives on one side only."},
+        {"id": "C5", "kind": "drift", "text": "record.py and collect_corrections log correction.kind where bench and setup_check log correction.name."},
+        {"id": "C6", "kind": "bug", "text": "bench loads its policies after connecting and creating the session, and record opens the dataset after creating it, so a mistyped id or a refused dataset leaves an empty session folder."},
+        {"id": "C7", "kind": "copy", "text": "record.py has two identical copies of the rest-and-release sequence."},
+        {"id": "C8", "kind": "copy", "text": "The line-by-line JSON log parse is written about six times (session.read_events, handoff_report, read_all, wrist_photos, episode_log, wrist_capture)."},
+        {"id": "C9", "kind": "copy", "text": "hover_samples and return_samples have near-identical loops importing records."},
+        {"id": "C10", "kind": "copy", "text": "'First frame with the gripper shut' is written about four times (grasp_point, quality.grasp_frame, offline_eval.first_below, narrowing_end's argmax)."},
+        {"id": "C11", "kind": "copy", "text": "return_correction.landed_tile repeats layout.nearest_tile's logic with a name."},
+        {"id": "C12", "kind": "copy", "text": "bench's scan and capture_frames' take_scan each save and log a scan frame in their own copy."},
+        {"id": "C13", "kind": "copy", "text": "Three hand-built sim setups (bench, setup_check, wrist_capture), and only the bench's sim arm puts a released tile back on the mat."},
+        {"id": "C14", "kind": "copy", "text": "The default hover or the narrowed-hover threshold spelled out in collect_corrections, setup_check or make_policy, with make_policy's freeze probe disagreeing with offline_eval at exactly 50%."},
+        {"id": "C15", "kind": "docs", "text": "README: quick-reference rows missing for collect_corrections, quality_report, hover_samples or return_samples, or options in --help it doesn't list (wrist_capture, train_detector, detector_eval, offline_eval, record)."},
+        {"id": "C16", "kind": "docs", "text": "ROADMAP is stale: section 8 waits on an already merged scan-voting branch, or section 6's list of scripts without a sim run is wrong."}
+      ]
+    }
+  }
+}

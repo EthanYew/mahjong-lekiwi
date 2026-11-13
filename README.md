@@ -35,6 +35,13 @@ not a worktree, or the sessions go when the worktree does.
 | See where things stand (default policy and why, bench totals, layouts, the drop zone, this checkout) | `python scripts/status.py` |
 | See which tiles get misread, and how much it matters | `python scripts/name_report.py` |
 | Approve and merge a branch's PR, then clean up after it | `python scripts/merge_pr.py` (lists them), then `python scripts/merge_pr.py <number>` |
+| Train on the PC, or check on a run | `/train-policy` in Claude Code |
+| Review a recording before training | `/clean-dataset <repo>` in Claude Code |
+| Plan the next run: one change, a prediction, the command | `/next-run` in Claude Code |
+| Diagnose odd behaviour on the arm from its logs | `/debug-arm <symptom>` in Claude Code |
+| Check a plan or branch against what has merged since | `/recheck-main <plan or branch>` in Claude Code |
+| Write up a run of work | `/write-retro` in Claude Code |
+| Review a batch of merges for what the tests didn't reach | `python scripts/merge_pr.py --review`, or `/post-merge-review` in Claude Code |
 | Make another policy the default | `python scripts/status.py --set-default <id> --evidence "sessions/<bench session>: <scores>" --why "..."` |
 | Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
 | Run the bench without the robot | `python scripts/bench.py --sim --trials 3 --tile 8D` |
@@ -66,10 +73,12 @@ not a worktree, or the sessions go when the worktree does.
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
 | Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v10 --policy pickup_mat_cl_v10` (press A on the gamepad to take over) |
+| Show the policy how to recover, from where it went wrong in a bench or face-down run (DAgger) | add `--dagger-dataset Yewy/<new dagger set>` to `bench.py`, `base_cam_collect.py`, `wall_test.py` or `crude_run.py`, and press A on the gamepad when a pickup goes wrong ([below](#taking-over-mid-pickup---dagger-dataset)) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
+| Teach the detector tile backs, so face-down benches can run unattended | capture, then `python scripts/mine_frames.py <session> --backs-layout even-hand14` ([below](#teaching-the-detector-tile-backs)) |
 | Score the tile detector on its exam | `python scripts/detector_eval.py --exam-dir data/detector/<exam export>` |
 | Photograph every tile on the mat with the wrist camera from jittered hovers | `python scripts/wrist_capture.py` (rings when a set is done) |
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
@@ -90,6 +99,7 @@ Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v10`, 
 turn, `status.py` has the evidence; before it `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
+`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub),
 `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 face down: the hand's spots green side up and station L; trained 2026-11-12, private on the Hub, one crude run so far),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
@@ -106,12 +116,23 @@ did on the bench: `python scripts/status.py` (tests/test_docs.py keeps this para
 
 ## When the wrist camera drops out: `scripts/wrist_usb_watch.py`
 
-A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s, cuts the power of the
-camera's USB port once, and only then shows "Fix that, then Enter". **Don't replug during the wait**: a replug there would
-be counted as the camera coming back by itself. `session_report.py` prints how each loss ended, and
-`wrist_usb_watch.py --report` totals them.
+A lost wrist camera now tries to come back with no one touching it. Every script waits up to 10s and then shows "Fix
+that, then Enter". **Don't replug during the wait**: a replug there would be counted as the camera coming back by itself.
+`session_report.py` prints how each loss ended, and `wrist_usb_watch.py --report` totals them.
 
-The power cycle and turning autosuspend off need root, so run this once per machine (`--remove` takes it out again):
+The wait is all it does: over 94 logged losses the wait recovered 85 (median 1.55s) and the port power cycle 0 of the 9
+it ran on, so the cycle is off and the prompt comes 10s sooner (`mahjong/wrist_usb.py`; pass `cycle=power_cycle` to
+`recover` to try it again on a new cable or port).
+
+The same link can also keep sending frames that are **torn**: bands of rows shifted or smeared where USB data was lost.
+The policy can't see the tile in them and closes in the air (20261113_100710_bench: 10 of 34 such attempts picked).
+A pickup that sees 5 torn frames before its jaws hold a tile stops the same way a lost camera does: the bench voids it
+("wrist camera frames torn"), reopens the camera and runs it again, and record.py's DAgger and the face-down scripts treat
+it as a dropout. `session_report.py` lists the voids by reason, and counted attempts that saw a few torn frames. Torn
+frames that keep coming back mean the cable or its port: reseat it and watch the link with `wrist_usb_watch.py`.
+
+The power cycle (now off by default, above) and turning autosuspend off need root, so run this once per machine
+(`--remove` takes it out again):
 
 ```
 sudo scripts/wrist_usb/setup.sh
@@ -135,6 +156,12 @@ python scripts/wrist_usb_watch.py --report                        # every watch,
 
 Drops by hand point to the cable or connector; drops only with the motors on point to electrical noise; drops that follow
 the camera onto a new cable point to the camera board. Run it from the main checkout, like other hardware scripts.
+
+Each watch prints every kind it counted, `other` included, and says `kernel` instead of a frame count when it was
+`--kernel-only`. Two kinds matter besides drops: `-110` is the camera answering on USB but not to control transfers
+(it enumerates and gives no frames), and `slow` is an enumeration falling back to low or full speed. Both used to land
+in `other`, which wasn't printed, so `20261113_123953_usbwatch` reported zeros across the board on a camera that gave
+no frames for 10 minutes.
 Options: `--label`, `--seconds`, `--kernel-only` (the camera stays with another script), `--port` (default: where the
 camera is now), `--report`, `--sim`.
 
@@ -219,7 +246,9 @@ python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
-python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up, picked by each spot's saved position
+python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up (found by the scan once the detector sees backs)
+python scripts/bench.py --unattended --layout even-hand14 --trials 3 --face-down   # face down, no one watching: needs weights with the back class
+python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/mahjong_bench_dagger_v10   # A on the gamepad takes over a pickup going wrong
 ```
 
 | Option | What it does |
@@ -234,8 +263,9 @@ python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
 | `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
-| `--face-down` | with `--layout`: tiles lie GREEN side up. The detector can't see a back, so every pickup aims at its spot's saved position instead of a detection (as `record.py --face-down` and `crude_run.py` do), and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. Returns aim at the spot like any return, but nothing can see where they land: no landing check, no hover or return samples, and a tile that walked is yours to square up (press `r`). Scans still run, so a face-up neighbour that moves is caught. Needs someone watching (no `--unattended`, no `--tile`); `session_report.py` flags the session and it's no counted result |
-| `--device PATH` | gamepad device path (only for teach-discard) |
+| `--face-down` | with `--layout` (no `--tile`): tiles lie GREEN side up, and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. What happens next depends on the detector. **Weights with the `back` class** ([teaching it backs](#teaching-the-detector-tile-backs)): a scan right after you lay them says any spot with no back seen; each pickup aims at the back the scan finds nearest its spot, a return's landing is checked, and a knocked back shows in the scans as any tile does, so `--unattended` works. Their hover and return samples are logged but kept out of the fits (`excluded`) until a back's box is checked against a face's. **Older weights** see no backs: every pickup aims at its spot's saved position (as `record.py --face-down` and `crude_run.py` do), nothing sees where a return lands (no landing check, no samples), a tile that walked is yours to square up (press `r`), and `--unattended` is refused. Either way `session_report.py` flags the session and it's no counted result |
+| `--dagger-dataset REPO` | connect the gamepad too: A during any pickup hands you the arm, and your recovery is saved to REPO as a DAgger episode ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). The attempt counts as a rescue, not clean. With `--policy a,b` both must start from the same hover |
+| `--device PATH` | gamepad device path (teach-discard, `--dagger-dataset`) |
 
 **Menu commands** (type the number or name): `1 hover`, `2 pickup`, `3 return`, `4 discard`,
 `5 teach-discard` (drive the arm over the discard bin with the gamepad and save it), `6 trials`,
@@ -274,6 +304,7 @@ prompt or the menu don't count.
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
 | `d` | gripped low on the tile (near its bottom) | precarious, it may slip: counted ("gripped low") but the attempt stands; works during the return too, while you watch it carried |
 | `u` | gripped high on the tile (near its top) | the same, "gripped high" |
+| `s` | gripped shallow: held, but only by the jaw tips (the tile didn't go deep enough between the jaws) | the same, "gripped shallow": it may drop, but the attempt stands |
 | `r` | I moved a tile by hand (e.g. put a knocked one back for the next run) | what that pickup's or return's scan sees change was you: straightening a tile a knock left (a rescue), else putting tiles back (a reset); never a knock or a glitch |
 | `l` | look at this (nothing touched) | an observation |
 
@@ -395,6 +426,10 @@ and a ship / revert / extend verdict when the session paired two policies: `docs
 (rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
 Bench sessions also get close height: how high the tip was as the jaws closed, per policy and spot. Under 10mm
 picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`). It explains a run; it doesn't decide one.
+Layout sessions also get **where to record more**: per spot, the misses, the keys you pressed (pushed, bumped, low,
+high, shallow) and knocks the scans found, closes 20mm or more up, and the wrist camera there (attempts it voided and
+reran, or a pickup it stopped). Then a list of the spots with trouble, most first, each saying whether the camera
+played a part, which is where to point the next demonstrations or DAgger takeovers.
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 
@@ -536,6 +571,28 @@ about to drag the table or bump a neighbour), not after it. The policy's own hov
 gripper) replaces `--hover-*`. Each takeover is logged as a rescue, and `session_report.py` lists them
 with when you took over. Use a dataset of their own, never an eval slice.
 
+### Taking over mid-pickup (`--dagger-dataset`)
+
+`bench.py`, `base_cam_collect.py`, `wall_test.py` and `crude_run.py` take `--dagger-dataset REPO`. It does the same as `record.py --policy` at
+the moment a pickup goes wrong, without setting the failure up again in `record.py`. The gamepad connects with the arm. During any pickup
+the policy drives as usual. When you see it going wrong, press **A** (the rightmost face button). The policy stops and you have the arm from where it last
+put it, with the gripper held. Show the recovery and finish the pickup.
+
+- **A again** ends it and saves it. It also ends by itself once the tile is held and lifted for 1.5s, as a policy's pickup does, or after 30s.
+- **Esc** throws the recovery away. A camera dropout during the recovery throws it away too, because its frames have a gap.
+
+Then the script carries on as it would after the policy's pickup: bench returns the tile home, and base_cam_collect shows it to the camera. Writing the
+episode takes a few seconds after the pickup. A pickup nobody took over isn't saved, and the loop runs as fast as it does without the option.
+
+The episode is the whole attempt from the hover, in `record.py`'s format: the `episode_log.jsonl` row has `policy`, `takeover_frame`, the hover, the
+spot and the session. `make_policy.py --add REPO` trains only on your frames, from the takeover on. One dataset holds one hover, so the scripts refuse a dataset
+recorded from another hover, and `bench.py --policy a,b` refuses policies whose hovers differ. Name the dataset after the policy that drove, as for
+`record.py --policy`.
+
+Each takeover is logged as a `takeover` rescue on its attempt, so the attempt isn't clean (`docs/scorecard.md`). `wall_test.py` won't take `c` for one.
+The attempt's `grasp_clearance_m` is still the policy's own close, so close-height reports judge the policy. The return aims from where your jaws closed.
+A takeover's grasp saves no hover sample. With `--sim` the option does nothing, because there's no gamepad.
+
 **Wall picks (`--wall-station ID`)**: aims at that station of the layout `wall-stations` instead of a tile the detector found, because it can't see green backs. Before each episode the terminal says what to lay, with a side view, and
 waits for Enter. The layers in `--wall-layers` are taken in turn, and a discarded episode tries the same layer again. The hovers are `wall_test.py`'s: a top tile's is one tile higher and `--wall-top-back-mm` nearer the robot, and a bottom tile's is the policy's own. A
 tile still held afterwards goes in the discard container, which needs a discard pose. For DAgger, take over before the jaws close and bring them down so they close low on the tile and centred along it: a grip near the top edge lets the tile swing round in the jaws.
@@ -649,6 +706,44 @@ show in the name, only in the policy's `notes` in `data/policies.json` (v4 = `ji
 Record DAgger corrections to a new dataset named after the policy that drove, e.g.
 `mahjong_mat_dagger_v4` for `--policy pickup_mat_cl_v4`, never to a `_224` or `_policy` repo.
 
+## Training on a remote machine: `scripts/train_remote.py`
+
+Runs `make_policy.py` on a Windows/WSL training machine over SSH. The job runs
+detached (a PowerShell keepawake script suppresses sleep and launches WSL via
+`Win32_Process`, which outlives the SSH session). Connection details go in
+`data/train_machine.json` (gitignored; copy from `data/train_machine.example.json`).
+
+```
+# Check the plan before starting (no connection needed)
+python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
+    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
+    --augment --replace-mat 0.7 --trim-narrowing --private --dry-run
+
+# Start training (detaches; prints status/sync commands)
+python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
+    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
+    --augment --replace-mat 0.7 --trim-narrowing --private
+
+# Check whether a detached run has finished
+python scripts/train_remote.py --status --version v12
+
+# Sync results back (data/policies.json + data/offline_eval/)
+python scripts/train_remote.py --sync --version v12
+
+# Shut down both machines when training completes
+python scripts/train_remote.py ... --shutdown-train --shutdown-local
+```
+
+The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--trim-narrowing`,
+`--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
+
+After `--sync`, README.md still needs a manual line for the new policy (the fast tests will say if it's
+missing). The sync step prints the suggested line.
+
+`data/train_machine.example.json` documents the config keys (`ssh`, `wsl_distro`, `wsl_home`,
+`windows_home`, `repo`, `lerobot`). Keep `data/train_machine.json` out of commits — it holds the
+machine's address and is gitignored.
+
 ## Scoring offline: `scripts/offline_eval.py`
 
 Scores a policy on recorded episodes it never trained on (GPU, minutes, no arm). Good for screening;
@@ -713,7 +808,7 @@ In the plots (`handoff/<n>_<tile>.png`) a red (measured) line leaving a flat blu
 servos; blue moving outside the grey (input) stretches is the teleop.
 
 Which sources are live is set in `data/hover_model.json`. Don't change the live hover for v2-style
-policies (they replay a memorised move from it; see `CLAUDE.md`).
+policies (they replay a memorised move from it; see `.claude/rules/policy_data.md`).
 
 ## Return correction (setting tiles down where they were)
 
@@ -862,7 +957,7 @@ python scripts/crude_run.py --hand ... --sim                                    
 
 A turn: the arm draws from the station, holds the tile up at each saved `base_view_*` pose, and sets it on the drop zone. A window shows the photos and the reader's guess: Enter accepts it, or type the name, and `X` says the face wasn't visible. `game.py` chooses the discard, and the arm plays it. Whatever fails is written down
 (`crude_break`, printed as "Noted for the list") and you do that step by hand, in the outline the window shows; each turn ends by asking if anything else went wrong. If the jaws read too low for the held check but not as low as empty (the held reading fell from 9.5 to 3.0 over 2026-11-09), it asks whether there's a tile in them, and carries on if so.
-`--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
+`--dagger-dataset REPO`: A on the gamepad takes over a draw or a pick going wrong, and your recovery is saved ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). `--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
 you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left; `F2` 5mm further out and `L2` 10mm further left, for more room beside the hand's tiles, e.g. `--stations F2,L2`, `record.py --wall-station L2`): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
@@ -885,7 +980,7 @@ draw asks you to put the wall right. `--push-check` wants the wall laid with the
 `--stations F,L --cases top --trials 5 --hover-back-mm 10`; `--report` keeps shifted tries apart from unshifted ones. Leave the mat alone until the outcome keys appear, since the photo after each try is taken just before them.
 `--top-back-mm N` shifts top tiles only and leaves bottom tiles at the regular hover, which is what worked at F: `--stations F --cases cycle --trials 12 --top-back-mm 10`. A run that wasn't the test it was logged as (a wall laid another way, say)
 is left out of `--report` with `--exclude-session SESSION --why "..."`; its files stay.
-Other options: `--layout`, `--policy`. Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
+Other options: `--layout`, `--policy`, `--dagger-dataset REPO` (A takes over a pick going wrong; [Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). Sessions: `sessions/<time>_wall/` (`wall_attempt` events; per attempt `wrist.mp4`, `table_before_after.jpg`, `base.jpg`; `wall_summary.json`), `_wall_push`, `_wall_hover`. It needs a discard pose (`bench.py`'s teach-discard) and a saved `base_view_*` pose. Run `setup_check.py` first, and from the main checkout.
 
 `base_cam_collect.py` (moves the arm: asks a person to run it; face-down plan, tests 1b and 2): the arm picks up a face-down tile you laid
 on a layout spot, holds it up to the base camera at the saved `base_view_*` poses, saves frames and sets it back down.
@@ -895,6 +990,7 @@ python scripts/base_cam_collect.py --empty                       # first: visit 
 python scripts/base_cam_collect.py                               # collect what is short: every tile name, 6 holds per way up
 python scripts/base_cam_collect.py --tiles 1B,EW,7C --spots S5,S9 --rounds 3
 python scripts/base_cam_collect.py --sim                         # simulated arm and cameras
+python scripts/base_cam_collect.py --dagger-dataset Yewy/mahjong_facedown_dagger_v10   # A on the gamepad takes over a pick going wrong
 ```
 
 `--empty` writes `sessions/<time>_holdup_dry/` with a base and a wrist frame per pose (`dry_run/`, `dry_run_sheet.jpg`) and prints each
@@ -1108,6 +1204,36 @@ python scripts/hand_frames.py 20261104_150542_bench --weights NEW.pt --against a
 # --sessions-dir DIR (from a worktree), --per-arrangement N (default 2), --per-hard-name N (default 40)
 ```
 
+### Teaching the detector tile backs
+
+The live weights box no tile backs, even at 1% confidence, so face-down scripts aim at saved positions and nothing sees a back
+move or land. A 39th class, `back` (`config.BACK`), fixes that: a back box says a tile is there and which way up, never which
+tile (play and the name ledger give it no votes). With it, `bench.py --face-down` finds each back, checks landings, and runs
+`--unattended`. A back box under 8mm above the table is mat pattern and dropped (`config.BACK_MIN_HEIGHT_M`).
+
+1. **Capture** (RealSense only, no arm): lay `even-hand14` GREEN side up to the layout's outlines (`layout.py` shows them face up;
+   place, then flip) and `capture_frames.py`: 2-3 arrangements per light, some spots left face up, some backs turned or nudged,
+   a short wall. Then one more session with `--exam` and arrangements of its own, plus a few frames of the empty mat.
+2. **Export pre-labelled**: each scan's frame 0, with a back box at every spot that has no face box on it. Scans saved before
+   2026-11-13 lack the camera this needs and are refused.
+   ```
+   python scripts/mine_frames.py 20261113_101500_capture --backs-layout even-hand14
+   python scripts/mine_frames.py 20261113_104000_capture --backs-layout even-hand14 --exam
+   ```
+   Correct the boxes in Roboflow (a back you nudged off its spot; an empty spot that got a box): training frames to the training
+   project, the exam to its own. List the exam session in `data/detector_exam.json` as usual.
+3. **Split and train** with the class kept (`--with-backs`; without it the back labels are dropped). The new head has one more
+   class than the live weights; the rest carries over from `--start`.
+   ```
+   python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_backs --with-backs
+   python scripts/train_detector.py --data data/detector/train_backs/data.yaml --name backs_v1 --dry-run
+   ```
+4. **The gate, set before training**: on the face-down exam at least 95% of backs found; on the face-up exam no more than 1 false
+   back per 5 frames and right overall no worse than the live weights (`detector_eval.py --against`). Only then copy `best.pt`
+   to `assets/tile_detector.pt`.
+5. **On the arm**: one attended `bench.py --face-down --layout even-hand14 --trials 2`, then `bump_report.py`: the scans' calls should
+   agree with yours. Then `--unattended`.
+
 **4. Wrist-camera photos (for a name check at the hover).** The wrist camera sees a tile from ~4 cm at
 the hover, far sharper than the RealSense. `wrist_capture.py` collects photos to train a check there:
 it scans the mat, lists the tiles left to right with the detector's names (numbered on the RealSense
@@ -1162,7 +1288,7 @@ python scripts/status.py --set-default pickup_mat_cl_v5 --evidence "sessions/202
 ```
 
 It prints this checkout against origin/main (and warns if it's behind or has uncommitted code), the default
-policy with the evidence it was chosen on, every registered policy's bench total over all sessions, the eval
+policy with the evidence it was chosen on, every registered policy's bench total over all real sessions (`--sim` runs left out), the eval
 sets and detector exam, the layouts and their notes, the drop zone and whether the bench has checked a pickup
 there, the worst-read tiles on the standard surface (`name_report.py`), and how many merged branches are waiting to be
 closed.
@@ -1178,6 +1304,11 @@ pulled past (merge_pr.py stops on uncommitted changes to a file the PR also chan
 Every hardware session also warns at its start if the checkout is behind origin/main (as last fetched), has
 uncommitted code, or is a worktree, and logs that in `session_start`.
 
+**Owed and overdue** (`mahjong/owed.py`), in `status.py` and as `OWED:` lines at the start of every real hardware session: the
+default policy if it hasn't passed a scorecard check on the standard setup since it became the default; a policy registered after
+the default that ROADMAP.md doesn't name, or a status table dated before the default changed; merged branches not closed; and how
+many invariants still say "Unconfirmed". They're reminders, never blocks: written down once, these went unseen for days.
+
 ## Approving merges: `scripts/merge_pr.py`
 
 Branches (usually Claude's, each in a worktree) come back as draft PRs. You approve each one from the main
@@ -1188,11 +1319,13 @@ python scripts/merge_pr.py              # open PRs, and merged branches/worktree
 python scripts/merge_pr.py 34           # check PR 34, ask, merge, pull main, test, clean up its branch
 python scripts/merge_pr.py 34 --slow    # also the GPU tests on the merged tree (automatic if policy.py/dataset.py changed)
 python scripts/merge_pr.py --close      # clean up every merged branch (asks first)
+python scripts/merge_pr.py --review     # start the post-merge review of what's merged since the last one
 ```
 
 What `merge_pr.py 34` shows you before it asks:
 1. The PR's description, and which of its sections are missing: **What changed**, **Files**, **Overlaps**,
-   **Unverified on the arm**. The last one is what to try on hardware after merging.
+   **Unverified on the arm** (what to try on hardware after merging), and **Review** if the PR changes play, bench,
+   the arm or policy (`REVIEW_FILES`): what `/code-review` found and what was done. Without one it asks before going on.
 2. Files both `main` and the branch changed since the branch started, and any function, constant or option
    added on **both** sides. Git merges those without a conflict, and that's how duplicate options and
    helpers broke `record.py` on 2026-10-23. If it lists one, ask Claude to reconcile before you say yes.
@@ -1207,8 +1340,67 @@ was closed without merging (printing the commit they can be recovered from).
 
 Don't merge on GitHub's page: it runs no tests, and this checkout stays behind.
 
+If it stops after the merge on GitHub (the pull failed, say), run the same `merge_pr.py N` again: it picks up from the pull,
+tests `main`, closes the branch, and says so once there's nothing left to do.
+A PR built on another PR's branch (stacked) is refused until that one merges: merged first, it would land on that branch, not `main`.
+
 It stops before asking, with nothing changed, if the pull after the merge would fail: `main` here has commits GitHub doesn't, or
 the PR changes a data file with uncommitted changes here. Uncommitted data the PR doesn't touch is fine.
+
+### The merge queue: `merge_pr.py --auto`
+
+Claude sessions merge their own PRs through the queue once their checks pass (`/hand-back`); a person merges only decisions.
+
+```
+python scripts/merge_pr.py --auto          # every open, ready PR, oldest first; asks nothing
+python scripts/merge_pr.py --auto 34       # just PR 34 (exit 1 if it didn't merge, with why)
+```
+
+For each PR, in order, each a refusal rather than a warning:
+1. **A decision waits for you**: a change to `data/eval_split.json`, `data/detector_exam.json`, `data/name_check_exam.json`,
+   `data/standard_setup.json`, `docs/scorecard.md`, `mahjong/scorecard.py`, installed weights (`assets/*.pt`) or the default policy in
+   `data/policies.json` (registering one is fine), or a PR labelled `owner`. It gets the `needs-owner` label; `status.py` lists those,
+   and you merge them with `merge_pr.py N` as before.
+2. **The description is finished**: every section has something under it (a template comment doesn't count), and a PR changing play,
+   bench, the arm or policy (`REVIEW_FILES`) has `## Review` saying what `/code-review` found and what was done.
+3. **Nothing was added on both sides** (the same function, constant or option on `main` and the branch).
+4. **The merged tree passes**: `main` + the branch in a scratch worktree, the fast tests (the slow ones too if `policy.py` or
+   `dataset.py` changed), then `bench.py --sim --unattended` and `play.py --sim`. Every simulated arm command in all of them goes
+   through the motion watchdog (`mahjong/motion_watch.py`).
+5. **It merges the head it tested** (`--match-head-commit`), and if `main` moved while it tested, it tests the new `main` again.
+
+A PR that fails a check gets the output as a comment and goes back to draft. One queue runs at a time (a lock in the git dir).
+After a merge it pulls this checkout, unless an arm script is running here: then it leaves it, the checkout's warnings say it's
+behind, and the next run pulls. When a batch that merged something leaves nothing ready, it starts the post-merge review in the
+background, on your claude.ai login (no API key, so no extra cost; it uses your plan's limits, ~150 calls).
+
+Closing a branch first moves any PR built on it onto `main` (GitHub closed #109 when #80's branch was deleted under it).
+
+### Reviewing a batch of merges
+
+Tests catch breakage, and the bugs that cost time passed them. So a batch of merges gets a review in a fresh context, before the next
+hardware session. Once no PR is left open, `merge_pr.py N` offers to start it. Until a review merges, `status.py` and every hardware session
+say how many merged PRs it hasn't seen.
+
+```
+python scripts/merge_pr.py --review                 # start it in the background; `claude agents` shows it, and it ends in a draft PR
+/post-merge-review                                  # the same from inside Claude Code; add "findings only" to change nothing
+python scripts/review_brief.py                      # what it starts from: merges, overlaps, ruff, copied functions, tests, sim runs
+python scripts/review_brief.py --range A..B --no-run  # any range, without the tests and sim runs
+```
+
+It's approved like any PR. It fixes what's clearly a bug or a copy, and lists anything needing your judgement (thresholds, gates, the default policy)
+without changing it. Merging its PR is what marks the range reviewed (`data/post_merge_reviews.jsonl`).
+
+**Is the reviewer any good?** `scripts/review_backtest.py` runs it on old merges whose real bugs are known, in a copy of the repo as it stood then.
+
+```
+python scripts/review_backtest.py run consolidation-10-28   # one case; --model sonnet uses far less of your plan
+python scripts/review_backtest.py score               # a separate model grades new runs against data/review_backtest/cases.json
+python scripts/review_backtest.py table               # every run: hits, partials, extras, minutes, calls
+```
+
+**It uses your Claude plan's limits, and each run is as big as a real review (~150 calls), so it isn't a routine check.** It never bills an API key (nor does `--review`). Run one case when you want the number, not all three. A real bug a later review finds goes in as a new case.
 
 ### Data files and merging
 
@@ -1220,12 +1412,22 @@ The arm's scripts append to files in `data/` as they run, so this checkout is of
 | Samples the scripts log (`hover_corrections.jsonl`, `return_corrections.jsonl`, reviews) | straight to `main`, in one step below | after a hardware session |
 | A decision (the default policy, exam lists, scores, new weights) | a PR, with its evidence; commit an exam list the session it's added, so no training can pick those frames up | when it's made |
 
-Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub:
+Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub. `scripts/save_samples.py`
+does it, from the main checkout after a hardware session:
+
+```
+python scripts/save_samples.py               # shows the changed sample files, asks, commits "Samples from <latest session>", pulls, pushes
+python scripts/save_samples.py --dry-run     # only shows them
+python scripts/save_samples.py --session 20261113_100710_bench   # name another session in the message
+```
+
+The sample files are the ones `.gitattributes` merges by union, less `data/post_merge_reviews.jsonl` (a review's PR writes it); it
+never adds anything else. `status.py` and each hardware session say when samples are waiting. By hand, the same is:
 
 ```
 git add data/hover_corrections.jsonl data/return_corrections.jsonl
 git commit -m "Samples from 20261104_150542_bench"
-git pull --rebase origin main && git push origin main
+git pull --rebase --autostash origin main && git push origin main
 ```
 
 Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach
@@ -1242,9 +1444,11 @@ python -m pytest                      # everything; slow tests load policies and
 Git hooks run the fast tests on every commit and every merge (in parallel when pytest-xdist is installed:
 `pip install pytest-xdist` in the lerobot env), so a broken invariant, or two branches that break each
 other, can't be committed. Turn them on once per clone: `git config core.hooksPath scripts/hooks`.
-`tests/test_docs.py` checks this README and CLAUDE.md against `data/` and the scripts: every option they
+`tests/test_docs.py` checks this README, CLAUDE.md and `.claude/rules/` against `data/` and the scripts: every option they
 mention exists, every script has a section, the default policy and every registered one are named right.
-Merging worktrees: `merge_pr.py` above, and "Worktrees and merging" in `CLAUDE.md`.
+`tests/test_code_health.py` runs ruff (`pip install ruff` in the lerobot env; rules in `ruff.toml`) and looks for functions copied whole between files. A
+false alarm gets `# noqa: <rule>` with the reason on that line.
+Merging worktrees: `merge_pr.py` above, and `.claude/rules/merging.md`.
 
 Run the fast tests before calling a change hardware-ready (and the slow ones too if `policy.py` or
-`dataset.py` changed). See `CLAUDE.md` for the rules the code follows and why.
+`dataset.py` changed). See `.claude/rules/` for the rules the code follows and why.

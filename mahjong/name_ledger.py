@@ -329,7 +329,7 @@ def rows(placements, by=()):
     out = []
     for (tile, weights, surface, *extra), group in groups.items():
         def share(field):
-            return sum(p[field] / p["scans"] for p in group if p["scans"]) / max(1, sum(bool(p["scans"]) for p in group))
+            return sum(p[field] / p["scans"] for p in group if p["scans"]) / max(1, sum(bool(p["scans"]) for p in group))  # noqa: B023 called within this pass of the loop
         mixups = sum((p["mixups"] for p in group), Counter())
         confidences = [c for p in group for c in p["wrong_confidence"]]
         outcomes = Counter(p["outcome"] for p in group)

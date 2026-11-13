@@ -103,10 +103,10 @@ A **clean attempt** picked up the tile, knocked or bumped nothing, and needed no
 
 | Makes an attempt not clean | Doesn't |
 |---|---|
-| Not picked up | Gripped low or high (`d` / `u`: precarious, but the attempt stands) |
+| Not picked up | Gripped low, high or shallow (`d` / `u` / `s`: precarious, but the attempt stands) |
 | A tile knocked (scans) or bumped (`b`), during the pickup or the return | Straightening a knock afterwards (the knock already counted) |
 | The target pushed or turned (`p`) | Tiles reset as part of the protocol |
-| Esc, a hand on the tile or arm, a caught drop, an unexplained mark | Key presses later voided as noise (`keys_void`) |
+| Esc, a hand on the tile or arm, a caught drop, an unexplained mark, a takeover on the gamepad (`--dagger-dataset`) | Key presses later voided as noise (`keys_void`) |
 | A discard that missed the container | Crashes and rescans, which the log can't pin on one attempt |
 
 Alongside it:

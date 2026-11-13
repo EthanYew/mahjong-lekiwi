@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import config, base_cam, privacy
+from mahjong import base_cam, privacy
 
 FACE = (200, 100, 80, 80)
 

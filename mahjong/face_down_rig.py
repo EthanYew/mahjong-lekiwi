@@ -2,11 +2,14 @@
 position (the detector can't see a back), holding it up to the base camera at the taught poses, and setting it back down.
 Shared by scripts/base_cam_collect.py (the base camera's training photos), scripts/wall_test.py and scripts/crude_run.py.
 
+With --dagger-dataset (args.dagger_dataset), A on the gamepad during a pick hands a person the arm, and the recovery is saved
+as a DAgger episode (mahjong/takeover.py).
+
 `guide` is the live RealSense window that shows a person where to lay a tile; `close_windows` closes it before the arm moves.
 """
 import cv2
 
-from . import base_cam_collect, camera_poses, config, wall_test
+from . import base_cam_collect, camera_poses, config, takeover, wall_test
 from .camera import grab_frames
 from .hover_correction import HoverCorrection
 from .return_correction import ReturnCorrection
@@ -17,23 +20,30 @@ from .terminal_keys import Abort, TerminalKeys, new_events
 class Rig:
     """The arm, its cameras, the policy and the corrections: what picking a tile at a spot and showing it needs."""
 
-    def __init__(self, args, spots, pose_list):
+    def __init__(self, args, spots, pose_list, sim_empty=()):
+        """sim_empty: spots the simulated mat starts without a tile on (the drop zone: on the arm it's empty until a draw)."""
         self.args, self.spots, self.pose_list = args, spots, pose_list
         self.realsense = None           # opened only to show where to lay tiles (not --sim, --no-view or --empty)
         if args.sim:
             from mahjong import sim
-            tiles = [("5C", *s["xy"]) for s in spots]
+            tiles = [("5C", *s["xy"]) for s in spots if s not in sim_empty]
             devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.wrist, self.mat = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.base = sim.SimBaseCamera()
             self.policy = sim.SimPolicy(mat=self.mat, policy_id=args.policy or "sim")
+            self.takeover = takeover.make(getattr(args, "dagger_dataset", None), None)     # nothing to hand over in the sim
         else:
             from mahjong import hardware
             from mahjong.policy import Policy
             self.policy = Policy(args.policy)             # before connecting, so a mistyped id fails fast
             guided = not (args.no_view or args.empty)
-            devices = hardware.connect(["arm", "wrist_camera", "base_camera"] + (["realsense"] if guided else []))
+            repo = getattr(args, "dagger_dataset", None)
+            devices = hardware.connect(["arm", "wrist_camera", "base_camera"] + (["realsense"] if guided else [])
+                                       + takeover.devices(repo), gamepad_kwargs=takeover.gamepad_kwargs())
             self.arm, self.wrist, self.base = devices["arm"], devices["wrist_camera"], devices["base_camera"]
+            self.takeover = takeover.make(repo, devices.get("gamepad"))
+            if self.takeover:
+                self.takeover.expect_hover(self.policy.hover)
             self.realsense = devices.get("realsense")
         self.events = new_events()
         self.terminal = TerminalKeys(self.events)
@@ -44,6 +54,8 @@ class Rig:
         self.view_map = None            # {laying: upright / turned}, learned from the person's answer on the session's first photo
 
     def open_session(self, kind, **setup):
+        if self.takeover:
+            setup["dagger_dataset"] = self.takeover.repo_id
         self.session = Session(kind, ask_setup=False, sim=self.args.sim, policy=self.policy.id, layout=self.args.layout, **setup)
         path = self.session.dir / "return_corrections.jsonl" if self.args.sim else config.RETURN_CORRECTIONS
         self.returns = ReturnCorrection.load(path)     # simulated returns land where they're set down: the real model doesn't apply
@@ -60,6 +72,8 @@ class Rig:
             self.base.release()
             if self.realsense is not None:
                 self.realsense.close()
+            if self.takeover:
+                self.takeover.close()
         if holding:
             print("WARNING: the jaws still read as holding a tile. Take it from the arm before the next run.")
 
@@ -83,11 +97,19 @@ class Rig:
             if hover is None:
                 return {"unreachable": True, "attempt": attempt}
             self.abort.clear()
-            run = self.policy.run(self.arm, self.wrist, attempt, abort=self.abort)
+            run = self.policy.run(self.arm, self.wrist, attempt, abort=self.abort,
+                                  **({"takeover": self.takeover} if self.takeover else {}))
             squeezed = self.arm.squeeze()
         finally:
             self.terminal.stop()
         self.arm.rest()
+        if self.takeover:       # a recovery a person showed: saved, and logged as a rescue, before anything else is asked
+            self.takeover.save(run, self.session, self.policy.id, tile_name=name, detection_xy=[float(v) for v in spot["xy"]],
+                               hover=dict(self.policy.hover), hover_xy=hover["hover_xy"], hover_offset_m=h["offset_m"],
+                               hover_clearance_m=hover["clearance_m"], hover_raise_m=raise_m, hover_back_m=back_m,
+                               hover_lower_mm=self.args.hover_lower_mm, hover_correction=self.correction.name,
+                               attempt_dir=attempt.name, layout=self.args.layout, spot=spot["id"], spot_xy=spot["xy"],
+                               face_down=True)
         holding, command, measured = self.arm.holding()
         return {"hover": hover, "run": run, "attempt": attempt, "holding": holding, "squeezed_from": squeezed,
                 "gripper_command": command, "gripper_measured": measured}

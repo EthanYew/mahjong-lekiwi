@@ -27,7 +27,7 @@ import numpy as np
 
 from mahjong import face_down_rig
 import wall_test as wall_script
-from mahjong import config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, wall_test
+from mahjong import config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, takeover, wall_test
 from mahjong.perception import drain_stdin
 
 WINDOW = "what the base camera saw"
@@ -44,6 +44,7 @@ def parse_args(argv=None):
     p.add_argument("--leave-empty", default="", metavar="SLOTS", help="hand slots with no tile on the mat, comma separated, e.g. S7 (its tile right behind the wall throws the draw off): still named in --hand, never chosen as a discard")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
+    takeover.add_argument(p)
     p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what base_cam_collect's Rig reads
     return p.parse_args(argv)
 
@@ -131,7 +132,8 @@ class Run:
                 if not pick["holding"] and not shallow:      # says nothing about the pick. A tile in the jaws stays: another hover would open them
                     continue
             self.rig.session.event("crude_pick", turn=self.turn_no, step=step, spot=spot["id"], held=bool(pick["holding"] or shallow), shallow=shallow, jaw_reading=pick["gripper_measured"],
-                                   stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=pick["run"].get("grasp_clearance_m"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
+                                   stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=takeover.policy_view(pick["run"]).get("grasp_clearance_m"),
+                                   takeover_s=pick["run"].get("takeover_s"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
             if shallow:
                 self.shallow += 1
                 print("  A tile in the jaws, on a low reading: carrying on with it.")
@@ -309,7 +311,7 @@ def main(argv=None, ask=input):
     all_spots = [station, zone, *layout.load(args.layout)["spots"]]
     reader = base_cam.load_reader()
     print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
-    rig = face_down_rig.Rig(args, all_spots, poses)
+    rig = face_down_rig.Rig(args, all_spots, poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
     run = None
     try:
         conditions = base_cam.ask_lighting(ask)

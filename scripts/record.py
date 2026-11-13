@@ -57,7 +57,6 @@ scan can't see a green back to check where a return landed. Lay the rest of the 
 import argparse
 import json
 import random
-import shutil
 import sys
 import time
 from datetime import datetime
@@ -76,15 +75,8 @@ from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offs
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, ask_one
+from mahjong.takeover import open_dataset
 
-JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
-FEATURES = {
-    "observation.state": {"dtype": "float32", "shape": (6,), "names": JOINT_NAMES},          # delta from episode start
-    "action": {"dtype": "float32", "shape": (6,), "names": JOINT_NAMES},                     # delta from episode start
-    "observation.state_raw": {"dtype": "float32", "shape": (6,), "names": JOINT_NAMES},
-    "action_raw": {"dtype": "float32", "shape": (6,), "names": JOINT_NAMES},
-    "observation.images.wrist": {"dtype": "video", "shape": (480, 640, 3), "names": ["h", "w", "c"]},
-}
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
 SAME_TILE_NO = {"knocked a tile", "hover was wrong"}      # discards after which a same-tile retry defaults to no
 SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
@@ -206,26 +198,6 @@ def discard_tile(arm):
         return False
     arm.discard(config.discard_pose())
     return True
-
-
-def open_dataset(repo_id):
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    from lerobot.utils.constants import HF_LEROBOT_HOME
-    root = HF_LEROBOT_HOME / repo_id
-    info = root / "meta" / "info.json"
-    if info.exists() and json.loads(info.read_text()).get("total_episodes", 0) == 0:
-        shutil.rmtree(root)            # stub from a run interrupted before its first save
-    if info.exists():
-        existing = json.loads(info.read_text())["features"]
-        missing = set(FEATURES) - set(existing)
-        if missing:
-            raise SystemExit(f"{repo_id} has a different layout (missing {sorted(missing)}); record into a new dataset")
-        dataset = LeRobotDataset.resume(repo_id, root=root)
-        print(f"Appending to {repo_id} ({dataset.meta.total_episodes} episodes)")
-        return dataset
-    print(f"Creating {repo_id}")
-    return LeRobotDataset.create(repo_id=repo_id, fps=config.FPS, features=FEATURES, robot_type="so101_follower",
-                                 use_videos=True)
 
 
 def main(argv=None):

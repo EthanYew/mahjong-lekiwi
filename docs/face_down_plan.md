@@ -262,11 +262,13 @@ Done: these lines are in `/etc/udev/rules.d/99-mahjong-cameras.rules` (since 202
 `/dev/wristcam` was `video8` and `/dev/basecam` `video10`. The names hold as long as each cable stays in its port.
 
 ```
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-8", ATTRS{idVendor}=="05a3", SYMLINK+="wristcam"
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-5", ATTRS{idVendor}=="05a3", SYMLINK+="wristcam"
 SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-9", ATTRS{idVendor}=="05a3", SYMLINK+="basecam"
 ```
 
-Those port numbers are the NUC's, and change on the Pi.
+Those port numbers are the NUC's, and change on the Pi. The wrist camera's was `3-5` from 2026-11-13; before that it was `3-8`,
+which turned out to be the faulty receptacle behind every USB loss (`docs/invariant_notes.md`). Moving a camera means editing both
+this rule (then `sudo udevadm control --reload-rules && sudo udevadm trigger`) and `config.WRIST_USB_PORT`.
 
 Still to do: a check in `setup_check.py` that the jaws are in the wrist view and the base camera is present. Whether a second camera of this model makes the wrist camera's dropouts worse is an open
 question, so `session_report.py`'s recovery log gets compared before and after. Both are on the same USB bus.
@@ -330,6 +332,11 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 - **Test 3, 2026-11-09:** six face-down tiles on the mat, five RealSense frames, the installed detector down to 1% confidence: no boxes.
   The same weights gave 34 boxes on a saved face-up scan. So a face-down tile is targeted by saved position, and a face-down landing needs
   another check.
+- **2026-11-13, that other check: a back class for the detector** (branch `worktree-face-down-backs`). This plan had "a detector for tile
+  backs" out of scope for v1 unless test 7b called for one. It's brought in now because the owner wants face-down benches to run
+  unattended, which needs a scan to see a back move or land. The code is in place, checked in sim only (README "Teaching the detector
+  tile backs"); the weights wait on a capture and the gate there. A back is only where a tile is, never which one: names still come from
+  the base camera and a person.
 - **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.
 - `scripts/base_cam_collect.py`: the arm collects the base-camera photos (tests 1b and 2) from face-down tiles laid on layout spots, and
   doubles as a first, small version of tests 4 and 7b's script (every pick logs `grasp_clearance_m`; every tile is set down and

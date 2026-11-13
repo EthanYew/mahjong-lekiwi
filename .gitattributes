@@ -4,4 +4,6 @@
 data/hover_corrections.jsonl merge=union
 data/return_corrections.jsonl merge=union
 data/wrist_review.jsonl merge=union
+data/post_merge_reviews.jsonl merge=union
+data/review_backtest/results.jsonl merge=union
 data/holdup_review.jsonl merge=union

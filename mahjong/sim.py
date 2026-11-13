@@ -13,7 +13,7 @@ import types
 
 import numpy as np
 
-from . import config, kinematics
+from . import config, kinematics, motion_watch
 
 SAG_DEG_AT_REACH = 1.6        # lift droop arriving from above, at 0.19m reach (~first row)
 SAG_UP_FACTOR = 2.0
@@ -21,9 +21,18 @@ GRIP_ON_TILE = 11.0
 
 
 class SimRobot:
-    def __init__(self, start=None, holding=False, on_release=None):
-        """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile."""
+    live = []           # every SimRobot made since tests/conftest.py last cleared it: the motion watchdog reads their violations
+    watching = False    # tests/conftest.py turns the watchdog on; a user's --sim run neither keeps robots nor checks commands
+
+    def __init__(self, start=None, holding=False, on_release=None, mat=None):
+        """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile. mat: the SimPerception whose
+        tiles the watchdog checks the jaws against (taken from on_release when that's a mat's release)."""
         self.command = dict(start or config.REST_POSE)
+        self.mat = mat if mat is not None else getattr(on_release, "__self__", None) if isinstance(
+            getattr(on_release, "__self__", None), SimPerception) else None
+        self.violations = []    # (kind, detail, command index) from mahjong.motion_watch.check
+        if SimRobot.watching:
+            SimRobot.live.append(self)
         self.holding = holding
         self.on_release = on_release
         self._measured_offset = None
@@ -54,6 +63,7 @@ class SimRobot:
         return measured
 
     def send_action(self, action):
+        previous_command = dict(self.command)
         previous_measured = self._read("Present_Position")
         for key, value in action.items():
             self.command[key.removesuffix(".pos")] = float(value)
@@ -67,7 +77,20 @@ class SimRobot:
                                 self.measured_clearance_mm() / 1000)
         self.sent.append(dict(self.command))
         self.clearances.append(self.measured_clearance_mm())
+        if SimRobot.watching:
+            self._watch(previous_command)
         return action
+
+    def _watch(self, previous):
+        tiles, target = [], None
+        if self.mat is not None:
+            tiles = [self.mat.in_arm_frame(t["xy"]) for t in self.mat.tiles]
+            if not self.holding and tiles:      # open jaws: the tile nearest the tool point is the one they may reach
+                tool = kinematics.tool_point(self.command)
+                near = min(tiles, key=lambda xy: math.dist(xy, tool[:2]))
+                target = near if math.dist(near, tool[:2]) <= GRASP_REACH_M else None
+        for kind, detail in motion_watch.check(previous, self.command, self.holding, tiles, target):
+            self.violations.append((kind, detail, len(self.sent) - 1))
 
     def get_observation(self):
         return {f"{j}.pos": v for j, v in self._read("Present_Position").items()}
@@ -97,7 +120,7 @@ class SimPerception:
     intrinsics = {"fx": 590.0, "fy": 590.0, "ppx": 424.0, "ppy": 244.0}   # fitted to a real overview frame
     tile_boxes = None       # no detector on a rendered frame: layout.find_tile reads the colour alone
 
-    def __init__(self, tiles=SIM_TILES):
+    def __init__(self, tiles=SIM_TILES, sees_backs=True):
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
         self.hidden = {}            # {tile name: scans it's still left out of} (flicker)
@@ -109,12 +132,16 @@ class SimPerception:
         # position, which is what a carried tile's aim has to get right). None: the two agree.
         self.arm_offset = None
         from .detector import TILE_NAMES
-        self.names = TILE_NAMES
+        # tiles named config.BACK lie green side up: boxed as backs by weights with the class, unseen by older ones (a mat
+        # with no backs keeps the deployed weights' classes, which exports and label maps are checked against)
+        self.names = TILE_NAMES + [config.BACK] if sees_backs and any(t["tile_name"] == config.BACK for t in self.tiles) \
+            else TILE_NAMES
 
     def detect_tiles(self, n_frames=None):
         """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
         from .layout import table_to_pixel, tile_corners
-        boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])]
+        boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])
+                                       and (t["tile_name"] != config.BACK or config.BACK in self.names)]
         self.hidden = {name: n - 1 for name, n in self.hidden.items() if n > 1}
         for t in seen:
             corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
@@ -124,7 +151,7 @@ class SimPerception:
             pixels.append((round(float(u0 + u1) / 2), round(float(v0 + v1) / 2)))
         self.last_frames = [{"color": self.snapshot(), "boxes": boxes}]
         return [{"tile_name": t["tile_name"], "confidence": 0.9, "xy": tuple(t["xy"]), "z": config.grasp_z(*t["xy"]),
-                 "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
+                 "height_m": config.TILE_THICKNESS_M, "reads": 5, "pixel": pixel} for t, pixel in zip(seen, pixels)]
 
     def in_arm_frame(self, xy):
         """Where the arm must go to reach what the camera sees at xy (tiles and detections are the camera's)."""
@@ -276,12 +303,16 @@ class SimBaseCamera:
         pass
 
 
-def connect(tiles=SIM_TILES, wrist_view=False):
+SEES_BACKS = True          # whether connect()'s simulated detector boxes backs; a test sets False for the older weights
+
+
+def connect(tiles=SIM_TILES, wrist_view=False, sees_backs=None):
     """The simulated counterpart of hardware.connect(["arm", "wrist_camera", "realsense"]): a mat of `tiles`
     that a release near the table puts the held tile back on, an arm that doesn't wait, and a wrist camera
-    that renders the mat under it (wrist_view) or gives blank frames."""
+    that renders the mat under it (wrist_view) or gives blank frames. sees_backs: whether the simulated detector boxes
+    tiles named config.BACK (weights trained on backs) or not (the older ones)."""
     from .arm import Arm
-    mat = SimPerception(tiles)
+    mat = SimPerception(tiles, sees_backs=SEES_BACKS if sees_backs is None else sees_backs)
     arm = Arm(SimRobot(on_release=mat.release), sleep=lambda s: None)
     return {"arm": arm, "wrist_camera": SimWristCamera(arm, mat) if wrist_view else SimCamera(), "realsense": mat}
 
@@ -289,20 +320,34 @@ def connect(tiles=SIM_TILES, wrist_view=False):
 class SimPolicy:
     """Stands in for an ACT policy: descend onto the tile, close, lift. Same interface as
     policy.Policy for what bench.py uses. With a SimPerception `mat` it goes to the nearest tile on it
-    (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s."""
+    (as a working policy corrects the hover) and takes it off the mat; a mark set by then is noted at 2s. With a
+    `takeover` (mahjong.takeover.Takeover) whose A reads pressed once the descent is done, a person "takes over" there
+    (step 2 of 5 kept frames) and finishes the same pickup, so a script's takeover path runs end to end."""
     id = "sim"
     hover = dict(config.DEFAULT_HOVER)
 
     def __init__(self, mat=None, policy_id="sim"):
         self.mat, self.id = mat, policy_id
 
-    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
+    def run(self, arm, camera, trace_dir, abort=None, mark=None, log=print, takeover=None):
+        def keep():
+            if takeover is not None:
+                q = arm.commanded()
+                takeover.add(camera.read()[1], [arm.measured()[j] for j in config.JOINTS], q)
+        if takeover is not None:
+            takeover.begin()
+        keep()
         x, y, _ = kinematics.tool_point(arm.commanded())
         tile = self.mat.nearest(x, y) if self.mat is not None else None
         if tile is not None:
             x, y = self.mat.in_arm_frame(tile["xy"])
         down, _ = kinematics.hover_command(x, y, 0.007, arm.commanded()["gripper"])
         arm.move_to(down, 2.0)
+        keep()
+        taken = None
+        if takeover is not None and takeover.pressed():
+            taken = 2
+            takeover.start(arm, taken)
         marks = []
         if mark is not None and mark.is_set():
             mark.clear()
@@ -316,7 +361,13 @@ class SimPolicy:
             up, _ = kinematics.hover_command(x, y, height, 0.0)
             if up is not None:
                 break
+        keep()
         arm.move_to(up, 2.0)
-        return {"steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
+        keep()
+        keep()
+        person = {} if takeover is None else {"takeover_step": taken} if taken is None else {
+            "takeover_step": taken, "takeover_s": taken / config.FPS, "takeover_end": "pressed",
+            "policy_grasp_xy": None, "policy_grasp_clearance_m": None}
+        return {**person, "steps": 0, "duration_s": 4.5, "stop_reason": "done", "aborted": False, "held_at_s": 3.0,
                 "slipped": False, "stall_warning": False, "descended": True, "floored_steps": 0,
                 "grasp_step": 0, "grasp_xy": [float(x), float(y)], "grasp_clearance_m": closed_at, "marks_s": marks}

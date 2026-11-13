@@ -19,14 +19,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, layout, markers, name_ledger, scorecard
-from mahjong.session import read_events
+from mahjong import checkout, config, layout, markers, name_ledger, owed, scorecard
+from mahjong.session import is_sim, read_events
+
+
+def real_benches(sessions_dir=None):
+    """Every bench session's events file but simulated ones: `bench.py --sim --policy <id>` logs attempts under a real policy's
+    id (20261112_091817_bench gave v10 a clean pickup that never happened)."""
+    return [f for f in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")) if not is_sim(f.parent)]
 
 
 def bench_results(sessions_dir=None):
     """policy -> {"attempts", "picked", "sessions", "last"} over every bench session."""
     out = defaultdict(lambda: {"attempts": 0, "picked": 0, "sessions": 0, "last": ""})
-    for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
+    for events_file in real_benches(sessions_dir):
         seen = set()
         for e in read_events(events_file.parent):
             if e["type"] == "attempt" and e.get("policy"):
@@ -43,7 +49,7 @@ def bench_results(sessions_dir=None):
 def bench_clean(sessions_dir=None):
     """policy -> clean attempts over every bench session (docs/scorecard.md). Slow once per new session."""
     out = defaultdict(int)
-    for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
+    for events_file in real_benches(sessions_dir):
         for policy, clean in scorecard.session_clean(events_file.parent).items():
             out[policy] += clean
     return dict(out)
@@ -75,6 +81,8 @@ def report(sessions_dir=None):
     branch = checkout.git("rev-parse", "--abbrev-ref", "HEAD")
     lines.append(f"Checkout: {branch} at {checkout.git('rev-parse', '--short', 'HEAD')}"
                  + "".join(f"\n  WARNING: {w}" for w in checkout.warnings()))
+    if (due := owed.items(sessions_dir=sessions_dir)):
+        lines.append("\nOwed and overdue (mahjong/owed.py):" + "".join(f"\n  - {line}" for line in due))
 
     note = reg.get("default_note", {})
     lines.append(f"\nDefault policy: {reg['default']} (since {note.get('since', '?')})"
@@ -118,8 +126,6 @@ def report(sessions_dir=None):
                         f"{test['returned']} returned, {test['carried']} carried to a slot (median "
                            f"{test['carried_median_mm']:.0f}mm from home)" if test["ok"] else "; ".join(test["problems"])))
 
-    left = checkout.leftovers()
-    lines.append(f"\nMerged branches not closed: {len(left)}" + (" (python scripts/merge_pr.py --close)" if left else ""))
     return "\n".join(lines)
 
 

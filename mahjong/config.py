@@ -32,7 +32,8 @@ RAISED_REST = {**REST_POSE, "shoulder_lift": -40.0, "elbow_flex": 40.0}
 FPS = 30
 WRIST_CAM = "/dev/wristcam"            # udev symlink
 BASE_CAM = "/dev/basecam"              # the LeKiwi base's front camera (same model as the wrist's): udev symlink by USB port, 3-9 on the NUC
-WRIST_USB_PORT = "3-8"                 # its USB port, for a power cycle if it dropped before this run saw where it was
+WRIST_USB_PORT = "3-5"                 # its USB port, for a power cycle if it dropped before this run saw where it was.
+                                       # Was 3-8 until 2026-11-13: that receptacle is the fault (invariants), so the camera lives on 3-5
 WRIST_RESOLUTION = (640, 480)          # what every dataset was recorded at (resized to 224 for training)
 REALSENSE_SERIAL = "825312070255"
 REALSENSE_RESOLUTION = (848, 480)
@@ -44,6 +45,11 @@ DETECTION_SAVE_CONFIDENCE = 0.25       # a scan saves boxes down to this: the on
 # read at a median of 0.18 in 20261103_121112_bench, and looked gone in 45 of 46 scans. All 14 tiles in all 46 scans at this
 # cutoff; none at 31 spots just emptied by a pickup; on the mat at no tile, 0 in 74 scans and 2 in 42 on the black top.
 DETECTION_PRESENCE_CONFIDENCE = 0.1
+# A tile lying green side up, as the detector names it once its weights have the class (perception.sees_backs). It says a
+# tile is there and which way up, never which tile: nothing reads a back. A back box whose centre sits under this above the
+# table is mat pattern, not a tile (a tile's top is ~20mm up; the table plane's reading wanders ~3mm, 2026-11-11).
+BACK = "back"
+BACK_MIN_HEIGHT_M = 0.008
 UNNAMED = "unnamed"                    # a tile's name when no scan or person has given it one: never a spot id or a layout label
 DETECTION_FRAMES = 5
 TILE_MERGE_RADIUS_M = 0.025            # detections closer than this are one physical tile

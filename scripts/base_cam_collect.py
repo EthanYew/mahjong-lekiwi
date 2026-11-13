@@ -31,7 +31,6 @@ Run `setup_check.py` first, and from the main checkout (sessions are per-checkou
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-from mahjong import camera_poses, config, base_cam, base_cam_collect, kinematics, layout, privacy
+from mahjong import camera_poses, config, base_cam, base_cam_collect, kinematics, layout, privacy, takeover
 from mahjong.camera import grab_frames
 from mahjong.face_down_rig import Rig, close_windows, guide
 
@@ -85,6 +84,7 @@ def parse_args(argv=None):
                    help="hover this many mm lower than the policy's own, as bench.py --hover-lower-mm (for a spot where it closes high)")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
+    takeover.add_argument(p)
     return p.parse_args(argv)
 
 
@@ -357,7 +357,7 @@ def main(argv=None, ask=input):
         if rig.session:
             rig.session.event("holdup_done", shots_taken=counters["shots"])
             print(f"{counters['shots']} hold(s) saved in {folder}" + ("" if args.empty else
-                  f"\nScore a reader trained on them: python scripts/base_cam_train.py (--history lists every result)"))
+                  "\nScore a reader trained on them: python scripts/base_cam_train.py (--history lists every result)"))
             rig.session.close()
     return folder
 
