@@ -12,7 +12,8 @@
       "Bash(git push -u origin worktree-*)",
       "Bash(git push -q -u origin worktree-*)",
       "Bash(git push -q origin worktree-*)",
-      "Bash(git worktree *)"
+      "Bash(git worktree add *)",
+      "Bash(git worktree list*)"
     ],
     "ask": [
       "Bash(*scripts/status.py --set-default*)",

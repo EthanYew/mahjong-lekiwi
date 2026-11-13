@@ -28,8 +28,9 @@ SAFE_FLAGS = {"--help", "-h"}
 NO_HARDWARE_FLAGS = {"wall_test": {"--report", "--exclude-session"}}   # these return before anything connects
 
 MENTION = re.compile(r"scripts/(%s)\.py" % "|".join(ARM_SCRIPTS))
-IMPORTS_ARM = re.compile(r"\b(?:from\s+scripts\s+import\s+(?:%s)\b|(?:from|import)\s+(?:scripts\.)?(?:%s)\b)"
-                         % ("|".join(ARM_SCRIPTS), "|".join(ARM_SCRIPTS)))   # `from scripts import bench` names no path
+IMPORTS_ARM = re.compile(r"\b(?:from\s+scripts\s+import\s+(?:%s)\b|(?:from|import)\s+(?:scripts\.)?(?:%s)\b)|['\"](?:scripts\.)?(?:%s)['\"]"
+                         % ("|".join(ARM_SCRIPTS), "|".join(ARM_SCRIPTS), "|".join(ARM_SCRIPTS)))
+# `from scripts import bench` and runpy.run_module('scripts.bench') name no path
 # These read, print or track files; none of them runs a file it is given.
 CANT_RUN = {
     "basename", "cat", "cp", "cut", "diff", "dirname", "du", "echo", "egrep", "fgrep", "file", "gh", "git", "grep", "head",
@@ -74,6 +75,18 @@ def _python_could_start_arm(code):
         tree = ast.parse(code)
     except (SyntaxError, ValueError):
         return bool(STARTS_ARM.search(code))
+    aliases = {}                                # `import subprocess as s` -> s: subprocess; `from subprocess import run` -> run: subprocess.run
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases.update({a.asname: a.name for a in node.names if a.asname})
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            aliases.update({a.asname or a.name: f"{node.module}.{a.name}" for a in node.names})
+
+    def called(func):
+        name = _dotted(func)
+        head, _, rest = name.partition(".")
+        return f"{aliases[head]}.{rest}".rstrip(".") if head in aliases else name
+    arm_module = re.compile(r"^(?:scripts\.)?(?:%s)$" % "|".join(ARM_SCRIPTS))
     for node in ast.walk(tree):                 # code, not text: a string that says "import record" imports nothing
         names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
             [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names] if isinstance(node, ast.ImportFrom) else []
@@ -82,8 +95,10 @@ def _python_could_start_arm(code):
         if isinstance(node, ast.Call) and _dotted(node.func).endswith("hardware.connect"):
             return True
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not RUN_CALLS.match(_dotted(node.func)):
+        if not isinstance(node, ast.Call) or not RUN_CALLS.match(called(node.func)):
             continue
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and arm_module.match(n.value) for n in ast.walk(node)):
+            return True                         # runpy.run_module('scripts.bench'), importlib.import_module('bench')
         args = list(node.args) + [k.value for k in node.keywords if k.arg in (None, "args")]
         if not args:
             continue
@@ -98,7 +113,7 @@ def _python_could_start_arm(code):
             return True
         if not all(isinstance(n, ast.Constant) for a in args for n in ast.walk(a) if isinstance(n, ast.expr)
                    and not isinstance(n, (ast.List, ast.Tuple, ast.Starred, ast.Load))):
-            if _dotted(node.func) not in ("exec", "eval"):      # exec(compile(src...)) of a file that isn't an arm script
+            if called(node.func) not in ("exec", "eval"):       # exec(compile(src...)) of a file that isn't an arm script
                 return True
     return False     # stands in for a `$(...)` once what's inside it has been judged on its own
 
@@ -246,12 +261,17 @@ def reason_to_ask(command, cwd=None):
     if not MENTION.search(command) and not IMPORTS_ARM.search(command):
         return None
     shell_text, bodies = _heredoc_bodies(command)
+    piped_to_python = bool(re.search(r"\|\s*(?:\S*/)?python[\d.]*\b", shell_text))
     for program, body in bodies:
-        if not (MENTION.search(body) or IMPORTS_ARM.search(body)) or program in CANT_RUN:
+        if not (MENTION.search(body) or IMPORTS_ARM.search(body)):
             continue
+        if program in CANT_RUN:
+            if not piped_to_python:             # a helper written and run in one command can't be read yet: that asks anyway
+                continue
+            program = "python"                  # `cat <<EOF | python`
         if not program.startswith("python") or _python_could_start_arm(body):
             return f"{program or 'a program'} is given text that mentions an arm script"
-    if not MENTION.search(shell_text):
+    if not MENTION.search(shell_text) and not IMPORTS_ARM.search(shell_text):
         return None
     try:
         spans = _substitutions(shell_text)
@@ -285,7 +305,7 @@ def reason_to_ask(command, cwd=None):
     for words in parts:
         program, args = _head(words)
         text = " ".join(words)
-        if not MENTION.search(text) or not program:     # nothing but assignments (their values are expanded below)
+        if not (MENTION.search(text) or IMPORTS_ARM.search(text)) or not program:   # nothing but assignments (expanded below)
             continue
         if program in CANT_RUN or program.startswith("#") or program in ("bash", "sh", "dash", "zsh", "xargs", "for", "done"):
             continue

@@ -22,6 +22,7 @@ GRIP_ON_TILE = 11.0
 
 class SimRobot:
     live = []           # every SimRobot made since tests/conftest.py last cleared it: the motion watchdog reads their violations
+    watching = False    # tests/conftest.py turns the watchdog on; a user's --sim run neither keeps robots nor checks commands
 
     def __init__(self, start=None, holding=False, on_release=None, mat=None):
         """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile. mat: the SimPerception whose
@@ -30,7 +31,8 @@ class SimRobot:
         self.mat = mat if mat is not None else getattr(on_release, "__self__", None) if isinstance(
             getattr(on_release, "__self__", None), SimPerception) else None
         self.violations = []    # (kind, detail, command index) from mahjong.motion_watch.check
-        SimRobot.live.append(self)
+        if SimRobot.watching:
+            SimRobot.live.append(self)
         self.holding = holding
         self.on_release = on_release
         self._measured_offset = None
@@ -75,7 +77,8 @@ class SimRobot:
                                 self.measured_clearance_mm() / 1000)
         self.sent.append(dict(self.command))
         self.clearances.append(self.measured_clearance_mm())
-        self._watch(previous_command)
+        if SimRobot.watching:
+            self._watch(previous_command)
         return action
 
     def _watch(self, previous):

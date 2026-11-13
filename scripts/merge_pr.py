@@ -414,8 +414,9 @@ def send_back(number, why):
     return f"sent back: {why.splitlines()[0][:160]}"
 
 
-def auto_one(number, repo=None):
-    """One PR through the queue: "merged", "held: ...", "sent back: ..." or "skipped: ..."."""
+def auto_one(number, repo=None, rechecks=QUEUE_RETRIES):
+    """One PR through the queue: "merged", "held: ...", "sent back: ..." or "skipped: ...". A head pushed while it was being tested
+    starts it over, so the new commits get the hold, description and overlap checks too, not just the tests."""
     pr = json.loads(gh("pr", "view", str(number), "--json",
                        "number,title,state,isDraft,headRefName,baseRefName,body,files,labels,headRefOid"))
     if pr["state"] != "OPEN":
@@ -443,6 +444,11 @@ def auto_one(number, repo=None):
     for _ in range(QUEUE_RETRIES):
         main_before = checkout.git("rev-parse", checkout.BASE, repo=repo)
         head = checkout.git("rev-parse", ref, repo=repo)
+        if pr.get("headRefOid") and head != pr["headRefOid"]:
+            if rechecks <= 0:
+                return send_back(number, "The branch kept changing while queued: let it settle, then queue it again.")
+            print("  the branch has new commits: checking it again from the start")
+            return auto_one(number, repo, rechecks - 1)
         print(f"\n#{number}: testing main {main_before[:7]} + {branch} {head[:7]}" + (" (slow too)" if slow else ""))
         passed, report = verify_merged(ref, slow=slow, repo=repo)
         if not passed:
@@ -452,6 +458,8 @@ def auto_one(number, repo=None):
             print("  main moved while testing: again on the new main")
             continue
         merged, err = gh_try("pr", "merge", str(number), "--merge", "--match-head-commit", head)
+        if not merged and not re.search(r"head|match|modified|out of date|not up to date", err, re.I):
+            return send_back(number, f"GitHub refused the merge:\n\n```\n{err[:2000]}\n```")
         if not merged:
             print(f"  GitHub didn't merge it ({err[:200]}): again")
             run(["git", "fetch", "--prune", "origin"])
@@ -475,7 +483,9 @@ def auto(number=None, repo=None):
         for n in numbers:
             results[n] = auto_one(n, repo)
             print(f"#{n}: {results[n]}")
-        ready = [pr for pr in json.loads(gh("pr", "list", "--json", "number,isDraft")) if not pr["isDraft"]]
+        ready = [pr for pr in json.loads(gh("pr", "list", "--json", "number,isDraft,baseRefName,labels")) if not pr["isDraft"]
+                 and pr.get("baseRefName", "main") == "main" and not {l["name"] for l in pr.get("labels") or []} & set(HOLD_LABELS)]
+        # held and stacked PRs wait for someone else, so they don't hold back the batch's review
         if "merged" in results.values() and not ready and checkout.unreviewed_merges():
             print(f"\n{len(checkout.unreviewed_merges())} merged PR(s) since the last review, none ready: starting it in the background")
             start_review()

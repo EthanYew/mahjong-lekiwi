@@ -63,6 +63,14 @@ spec.loader.exec_module(gate)
     f"echo x | xargs -n1 {PY} scripts/bench.py",
     f"/usr/bin/time -f '%e' {PY} scripts/bench.py",
     f"timeout 30 bash -c '{PY} scripts/play.py --layout even-hand13'",
+    # Found by /code-review on 2026-11-14: each slipped past the parsed check.
+    f"{PY} -c \"import subprocess as s; s.run(['python', 'scripts/bench.py'])\"",
+    f"{PY} -c \"from subprocess import run; run(['python', 'scripts/bench.py'])\"",
+    f"{PY} -c \"from scripts import bench; bench.main([])\"",
+    f"cd scripts && {PY} -c \"import bench; bench.main()\"",
+    f"cat <<'EOF' | {PY}\nimport subprocess; subprocess.run(['python', 'scripts/bench.py'])\nEOF",
+    f"{PY} -c \"import runpy; runpy.run_module('scripts.bench', run_name='__main__')\"",
+    f"{PY} -c \"import importlib; importlib.import_module('bench').main()\"",
 ])
 def test_a_run_of_an_arm_script_asks(command):
     assert gate.reason_to_ask(command)

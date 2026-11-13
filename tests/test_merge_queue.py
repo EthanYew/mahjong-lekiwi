@@ -176,3 +176,50 @@ def test_a_branch_that_conflicts_with_main_is_never_tested(repo, monkeypatch):
     passed, report = merge_pr.verify_merged("origin/feature", repo=repo)
     assert not passed and "doesn't merge cleanly" in report
     assert not (repo / ".claude" / "worktrees" / "_merge_check").exists()
+
+
+def test_a_branch_pushed_while_queued_is_checked_again_from_the_start(repo, monkeypatch):
+    """A head that moved after the hold and description checks could otherwise merge a decision file unchecked."""
+    hub, tested = queue(repo, monkeypatch)
+    hub.pr["headRefOid"] = "0" * 40                   # what GitHub said before a push
+    views = []
+    view = hub.gh
+
+    def gh(*args):
+        if args[:2] == ("pr", "view"):
+            views.append(1)
+            if len(views) > 1:
+                hub.pr["headRefOid"] = git(repo, "rev-parse", "origin/feature")
+        return view(*args)
+    monkeypatch.setattr(merge_pr, "gh", gh)
+    assert merge_pr.auto_one(7, repo) == "merged" and len(views) == 2 and len(tested) == 1
+
+
+def test_github_refusing_for_another_reason_is_sent_back_with_its_words(repo, monkeypatch):
+    hub, tested = queue(repo, monkeypatch)
+    monkeypatch.setattr(merge_pr, "gh_try", lambda *a: (False, "GraphQL: Resource not accessible by integration"))
+    assert merge_pr.auto_one(7, repo).startswith("sent back")
+    assert len(tested) == 1 and "Resource not accessible" in hub.did("pr", "comment")[0][-1]
+
+
+def test_a_held_pr_doesnt_hold_back_the_batch_review(repo, monkeypatch):
+    hub, _ = queue(repo, monkeypatch)
+    listing = [{"number": 7, "isDraft": False, "createdAt": "2026-11-13T00:00:00Z", "baseRefName": "main", "labels": []}]
+    gh = hub.gh
+
+    def gh_with_a_held_one(*args):
+        if args[:2] == ("pr", "list"):
+            open_now = [p for p in listing if hub.pr["state"] == "OPEN" or p["number"] != 7]
+            return json.dumps(open_now + [{"number": 8, "isDraft": False, "createdAt": "2026-11-13T01:00:00Z", "baseRefName": "main",
+                                           "labels": [{"name": "needs-owner"}]}])
+        return gh(*args)
+    monkeypatch.setattr(merge_pr, "gh", gh_with_a_held_one)
+    def one(n, repo=None):
+        if n == 7:
+            hub.pr["state"] = "MERGED"
+            return "merged"
+        return "held: changes data/eval_split.json"
+    monkeypatch.setattr(merge_pr, "auto_one", one)
+    monkeypatch.setattr(merge_pr.checkout, "unreviewed_merges", lambda *a, **k: ["abc Merge pull request #7"])
+    assert merge_pr.auto(repo=repo) == {7: "merged", 8: "held: changes data/eval_split.json"}
+    assert ("review",) in hub.calls

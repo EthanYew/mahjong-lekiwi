@@ -34,7 +34,9 @@ def motion_watchdog(request):
     import os
     from mahjong.sim import SimRobot
     SimRobot.live.clear()
+    SimRobot.watching = True
     yield
+    SimRobot.watching = False
     found = [(kind, detail, i) for robot in SimRobot.live for kind, detail, i in robot.violations]
     SimRobot.live.clear()
     if not found or "motion_unwatched" in request.keywords:
