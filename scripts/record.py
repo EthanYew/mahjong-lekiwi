@@ -68,7 +68,7 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, kinematics, layout, markers, wall_test
-from mahjong.camera import LOST_S, torn
+from mahjong.camera import LOST_S, TORN_STOP_FRAMES, torn
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
@@ -450,7 +450,9 @@ def main(argv=None):
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s"
                   + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None
                      else f", no takeover: {policy.id}'s alone, not trained on)"))
-            if torn_frames:         # a fast move can blur 1-3 frames into a tear's numbers; more is the USB link
+            # a fast move can blur 1-3 frames into a tear's numbers, and record.py counts past the hold too (policy.run stops
+            # counting there): warn at policy.run's stop, where no blur reached; the row keeps the count either way
+            if torn_frames >= TORN_STOP_FRAMES:
                 print(f"  {torn_frames} torn wrist camera frames in it (USB data lost): look at it before training on it")
             offset = None          # the next episode draws its own
             if placement and args.layout:
