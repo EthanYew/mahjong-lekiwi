@@ -58,7 +58,8 @@ Git catches overlapping lines, not overlapping intent. `merging.md` has the deta
   `bench.py`, `record.py` or `config.py`. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
 - **Handing a branch back** (Claude's job; the person approves the merge): merge the latest `main` into it, rerun the tests, push,
   and open a draft PR (`gh pr create --draft`) whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or
-  other open branches), `## Unverified on the arm`. Don't merge it yourself unless the person asks.
+  other open branches), `## Unverified on the arm`, and `## Review` (what `/code-review` found and what was done) if it changes
+  play, bench, the arm or policy (`merge_pr.REVIEW_FILES`). Don't merge it yourself unless the person asks.
 - **Merging** is the person's: `python scripts/merge_pr.py N` from the main checkout, which also closes the branch. A Claude session
   can't delete worktrees or branches, and doesn't push to `main`; never `--no-verify` a merge.
 - A new user-run script gets an end-to-end sim test (`tests/test_bench.py`, `tests/test_record.py`).

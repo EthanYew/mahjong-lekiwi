@@ -31,6 +31,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import checkout, config, session
 
 SECTIONS = ["What changed", "Files", "Overlaps", "Unverified on the arm"]
+# A PR changing these also needs "## Review": what /code-review found and what was done about each, or why it wasn't run. The bugs
+# the 11-04 review found were in play, bench and the arm, and passed 91% line coverage; all 103 PRs to 2026-11-13 merged unreviewed.
+REVIEW_FILES = ("scripts/play.py", "scripts/bench.py", "mahjong/arm.py", "mahjong/kinematics.py", "mahjong/policy.py",
+                "mahjong/dataset.py", "mahjong/game.py", "mahjong/identity.py")
 SLOW_FILES = ("mahjong/policy.py", "mahjong/dataset.py")      # CLAUDE.md: run the slow tests too
 DEF = re.compile(r"^\+\s*def (\w+)\(|^\+([A-Z][A-Z0-9_]+) = |add_argument\(\s*\"(--[\w-]+)\"")
 REVIEW_PROMPT = ("Review the merges since the last post-merge review. Start with scripts/review_brief.py. Fix what's clearly broken "
@@ -56,10 +60,15 @@ def confirm(question, ask=input):
     return ask(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
 
-def missing_sections(body):
-    """The PR description's sections that aren't there (a markdown heading each)."""
+def missing_sections(body, touched=()):
+    """The PR description's sections that aren't there (a markdown heading each). "Review" only for a PR that changes REVIEW_FILES."""
     headings = {h.strip().lower() for h in re.findall(r"^#+\s*(.+)$", body or "", re.M)}
-    return [s for s in SECTIONS if not any(h.startswith(s.lower()) for h in headings)]
+    wanted = SECTIONS + (["Review"] if needs_review(touched) else [])
+    return [s for s in wanted if not any(h.startswith(s.lower()) for h in headings)]
+
+
+def needs_review(touched):
+    return sorted(f for f in touched if f in REVIEW_FILES)
 
 
 def added_names(diff):
@@ -236,8 +245,13 @@ def merge(number, slow=False, ask=input):
     if (problems := pull_blockers(ref, [f["path"] for f in pr["files"]])):
         raise SystemExit(f"not merging #{number}, nothing changed:\n" + "\n".join(f"- {p}" for p in problems))
     print(f"\n#{number} {pr['title']}\n{pr['url']}\n\n{pr['body'] or '(no description)'}\n")
-    if (missing := missing_sections(pr["body"])):
+    if (missing := missing_sections(pr["body"], [f["path"] for f in pr["files"]])):
         print(f"MISSING from the description: {', '.join(missing)}")
+    if "Review" in missing and not confirm(
+            f"\nNo review recorded, and it changes {', '.join(needs_review(f['path'] for f in pr['files']))}. Ask for /code-review on "
+            f"the branch and its findings in ## Review, or merge without one?", ask):
+        print("Not merged: no review.")
+        return
     files, names = overlaps(ref)
     print(f"\nChanged on both main and the branch since it split: {', '.join(files) or 'nothing'}")
     if names:

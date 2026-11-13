@@ -206,6 +206,10 @@ def test_a_pr_description_is_checked_for_its_sections():
     body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n"
     assert merge_pr.missing_sections(body) == ["Unverified on the arm"]
     assert merge_pr.missing_sections(body + "## Unverified on the arm\nall of it\n") == []
+    full = body + "## Unverified on the arm\nall of it\n"
+    assert merge_pr.missing_sections(full, ["README.md", "mahjong/session.py"]) == []
+    assert merge_pr.missing_sections(full, ["scripts/play.py"]) == ["Review"]
+    assert merge_pr.missing_sections(full + "## Review\n/code-review: 2 findings, both fixed\n", ["scripts/play.py"]) == []
 
 
 def test_closing_leaves_a_simulated_session_behind_though_its_name_looks_real(repo):
@@ -236,3 +240,16 @@ def test_a_merge_whose_pull_failed_is_finished_by_running_it_again(repo, monkeyp
     assert "feature" not in git(repo, "branch", "--list", "feature")
     with pytest.raises(SystemExit, match="nothing left to do"):
         merge_pr.merge(7, ask=lambda q: "y")
+
+
+def test_a_pr_changing_play_without_a_review_asks_before_testing(repo, monkeypatch, capsys):
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n## Unverified on the arm\nall\n"
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+        {"number": 7, "title": "t", "state": "OPEN", "isDraft": True, "headRefName": "feature", "body": body, "url": "u",
+         "files": [{"path": "scripts/play.py"}]}))
+    monkeypatch.setattr(merge_pr, "test_merged", lambda *a, **k: pytest.fail("tested an unreviewed PR the person turned down"))
+    questions = []
+    merge_pr.merge(7, ask=lambda q: questions.append(q) or "n")
+    assert "scripts/play.py" in questions[0] and "Not merged: no review." in capsys.readouterr().out

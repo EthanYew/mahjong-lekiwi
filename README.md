@@ -1319,7 +1319,8 @@ python scripts/merge_pr.py --review     # start the post-merge review of what's 
 
 What `merge_pr.py 34` shows you before it asks:
 1. The PR's description, and which of its sections are missing: **What changed**, **Files**, **Overlaps**,
-   **Unverified on the arm**. The last one is what to try on hardware after merging.
+   **Unverified on the arm** (what to try on hardware after merging), and **Review** if the PR changes play, bench,
+   the arm or policy (`REVIEW_FILES`): what `/code-review` found and what was done. Without one it asks before going on.
 2. Files both `main` and the branch changed since the branch started, and any function, constant or option
    added on **both** sides. Git merges those without a conflict, and that's how duplicate options and
    helpers broke `record.py` on 2026-10-23. If it lists one, ask Claude to reconcile before you say yes.

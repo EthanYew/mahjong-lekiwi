@@ -21,7 +21,9 @@ constants. Git catches overlapping lines, not overlapping intent. So:
 - **Handing a branch back** (Claude's job; the person approves the merge): merge the latest `main` into it,
   rerun the tests, push, and open a draft PR (`gh pr create --draft`) whose body has these sections, which
   `merge_pr.py` checks for: `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or other open
-  branches), `## Unverified on the arm`. Don't merge it yourself unless the person asks.
+  branches), `## Unverified on the arm`, and `## Review` if it changes a file in `merge_pr.REVIEW_FILES` (play, bench, the
+  arm, policy): run `/code-review` on the branch first, fix what's clearly a bug, and list each finding with what was done.
+  `merge_pr.py` asks before merging one without it. Don't merge it yourself unless the person asks.
 - **Merging** (the person): `python scripts/merge_pr.py N` from the main checkout, one PR at a time. It shows
   the description, what `main` and the branch both changed since they split (and any function, constant or
   option added on both sides: a duplicate to resolve, conflict or not), runs the tests on `main` + the branch
