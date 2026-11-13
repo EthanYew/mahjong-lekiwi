@@ -496,7 +496,19 @@ def test_frames_that_jump_once_the_jaws_hold_arent_counted_as_torn(tmp_path, mon
     assert "torn wrist camera frames in it" not in capsys.readouterr().out
 
 
+def test_a_few_torn_frames_are_counted_but_not_warned_about(tmp_path, monkeypatch, capsys):
+    """A fast move blurs 1-3 frames into a tear's numbers: under camera.TORN_STOP_FRAMES, the row says so and nothing warns."""
+    import record
+    calls = iter(range(10 ** 6))
+    monkeypatch.setattr(record, "torn", lambda previous, frame: next(calls) in (1, 2))      # two, inside the first episode
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2)
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [2, 0]
+    assert "torn wrist camera frames in it" not in capsys.readouterr().out
+
+
 def test_an_episode_torn_before_the_hold_is_warned_about(tmp_path, monkeypatch, capsys):
+    import record
+    monkeypatch.setattr(record, "TORN_STOP_FRAMES", 2)          # a test episode is 3 frames
     run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[TornCamera()])
     assert "torn wrist camera frames in it (USB data lost)" in capsys.readouterr().out
 

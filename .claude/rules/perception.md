@@ -44,7 +44,7 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   `TORN_STOP_FRAMES` before the first hold (`camera_problem` "torn"). Tears had been there since 2026-10-28 in short runs.
   A torn camera reopens at once with no prompt, so a script reruns a camera-stopped pick `camera.RERUNS` times and then
   counts it as a miss: crude_run.py and base_cam_collect.py reran it with no limit until 2026-11-13. record.py doesn't stop on
-  them: each episode row says its `torn_frames` before the first hold (none logged before 2026-11-13), for a person to judge before training.
+  them: each episode row says its `torn_frames` before the first hold (none logged before 2026-11-13, the whole episode on 11-13 and 11-14), and saving warns from `TORN_STOP_FRAMES`, for a person to judge before training.
   Unconfirmed on the arm.
   **It can also come back on USB and still be deaf, which looks like a hang, not a drop.** After a replug on 2026-11-13 the
   camera enumerated but every UVC control transfer timed out (`-110`), each taking 5s: `uvcvideo` permanently disabled

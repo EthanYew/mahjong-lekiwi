@@ -358,7 +358,7 @@ def main():
         voids = Counter(e.get("reason", "wrist camera stopped giving frames") for e in events if e["type"] == "attempt_void")
         for reason, n in voids.items():
             print(f"  {n} attempt(s) left out: {reason} (the bench reopened it and ran them again)")
-        torn = [a for a in attempts if a.get("torn_frames")]
+        torn = [a for a in attempts if a.get("torn_frames") and a.get("stop_reason") != "camera"]   # stopped: their own line
         if torn:
             print(f"  {len(torn)} counted attempt(s) saw torn wrist frames before the hold, under the "
                   f"{TORN_STOP_FRAMES} that stop one: " + ", ".join(f"{a['attempt_dir'][:3]} ({a['torn_frames']})" for a in torn))
