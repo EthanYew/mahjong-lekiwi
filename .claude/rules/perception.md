@@ -42,6 +42,8 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   on clean frames, and nothing stopped it. `camera.torn` (a share of rows jumping between frames, which the arm's own motion
   doesn't do: no clean attempt in 1591 videos reached the stop) makes `policy.run` stop as "camera" after
   `TORN_STOP_FRAMES` before the first hold (`camera_problem` "torn"). Tears had been there since 2026-10-28 in short runs.
+  A torn camera reopens at once with no prompt, so a script reruns a camera-stopped pick `camera.RERUNS` times and then
+  counts it as a miss: crude_run.py and base_cam_collect.py reran it with no limit until 2026-11-13.
   Unconfirmed on the arm.
   **It can also come back on USB and still be deaf, which looks like a hang, not a drop.** After a replug on 2026-11-13 the
   camera enumerated but every UVC control transfer timed out (`-110`), each taking 5s: `uvcvideo` permanently disabled

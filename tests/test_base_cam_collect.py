@@ -285,3 +285,26 @@ def test_the_guide_window_shows_live_frames_until_a_key_and_maps_keys_to_answers
     assert len(shown) == 3                  # redrawn every pass, so the view is live
     for key, answer in ((13, ""), (32, ""), (ord("q"), "q"), (27, "q")):
         assert script.guide(mat, placement, spot, 1, show=lambda image: None, wait_key=lambda key=key: key) == answer
+
+
+def test_a_camera_that_keeps_tearing_is_rerun_once_then_counts_as_a_miss(monkeypatch, tmp_path):
+    """Torn frames stop the pick as "camera", and a torn camera reopens with no prompt: the rerun has to end somewhere."""
+    from mahjong import hardware, sim
+    script = script_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(hardware, "reopen_wrist_camera", lambda cam: cam)
+    original, calls = sim.SimPolicy.run, []
+
+    def torn(self, arm, camera, trace_dir, abort=None, mark=None, log=print):
+        result = original(self, arm, camera, trace_dir, abort, mark, log)
+        calls.append(1)
+        if len(calls) > 20:
+            raise RuntimeError("the pick was rerun with no end")
+        arm.robot.holding = False
+        arm.move_to({"gripper": 40.0}, 0.1)
+        return {**result, "stop_reason": "camera", "camera_problem": "torn"}
+    monkeypatch.setattr(sim.SimPolicy, "run", torn)
+    folder = script.main(["--sim", "--layout", "even-hand14", "--spots", "S7", "--tiles", "5C", "--target-holds", "1",
+                          "--max-misses", "2"], ask=lambda prompt: "")
+    gave_up = [e["misses"] for e in read_events(folder) if e["type"] == "holdup_gave_up"]
+    assert gave_up and set(gave_up) == {2}
+    assert len(calls) == 4 * len(gave_up)          # per laying: a pick and its rerun, twice, for the two misses

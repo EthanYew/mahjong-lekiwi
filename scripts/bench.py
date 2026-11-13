@@ -99,7 +99,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 
 from mahjong import bump_report, config, detector, interventions, layout, perception, placements, takeover, wrist_check
-from mahjong.camera import grab_frames
+from mahjong.camera import RERUNS as CAMERA_RERUNS, grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
 from mahjong.perception import choose_tile, drain_stdin
@@ -767,7 +767,7 @@ class Bench:
         print(f"Wrist photo: {folder.name}/wrist_0000.jpg")
         return folder.name
 
-    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None, camera_retries=1):
+    def pickup(self, tile_name=None, ask=True, perturb=(0.0, 0.0), spot=None, camera_retries=CAMERA_RERUNS):
         """One attempt with self.policy, from its hover moved by `perturb` (m), at the named tile or the
         one at layout `spot`. Returns True if the gripper ended up holding the tile. An attempt the wrist
         camera dropped out of is void (not an attempt event): the camera is reopened and it runs again."""

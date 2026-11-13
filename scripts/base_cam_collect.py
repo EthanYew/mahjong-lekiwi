@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cv2
 import numpy as np
 
-from mahjong import camera_poses, config, base_cam, base_cam_collect, kinematics, layout, privacy, takeover
+from mahjong import camera, camera_poses, config, base_cam, base_cam_collect, kinematics, layout, privacy, takeover
 from mahjong.camera import grab_frames
 from mahjong.face_down_rig import Rig, close_windows, guide
 
@@ -148,6 +148,7 @@ def do_placement(rig, rng, placement, spot, ask, counters):
     tile, laying = placement["tile"], placement["laying"]
     session = rig.session
     done = misses = 0
+    camera_reruns = camera.RERUNS
     while done < placement["holds"]:
         pick = rig.pick(tile, spot)
         if pick.get("unreachable"):
@@ -162,8 +163,12 @@ def do_placement(rig, rng, placement, spot, ask, counters):
         if run["stop_reason"] == "camera" and not pick["holding"]:
             from mahjong import hardware
             rig.wrist = hardware.reopen_wrist_camera(rig.wrist)
-            print("The wrist camera dropped out and was reopened: trying this pickup again.")
-            continue
+            if camera_reruns:       # once per try, as the bench does; a camera that keeps tearing reopens with no prompt
+                camera_reruns -= 1
+                print("The wrist camera dropped out or tore and was reopened: trying this pickup again.")
+                continue
+            print("The wrist camera failed again: counted as a miss.")
+        camera_reruns = camera.RERUNS
         if not pick["holding"]:
             misses += 1
             if misses >= rig.args.max_misses:       # a spot the policy can't pick from stalls the whole run (S8, 2026-11-05)

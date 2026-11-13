@@ -27,7 +27,7 @@ import numpy as np
 
 from mahjong import face_down_rig
 import wall_test as wall_script
-from mahjong import config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, takeover, wall_test
+from mahjong import camera, config, crude_run, game, base_cam, base_cam_collect, layout, markers, privacy, takeover, wall_test
 from mahjong.perception import drain_stdin
 
 WINDOW = "what the base camera saw"
@@ -119,7 +119,7 @@ class Run:
 
     def pick(self, step, spot, label, raise_m=0.0, back_m=0.0):
         """The pick at `spot`, tried twice unless a person says otherwise. Its result with the tile held at rest, else None."""
-        tries = 0
+        tries, camera_reruns = 0, camera.RERUNS
         while tries < 2:
             pick = self.rig.pick(label, spot, raise_m=raise_m, back_m=back_m)
             if pick.get("unreachable"):
@@ -129,7 +129,10 @@ class Run:
             if pick["run"]["stop_reason"] == "camera":
                 from mahjong import hardware
                 self.rig.wrist = hardware.reopen_wrist_camera(self.rig.wrist)
-                if not pick["holding"] and not shallow:      # says nothing about the pick. A tile in the jaws stays: another hover would open them
+                # says nothing about the pick. A tile in the jaws stays: another hover would open them. Rerun once, as the bench does:
+                # a camera that keeps tearing reopens without a prompt, so after that it's a miss and a person is asked
+                if not pick["holding"] and not shallow and camera_reruns:
+                    camera_reruns -= 1
                     continue
             self.rig.session.event("crude_pick", turn=self.turn_no, step=step, spot=spot["id"], held=bool(pick["holding"] or shallow), shallow=shallow, jaw_reading=pick["gripper_measured"],
                                    stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=takeover.policy_view(pick["run"]).get("grasp_clearance_m"),
@@ -139,7 +142,7 @@ class Run:
                 print("  A tile in the jaws, on a low reading: carrying on with it.")
             if pick["holding"] or shallow:
                 return pick
-            tries += 1
+            tries, camera_reruns = tries + 1, camera.RERUNS      # the next try gets its own rerun
             self.broke(step, f"missed at {spot['id']} (stop: {pick['run']['stop_reason']})")
             drain_stdin()
             if tries < 2 and self.ask("Check the tile is where it should be. Enter = try again, h = do this one by hand: ").strip().lower() == "h":

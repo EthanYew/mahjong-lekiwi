@@ -12,6 +12,9 @@ import cv2
 from . import config
 
 LOST_S = 1.0       # no wrist frames for this long: the camera is lost, reopen it
+# Reruns of a pickup the camera stopped (policy.run's stop_reason "camera") before it counts as a miss. A camera sending torn
+# frames reopens at once with no prompt (hardware.reopen_wrist_camera), so without a limit the same pick reran with no end.
+RERUNS = 1
 
 # A torn frame: the camera keeps giving frames but the USB link lost data, so bands of rows are shifted or smeared
 # (YUYV, no JPEG to fail to decode). 2026-11-13 (20261113_100710_bench): 34 attempts with torn frames picked 10, the 19
