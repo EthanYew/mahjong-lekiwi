@@ -26,6 +26,7 @@ def test_sim_trials_write_a_complete_session(tmp_path, monkeypatch):
     events = read_events(session)
     attempts = [e for e in events if e["type"] == "attempt"]
     assert [a["success"] for a in attempts] == [True, True]
+    assert [a["torn_frames"] for a in attempts] == [0, 0]      # without it session_report calls a sim session pre-2026-11-13
     returns = [e for e in events if e["type"] == "return"]
     assert len(returns) == 2
     for a, r in zip(attempts, returns):        # let go just above where that pickup's jaws closed

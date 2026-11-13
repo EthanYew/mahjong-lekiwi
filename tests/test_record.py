@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from mahjong import config, hardware, kinematics
+from mahjong.sim import SimCamera
 from mahjong.hover_correction import parse_offsets
 from mahjong.session import read_events
 
@@ -460,6 +461,56 @@ def test_an_episode_the_wrist_camera_dropped_out_of_is_discarded_and_the_camera_
     discarded = [e for e in read_events(session) if e["type"] == "episode_discarded"]
     assert [e["reason"] for e in discarded] == ["wrist camera lost"]    # no question asked
     assert len(dataset.saved) == 2                                      # both episodes recorded after the reopen
+
+
+class TornCamera(SimCamera):
+    """A wrist camera that keeps streaming but tears (20261113_100710_bench): here every row jumps from one frame to the next."""
+    reads = 0
+
+    def read(self):
+        self.reads += 1
+        return True, np.full((480, 640, 3), 255 * (self.reads % 2), dtype=np.uint8)
+
+
+def test_an_episode_on_torn_frames_says_how_many_in_its_log_row(tmp_path, monkeypatch):
+    """policy.run stops on torn frames; a recording trains on every frame, so its row has to say they were torn."""
+    script = [("hover", {}), ("rec", {}), ("hover", {}), ("rec", {})]
+    dataset, _ = run_record(tmp_path, monkeypatch, [], script, cameras=[TornCamera()])
+    torn, = episode_rows(dataset)[:1]
+    assert torn["frames"] >= 2 and torn["torn_frames"] == torn["frames"] - 1      # every frame after the first
+
+
+def test_frames_that_jump_once_the_jaws_hold_arent_counted_as_torn(tmp_path, monkeypatch, capsys):
+    """Counted until the first hold, as policy.run does: a fast lift after it blurs 1-3 frames into a tear's numbers, and
+    warning on those fired on ordinary episodes."""
+    import record
+    monkeypatch.setattr(record, "holds_tile", lambda command, measured: True)       # held from the first frame
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[TornCamera()])
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [0, 0]
+    assert "torn wrist camera frames in it" not in capsys.readouterr().out
+
+
+def test_a_few_torn_frames_are_counted_but_not_warned_about(tmp_path, monkeypatch, capsys):
+    """A fast move blurs 1-3 frames into a tear's numbers: under camera.TORN_STOP_FRAMES, the row says so and nothing warns."""
+    import record
+    calls = iter(range(10 ** 6))
+    monkeypatch.setattr(record, "torn", lambda previous, frame: next(calls) in (1, 2))      # two, inside the first episode
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2)
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [2, 0]
+    assert "torn wrist camera frames in it" not in capsys.readouterr().out
+
+
+def test_an_episode_torn_before_the_hold_is_warned_about(tmp_path, monkeypatch, capsys):
+    import record
+    monkeypatch.setattr(record, "TORN_STOP_FRAMES", 2)          # a test episode is 3 frames
+    run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[TornCamera()])
+    assert "torn wrist camera frames in it (USB data lost)" in capsys.readouterr().out
+
+
+def test_an_episode_on_clean_frames_has_no_torn_ones(tmp_path, monkeypatch):
+    from mahjong.sim import SimCamera
+    dataset, _ = run_record(tmp_path, monkeypatch, [], [("hover", {}), ("rec", {})] * 2, cameras=[SimCamera()])
+    assert [r["torn_frames"] for r in episode_rows(dataset)] == [0, 0]
 
 
 def test_keys_pressed_while_the_camera_was_lost_dont_answer_the_same_tile_question(tmp_path, monkeypatch):

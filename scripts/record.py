@@ -68,7 +68,8 @@ import cv2
 import numpy as np
 
 from mahjong import config, hardware, kinematics, layout, markers, wall_test
-from mahjong.camera import LOST_S
+from mahjong.arm import holds_tile
+from mahjong.camera import LOST_S, TORN_STOP_FRAMES, torn
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
@@ -359,6 +360,7 @@ def main(argv=None):
             frames, roll, actions, states, takeover = 0, RollTrace(), [], [], None
             started = time.time()
             failed_reads, camera_lost = 0, False
+            previous, torn_frames, ever_held = None, 0, False     # camera.torn: frames the USB link corrupted, all trained on
             while True:
                 if events["exit_early"]:
                     if time.time() - started >= KEY_REPEAT_S or events["rerecord_episode"] or events["stop_recording"]:
@@ -384,12 +386,16 @@ def main(argv=None):
                         break
                     continue
                 failed_reads = 0
+                # counted until the jaws first hold, as policy.run does: a fast lift after it blurs 1-3 frames into a tear's numbers
+                torn_frames += not ever_held and torn(previous, frame)
+                previous = frame
                 state = np.array([arm.measured()[j] for j in config.JOINTS], dtype=np.float32)
                 if policy is not None and takeover is None:
                     command, _ = next_command(policy, frame, state, anchor, limits, last_safe)
                     arm.send(command)
                     last_safe = command
                 action = np.array([command[j] for j in config.JOINTS], dtype=np.float32)
+                ever_held = ever_held or holds_tile(command["gripper"], float(state[GRIPPER]))
                 roll.add(command["wrist_roll"], float(state[ROLL]))
                 actions.append(action)
                 states.append(state)
@@ -438,7 +444,8 @@ def main(argv=None):
                       "hover_xy": result["hover_xy"], "hover_unjittered_xy": [hx, hy], "hover_jitter_xy": list(offset),
                       "hover": hover, "hover_clearance_m": result["clearance_m"],
                       "hover_correction": correction.name if correction else "off", "stick_commit_s": args.stick_commit_s,
-                      "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "session": session.dir.name, "slice": args.slice,
+                      "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "torn_frames": torn_frames,
+                      "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
             with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
                 f.write(json.dumps(record) + "\n")
@@ -446,6 +453,10 @@ def main(argv=None):
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s"
                   + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None
                      else f", no takeover: {policy.id}'s alone, not trained on)"))
+            # a fast move blurs 1-3 frames into a tear's numbers, before the hold too, and a person's close may never read as
+            # a hold (jaws stopped short): warn from policy.run's stop, which no blur reached; the row keeps any count
+            if torn_frames >= TORN_STOP_FRAMES:
+                print(f"  {torn_frames} torn wrist camera frames in it (USB data lost): look at it before training on it")
             offset = None          # the next episode draws its own
             if placement and args.layout:
                 todo.pop(0)
@@ -468,6 +479,7 @@ def main(argv=None):
 
 
 ROLL = config.JOINTS.index("wrist_roll")
+GRIPPER = config.JOINTS.index("gripper")
 KEY_REPEAT_S = 0.3     # a → this soon after the → that started recording is the same press counted twice
 
 

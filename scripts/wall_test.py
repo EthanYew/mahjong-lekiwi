@@ -141,10 +141,13 @@ def attempt(rig, rng, station, case, ask, ctx, layer=None, **extra):
             return "stop"
         if pick["run"]["stop_reason"] != "camera" or pick["holding"]:
             break
-        session.event("wall_void", station=station["id"], case=case, layer=layer, attempt_dir=pick["attempt"].name, why="wrist camera lost")
+        torn = pick["run"].get("camera_problem") == "torn"      # policy.run: frames corrupted, not missing
+        session.event("wall_void", station=station["id"], case=case, layer=layer, attempt_dir=pick["attempt"].name,
+                      why="wrist camera frames torn" if torn else "wrist camera lost")
         from mahjong import hardware
         rig.wrist = hardware.reopen_wrist_camera(rig.wrist)
-        if ask("The wrist camera dropped out and was reopened: this try doesn't count. Check nothing moved. Enter = run it again, q = quit: ").strip().lower() == "q":
+        if ask(f"The wrist camera {'sent torn frames' if torn else 'dropped out'} and was reopened: this try doesn't count. "
+               "Check nothing moved. Enter = run it again, q = quit: ").strip().lower() == "q":
             return "quit"
     run, hover = pick["run"], pick["hover"]
     held = bool(pick["holding"])

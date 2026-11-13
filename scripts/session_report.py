@@ -237,11 +237,13 @@ def recording_focus(events, attempts, found):
             misses = sum(not a["success"] for a in group)
             high = sum((a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
             stopped = sum(a.get("stop_reason") == "camera" for a in group)
-            torn = sum(bool(a.get("torn_frames")) for a in group)      # a few torn frames, under the stop: counted
+            torn = sum(bool(a.get("torn_frames")) and a.get("stop_reason") != "camera" for a in group)  # under the stop: counted
+            unchecked = sum("torn_frames" not in a for a in group)     # logged before policy.run counted torn frames
             trouble = sum(not a["success"] or bool(by_dir.get(a["attempt_dir"]))
                           or (a.get("grasp_clearance_m") or 0) * 1000 >= CLOSE_HIGH_MM for a in group)
             rows.append({"spot": w, "policy": p, "n": len(group), "misses": misses, "remarks": remarks, "high": high,
-                         "voided": voided[(w, p)], "stopped": stopped, "torn": torn, "trouble": trouble})
+                         "voided": voided[(w, p)], "stopped": stopped, "torn": torn, "unchecked": unchecked,
+                         "trouble": trouble})
     print("\nwhere to record more: misses and remarks per spot (keys during the pickup or return, and the scans); "
           "camera: attempts it voided (rerun, not counted), stopped (counted) or that saw a few torn frames (counted)")
     many = len(policies) > 1
@@ -262,10 +264,16 @@ def recording_focus(events, attempts, found):
     for r in focus:
         why = [f"missed {r['misses']}/{r['n']}"] if r["misses"] else []
         why += [f"{REMARKS[k]} {n}" for k, n in r["remarks"].items()] + ([f"closed 20mm+ up {r['high']}"] if r["high"] else [])
-        camera = (f"the camera stopped {r['stopped']} of them: those may not be the policy's" if r["stopped"]
-                  else f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look" if r["torn"]
-                  else f"no counted attempt lost the camera ({r['voided']} voided and rerun)" if r["voided"]
-                  else "no camera loss")
+        # every camera remark that applies, not the first: one hid another (a void hid unchecked tears, which on
+        # 20261113_100710_bench, logged before the check, were 34 of 53 attempts, and the line said "no camera loss")
+        camera = ([f"the camera stopped {r['stopped']} of them: those may not be the policy's"] if r["stopped"] else []) \
+            + ([f"{r['torn']} saw a few torn wrist frames (under the stop), worth a look"] if r["torn"] else []) \
+            + ([f"torn frames weren't checked in {r['unchecked']} (logged before 2026-11-13): watch wrist.mp4 before "
+                "recording for them"] if r["unchecked"] else [])
+        if r["voided"]:
+            camera.append(f"{r['voided']} voided and rerun" if camera
+                          else f"no counted attempt lost the camera ({r['voided']} voided and rerun)")
+        camera = "; ".join(camera) or "no camera loss"
         print(f"    {r['spot']}" + (f" {r['policy']}" if many else "") + f": {', '.join(why)}; {camera}")
 
 
@@ -350,10 +358,14 @@ def main():
         voids = Counter(e.get("reason", "wrist camera stopped giving frames") for e in events if e["type"] == "attempt_void")
         for reason, n in voids.items():
             print(f"  {n} attempt(s) left out: {reason} (the bench reopened it and ran them again)")
-        torn = [a for a in attempts if a.get("torn_frames")]
+        torn = [a for a in attempts if a.get("torn_frames") and a.get("stop_reason") != "camera"]   # stopped: their own line
         if torn:
             print(f"  {len(torn)} counted attempt(s) saw torn wrist frames before the hold, under the "
                   f"{TORN_STOP_FRAMES} that stop one: " + ", ".join(f"{a['attempt_dir'][:3]} ({a['torn_frames']})" for a in torn))
+        unchecked = sum("torn_frames" not in a for a in attempts)
+        if unchecked:
+            print(f"  {unchecked} attempt(s) logged before torn wrist frames were checked (2026-11-13): a miss among them may be "
+                  "the camera's; watch their wrist.mp4")
         success_map(attempts)
         close_height_report(attempts)
         perturbation_report(attempts)

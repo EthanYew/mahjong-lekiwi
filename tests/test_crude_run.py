@@ -314,3 +314,27 @@ def test_saving_a_reader_trains_on_every_photo_and_writes_it(monkeypatch, tmp_pa
         return {"classes": ["5C", "9C"], "model": None}
     saved = base_cam_train.save_reader(rows, args, {"base_view_1": [0, 0, 100, 100]}, train)
     assert saved.exists() and len(seen) == 2 and seen[0][:2] == (name_check.INPUT_PX, name_check.INPUT_PX)
+
+
+def test_a_camera_that_keeps_tearing_is_rerun_once_then_a_miss_not_retried_forever(monkeypatch, tmp_path):
+    """Torn frames stop the pick as "camera", and a torn camera reopens with no prompt: the rerun has to end somewhere."""
+    from mahjong import face_down_rig, hardware
+    script = script_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(hardware, "reopen_wrist_camera", lambda cam: cam)
+    real, calls = face_down_rig.Rig.pick, []
+
+    def torn(self, name, spot, raise_m=0.0, back_m=0.0):
+        pick = real(self, name, spot, raise_m=raise_m, back_m=back_m)
+        calls.append(name)
+        if len(calls) > 20:
+            raise RuntimeError("the pick was rerun with no end")
+        self.arm.set_gripper(90.0)
+        pick["holding"] = False
+        pick["run"].update(stop_reason="camera", camera_problem="torn")
+        return pick
+    monkeypatch.setattr(face_down_rig.Rig, "pick", torn)
+    folder, prompts = run(script, ["--turns", "1"], [*LIGHT, "", "", "h"])       # ... h = do the draw by hand
+    assert sum("draw" in c for c in calls) == 2             # the pick and its one rerun, then asked
+    first = events_of(folder, "crude_break")[0]
+    assert first["step"] == "draw" and "camera" in first["what"]
+    assert any("Enter = try again, h = do this one by hand" in p for p in prompts)
