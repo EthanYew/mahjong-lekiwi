@@ -20,12 +20,13 @@ from .terminal_keys import Abort, TerminalKeys, new_events
 class Rig:
     """The arm, its cameras, the policy and the corrections: what picking a tile at a spot and showing it needs."""
 
-    def __init__(self, args, spots, pose_list):
+    def __init__(self, args, spots, pose_list, sim_empty=()):
+        """sim_empty: spots the simulated mat starts without a tile on (the drop zone: on the arm it's empty until a draw)."""
         self.args, self.spots, self.pose_list = args, spots, pose_list
         self.realsense = None           # opened only to show where to lay tiles (not --sim, --no-view or --empty)
         if args.sim:
             from mahjong import sim
-            tiles = [("5C", *s["xy"]) for s in spots]
+            tiles = [("5C", *s["xy"]) for s in spots if s not in sim_empty]
             devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.wrist, self.mat = devices["arm"], devices["wrist_camera"], devices["realsense"]
             self.base = sim.SimBaseCamera()

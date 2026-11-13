@@ -13,7 +13,7 @@ import types
 
 import numpy as np
 
-from . import config, kinematics
+from . import config, kinematics, motion_watch
 
 SAG_DEG_AT_REACH = 1.6        # lift droop arriving from above, at 0.19m reach (~first row)
 SAG_UP_FACTOR = 2.0
@@ -21,9 +21,16 @@ GRIP_ON_TILE = 11.0
 
 
 class SimRobot:
-    def __init__(self, start=None, holding=False, on_release=None):
-        """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile."""
+    live = []           # every SimRobot made since tests/conftest.py last cleared it: the motion watchdog reads their violations
+
+    def __init__(self, start=None, holding=False, on_release=None, mat=None):
+        """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile. mat: the SimPerception whose
+        tiles the watchdog checks the jaws against (taken from on_release when that's a mat's release)."""
         self.command = dict(start or config.REST_POSE)
+        self.mat = mat if mat is not None else getattr(on_release, "__self__", None) if isinstance(
+            getattr(on_release, "__self__", None), SimPerception) else None
+        self.violations = []    # (kind, detail, command index) from mahjong.motion_watch.check
+        SimRobot.live.append(self)
         self.holding = holding
         self.on_release = on_release
         self._measured_offset = None
@@ -54,6 +61,7 @@ class SimRobot:
         return measured
 
     def send_action(self, action):
+        previous_command = dict(self.command)
         previous_measured = self._read("Present_Position")
         for key, value in action.items():
             self.command[key.removesuffix(".pos")] = float(value)
@@ -67,7 +75,19 @@ class SimRobot:
                                 self.measured_clearance_mm() / 1000)
         self.sent.append(dict(self.command))
         self.clearances.append(self.measured_clearance_mm())
+        self._watch(previous_command)
         return action
+
+    def _watch(self, previous):
+        tiles, target = [], None
+        if self.mat is not None:
+            tiles = [self.mat.in_arm_frame(t["xy"]) for t in self.mat.tiles]
+            if not self.holding and tiles:      # open jaws: the tile nearest the tool point is the one they may reach
+                tool = kinematics.tool_point(self.command)
+                near = min(tiles, key=lambda xy: math.dist(xy, tool[:2]))
+                target = near if math.dist(near, tool[:2]) <= GRASP_REACH_M else None
+        for kind, detail in motion_watch.check(previous, self.command, self.holding, tiles, target):
+            self.violations.append((kind, detail, len(self.sent) - 1))
 
     def get_observation(self):
         return {f"{j}.pos": v for j, v in self._read("Present_Position").items()}

@@ -311,7 +311,7 @@ def main(argv=None, ask=input):
     all_spots = [station, zone, *layout.load(args.layout)["spots"]]
     reader = base_cam.load_reader()
     print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
-    rig = face_down_rig.Rig(args, all_spots, poses)
+    rig = face_down_rig.Rig(args, all_spots, poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
     run = None
     try:
         conditions = base_cam.ask_lighting(ask)

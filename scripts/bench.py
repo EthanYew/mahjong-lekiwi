@@ -236,7 +236,10 @@ class Bench:
                                     # to rest or scan between. Off here: counted bench results keep one motion
         self.unseen = None          # {xy, attempt_dir} of a pickup that had no scan of its own: the next scan answers for it
         self.laid = set()           # --face-down: the spots a person has said have a tile green side up on them
-        self.correction = HoverCorrection.load()
+        # The sim's tiles are where they're detected (SimPerception.arm_offset is None), so the real arm's correction, fitted on
+        # the RealSense-to-arm gap (up to ~31mm), would hover between two sim tiles: SimPolicy then took the neighbour, and play's
+        # sim hands set tiles down on top of others (found by mahjong/motion_watch.py, 2026-11-13). None in the sim.
+        self.correction = HoverCorrection([]) if args.sim else HoverCorrection.load()
         # a simulated grasp says nothing about the real hover: keep its samples in the session folder
         self.samples_path = self.session.dir / "hover_corrections.jsonl" if args.sim else config.HOVER_CORRECTIONS
         # simulated returns land exactly where they're set down: the real return model doesn't apply
