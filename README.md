@@ -1382,12 +1382,22 @@ The arm's scripts append to files in `data/` as they run, so this checkout is of
 | Samples the scripts log (`hover_corrections.jsonl`, `return_corrections.jsonl`, reviews) | straight to `main`, in one step below | after a hardware session |
 | A decision (the default policy, exam lists, scores, new weights) | a PR, with its evidence; commit an exam list the session it's added, so no training can pick those frames up | when it's made |
 
-Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub:
+Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub. `scripts/save_samples.py`
+does it, from the main checkout after a hardware session:
+
+```
+python scripts/save_samples.py               # shows the changed sample files, asks, commits "Samples from <latest session>", pulls, pushes
+python scripts/save_samples.py --dry-run     # only shows them
+python scripts/save_samples.py --session 20261113_100710_bench   # name another session in the message
+```
+
+The sample files are the ones `.gitattributes` merges by union, less `data/post_merge_reviews.jsonl` (a review's PR writes it); it
+never adds anything else. `status.py` and each hardware session say when samples are waiting. By hand, the same is:
 
 ```
 git add data/hover_corrections.jsonl data/return_corrections.jsonl
 git commit -m "Samples from 20261104_150542_bench"
-git pull --rebase origin main && git push origin main
+git pull --rebase --autostash origin main && git push origin main
 ```
 
 Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach

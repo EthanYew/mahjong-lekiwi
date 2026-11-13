@@ -8,6 +8,7 @@ worktrees are left to close.
 """
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -94,6 +95,22 @@ def unreviewed_merges(repo=None, base=BASE):
         return []
     return [line for line in git("log", "--first-parent", "--merges", "--format=%h %s", f"{start}..{base}", repo=repo).splitlines()
             if "Merge pull request" in line and "post-merge-review" not in line]
+
+
+NOT_SAMPLES = {REVIEW_LOG}     # union-merged too, but a review's PR writes it: merging that PR is what marks a range reviewed
+
+
+def sample_files(repo=None):
+    """The data files the scripts append to as they run: the ones .gitattributes merges by union."""
+    path = Path(repo or config.REPO) / ".gitattributes"
+    text = path.read_text() if path.exists() else ""
+    return [m.group(1) for m in re.finditer(r"^(data/\S+)\s+merge=union", text, re.M) if m.group(1) not in NOT_SAMPLES]
+
+
+def unsaved_samples(repo=None):
+    """Sample files with changes this checkout hasn't committed (scripts/save_samples.py commits and pushes them)."""
+    samples = set(sample_files(repo))
+    return [path for path in changed_data(repo) if path in samples]
 
 
 def warnings(repo=None):

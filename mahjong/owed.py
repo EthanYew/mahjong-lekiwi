@@ -87,6 +87,8 @@ def items(repo=None, sessions_dir=None):
     for part in (lambda: [default_checks(sessions_dir)], lambda: roadmap_lines(repo),
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
+                 lambda: [f"samples not saved to main: {', '.join(files)} (python scripts/save_samples.py)"]
+                 if not checkout.is_worktree(repo) and (files := checkout.unsaved_samples(repo)) else [],
                  lambda: [f"{n} invariants still say Unconfirmed: /review-bench lists the ones a session settles"]
                  if (n := unconfirmed(repo)) else []):
         try:

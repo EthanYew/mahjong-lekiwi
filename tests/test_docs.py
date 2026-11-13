@@ -18,7 +18,7 @@ CLAUDE_MD_LIMIT = 6000      # bytes. It loads into every session and had grown t
 REGISTRY = json.loads(config.POLICIES.read_text())
 DEFAULT = REGISTRY["default"]
 # argparse's own, and options of other programs the docs mention (git, gh)
-OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard", "--rebase", "--short", "--merges", "--query-gpu", "--format"}
+OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard", "--rebase", "--autostash", "--short", "--merges", "--query-gpu", "--format"}
 
 
 def options_in_code():

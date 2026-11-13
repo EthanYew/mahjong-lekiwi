@@ -163,14 +163,14 @@ def pull_blockers(ref, touched, repo=None):
     if (commits := checkout.unpushed(repo)):
         problems.append(f"this checkout's main has {len(commits)} commit(s) GitHub doesn't: "
                         + "; ".join(commits[:5]) + (" ..." if len(commits) > 5 else "")
-                        + "\n  Put them on GitHub first: git pull --rebase origin main && git push origin main")
+                        + "\n  Put them on GitHub first: git pull --rebase --autostash origin main && git push origin main")
     both = [path for path in checkout.changed_data(repo) if path in touched
             and (checkout.git("diff", "--name-only", ref, "--", path, repo=repo)
                  or checkout.git("diff", "--name-only", "--", path, repo=repo))]
     if both:
         problems.append(f"uncommitted changes to files this PR also changes: {', '.join(both)}"
-                        "\n  Commit and push them first: git add <files> && git commit -m 'Samples from <session>' "
-                        "&& git pull --rebase origin main && git push origin main")
+                        "\n  Commit and push them first: python scripts/save_samples.py (for samples), or git add <files> && "
+                        "git commit -m '<why>' && git pull --rebase --autostash origin main && git push origin main")
     return problems
 
 

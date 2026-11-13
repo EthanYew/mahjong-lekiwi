@@ -8,7 +8,8 @@
       "Bash(~/miniforge3/envs/lerobot/bin/python -m pytest*)"
     ],
     "ask": [
-      "Bash(*scripts/status.py --set-default*)"
+      "Bash(*scripts/status.py --set-default*)",
+    "Bash(*scripts/save_samples.py*)"
     ],
     "deny": [
       "Bash(git push --force*)",
