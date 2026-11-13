@@ -1,5 +1,6 @@
 """merge_pr.py and mahjong/checkout.py on a scratch repo with its own origin: what a merge would bring in, which
 branches are merged, and CLAUDE.md's closing step (no GitHub: the gh calls aren't exercised)."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -24,8 +25,8 @@ def commit(repo, path, text, message):
     git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", message)
 
 
-@pytest.fixture
-def repo(tmp_path):
+def make_repo(tmp_path):
+    """A bare origin and a clone of it on main, with one commit: GitHub and the main checkout."""
     origin, main = tmp_path / "origin.git", tmp_path / "main"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True, env=checkout.ENV)
     subprocess.run(["git", "clone", "-q", str(origin), str(main)], check=True, capture_output=True, env=checkout.ENV)
@@ -34,6 +35,11 @@ def repo(tmp_path):
     commit(main, "mahjong/arm.py", "def move_to():\n    pass\n", "start")
     git(main, "push", "-q", "-u", "origin", "main")
     return main
+
+
+@pytest.fixture
+def repo(tmp_path):
+    return make_repo(tmp_path)
 
 
 def branch_in_worktree(repo, name, path, text):
@@ -205,3 +211,62 @@ def test_a_pr_description_is_checked_for_its_sections():
     body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n"
     assert merge_pr.missing_sections(body) == ["Unverified on the arm"]
     assert merge_pr.missing_sections(body + "## Unverified on the arm\nall of it\n") == []
+    full = body + "## Unverified on the arm\nall of it\n"
+    assert merge_pr.missing_sections(full, ["README.md", "mahjong/session.py"]) == []
+    assert merge_pr.missing_sections(full, ["scripts/play.py"]) == ["Review"]
+    assert merge_pr.missing_sections(full + "## Review\n/code-review: 2 findings, both fixed\n", ["scripts/play.py"]) == []
+    template = (Path(__file__).resolve().parents[1] / ".github" / "pull_request_template.md").read_text()
+    assert merge_pr.missing_sections(template, ["scripts/play.py"]) == merge_pr.SECTIONS + ["Review"]   # comments aren't content
+
+
+def test_closing_leaves_a_simulated_session_behind_though_its_name_looks_real(repo):
+    """move_sessions only skipped sim_ folders, and 40 sim runs named like real ones reached the real sessions/ by 2026-11-13."""
+    tree = repo / "tree"
+    for name, start in (("20261113_092441_bench", {"type": "session_start", "sim": True}),
+                        ("20261113_100710_bench", {"type": "session_start", "sim": False})):
+        (tree / "sessions" / name).mkdir(parents=True)
+        (tree / "sessions" / name / "events.jsonl").write_text(json.dumps(start) + "\n")
+    assert merge_pr.move_sessions(tree, repo=repo) == []
+    assert sorted(p.name for p in (repo / "sessions").iterdir()) == ["20261113_100710_bench"]
+
+
+def test_a_merge_whose_pull_failed_is_finished_by_running_it_again(repo, monkeypatch):
+    """#76 merged on GitHub, an SSH drop stopped the pull, and a rerun only said it was merged: untested and never closed."""
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    branch_in_worktree(repo, "feature", "mahjong/x.py", "X = 1\n")
+    tip = git(repo, "rev-parse", "feature")
+    git(repo, "push", "-q", "origin", "feature:main")              # merged on GitHub; main here never pulled it
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: "[]" if a[:2] == ("pr", "list") else json.dumps(
+        {"number": 7, "title": "t", "state": "MERGED", "isDraft": False, "headRefName": "feature", "body": "", "url": "u",
+         "files": [{"path": "mahjong/x.py"}], "mergeCommit": {"oid": tip}}))
+    monkeypatch.setattr(merge_pr, "test_command", lambda slow=False: ["true"])
+    monkeypatch.setattr(merge_pr, "offer_review", lambda ask=None: None)
+    merge_pr.merge(7, ask=lambda q: "y")
+    assert git(repo, "rev-parse", "HEAD") == tip and not (repo / ".claude" / "worktrees" / "feature").exists()
+    assert "feature" not in git(repo, "branch", "--list", "feature")
+    with pytest.raises(SystemExit, match="nothing left to do"):
+        merge_pr.merge(7, ask=lambda q: "y")
+
+
+def test_a_pr_changing_play_without_a_review_asks_before_testing(repo, monkeypatch, capsys):
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    body = "## What changed\nx\n## Files\ny\n## Overlaps\nnone\n## Unverified on the arm\nall\n"
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+        {"number": 7, "title": "t", "state": "OPEN", "isDraft": True, "headRefName": "feature", "body": body, "url": "u",
+         "files": [{"path": "scripts/play.py"}]}))
+    monkeypatch.setattr(merge_pr, "test_merged", lambda *a, **k: pytest.fail("tested an unreviewed PR the person turned down"))
+    questions = []
+    merge_pr.merge(7, ask=lambda q: questions.append(q) or "n")
+    assert "scripts/play.py" in questions[0] and "Not merged: no review." in capsys.readouterr().out
+
+
+def test_a_pr_stacked_on_another_waits_for_it(repo, monkeypatch):
+    from mahjong import config
+    monkeypatch.setattr(config, "REPO", repo)
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+        {"number": 9, "title": "t", "state": "OPEN", "isDraft": True, "headRefName": "followups",
+         "baseRefName": "worktree-post-merge-review", "body": "", "url": "u", "files": []}))
+    with pytest.raises(SystemExit, match="built on worktree-post-merge-review, not main"):
+        merge_pr.merge(9, ask=lambda q: pytest.fail("it asked"))

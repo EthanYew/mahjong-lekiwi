@@ -628,10 +628,12 @@ class Player:
     def wait_for_draw(self):
         """The drawn tile's name, or None when the wall is empty. The turn doesn't go on until a scan sees a tile on the zone."""
         self.wrist_seen.pop(ZONE, None)
-        if self.args.sim:
-            if not self.draws:
+        if self.args.sim:            # the simulated person draws, unless a tile is already on the zone (a stop just after a draw)
+            on_zone = any(math.dist(t["xy"], self.zone["xy"]) <= markers.ZONE_RADIUS_M for t in self.mat.tiles)
+            if not on_zone and not self.draws:
                 return None
-            self.mat.tiles.append({"tile_name": self.draws.pop(0), "xy": list(self.zone["xy"])})
+            if not on_zone:
+                self.mat.tiles.append({"tile_name": self.draws.pop(0), "xy": list(self.zone["xy"])})
         elif self.ask_for_draw("Put the drawn tile on the drop zone") == "end":
             return None
         self.votes.reset(ZONE)
@@ -844,6 +846,8 @@ class Player:
         tmp.replace(path)
 
     def resume(self, folder):
+        if not (folder / "checkpoint.json").exists():
+            raise SystemExit(f"{folder.name} has no checkpoint.json: it stopped before registering the hand, so start a new one")
         state = json.loads((folder / "checkpoint.json").read_text())
         if state["phase"] in ("won", "end"):
             raise SystemExit(f"{folder.name}'s hand is over ({state['phase']})")

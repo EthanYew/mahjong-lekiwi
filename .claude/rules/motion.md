@@ -12,6 +12,8 @@ paths:
   - "scripts/collect_corrections.py"
   - "scripts/hover_samples.py"
   - "tests/test_arm.py"
+  - "mahjong/motion_watch.py"
+  - "tests/test_motion_watch.py"
 ---
 What must stay true of anything that moves the arm. Each cost a debugging round on hardware; evidence in `docs/invariant_notes.md`.
 
@@ -52,3 +54,10 @@ What must stay true of anything that moves the arm. Each cost a debugging round 
   recalibrating the RealSense invalidates both corrections (records are set aside automatically; returns
   then aim at home + the grasp's offset until new returns are logged) and may move the plane.
 - **A held tile's jaw reading can drift under `holds_tile`'s margin.** It fell from 9.5 to 3.0 over 2026-11-09 with the command at 0 and empty jaws still at 0.6-0.9. Below 5 a good pick reads as not held, runs to the 16s cap, and a retry opens the jaws. Likely cause: the plastic gripper was found cracked and was superglued (owner, reported 2026-11-11); held tiles read 10.9-11.0 again afterwards (`20261111_161703_crude`). A held reading falling over a session is a sign to check the jaws for cracks. Evidence: `docs/face_down_plan.md`.
+- **Every simulated arm command is checked against these rules** (`mahjong/motion_watch.py`, called by `SimRobot.send_action`;
+  `tests/conftest.py` fails any test whose sim arm broke one), so every end-to-end sim test is also a trajectory test: joint limits
+  (widened to `REST_POSE` and the poses taught on the arm), the wrist roll's ±170°, a jump between two commands (a move not started
+  from the commanded pose), jaw tips under the table, open jaws onto a tile that isn't the target, a held tile set onto another.
+  It doesn't check clearing the LeKiwi base (no model of it; `tests/test_arm.py` covers the moves from rest). It found, on its first run,
+  that `bench.py --sim` hovered with the real arm's correction over tiles laid where they're detected, so play's sim hands picked the
+  neighbour and set tiles down on others (2026-11-13). A test that sends a bad command on purpose is `@pytest.mark.motion_unwatched`.

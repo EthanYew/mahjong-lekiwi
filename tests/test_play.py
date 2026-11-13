@@ -821,3 +821,76 @@ def test_a_detection_s_box_outlines_the_tile_and_a_tile_with_none_is_projected()
     box = hand_view.outline_of({"box": (100, 200, 20, 30), "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base)
     assert box.tolist() == [[90, 185], [110, 185], [110, 215], [90, 215]]
     assert hand_view.outline_of({"box": None, "xy": [0.15, 0.0]}, mat.intrinsics, mat.T_cam_to_base).shape == (4, 2)
+
+
+# --- stopped anywhere, resumed: the same hand (the 11-04 review's play bugs were sequences: stop then resume, a correction mid-pickup) ---
+
+REFERENCE_SAVES = 8        # checkpoints a clean sim hand writes; change it if play.py saves at more or fewer points
+
+
+class Hung(Exception):
+    """Not an OSError (TimeoutError is one), so a hang can't pass as the xfail below, which expects OSError."""
+
+
+def hand_stopped_at(tmp_path, monkeypatch, stop, before):
+    """A sim hand stopped at its stop-th checkpoint (before or after writing it), then resumed on the same table in a new
+    session. Returns (first, second, result) once the second has finished the hand."""
+    import signal
+    first = player(tmp_path, monkeypatch, Answers())
+    real, saves = first.save, []
+
+    def save():
+        saves.append(first.state["phase"])
+        if len(saves) == stop and before:
+            raise KeyboardInterrupt
+        real()
+        if len(saves) == stop:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(first, "save", save)
+    with pytest.raises(KeyboardInterrupt):
+        run(first)
+    second = player(tmp_path / "second", monkeypatch, Answers(), argv=("--sim", "--resume", str(first.session.dir)))
+    second.mat.tiles, second.draws = first.mat.tiles, first.draws         # the table as the stop left it
+
+    def hung(*_):
+        raise Hung(f"the resumed hand hung (stopped at checkpoint {stop}, {'before' if before else 'after'} writing it)")
+    previous = signal.signal(signal.SIGALRM, hung)
+    signal.alarm(30)
+    try:
+        second.resume(first.session.dir)
+        result = run(second)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    return first, second, result
+
+
+# A stop after a tile moved but before the checkpoint says so: resumed, the robot looks for the tile where the checkpoint has it,
+# and bench.reposition asks a person to put it back, with no way to say the move already happened (the class of the 11-04
+# review's repeated turn). Which scan to trust, and what to ask, is play.py's design to settle; strict, so the fix shows here.
+MOVED_BEFORE_ITS_SAVE = pytest.mark.xfail(strict=True, raises=OSError,
+                                          reason="resume can't be told a discard or a placement already happened")
+STOPS = [pytest.param(stop, False, id=f"after_save_{stop}") for stop in range(1, REFERENCE_SAVES)] + [
+    pytest.param(stop, True, id=f"before_save_{stop}", marks=[MOVED_BEFORE_ITS_SAVE] if stop in (4, 6, 7) else [])
+    for stop in range(2, REFERENCE_SAVES)]
+
+
+@pytest.mark.parametrize("stop, before", STOPS)
+def test_a_hand_stopped_at_any_checkpoint_resumes_to_the_same_hand(tmp_path, monkeypatch, stop, before):
+    reference = player(tmp_path / "reference", monkeypatch, Answers())
+    saves = []
+    real = reference.save
+    monkeypatch.setattr(reference, "save", lambda: (saves.append(1), real()))
+    assert run(reference) == "clean" and len(saves) == REFERENCE_SAVES
+    first, second, result = hand_stopped_at(tmp_path / "first", monkeypatch, stop, before)
+    assert second.state["phase"] == "won" and result in ("clean", "attended")
+    assert second.state["discards"] == reference.state["discards"] == ["GD", "RD"]
+    assert second.state["turn"] == reference.state["turn"]
+    assert [h["turn"] for h in second.state["history"]] == [h["turn"] for h in reference.state["history"]]
+    picked = [e["tile"] for e in events_of(first) + events_of(second) if e["type"] == "attempt" and e.get("success")]
+    assert picked == ["GD", "RD", "9B"], "a tile was picked up twice, or one was skipped"
+
+
+def test_a_hand_stopped_before_its_first_checkpoint_can_t_be_resumed_and_says_why(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="no checkpoint.json: it stopped before registering the hand"):
+        hand_stopped_at(tmp_path, monkeypatch, 1, before=True)
