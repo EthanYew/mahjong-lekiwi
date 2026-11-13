@@ -74,6 +74,7 @@ def items(repo=None, sessions_dir=None, quick=False):
     for part in (lambda: [default_checks(sessions_dir, quick=quick)], lambda: roadmap_lines(repo),
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
+                 lambda: [] if quick else _held_prs(),
                  lambda: [f"samples not saved to main: {', '.join(files)} (python scripts/save_samples.py)"]
                  if not checkout.is_worktree(repo) and (files := checkout.unsaved_samples(repo)) else [],
                  lambda: [f"{n} invariants still say Unconfirmed: /review-bench lists the ones a session settles"]
@@ -83,3 +84,13 @@ def items(repo=None, sessions_dir=None, quick=False):
         except Exception as e:                           # a reminder, not a check: say so and go on
             out.append(f"(couldn't check one owed item: {type(e).__name__}: {e})")
     return out
+
+
+def _held_prs():
+    """PRs the merge queue left for the owner (merge_pr.py --auto labels them needs-owner). Asks GitHub, so status.py only."""
+    import subprocess
+    out = subprocess.run(["gh", "pr", "list", "--label", "needs-owner", "--json", "number,title"], capture_output=True, text=True,
+                         cwd=config.REPO, timeout=20)
+    held = json.loads(out.stdout or "[]") if out.returncode == 0 else []
+    return [f"{len(held)} PR(s) held for you, decisions the queue won't merge: "
+            + ", ".join(f"#{p['number']} {p['title'][:50]}" for p in held[:5]) + " (python scripts/merge_pr.py N)"] if held else []

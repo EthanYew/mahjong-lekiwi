@@ -1347,6 +1347,35 @@ A PR built on another PR's branch (stacked) is refused until that one merges: me
 It stops before asking, with nothing changed, if the pull after the merge would fail: `main` here has commits GitHub doesn't, or
 the PR changes a data file with uncommitted changes here. Uncommitted data the PR doesn't touch is fine.
 
+### The merge queue: `merge_pr.py --auto`
+
+Claude sessions merge their own PRs through the queue once their checks pass (`/hand-back`); a person merges only decisions.
+
+```
+python scripts/merge_pr.py --auto          # every open, ready PR, oldest first; asks nothing
+python scripts/merge_pr.py --auto 34       # just PR 34 (exit 1 if it didn't merge, with why)
+```
+
+For each PR, in order, each a refusal rather than a warning:
+1. **A decision waits for you**: a change to `data/eval_split.json`, `data/detector_exam.json`, `data/name_check_exam.json`,
+   `data/standard_setup.json`, `docs/scorecard.md`, `mahjong/scorecard.py`, installed weights (`assets/*.pt`) or the default policy in
+   `data/policies.json` (registering one is fine), or a PR labelled `owner`. It gets the `needs-owner` label; `status.py` lists those,
+   and you merge them with `merge_pr.py N` as before.
+2. **The description is finished**: every section has something under it (a template comment doesn't count), and a PR changing play,
+   bench, the arm or policy (`REVIEW_FILES`) has `## Review` saying what `/code-review` found and what was done.
+3. **Nothing was added on both sides** (the same function, constant or option on `main` and the branch).
+4. **The merged tree passes**: `main` + the branch in a scratch worktree, the fast tests (the slow ones too if `policy.py` or
+   `dataset.py` changed), then `bench.py --sim --unattended` and `play.py --sim`. Every simulated arm command in all of them goes
+   through the motion watchdog (`mahjong/motion_watch.py`).
+5. **It merges the head it tested** (`--match-head-commit`), and if `main` moved while it tested, it tests the new `main` again.
+
+A PR that fails a check gets the output as a comment and goes back to draft. One queue runs at a time (a lock in the git dir).
+After a merge it pulls this checkout, unless an arm script is running here: then it leaves it, the checkout's warnings say it's
+behind, and the next run pulls. When a batch that merged something leaves nothing ready, it starts the post-merge review in the
+background, on your claude.ai login (no API key, so no extra cost; it uses your plan's limits, ~150 calls).
+
+Closing a branch first moves any PR built on it onto `main` (GitHub closed #109 when #80's branch was deleted under it).
+
 ### Reviewing a batch of merges
 
 Tests catch breakage, and the bugs that cost time passed them. So a batch of merges gets a review in a fresh context, before the next

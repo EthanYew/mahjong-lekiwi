@@ -25,8 +25,8 @@ def commit(repo, path, text, message):
     git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", message)
 
 
-@pytest.fixture
-def repo(tmp_path):
+def make_repo(tmp_path):
+    """A bare origin and a clone of it on main, with one commit: GitHub and the main checkout."""
     origin, main = tmp_path / "origin.git", tmp_path / "main"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True, env=checkout.ENV)
     subprocess.run(["git", "clone", "-q", str(origin), str(main)], check=True, capture_output=True, env=checkout.ENV)
@@ -35,6 +35,11 @@ def repo(tmp_path):
     commit(main, "mahjong/arm.py", "def move_to():\n    pass\n", "start")
     git(main, "push", "-q", "-u", "origin", "main")
     return main
+
+
+@pytest.fixture
+def repo(tmp_path):
+    return make_repo(tmp_path)
 
 
 def branch_in_worktree(repo, name, path, text):
@@ -232,7 +237,7 @@ def test_a_merge_whose_pull_failed_is_finished_by_running_it_again(repo, monkeyp
     branch_in_worktree(repo, "feature", "mahjong/x.py", "X = 1\n")
     tip = git(repo, "rev-parse", "feature")
     git(repo, "push", "-q", "origin", "feature:main")              # merged on GitHub; main here never pulled it
-    monkeypatch.setattr(merge_pr, "gh", lambda *a: json.dumps(
+    monkeypatch.setattr(merge_pr, "gh", lambda *a: "[]" if a[:2] == ("pr", "list") else json.dumps(
         {"number": 7, "title": "t", "state": "MERGED", "isDraft": False, "headRefName": "feature", "body": "", "url": "u",
          "files": [{"path": "mahjong/x.py"}], "mergeCommit": {"oid": tip}}))
     monkeypatch.setattr(merge_pr, "test_command", lambda slow=False: ["true"])
