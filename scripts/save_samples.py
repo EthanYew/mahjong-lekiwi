@@ -20,9 +20,9 @@ from mahjong import checkout, config
 from mahjong.session import is_sim
 
 def latest_session(sessions_dir=None):
-    """The newest real (not --sim) session folder's name, or None."""
-    folders = [f for f in sorted(Path(sessions_dir or config.SESSIONS).glob("2*_*")) if f.is_dir() and not is_sim(f)]
-    return folders[-1].name if folders else None
+    """The newest real (not --sim) session folder's name, or None. Newest first, so it reads one events file, not ~300."""
+    return next((f.name for f in sorted(Path(sessions_dir or config.SESSIONS).glob("2*_*"), reverse=True)
+                 if f.is_dir() and not is_sim(f)), None)
 
 
 def git(*args, repo=None):
@@ -55,6 +55,9 @@ def main(argv=None, ask=input, repo=None, sessions_dir=None):
         raise SystemExit("run this from the main checkout: samples reach main from where the hardware runs")
     if checkout.git("rev-parse", "--abbrev-ref", "HEAD", repo=repo) != "main":
         raise SystemExit("the main checkout isn't on main: switch back first")
+    if (commits := checkout.unpushed(repo)):
+        raise SystemExit(f"main here has {len(commits)} commit(s) GitHub doesn't ({'; '.join(commits[:3])}): the push would send them "
+                         "with the samples, untested. Sort them out first (merge_pr.py's pull check says the same).")
     files = checkout.unsaved_samples(repo)
     if not files:
         print("No unsaved samples.")

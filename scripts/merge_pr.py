@@ -61,10 +61,12 @@ def confirm(question, ask=input):
 
 
 def missing_sections(body, touched=()):
-    """The PR description's sections that aren't there (a markdown heading each). "Review" only for a PR that changes REVIEW_FILES."""
-    headings = {h.strip().lower() for h in re.findall(r"^#+\s*(.+)$", body or "", re.M)}
+    """The PR description's sections that aren't there, or have nothing under them but the template's comment (a markdown heading
+    each). "Review" only for a PR that changes REVIEW_FILES."""
+    text = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
+    filled = {m.group(1).strip().lower() for m in re.finditer(r"^#+\s*(.+)$\n((?:(?!^#).*\n?)*)", text, re.M) if m.group(2).strip()}
     wanted = SECTIONS + (["Review"] if needs_review(touched) else [])
-    return [s for s in wanted if not any(h.startswith(s.lower()) for h in headings)]
+    return [s for s in wanted if not any(h.startswith(s.lower()) for h in filled)]
 
 
 def needs_review(touched):

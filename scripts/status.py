@@ -126,8 +126,6 @@ def report(sessions_dir=None):
                         f"{test['returned']} returned, {test['carried']} carried to a slot (median "
                            f"{test['carried_median_mm']:.0f}mm from home)" if test["ok"] else "; ".join(test["problems"])))
 
-    left = checkout.leftovers()
-    lines.append(f"\nMerged branches not closed: {len(left)}" + (" (python scripts/merge_pr.py --close)" if left else ""))
     return "\n".join(lines)
 
 

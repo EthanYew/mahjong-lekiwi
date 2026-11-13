@@ -210,6 +210,8 @@ def test_a_pr_description_is_checked_for_its_sections():
     assert merge_pr.missing_sections(full, ["README.md", "mahjong/session.py"]) == []
     assert merge_pr.missing_sections(full, ["scripts/play.py"]) == ["Review"]
     assert merge_pr.missing_sections(full + "## Review\n/code-review: 2 findings, both fixed\n", ["scripts/play.py"]) == []
+    template = (Path(__file__).resolve().parents[1] / ".github" / "pull_request_template.md").read_text()
+    assert merge_pr.missing_sections(template, ["scripts/play.py"]) == merge_pr.SECTIONS + ["Review"]   # comments aren't content
 
 
 def test_closing_leaves_a_simulated_session_behind_though_its_name_looks_real(repo):

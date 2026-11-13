@@ -124,7 +124,7 @@ class Session:
             print(f"WARNING: {warning}")
         if not setup.get("sim"):
             from . import owed      # here, not at the top: owed reads sessions with this module
-            for line in owed.items():
+            for line in owed.items(quick=True):
                 print(f"OWED: {line}")
 
     def event(self, type, **fields):

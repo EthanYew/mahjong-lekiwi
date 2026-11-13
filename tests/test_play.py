@@ -828,6 +828,10 @@ def test_a_detection_s_box_outlines_the_tile_and_a_tile_with_none_is_projected()
 REFERENCE_SAVES = 8        # checkpoints a clean sim hand writes; change it if play.py saves at more or fewer points
 
 
+class Hung(Exception):
+    """Not an OSError (TimeoutError is one), so a hang can't pass as the xfail below, which expects OSError."""
+
+
 def hand_stopped_at(tmp_path, monkeypatch, stop, before):
     """A sim hand stopped at its stop-th checkpoint (before or after writing it), then resumed on the same table in a new
     session. Returns (first, second, result) once the second has finished the hand."""
@@ -849,14 +853,15 @@ def hand_stopped_at(tmp_path, monkeypatch, stop, before):
     second.mat.tiles, second.draws = first.mat.tiles, first.draws         # the table as the stop left it
 
     def hung(*_):
-        raise TimeoutError(f"the resumed hand hung (stopped at checkpoint {stop}, {'before' if before else 'after'} writing it)")
-    signal.signal(signal.SIGALRM, hung)
+        raise Hung(f"the resumed hand hung (stopped at checkpoint {stop}, {'before' if before else 'after'} writing it)")
+    previous = signal.signal(signal.SIGALRM, hung)
     signal.alarm(30)
     try:
         second.resume(first.session.dir)
         result = run(second)
     finally:
         signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
     return first, second, result
 
 

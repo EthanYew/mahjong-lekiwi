@@ -208,18 +208,44 @@ def play_ready_chance(rate):
     return sum(comb(n, k) * (1 - rate) ** k * rate ** (n - k) for k in range(most + 1))
 
 
-def session_clean(session_dir):
-    """policy -> clean attempts in a session folder, saved beside its events: status.py reads every session, and
-    deriving them all takes minutes. Redone if the events grow (a keys_void) or NOT_CLEAN changes."""
-    events_file, saved = session_dir / "events.jsonl", session_dir / "clean_counts.json"
-    key = {"size": events_file.stat().st_size, "not_clean": sorted(NOT_CLEAN)}
+SUMMARY_VERSION = 2       # 2: the gates too (mahjong/owed.py), so a session's interventions are derived once for both
+
+
+def _summary_key(session_dir):
+    return {"size": (session_dir / "events.jsonl").stat().st_size, "not_clean": sorted(NOT_CLEAN), "v": SUMMARY_VERSION}
+
+
+def cached_summary(session_dir):
+    """session_summary's saved result if it's still good, else None, without deriving anything."""
+    saved = session_dir / "clean_counts.json"
     if saved.exists():
         old = json.loads(saved.read_text())
-        if old["key"] == key:
-            return old["clean"]
-    clean = {policy: row["clean"] for policy, row in policy_rows(read_events(session_dir)).items() if policy}
-    saved.write_text(json.dumps({"key": key, "clean": clean}))
-    return clean
+        if old.get("key") == _summary_key(session_dir):
+            return old
+    return None
+
+
+def session_summary(session_dir):
+    """{"clean": policy -> clean attempts, "gates": policy -> {"play_ready", "ahead_of": [policies]}} for a session folder,
+    saved beside its events: status.py reads every session, and deriving them all takes minutes. Redone if the events grow
+    (a keys_void) or NOT_CLEAN changes."""
+    if (old := cached_summary(session_dir)):
+        return old
+    events = read_events(session_dir)
+    found = interventions.derive(events)
+    clean = {policy: row["clean"] for policy, row in policy_rows(events, found).items() if policy}
+    policies = sorted(clean)
+    gates = {p: {"play_ready": play_ready(events, p, found)["ok"],
+                 "ahead_of": [q for q in policies if q != p and iteration_check(events, q, p, found)["result"] == "ahead"]}
+             for p in policies}
+    summary = {"key": _summary_key(session_dir), "clean": clean, "gates": gates}
+    (session_dir / "clean_counts.json").write_text(json.dumps(summary))
+    return summary
+
+
+def session_clean(session_dir):
+    """policy -> clean attempts in a session folder (session_summary, saved beside its events)."""
+    return session_summary(session_dir)["clean"]
 
 
 def report(events, found=None):

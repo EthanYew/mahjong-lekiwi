@@ -47,9 +47,17 @@ def branch_files(top):
             changed = git("diff", "--name-only", point, ref, cwd=top) if point else None
             if changed:
                 files[ref.removeprefix("origin/")] = changed.splitlines()
-        warned = cache.get("warned", {})
-        cache = {"key": key, "files": files, "warned": dict(list(warned.items())[-20:])}    # the last 20 sessions
+        cache = {"key": key, "files": files, "warned": cache.get("warned", {})}
+        save(cache, cache_path)                             # now, so a timeout later doesn't throw the rebuild away
+    cache["warned"] = dict(list(cache.get("warned", {}).items())[-20:])     # the last 20 sessions
     return cache, cache_path
+
+
+def save(cache, path):
+    try:
+        path.write_text(json.dumps(cache))
+    except OSError:
+        pass
 
 
 def main(stdin=sys.stdin, stdout=sys.stdout):
@@ -81,10 +89,7 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
             f"{relative} is also changed by open branch(es) {', '.join(others)}, not yet on main. CLAUDE.md: two branches "
             "shouldn't change the same file, since git catches overlapping lines, not intent. Check what they change there; "
             "if it overlaps, merge the other first or build on it, and name it under ## Overlaps in this branch's PR."}}))
-    try:
-        cache_path.write_text(json.dumps(cache))
-    except OSError:
-        pass
+    save(cache, cache_path)
 
 
 if __name__ == "__main__":

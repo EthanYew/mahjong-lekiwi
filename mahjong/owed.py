@@ -9,43 +9,29 @@ import json
 import re
 from pathlib import Path
 
-from . import checkout, config, interventions, scorecard
+from . import checkout, config, scorecard
 from .session import is_sim, read_events
 
 
-def gate_results(session_dir):
-    """policy -> {"play_ready": bool, "ahead_of": [policies]} for one bench session, saved beside its events (deriving the
-    interventions takes seconds a session). Redone if the events grow."""
-    events_file, saved = session_dir / "events.jsonl", session_dir / "gate_results.json"
-    key = {"size": events_file.stat().st_size, "not_clean": sorted(scorecard.NOT_CLEAN)}
-    if saved.exists():
-        old = json.loads(saved.read_text())
-        if old["key"] == key:
-            return old["results"]
-    events = read_events(session_dir)
-    found = interventions.derive(events)
-    policies = sorted({e["policy"] for e in events if e["type"] == "attempt" and e.get("policy")})
-    results = {p: {"play_ready": scorecard.play_ready(events, p, found)["ok"],
-                   "ahead_of": [q for q in policies if q != p
-                                and scorecard.iteration_check(events, q, p, found)["result"] == "ahead"]}
-               for p in policies}
-    saved.write_text(json.dumps({"key": key, "results": results}))
-    return results
-
-
-def default_checks(sessions_dir=None, registry=None):
+def default_checks(sessions_dir=None, registry=None, quick=False):
     """A line if the default policy has passed neither scorecard check (docs/scorecard.md) on the standard setup since it became
-    the default, else None. Simulated sessions and sessions off the standard setup don't count."""
+    the default, else None. Simulated sessions and sessions off the standard setup don't count. quick (a hardware session's start):
+    only sessions already summarised count, and if any isn't, nothing is said rather than guessed (status.py summarises them)."""
     reg = registry or json.loads(config.POLICIES.read_text())
-    default, since = reg["default"], reg.get("default_note", {}).get("since", "")
+    default, note = reg["default"], reg.get("default_note", {})
+    since = note.get("since", "")
+    cutoff = note.get("at") or since.replace("-", "")       # "at" (YYYYMMDD_HHMMSS) since 2026-11-13; older notes have the day only
     standard = scorecard.standard_setup()
     for events_file in sorted((Path(sessions_dir or config.SESSIONS)).glob("*_bench/events.jsonl")):
         folder = events_file.parent
-        if folder.name[:8] < since.replace("-", "") or is_sim(folder):
+        if folder.name[:len(cutoff)] < cutoff or is_sim(folder):
             continue
         if scorecard.off_standard(read_events(folder), standard):
             continue
-        mine = gate_results(folder).get(default)
+        summary = scorecard.cached_summary(folder) if quick else scorecard.session_summary(folder)
+        if summary is None:
+            return None
+        mine = summary["gates"].get(default)
         if mine and (mine["play_ready"] or mine["ahead_of"]):
             return None
     return (f"the default, {default} (since {since or '?'}), has passed neither scorecard check on the standard setup since: "
@@ -81,10 +67,11 @@ def unconfirmed(repo=None):
     return sum(f.read_text().count("Unconfirmed") for f in files if f.exists())
 
 
-def items(repo=None, sessions_dir=None):
-    """Every owed line, most consequential first. Each part fails quietly: a reminder must never stop a hardware session."""
+def items(repo=None, sessions_dir=None, quick=False):
+    """Every owed line, most consequential first. Each part fails quietly: a reminder must never stop a hardware session.
+    quick: nothing that derives a session (a hardware session's start, with the arm connected)."""
     out = []
-    for part in (lambda: [default_checks(sessions_dir)], lambda: roadmap_lines(repo),
+    for part in (lambda: [default_checks(sessions_dir, quick=quick)], lambda: roadmap_lines(repo),
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
                  lambda: [f"samples not saved to main: {', '.join(files)} (python scripts/save_samples.py)"]

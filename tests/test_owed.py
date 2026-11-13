@@ -27,7 +27,22 @@ def test_a_play_ready_run_on_the_standard_setup_since_then_settles_it(tmp_path):
     assert owed.default_checks(tmp_path, REGISTRY)
     folder = bench(tmp_path, "20261112_174429", on_standard(paired(rounds)))
     assert owed.default_checks(tmp_path, REGISTRY) is None
-    assert (folder / "gate_results.json").exists()                                    # the derive isn't redone next time
+    assert (folder / "clean_counts.json").exists()                                    # the derive isn't redone next time
+
+
+def test_a_session_start_never_derives_and_says_nothing_it_cant_back(tmp_path):
+    bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.default_checks(tmp_path, REGISTRY, quick=True) is None               # not summarised yet: no claim
+    assert not (tmp_path / "20261112_174429_bench" / "clean_counts.json").exists()
+    assert owed.default_checks(tmp_path, REGISTRY) is None                           # status.py summarises it
+
+
+def test_a_bench_earlier_on_the_day_of_the_decision_doesnt_count(tmp_path):
+    decided = {**REGISTRY, "default_note": {"since": "2026-11-12", "at": "20261112_120000"}}
+    bench(tmp_path, "20261112_090000", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.default_checks(tmp_path, decided)
+    bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.default_checks(tmp_path, decided) is None
 
 
 def test_roadmap_behind_the_registry(tmp_path):
@@ -43,5 +58,5 @@ def test_a_policy_is_named_by_its_id_or_its_version_alone():
 
 
 def test_a_reminder_that_breaks_says_so_and_never_stops_a_session(monkeypatch):
-    monkeypatch.setattr(owed, "default_checks", lambda sessions_dir=None: 1 / 0)
+    monkeypatch.setattr(owed, "default_checks", lambda *a, **k: 1 / 0)
     assert any("couldn't check one owed item: ZeroDivisionError" in line for line in owed.items())

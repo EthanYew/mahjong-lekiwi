@@ -59,6 +59,15 @@ def test_a_dry_run_or_a_no_commits_nothing(repo, tmp_path):
     assert git(repo, "log", "--format=%s") == "start"
 
 
+def test_another_unpushed_commit_stops_it_before_anything_is_committed(repo, tmp_path):
+    (repo / "mahjong.py").write_text("x = 1\n")
+    git(repo, "add", "mahjong.py"), git(repo, "commit", "-q", "-m", "local code, never meant for GitHub")
+    (repo / "data/hover_corrections.jsonl").write_text("{}\n{}\n")
+    with pytest.raises(SystemExit, match="1 commit"):
+        save_samples.main([], ask=lambda q: "y", repo=repo, sessions_dir=tmp_path)
+    assert git(repo, "log", "-1", "--format=%s", "origin/main") == "start"
+
+
 def test_a_worktree_is_refused(repo, tmp_path):
     tree = tmp_path / "tree"
     git(repo, "worktree", "add", "-q", "-b", "other", str(tree))
