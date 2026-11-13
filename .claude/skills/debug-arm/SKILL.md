@@ -11,7 +11,11 @@ Sag and drift took many rounds of PRs on 2026-10-28 because fixes came before a 
 1. **Read the rules first.** The rule in `.claude/rules/` for this part (`motion.md`, `returns.md`, `gamepad.md`, `perception.md`), then `docs/invariant_notes.md` if one looks close. Many symptoms are a known invariant: the servos sit 5-13mm below command, far spots read low, lowering at full reach slides the gripper back. If it's one of those, say so and stop.
 2. **Read the logs.** Sessions are in the main checkout's `sessions/`. `python scripts/session_report.py <folder>`; `python scripts/handoff_report.py` for anything under the gamepad; `--all` to see what setup changed. Write a script over `events.jsonl` rather than reading it raw.
 3. **Build a timeline.** When did it start? Line up sessions against `git log` and `data/` changes, and the setup conditions each session recorded. Say which change came just before, without yet calling it the cause.
-4. **Separate what's measured from what's commanded.** Which number shows the symptom, and where was it logged? Check the person's account against the logs; they can differ.
+4. **A device that drops out, stutters or sends bad data: swap the cheapest physical part before any code.** The port first, then the
+   cable, then the device. Each takes minutes; the wrist camera's dropouts were one USB receptacle (NUC port 3-8), found on 2026-11-13
+   after 16 days, 45 affected sessions and five layers of recovery code (`perception.md`). If the swap can't be done now, say it's the
+   first test.
+5. **Separate what's measured from what's commanded.** Which number shows the symptom, and where was it logged? Check the person's account against the logs; they can differ.
 
 Return:
 - **What the logs show**, with the session folders and numbers. Say what they can't show.
