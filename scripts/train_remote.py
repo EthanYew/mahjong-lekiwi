@@ -6,24 +6,23 @@ Training runs detached from the SSH session via Win32_Process, so the job
 survives when SSH disconnects and Windows sleep is suppressed by a PowerShell
 script.
 
-Start a training run (detaches; Ctrl-C on the wait loop leaves it running):
+Start a training run (detaches). A new version is the default's datasets plus the new recording: the
+script stops with the --add flags to paste if the list leaves one of the default's out (mahjong/recipe.py),
+before it connects. --dry-run also prints make_policy.py's plan here: episodes, frames and steps, the default's beside them:
 
-    python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \\
-        --version v12 --add Yewy/mahjong_facedown_dagger_v11 \\
-        --augment --replace-mat 0.7 --trim-narrowing --private
+    python scripts/train_remote.py --source <the default's source> --add <each of its --add> \\
+        --add Yewy/<new recording> --augment --replace-mat 0.7 --private --version vN
 
 Check whether a detached run has finished:
 
-    python scripts/train_remote.py --status --version v12
+    python scripts/train_remote.py --status --version vN
 
 Sync results back after a detached run (updates data/policies.json and
-data/offline_eval/; prints what README.md still needs):
+data/offline_eval/; prints what README.md still needs), then power both machines off:
 
-    python scripts/train_remote.py --sync --version v12
+    python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 
-Shut down both machines after training completes (can combine with any run):
-
-    python scripts/train_remote.py ... --shutdown-train --shutdown-local
+--shutdown-train when starting powers the training machine off as training ends, before anything is synced.
 
 Dry-run to see what would be generated without connecting:
 
@@ -31,6 +30,7 @@ Dry-run to see what would be generated without connecting:
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import textwrap
@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import config
+from mahjong import config, recipe  # noqa: E402
 
 CONFIG_PATH = config.DATA / "train_machine.json"
 EXAMPLE_PATH = config.DATA / "train_machine.example.json"
@@ -116,8 +116,12 @@ def keepawake_script(cfg, version, shutdown_train=False):
 def make_policy_args(args):
     """Build the make_policy.py argument list from train_remote's args."""
     parts = ["--source", args.source, "--version", args.version]
+    if args.policy_id:
+        parts += ["--policy-id", args.policy_id]
     for repo in args.add:
         parts += ["--add", repo]
+    for repo in args.leave_out:
+        parts += ["--leave-out", repo]
     if args.trim_narrowing:
         parts.append("--trim-narrowing")
     if args.augment:
@@ -275,7 +279,8 @@ def cmd_status(args, cfg):
             print(f"  python scripts/train_remote.py --sync --version {version}")
         else:
             print(f"Training for {version} exited with code {code}. Check the log:")
-            print(f"  ssh {cfg['ssh']} \"wsl -d {cfg['wsl_distro']} -- bash -c 'tail -50 {log_remote}'\"")
+            # no quotes inside: the Windows end hands the line to cmd.exe, which doesn't honour single quotes
+            print(f"  ssh {cfg['ssh']} \"wsl -d {cfg['wsl_distro']} -- tail -50 {log_remote}\"")
         return
 
     # Also show tail of log if it exists
@@ -339,25 +344,26 @@ def cmd_sync(args, cfg):
     if f"`{policy_id}`" not in readme:
         print(f"\nREADME.md does not yet name `{policy_id}`.")
         entry = remote_reg["policies"][policy_id]
-        notes = entry.get("notes", "")
-        # Pull key facts from the notes string for the README line
-        import re
-        frames = re.search(r"(\d+) frames", notes)
-        steps = re.search(r"(\d+) steps", notes)
-        datasets = re.search(r"make_policy\.py from (.*?);", notes)
+        datasets, (frames, steps) = entry.get("datasets"), recipe.scale_of(entry)
+        if datasets is None:        # registered before the field: the notes' list, as written
+            found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
+            datasets = found.group(1).split(" + ") if found else None
         hint = []
         if datasets:
-            hint.append(f"data: {datasets.group(1)}")
+            hint.append(f"data: {' + '.join(datasets)}")
         if frames:
-            hint.append(f"{frames.group(1)} frames")
+            hint.append(f"{frames} frames")
         if steps:
-            hint.append(f"{steps.group(1)} steps")
+            hint.append(f"{steps} steps")
         hint.append(f"trained {time.strftime('%Y-%m-%d')}")
         print("Add this to the policies list in README.md (then run the fast tests):")
         print(f"  `{policy_id}` ({'; '.join(hint)}),")
     else:
         print(f"README.md already names `{policy_id}`.")
 
+    if args.shutdown_train:
+        print("\nShutting down the training machine in 60 seconds.")
+        ssh_run(cfg, 'shutdown /s /t 60 /c "Synced"', check=False)
     if args.shutdown_local:
         print("\nShutting down this machine in 60 seconds (Ctrl-C to cancel)...")
         time.sleep(60)
@@ -387,6 +393,8 @@ def parse_args(argv=None):
                    help="registry id (default: pickup_mat_cl_<version>)")
     p.add_argument("--add", action="append", default=[], metavar="REPO",
                    help="another recorded dataset to train on (repeatable)")
+    p.add_argument("--leave-out", action="append", default=[], metavar="REPO",
+                   help="a dataset the default trained on that this run leaves out on purpose (repeatable)")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="drop the opening gripper narrowing from each episode")
     p.add_argument("--augment", action="store_true",
@@ -402,11 +410,13 @@ def parse_args(argv=None):
 
     # Remote-run options
     p.add_argument("--shutdown-train", action="store_true",
-                   help="shut down the training machine 60s after training completes")
+                   help="starting a run: shut down the training machine 60s after training completes (--sync then "
+                        "waits until it's switched on again); with --sync: shut it down once the files are copied")
     p.add_argument("--shutdown-local", action="store_true",
                    help="shut down this machine after the sync step completes")
     p.add_argument("--dry-run", action="store_true",
-                   help="print the scripts that would be generated and uploaded; do not connect")
+                   help="print the plan and the scripts it would upload; no connection to the training machine "
+                        "(it fetches origin/main from GitHub to check the default)")
 
     return p.parse_args(argv)
 
@@ -429,12 +439,49 @@ def main():
         raise SystemExit("--source is required to start a training run "
                          "(or use --sync/--status to manage an existing one)")
 
-    if args.dry_run:
-        cmd_start(args, cfg=None)
-        return
+    # Before anything connects: the dataset list against the default's. The PC trains from origin/main, so this
+    # checkout's default has to be main's, or the two checks would disagree (and the PC's would stop the run hours
+    # later, in a detached log). The dry run adds the plan with its frame and step counts: the scripts alone don't
+    # show a run's size, and v12 was started from them at a sixth of v11's frames.
+    here, mains = recipe.registry(), mains_registry()     # mains_registry fetches from GitHub, not the PC
+    if mains is None:
+        print("Warning: couldn't read origin/main's data/policies.json; the PC checks the recipe against it.")
+    elif (message := recipe.default_mismatch(here, mains)):
+        if not args.dry_run:
+            raise SystemExit(message)
+        print(f"Warning: {message}")
+    # make_policy's dry run runs the recipe check itself, and shows the size and catches a misspelt --add: every
+    # start gets it, not only the ones that were dry-run first (v12 wasn't checked against anything)
+    local_plan(args)
+    if args.shutdown_train:
+        print("Note: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
+              "To copy the results back and then power it off, start without it and run "
+              f"--sync --version {args.version} --shutdown-train when it's done.\n")
+    cmd_start(args, cfg=None if args.dry_run else load_config())
 
-    cfg = load_config()
-    cmd_start(args, cfg)
+
+def mains_registry():
+    """data/policies.json as origin/main has it after a fetch, which is what the PC trains from; None if git can't say."""
+    repo = config.DATA.parent
+    try:
+        fetched = subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, timeout=30)
+        if fetched.returncode != 0:
+            print("Warning: git fetch failed, so origin/main may be out of date: the PC fetches it before training.")
+        shown = subprocess.run(["git", "show", "origin/main:data/policies.json"], cwd=repo, capture_output=True, text=True)
+        return json.loads(shown.stdout) if shown.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+
+
+def local_plan(args, run=subprocess.run):
+    """make_policy.py's own dry run, here: the episodes, frames and steps the remote run would train on, and the
+    default's for scale. The recordings are made on this machine, so a failure here (a misspelt --add) would fail
+    on the PC too: stop."""
+    command = [sys.executable, str(Path(__file__).with_name("make_policy.py")), *make_policy_args(args), "--dry-run"]
+    print("The plan, from make_policy.py --dry-run on this machine:", flush=True)
+    if run(command).returncode != 0:
+        raise SystemExit("make_policy.py couldn't plan this run here (above): fix it before it goes to the PC")
+    print()
 
 
 if __name__ == "__main__":
