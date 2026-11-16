@@ -29,16 +29,17 @@ Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a 
 3. **Start it**: the same command without `--dry-run`. It warns if the PC's `data/` has uncommitted changes the pull would overwrite;
    say so rather than answering for the user. Shutting down: `--shutdown-train` at the start powers the PC off as training ends,
    before the sync can copy anything, so use it only when the results can wait until the PC is switched on again. "Shut both down
-   when it's done" is step 5's `--sync --version vN --shutdown-train`, then this machine once the queue has merged the PR
-   (`--shutdown-local` on the sync would power it off before the PR exists).
+   when it's done" is step 5's `--sync --version vN --shutdown-train`, then this machine once `merge_pr.py` has merged the PR
+   and the post-merge review it starts has finished (`--shutdown-local` on the sync would power it off before the PR exists).
 4. **Check progress**: `python scripts/train_remote.py --status --version vN`. Report the step, the steps left and the time that
    implies. A failure is diagnosed from the log it names.
 5. **Once it has finished**, register it in a worktree branched from an up-to-date `main` (the sync rewrites `data/policies.json`
-   whole) and merge it through the queue (it isn't made the default):
+   whole) and merge it through the queue (it isn't made the default). Copy `data/train_machine.json` into the worktree
+   first: it's gitignored, and the sync reads it.
    - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`.
    - Add the line it prints to README.md's policy list and a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
-     a ready PR, and `merge_pr.py --auto N` merges it. Registering isn't the owner's decision (their "installed weights" are
-     `assets/*.pt`, which a registration doesn't touch); making it the default is (`status.py --set-default`, via `/should-ship`).
+     a ready PR, and `merge_pr.py --auto N` merges it. Registering isn't the owner's decision (`merge_pr.py` holds
+     `assets/*.pt` and changes to the default, which a registration doesn't touch); making it the default is (`status.py --set-default`, via `/should-ship`).
      Don't leave it as a draft: v13 (2026-11-17) sat unmerged in one, and the bench that decides it runs from `main`, which lacked it.
    - The offline screen is in those files: `python scripts/offline_eval.py --policy <id> --against <default>` for tables by slice. It screens; the bench decides.
 6. End with the paired bench command against the default (`/should-ship` has the rule) and what result would mean what.
