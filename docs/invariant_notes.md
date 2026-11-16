@@ -168,6 +168,19 @@ one-variable test the log couldn't do, and it is decisive.
   second terminal during a real run — has never been used. A 10-minute kernel-only watch during a bench should expect ~3
   disconnects at the rate above.
 
+## The wrist look finds a back by its shape, not a face (2026-11-16)
+
+The look measured how much of a disc between the jaws is pale face. Over a green back that reads ~0, so all 36 looks at
+backs in `20261116_200001_bench` and `20261116_213816_bench` said "not there", with the back between the jaws (e.g.
+`20261116_213816_bench/wrist_checks/scan004_004_back.jpg`), and `look_at_home` skipped face-down spots outright (4 in the
+first trial). Back colour (HSV hue 26-50, saturation 60+, brightness up to 160) alone doesn't work: on 388 face-up first frames
+of the standard mat a disc of it shows up in ~1 of 100 places, the olive stripe in a dim room
+(`20261103_214640_bench/005_214922_4C`, at (180, 145)). A back is a squarish block of it and a stripe a long band, so
+`wrist_check.back_blob` opens the mask (25px), keeps blobs of 6-30k px with aspect up to 2.0 and fill 0.65+, within 70px of
+the expected point. On the standard mat's bench frames, 2026-11-12 to 11-16: 36 of 37 looks at backs; 143 of 177 first
+frames at the hover (misses mostly `20261112_202418_bench`, no daylight and no lamp, the arm's shadow across the tile; 41 of
+48 in bright daylight with the ceiling light, `20261116_200001_bench`); 1 false back in 38,024 places on the face-up frames.
+
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
 The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep what loads small.

@@ -222,3 +222,51 @@ def test_setup_check_keeps_the_tile_a_person_used_not_the_layouts_label():
     import setup_check
     answers = iter(["8D", ""])
     assert setup_check.tile_names([{"id": "F2"}, {"id": "F3"}], lambda prompt: next(answers)) == {"F2": "8D"}
+
+
+def test_a_back_between_the_jaws_is_found_by_its_shape_where_the_face_disc_reads_nothing():
+    """20261116_213816_bench, scan 4: S11's back right there, and the face look said "not there" (as all 36 looks at backs did)."""
+    back = image("wrist_back_look")
+    assert wrist_check.face_fill(back) < 0.05
+    assert wrist_check.back_blob(back) is not None
+    result = wrist_check.check(Arm(), Camera(back), 0.2, 0.0, HOVER, back=True)
+    assert result["present"] is True and result["by"] == "back shape" and result["backs_seen"] == wrist_check.FRAMES
+
+
+def test_the_olive_stripe_in_a_dim_room_has_a_backs_green_but_not_its_shape():
+    """20261103_214640_bench (face up, no daylight): at (180, 145) the stripe is a back's colour across a whole disc."""
+    dim = image("wrist_dim_olive_stripe")
+    hsv = cv2.cvtColor(dim, cv2.COLOR_BGR2HSV)
+    disc = np.zeros(hsv.shape[:2], np.uint8)
+    cv2.circle(disc, (180, 145), wrist_check.RADIUS_PX, 1, -1)
+    green = cv2.inRange(hsv, np.array(wrist_check.BACK_HSV_LO, np.uint8), np.array(wrist_check.BACK_HSV_HI, np.uint8))
+    assert (green[disc > 0] > 0).mean() > 0.8                            # colour alone would call it a back
+    assert wrist_check.back_blob(dim, centre=(180, 145)) is None
+    assert wrist_check.check(Arm(), Camera(dim), 0.2, 0.0, HOVER, back=True)["present"] is False    # a face there, not a back
+    assert wrist_check.check(Arm(), Camera(image("wrist_bare_at_disc")), 0.2, 0.0, HOVER, back=True)["present"] is False
+
+
+def test_a_back_look_cant_tell_when_frames_disagree_or_the_surface_is_backs_green():
+    back, bare = image("wrist_back_look"), image("wrist_bare_at_disc")
+
+    class Frames(Camera):
+        def __init__(self, frames):
+            self.frames = iter(frames)
+
+        def read(self):
+            return True, next(self.frames)
+    split = wrist_check.check(Arm(), Frames([back, bare, bare]), 0.2, 0.0, HOVER, back=True)
+    assert split["present"] is None and "some frames" in split["why"] and split["backs_seen"] == 1
+    green = np.zeros_like(back)
+    green[:] = cv2.cvtColor(np.uint8([[[36, 120, 85]]]), cv2.COLOR_HSV2BGR)[0, 0]
+    assert wrist_check.check(Arm(), Camera(green), 0.2, 0.0, HOVER, back=True)["present"] is None
+
+
+def test_a_back_look_with_the_backs_green_but_not_its_shape_cant_tell():
+    """A back under the arm's shadow, or merged with a knocked neighbour, still fills the disc with its green."""
+    stripe = np.full((480, 640, 3), 200, np.uint8)
+    u, v = wrist_check.EXPECTED_PX
+    stripe[:, u - 60:u + 60] = cv2.cvtColor(np.uint8([[[35, 120, 80]]]), cv2.COLOR_HSV2BGR)[0, 0]    # a band, not a block
+    assert wrist_check.back_blob(stripe) is None and wrist_check.back_disc(stripe) > 0.9
+    result = wrist_check.check(Arm(), Camera(stripe), 0.2, 0.0, HOVER, back=True)
+    assert result["present"] is None and "shape" in result["why"]
