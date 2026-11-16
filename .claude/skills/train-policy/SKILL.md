@@ -32,8 +32,10 @@ Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a 
    when it's done" is step 5's `--sync --version vN --shutdown-train --shutdown-local`, once the PR is open.
 4. **Check progress**: `python scripts/train_remote.py --status --version vN`. Report the step, the steps left and the time that
    implies. A failure is diagnosed from the log it names.
-5. **Once it has finished**, in a branch (registering is a decision, so it doesn't go straight to `main`, and it isn't made the default):
+5. **Once it has finished**, register it in a branch and merge it through the queue (it isn't made the default):
    - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`.
-   - Add the line it prints to README.md's policy list, run the fast tests, and open a draft PR.
+   - Add the line it prints to README.md's policy list, then `/hand-back`: a ready PR, and `merge_pr.py --auto N` merges it.
+     Registering isn't the owner's decision, making it the default is (`status.py --set-default`, via `/should-ship`). Don't
+     leave it as a draft: v13 (2026-11-17) sat unmerged in one, and the bench that decides it runs from `main`, which lacked it.
    - The offline screen is in those files: `python scripts/offline_eval.py --policy <id> --against <default>` for tables by slice. It screens; the bench decides.
 6. End with the paired bench command against the default (`/should-ship` has the rule) and what result would mean what.
