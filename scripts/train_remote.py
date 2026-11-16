@@ -6,24 +6,23 @@ Training runs detached from the SSH session via Win32_Process, so the job
 survives when SSH disconnects and Windows sleep is suppressed by a PowerShell
 script.
 
-Start a training run (detaches; Ctrl-C on the wait loop leaves it running):
+Start a training run (detaches). A new version is the default's datasets plus the new recording: the
+script stops with the --add flags to paste if the list leaves one of the default's out (make_policy.recipe_gap),
+and prints make_policy.py's plan, frames and steps, before it connects:
 
-    python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \\
-        --version v12 --add Yewy/mahjong_facedown_dagger_v11 \\
-        --augment --replace-mat 0.7 --trim-narrowing --private
+    python scripts/train_remote.py --source <the default's source> --add <each of its --add> \\
+        --add Yewy/<new recording> --augment --replace-mat 0.7 --private --version vN
 
 Check whether a detached run has finished:
 
-    python scripts/train_remote.py --status --version v12
+    python scripts/train_remote.py --status --version vN
 
 Sync results back after a detached run (updates data/policies.json and
-data/offline_eval/; prints what README.md still needs):
+data/offline_eval/; prints what README.md still needs), then power both machines off:
 
-    python scripts/train_remote.py --sync --version v12
+    python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 
-Shut down both machines after training completes (can combine with any run):
-
-    python scripts/train_remote.py ... --shutdown-train --shutdown-local
+--shutdown-train when starting powers the training machine off as training ends, before anything is synced.
 
 Dry-run to see what would be generated without connecting:
 
@@ -38,8 +37,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from mahjong import config
+import make_policy  # noqa: E402 — the recipe check, shared so both scripts refuse the same runs
+from mahjong import config  # noqa: E402
 
 CONFIG_PATH = config.DATA / "train_machine.json"
 EXAMPLE_PATH = config.DATA / "train_machine.example.json"
@@ -118,6 +119,8 @@ def make_policy_args(args):
     parts = ["--source", args.source, "--version", args.version]
     for repo in args.add:
         parts += ["--add", repo]
+    for repo in args.leave_out:
+        parts += ["--leave-out", repo]
     if args.trim_narrowing:
         parts.append("--trim-narrowing")
     if args.augment:
@@ -350,6 +353,9 @@ def cmd_sync(args, cfg):
     else:
         print(f"README.md already names `{policy_id}`.")
 
+    if args.shutdown_train:
+        print("\nShutting down the training machine in 60 seconds.")
+        ssh_run(cfg, 'shutdown /s /t 60 /c "Synced"', check=False)
     if args.shutdown_local:
         print("\nShutting down this machine in 60 seconds (Ctrl-C to cancel)...")
         time.sleep(60)
@@ -379,6 +385,8 @@ def parse_args(argv=None):
                    help="registry id (default: pickup_mat_cl_<version>)")
     p.add_argument("--add", action="append", default=[], metavar="REPO",
                    help="another recorded dataset to train on (repeatable)")
+    p.add_argument("--leave-out", action="append", default=[], metavar="REPO",
+                   help="a dataset the default trained on that this run leaves out on purpose (repeatable)")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="drop the opening gripper narrowing from each episode")
     p.add_argument("--augment", action="store_true",
@@ -394,7 +402,8 @@ def parse_args(argv=None):
 
     # Remote-run options
     p.add_argument("--shutdown-train", action="store_true",
-                   help="shut down the training machine 60s after training completes")
+                   help="starting a run: shut down the training machine 60s after training completes (--sync then "
+                        "waits until it's switched on again); with --sync: shut it down once the files are copied")
     p.add_argument("--shutdown-local", action="store_true",
                    help="shut down this machine after the sync step completes")
     p.add_argument("--dry-run", action="store_true",
@@ -421,12 +430,32 @@ def main():
         raise SystemExit("--source is required to start a training run "
                          "(or use --sync/--status to manage an existing one)")
 
+    # Before anything connects: the dataset list against the default's, then the plan with its frame and step
+    # counts. The scripts alone don't show a run's size; v12 was started from them at a sixth of v11's frames.
+    make_policy.check_recipe(args.source, args.add, args.leave_out)
+    if args.shutdown_train:
+        print("Note: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
+              "To copy the results back and then power it off, leave it out here and run "
+              f"--sync --version {args.version} --shutdown-train when it's done.\n")
+    local_plan(args)
     if args.dry_run:
         cmd_start(args, cfg=None)
         return
 
     cfg = load_config()
     cmd_start(args, cfg)
+
+
+def local_plan(args):
+    """make_policy.py's own dry run, here: the episodes, frames and steps the remote run would train on. Needs the
+    recordings on this machine (they're recorded here); without them it says so and carries on."""
+    command = [sys.executable, str(Path(__file__).with_name("make_policy.py")),
+               *make_policy_args(args), "--dry-run"]
+    print("The plan, from make_policy.py --dry-run on this machine:")
+    result = subprocess.run(command, capture_output=True, text=True)
+    print(textwrap.indent((result.stdout + result.stderr).strip(), "  ") + "\n")
+    if result.returncode != 0:
+        print("  (it couldn't plan here: check the recordings are on this machine before trusting the size)\n")
 
 
 if __name__ == "__main__":

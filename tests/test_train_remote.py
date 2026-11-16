@@ -152,3 +152,56 @@ def test_sync_nonzero_exit_raises(tmp_path, monkeypatch):
     args = train_remote.parse_args(["--version", "v99", "--sync"])
     with pytest.raises(SystemExit, match="exited with code 1"):
         train_remote.cmd_sync(args, FAKE_CFG)
+
+
+# --- the recipe check: a new version keeps the default's datasets (v12, 2026-11-17) ---
+
+def _registry(default_entry):
+    return {"default": "old", "policies": {"old": default_entry}}
+
+
+OLD_NOTES = {"notes": "make_policy.py from mahjong_surfaces_standard_mat_v1 + Yewy/mahjong_surfaces_mat_v1 + "
+                      "Yewy/mahjong_facedown_dagger_v10; 88075 frames, 120000 steps; colour jitter (AUGMENT); "}
+
+
+def test_recipe_gap_reads_a_policy_registered_before_the_datasets_field():
+    reg = _registry(OLD_NOTES)
+    # v12's command: the source and the new recording only
+    default, missing = train_remote.make_policy.recipe_gap(
+        "mahjong_surfaces_standard_mat_v1", ["Yewy/mahjong_facedown_dagger_v11"], reg=reg)
+    assert default == "old"
+    assert missing == ["mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
+
+
+def test_recipe_gap_is_empty_for_the_default_recipe_plus_a_new_recording_with_or_without_the_hub_user():
+    reg = _registry(OLD_NOTES)
+    add = ["mahjong_surfaces_mat_v1", "Yewy/mahjong_facedown_dagger_v10", "Yewy/mahjong_facedown_dagger_v11"]
+    assert train_remote.make_policy.recipe_gap("Yewy/mahjong_surfaces_standard_mat_v1", add, reg=reg)[1] == []
+
+
+def test_recipe_gap_prefers_the_datasets_field_and_honours_leave_out():
+    reg = _registry({"datasets": ["src", "Yewy/a", "Yewy/b"], "notes": "make_policy.py from src; 1 frames"})
+    assert train_remote.make_policy.recipe_gap("src", [], reg=reg)[1] == ["a", "b"]
+    assert train_remote.make_policy.recipe_gap("src", [], leave_out=["Yewy/a"], reg=reg)[1] == ["b"]
+
+
+def test_check_recipe_stops_with_the_flags_to_paste():
+    with pytest.raises(SystemExit) as stopped:
+        train_remote.make_policy.check_recipe("mahjong_surfaces_standard_mat_v1", [], reg=_registry(OLD_NOTES))
+    message = str(stopped.value)
+    assert "--add Yewy/mahjong_surfaces_mat_v1 --add Yewy/mahjong_facedown_dagger_v10" in message
+    assert "--leave-out" in message
+
+
+def test_start_checks_the_recipe_before_it_connects(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "mahjong_surfaces_standard_mat_v1",
+                                      "--version", "v99", "--add", "Yewy/new"])
+    monkeypatch.setattr(train_remote.make_policy, "recipe_gap", lambda *a, **k: ("old", ["missing_set"]))
+    monkeypatch.setattr(train_remote, "load_config", lambda: pytest.fail("connected before checking the recipe"))
+    with pytest.raises(SystemExit, match="missing_set"):
+        train_remote.main()
+
+
+def test_leave_out_is_passed_to_make_policy():
+    parsed = train_remote.parse_args(["--source", "s", "--version", "v99", "--leave-out", "Yewy/old_set"])
+    assert train_remote.make_policy_args(parsed)[-2:] == ["--leave-out", "Yewy/old_set"]

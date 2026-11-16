@@ -74,7 +74,7 @@ not a worktree, or the sessions go when the worktree does.
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
 | Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v11 --policy pickup_mat_cl_v11` (press A on the gamepad to take over) |
 | Show the policy how to recover, from where it went wrong in a bench or face-down run (DAgger) | add `--dagger-dataset Yewy/<new dagger set>` to `bench.py`, `base_cam_collect.py`, `wall_test.py` or `crude_run.py`, and press A on the gamepad when a pickup goes wrong ([below](#taking-over-mid-pickup---dagger-dataset)) |
-| Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
+| Train on the corrections too | `python scripts/make_policy.py --source <default's source> --add <each dataset the default trained on> --add Yewy/<new dagger set> --version <next> --dry-run` (it stops, with the flags to paste, if one of the default's is missing) |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
 | Take photos of tiles for the tile detector (no arm) | `python scripts/capture_frames.py` (`--exam` for exam frames) |
 | Export the frames the detector struggled with, for labelling | `python scripts/mine_frames.py --list` (then drop `--list`) |
@@ -720,28 +720,33 @@ detached (a PowerShell keepawake script suppresses sleep and launches WSL via
 `Win32_Process`, which outlives the SSH session). Connection details go in
 `data/train_machine.json` (gitignored; copy from `data/train_machine.example.json`).
 
-```
-# Check the plan before starting (no connection needed)
-python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
-    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
-    --augment --replace-mat 0.7 --trim-narrowing --private --dry-run
+**A new version is the default's recipe plus the new recording.** List every dataset the default trained on
+(its `notes` in `data/policies.json` start with them) and add the new one. Both scripts stop if the list leaves one of the
+default's out, and print the `--add` flags to paste; `--leave-out REPO` drops one on purpose. v12 (2026-11-17) was
+started from a one-dataset example and trained on 15k frames where v11 had 88k.
 
-# Start training (detaches; prints status/sync commands)
+```
+# Check the plan before starting: the recipe check, then make_policy.py's own dry run here (episodes,
+# frames, steps, and the default's for scale), then the scripts it would upload. No connection.
 python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
-    --version v12 --add Yewy/mahjong_facedown_dagger_v11 \
-    --augment --replace-mat 0.7 --trim-narrowing --private
+    --add Yewy/mahjong_surfaces_mat_v1 --add Yewy/mahjong_mat_pickup_jitter_v3 \
+    --add Yewy/mahjong_wall_dagger_v8 --add Yewy/mahjong_facedown_dagger_v9 \
+    --add Yewy/mahjong_facedown_dagger_v10 --add Yewy/mahjong_facedown_dagger_v11 \
+    --augment --replace-mat 0.7 --private --version v13 --dry-run
+
+# Start training: the same without --dry-run (detaches; prints status/sync commands)
 
 # Check whether a detached run has finished
-python scripts/train_remote.py --status --version v12
+python scripts/train_remote.py --status --version v13
 
-# Sync results back (data/policies.json + data/offline_eval/)
-python scripts/train_remote.py --sync --version v12
-
-# Shut down both machines when training completes
-python scripts/train_remote.py ... --shutdown-train --shutdown-local
+# Sync results back (data/policies.json + data/offline_eval/), then power both machines off
+python scripts/train_remote.py --sync --version v13 --shutdown-train --shutdown-local
 ```
 
-The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--trim-narrowing`,
+`--shutdown-train` when *starting* powers the training machine off as training ends, before anything is
+synced: use it there only when the sync can wait until it's switched on again.
+
+The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--leave-out`, `--trim-narrowing`,
 `--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
 
 After `--sync`, README.md still needs a manual line for the new policy (the fast tests will say if it's

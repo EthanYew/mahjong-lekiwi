@@ -23,6 +23,7 @@ Settle the options before starting: training takes hours, and the dataset name i
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +56,9 @@ def parse_args():
     p.add_argument("--add", action="append", default=[], metavar="REPO",
                    help="another recorded dataset to train on as well (repeatable), e.g. DAgger corrections from "
                         "record.py --policy: only their frames from the takeover on, episodes without one left out")
+    p.add_argument("--leave-out", action="append", default=[], metavar="REPO",
+                   help="a dataset the default policy trained on that this run leaves out on purpose (repeatable); "
+                        "without it, leaving one out stops the run (recipe_gap)")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="also drop the opening gripper narrowing (start episodes at the pre-grasp opening)")
     p.add_argument("--augment", action="store_true",
@@ -80,6 +84,46 @@ def names(args):
             "job": f"act_{base}_{args.version}",
             "output_dir": config.LEROBOT_REPO / "outputs" / "train" / f"{base}_{args.version}",
             "policy_id": args.policy_id or f"pickup_mat_cl_{args.version}"}
+
+
+def trained_on(policy_id, reg):
+    """The recorded datasets a registered policy was built from, as bare names (no Hub user): its `datasets`, or for
+    policies registered before that field, the list its notes start with ("make_policy.py from A + B; ...")."""
+    entry = reg["policies"][policy_id]
+    names = entry.get("datasets")
+    if names is None:
+        found = re.search(r"make_policy\.py from (.*?);", entry.get("notes", ""))
+        names = found.group(1).split(" + ") if found else []
+    return [name.split("/")[-1] for name in names]
+
+
+def recipe_gap(source, add, leave_out=(), reg=None):
+    """(default policy id, the datasets it trained on that source + add leave out and leave_out doesn't name).
+
+    A new version is the default's recipe plus what was recorded since. v12 (2026-11-17) was started from a
+    one-dataset example command: 15k frames and 21k steps where v11 had 88k and 120k, so it couldn't be compared
+    with v11 and was retrained as v13. Nothing had checked the list against the default's."""
+    reg = reg or json.loads(config.POLICIES.read_text())
+    named = {repo.split("/")[-1] for repo in [source, *add, *leave_out]}
+    return reg["default"], [name for name in trained_on(reg["default"], reg) if name not in named]
+
+
+def check_recipe(source, add, leave_out=(), reg=None):
+    """Stop with the flags to paste when the run leaves out a dataset the default trained on."""
+    default, missing = recipe_gap(source, add, leave_out, reg)
+    if missing:
+        flags = " ".join(f"--add {config.HF_USER}/{name}" for name in missing)
+        raise SystemExit(f"The default, {default}, also trained on {', '.join(missing)}, which this run leaves out.\n"
+                         f"  Keep them (a new version is the default's recipe plus the new recordings): {flags}\n"
+                         f"  Or drop one on purpose, and say why in the plan: --leave-out REPO")
+
+
+def default_scale(reg=None):
+    """'<id>: N frames, M steps' for the default, from its registry notes, to set a dry run's numbers against."""
+    reg = reg or json.loads(config.POLICIES.read_text())
+    notes = reg["policies"][reg["default"]].get("notes", "")
+    frames, steps = re.search(r"(\d+) frames", notes), re.search(r"(\d+) steps", notes)
+    return f"{reg['default']}: {frames.group(1) if frames else '?'} frames, {steps.group(1) if steps else '?'} steps"
 
 
 def train_command(n, steps, private, augment=False):
@@ -162,6 +206,8 @@ def evaluate(policy, dataset_repo, hover):
 def main():
     args = parse_args()
     n = names(args)
+    if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
+        check_recipe(args.source, args.add, args.leave_out)
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
@@ -202,6 +248,7 @@ def main():
         print(f"2. build: trims idle + pre-fix sag{' + gripper narrowing' if args.trim_narrowing else ''}, "
               f"~{est} frames kept (estimate)"
               + (f"; the mat swapped in ~{args.replace_mat:.0%} of episodes" if args.replace_mat else "")
+              + f"\n   for scale, the default, {default_scale()}: a new version should be no smaller"
               + f"\n3. verify\n4. upload ({'private' if args.private else 'public'})\n"
               f"5. train {steps} steps (~{steps / 4.6 / 3600:.1f}h at 4.6 steps/s){', colour jitter on' if args.augment else ''}:\n"
               f"   {' '.join(train_command(n, steps, args.private, args.augment))}\n"
@@ -267,6 +314,7 @@ def main():
     print(f"7. register {n['policy_id']}")
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
+                              "datasets": [args.source, *args.add],     # recipe_gap reads it for the next version
                               "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
                                        + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
                                        + ("colour jitter (AUGMENT); " if args.augment else "")
