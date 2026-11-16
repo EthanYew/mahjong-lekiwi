@@ -566,7 +566,7 @@ class Bench:
         # the sim's tiles are where they're detected: the real arm's correction would look ~50mm off them
         hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
         template = self.views.template((x, y))
-        back = perception.is_back(tile)
+        back = self.args.face_down or perception.is_back(tile)    # face down: a back, whatever a scan named it
         result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
@@ -579,7 +579,7 @@ class Bench:
         if result["present"]:
             # a place's picture is taken once a person has seen it, or on a surface the look can judge; a same-view look
             # keeps it, so it can't drift off the tile a little at a time
-            if result.get("by") != "same view" and frame is not None:
+            if result.get("by") not in ("same view", "back shape") and frame is not None:
                 self.views.keep((x, y), wrist_check.view_template(frame))
         elif result["present"] is False:
             self.views.forget((x, y))
@@ -593,8 +593,8 @@ class Bench:
         verdict = {True: "still there (a detection glitch)", False: "not there",
                    None: f"couldn't look ({result.get('why')})"}[result["present"]]
         print(f"  {name}: {verdict}" + (f", face fills {result['fill']:.0%} of the spot" if result["fill"] is not None else
-                                        f", a back in {result['backs_seen']} of {wrist_check.FRAMES} frames" if back
-                                        and "backs_seen" in result else ""))
+                                        f", a back in {result['backs_seen']} of {result['frames']} frames" if "backs_seen" in result
+                                        else ""))
         self.session.event("wrist_check", tile=name, xy=[x, y], scan=scan_n, at_scan=self.scan_n, image=image,
                            policy=self.policy.id, **result)
         return result
@@ -616,8 +616,6 @@ class Bench:
         if box:                     # picked up from where the box is, as a named tile would be
             self.mat.restore(tile)
             return {"tile_name": tile["tile_name"], "xy": tuple(box["xy"]), "confidence": 0.0, "faint": True}
-        if self.args.face_down and not self.sees_backs:     # saved positions: no scan lost it, nothing to look again for
-            return None
         if self.crowded(tile, tiles, self.scan_n):
             return None
         result = self.wrist_look(tile, self.scan_n)

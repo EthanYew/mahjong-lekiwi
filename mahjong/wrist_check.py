@@ -148,14 +148,14 @@ def check(arm, camera, x, y, hover, template=None, back=False):
     of reach, camera lost) or can't tell (a pale surface: "pale" True), "fill": the median face share, "hover_xy"}, and
     "frame" (the last one) to save. `template`: what an earlier look saw here, which is all a pale surface can go on.
     back: the tile lies green side up, so it's looked for by its shape (back_blob) on any surface: "by" "back shape",
-    "backs_seen" the frames that showed one, and no face share."""
+    "backs_seen" of "frames" showed one, and no face share."""
     frames, result = look(arm, camera, x, y, hover)
     if not frames:
         return {"present": None, "fill": None, "why": "out of reach" if result is None else "no wrist frames",
                 "frame": None}
     if back:
         seen = sum(back_blob(f) is not None for f in frames)
-        return {"present": seen * 2 > len(frames), "fill": None, "by": "back shape", "backs_seen": seen,
+        return {"present": seen * 2 > len(frames), "fill": None, "by": "back shape", "backs_seen": seen, "frames": len(frames),
                 "hover_xy": result["hover_xy"], "frame": frames[-1]}
     fill = float(np.median([face_fill(f) for f in frames]))
     if float(np.median([dark_share(f) for f in frames])) < MIN_DARK_SHARE:
