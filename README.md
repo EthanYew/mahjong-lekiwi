@@ -1225,7 +1225,8 @@ tile (play and the name ledger give it no votes). With it, `bench.py --face-down
    Correct the boxes in Roboflow (a back you nudged off its spot; an empty spot that got a box): training frames to the training
    project, the exam to its own. List the exam session in `data/detector_exam.json` as usual.
 3. **Split and train** with the class kept (`--with-backs`; without it the back labels are dropped). The new head has one more
-   class than the live weights; the rest carries over from `--start`.
+   class than the live weights; the rest carries over from `--start`. Face-down frames are split by capture session, a share to valid like the other frames, and
+   `train_detector.py` refuses a split that leaves a class with no training boxes.
    ```
    python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_backs --with-backs
    python scripts/train_detector.py --data data/detector/train_backs/data.yaml --name backs_v1 --dry-run

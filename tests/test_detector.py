@@ -393,3 +393,32 @@ def test_a_back_sample_joins_the_fits_once_the_weights_pass(tmp_path, monkeypatc
     assert bench.back_excluded(back, weights)
     detector.back_centres_path(weights).write_text(json.dumps({"passes": True}))
     assert bench.back_excluded(back, weights) == {}
+
+
+def test_face_down_frames_split_by_session_into_both_splits():
+    import split_by_scene
+    spots = [box(config.BACK, 1, 100 + 40 * i, 200) for i in range(14)]     # every face-down frame: the same 14 spots
+    frames = [{"image": Path(f"2026111{s}_090000_capture__00{n}_capture__f0.jpg"), "boxes": spots + [box("5C", 1, 100, 300)]}
+              for s in range(5) for n in range(1, 4)]
+    frames += [{"image": Path(f"july_{i}.jpg"), "boxes": [box("1B", 1, 50 * i, 50)]} for i in range(10)]
+    split_by_scene.split(frames, valid=0.2)
+    backs = [f for f in frames if split_by_scene.origin_of(f) == "face-down frames"]
+    by_session = {}
+    for f in backs:
+        by_session.setdefault(detector.session_of(f["image"].name), set()).add(f["to"])
+    assert all(len(to) == 1 for to in by_session.values())                   # a session stays on one side
+    assert {f["to"] for f in backs} == {"train", "valid"}                    # ...and backs are on both
+
+
+def test_train_detector_refuses_a_class_with_no_training_boxes(tmp_path):
+    import cv2
+    import train_detector
+    names = detector.TILE_NAMES + [config.BACK]
+    for split, boxes in (("train", [box("1B", 1, 100, 100)]), ("valid", [box(config.BACK, 1, 100, 100)])):
+        (tmp_path / split / "images").mkdir(parents=True)
+        (tmp_path / split / "labels").mkdir(parents=True)
+        cv2.imwrite(str(tmp_path / split / "images" / "a.jpg"), np.zeros((480, 848, 3), np.uint8))
+        (tmp_path / split / "labels" / "a.txt").write_text("\n".join(detector.yolo_lines(boxes, names, (848, 480))))
+    (tmp_path / "data.yaml").write_text(f"nc: {len(names)}\nnames: {names}\n")
+    with pytest.raises(SystemExit, match="No boxes in train for back"):
+        train_detector.main(["--data", str(tmp_path / "data.yaml"), "--name", "x", "--dry-run"])

@@ -8,7 +8,8 @@ same places landed in train and valid (134 of v4's 182 valid frames had a train 
 rose while the detector got worse on the exam, and best.pt was picked on it. This pools every split of
 the export, groups frames into scenes by their labels (detector.scenes), and deals whole scenes to valid
 until it holds --valid of the frames, apart for the July frames and the frames from sessions so both are
-in valid. Roboflow's test split goes into the pool: the exam is the detector's test.
+in valid. Roboflow's test split goes into the pool: the exam is the detector's test. Frames with tile backs are
+a third group, one scene per capture session (frame_scenes): by labels every face-down frame on a layout was one scene.
 
 On the way, labels are made into what train_detector expects: only the 38 tile names (aruco_marker
 and other classes dropped, so the head still matches the live weights; --with-backs keeps `back`, tiles lying
@@ -78,12 +79,34 @@ def two_names_on_a_tile(boxes):
             if detector.iou(a["xyxy"], b["xyxy"]) >= 0.5]
 
 
+def frame_scenes(frames, share=0.6):
+    """A scene for each frame: by labels (detector.scenes) for frames without backs, one per capture session for frames
+    with them. Every face-down frame has a back on each of the layout's spots, and the few tiles left face up sat on the
+    same spots from session to session, so by labels they all made one scene: on 2026-11-16 all 1440 back boxes went to
+    valid with it, and best.pt found no backs. By session, each session's light and surface sit on one side of the split;
+    the same spots are still in both, so valid flatters backs a little, and the exam (sessions of their own) is what
+    judges them."""
+    scenes = detector.scenes([f["boxes"] for f in frames], share)
+    return [("backs", detector.session_of(f["image"].name)) if any(b["tile_name"] == config.BACK for b in f["boxes"])
+            else ("labels", scene) for f, scene in zip(frames, scenes)]
+
+
+ORIGINS = ("July frames", "session frames", "face-down frames")
+
+
+def origin_of(frame):
+    """Which group a frame is dealt in: each gives ~`valid` of its frames to valid, so backs are in both splits."""
+    if any(b["tile_name"] == config.BACK for b in frame["boxes"]):
+        return ORIGINS[2]
+    return ORIGINS[0] if detector.session_of(frame["image"].name) is None else ORIGINS[1]
+
+
 def split(frames, valid=0.2, share=0.6, seed=0):
     """Sets each frame's "scene" and "to" (train/valid); whole scenes, ~`valid` of the frames of each origin."""
-    for f, scene in zip(frames, detector.scenes([f["boxes"] for f in frames], share)):
+    for f, scene in zip(frames, frame_scenes(frames, share)):
         f["scene"], f["to"] = scene, "train"
-    for from_sessions in (False, True):
-        group = [f for f in frames if (detector.session_of(f["image"].name) is not None) == from_sessions]
+    for origin in ORIGINS:
+        group = [f for f in frames if origin_of(f) == origin]
         by_scene = {}
         for f in group:
             by_scene.setdefault(f["scene"], []).append(f)
@@ -131,11 +154,13 @@ def main(argv=None):
             print(f"  left out, exam frame: {f['image'].name}")
         elif clashes[f["image"].name]:
             print(f"  left out, two names on one tile {clashes[f['image'].name]} (fix in Roboflow): {f['image'].name}")
-    for origin, from_sessions in (("July frames", False), ("session frames", True)):
-        group = [f for f in kept if (detector.session_of(f["image"].name) is not None) == from_sessions]
+    for origin in ORIGINS:
+        group = [f for f in kept if origin_of(f) == origin]
+        if not group:
+            continue
         counts = Counter(f["to"] for f in group)
         scenes = {to: len({f["scene"] for f in group if f["to"] == to}) for to in ("train", "valid")}
-        print(f"  {origin:<15} train {counts['train']:>4} frames ({scenes['train']} scenes), "
+        print(f"  {origin:<16} train {counts['train']:>4} frames ({scenes['train']} scenes), "
               f"valid {counts['valid']:>4} frames ({scenes['valid']} scenes)")
     moved = Counter((f["split"], f["to"]) for f in kept)
     print("  from Roboflow's split: " + ", ".join(f"{a}->{b} {n}" for (a, b), n in sorted(moved.items())))
