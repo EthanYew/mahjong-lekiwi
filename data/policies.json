@@ -1,10 +1,11 @@
 {
-  "default": "pickup_mat_cl_v10",
+  "default": "pickup_mat_cl_v11",
   "default_note": {
-    "policy": "pickup_mat_cl_v10",
-    "since": "2026-11-12",
-    "evidence": "Owner's decision, 2026-11-12, taking v10 (v9's data + Yewy/mahjong_facedown_dagger_v9) as the policy to build on for the face-down turn. 20261112_092401_crude: 6 turns of the face-down crude run on v10, 14/14 picks held (station F draws, hand S3, drop zone), one slight bump of a neighbour logged by the owner. 20261112_091817_bench: 1/1 clean on 8D (no layout, surface not recorded). Offline (data/offline_eval/pickup_mat_cl_v10@114000): no freezes on any slice, tilt arm MAE 4.39 vs v9's 5.71. Not checked by docs/scorecard.md: no standard-setup bench session on v10 yet (20261112_092132_bench, v9 vs v10 on even-hand14, was interrupted before any trial), so the iteration and play-ready checks are still owed: bench.py --policy pickup_mat_cl_v8,pickup_mat_cl_v10 --layout even-hand14.",
-    "why": "v10 adds the face-down DAgger data the crude turn needs and held all 14 picks of its first crude run; the bench checks are still owed"
+    "policy": "pickup_mat_cl_v11",
+    "since": "2026-11-16",
+    "evidence": "Owner's decision, 2026-11-16. 20261116_213816_bench: paired v10 vs v11, face-down even-hand14 (backs found by tile_detector@f4392437), standard mat, ceiling light, no daylight, 2 rounds: v11 25/28 clean (95% 72-98%), 26/28 picked; v10 23/28 clean (63-94%), 24/28 picked. Scorecard EXTEND (3-1 clean pairs, p 0.62: no difference shown); gates don't apply to face-down. Benefit the owner names: v11 picked S10 2/2 where v10 went 0/2 (both 16s caps), closed at all 28 attempts (v10 26), median ACT 8.8s vs 10.9s; S8 and S14 1/2 for both. Offline (data/offline_eval/pickup_mat_cl_v11@120000): screen only. Not shown: face-up standard-setup bench, other surfaces.",
+    "why": "v11 adds both face-down DAgger sets and did at least as well as v10 on face-down tiles in the first clean paired run, faster and without v10's S10 misses; the scorecard couldn't separate them at 28 pairs",
+    "at": "20261116_223419"
   },
   "policies": {
     "pickup_mat_cl": {

@@ -16,7 +16,7 @@ paths:
 ---
 Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_notes.md`.
 
-- DAgger (on the default policy; wall picks add `--wall-station F`): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v10`. The policy drives, and a press of A
+- DAgger (on the default policy; wall picks add `--wall-station F`): `record.py --dataset Yewy/<new> --policy pickup_mat_cl_v11`. The policy drives, and a press of A
   (the rightmost face button, `gamepad.TAKEOVER_KEY`) hands you the arm. Training uses only the frames from the takeover on, as deltas from
   the hover: `make_policy.py --source <main> --add <dagger>`. The same from wherever a pickup fails in `bench.py`, `base_cam_collect.py`,
   `wall_test.py` or `crude_run.py`: `--dagger-dataset Yewy/<new>` (`mahjong/takeover.py`; A again saves, Esc throws away; a takeover is a
