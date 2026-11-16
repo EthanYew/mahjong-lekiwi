@@ -402,7 +402,7 @@ def score(images, ignore=()):
     left out: their boxes count for nothing, while another tile called by an ignored name is still a mix-up."""
     tallies = defaultdict(lambda: {"frames": 0, "tiles": 0, "found": 0, "named_right": 0, "missed": 0, "extra": 0,
                                    "mixups": Counter(), "missed_names": Counter(), "labelled": Counter(),
-                                   "extra_names": Counter()})
+                                   "extra_names": Counter(), "face_up_frames": 0, "face_up_false_backs": 0})
     for image in images:
         pairs, missed, extra = match(image["truth"], image["said"])
         if ignore:
@@ -426,6 +426,10 @@ def score(images, ignore=()):
             t["missed_names"].update(b["tile_name"] for b in missed)
             t["labelled"].update(b["tile_name"] for b in truth)
             t["extra_names"].update(b["tile_name"] for b in extra)
+            if not any(b["tile_name"] == config.BACK for b in image["truth"]):     # the false-backs gate's frames
+                t["face_up_frames"] += 1
+                t["face_up_false_backs"] += (sum(b["tile_name"] == config.BACK for b in extra)
+                                             + sum(s["tile_name"] == config.BACK for _, s in pairs))
     return dict(tallies)
 
 
@@ -511,18 +515,19 @@ FALSE_BACKS_PER_FRAME_GATE = 0.2  # face up: at most 1 false back per 5 frames
 def back_numbers(tally):
     """The back gate's two numbers from a tally (score). Backs found: of the labelled backs, how many got a box (`boxed`,
     whatever its name) and how many a box called back (`called_back`, what the gate reads: a back boxed as 5C is a tile
-    with a wrong name). False backs: boxes called back on no tile (`extra`) plus face tiles read as back (`faces_read_as_back`),
-    per frame."""
+    with a wrong name). False backs: boxes called back on no tile (`extra`) plus face tiles read as back (`faces_read_as_back`);
+    the gate's rate is per face-up frame (no back labelled), counting only theirs, since an exam session holds both kinds."""
     labelled = tally["labelled"][config.BACK]
     boxed = labelled - tally["missed_names"][config.BACK]
     called_back = boxed - sum(n for (t, _), n in tally["mixups"].items() if t == config.BACK)
     extra = tally["extra_names"][config.BACK]
     faces_as_back = sum(n for (t, s), n in tally["mixups"].items() if s == config.BACK and t != config.BACK)
-    frames = tally["frames"]
+    face_up = tally["face_up_frames"]
     return {"labelled": labelled, "boxed": boxed, "called_back": called_back,
             "found_rate": called_back / labelled if labelled else None,
             "false": extra + faces_as_back, "extra": extra, "faces_read_as_back": faces_as_back,
-            "false_per_frame": (extra + faces_as_back) / frames if frames else None}
+            "face_up_frames": face_up, "face_up_false": tally["face_up_false_backs"],
+            "false_per_frame": tally["face_up_false_backs"] / face_up if face_up else None}
 
 
 # --- a back's centre against a face's: tiles flipped in place between two scans ---
@@ -561,7 +566,8 @@ def _on_table(centre, size, reads):
 def flips(images):
     """The tiles flipped in place across the exam frames (exam_images): a labelled face in one scan and a labelled back
     within FLIP_RADIUS_PX (in 848x480 pixels, whatever size the export was) in the scan exported just before or after it
-    in the same session, as capture_frames' "scan it face up, then flip it in place" leaves. One frame per scan (its
+    in the same session (scans not exported in between are skipped over: mine_frames exports every scan of an exam
+    session), as capture_frames' "scan it face up, then flip it in place" leaves. One frame per scan (its
     lowest numbered) and each face used once, so a tile counts once. [(face image, face label, back image, back label)]."""
     by_scan = {}
     for image in images:
@@ -656,7 +662,7 @@ def back_centres_path(weights=None, weights_name=None):
     """Where detector_eval.py saves a detector's centre check: by its hash, whatever the file is called, since best.pt is
     checked and then copied to assets/tile_detector.pt."""
     name = weights_name or weights_id(weights)
-    return config.DETECTOR_EVAL / f"weights@{name.split('@')[1]}_back_centres.json"
+    return config.DETECTOR_EVAL / f"weights@{name.rsplit('@', 1)[1]}_back_centres.json"
 
 
 def backs_checked(weights=None, weights_name=None):

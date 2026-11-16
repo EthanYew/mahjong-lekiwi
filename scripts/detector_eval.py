@@ -106,14 +106,15 @@ def report_backs(scores):
     rows = [(g, detector.summary(scores[g])) for g in ["all"] + sorted(g for g in scores if g != "all")]
     if not any(s["backs"]["labelled"] or s["backs"]["false"] for _, s in rows):
         return
-    print(f"  {'backs':<40} {'labelled':>8} {'boxed':>6} {'called back':>11} {'false':>6} {'per frame':>9}")
+    print(f"  {'backs':<40} {'labelled':>8} {'boxed':>6} {'called back':>11} {'false':>6} {'per face-up frame':>9}")
     for group, s in rows:
         b = s["backs"]
         found = (f"{pct(b['found_rate'])} {gate(b['found_rate'] >= BACKS_FOUND_GATE)}" if b["labelled"] else "  -")
-        print(f"  {group:<40} {b['labelled']:>8} {b['boxed']:>6} {found:>11} {b['false']:>6} "
-              f"{b['false_per_frame']:>5.2f} {gate(b['false_per_frame'] <= FALSE_BACKS_PER_FRAME_GATE)}")
+        false = ("  -" if b["false_per_frame"] is None else
+                 f"{b['false_per_frame']:>5.2f} {gate(b['false_per_frame'] <= FALSE_BACKS_PER_FRAME_GATE)}")
+        print(f"  {group:<40} {b['labelled']:>8} {b['boxed']:>6} {found:>11} {b['false']:>6} {false:>9}")
     print(f"    gates: backs called back >= {BACKS_FOUND_GATE:.0%} on face-down frames; false backs (boxes called back on "
-          f"no tile + faces read as back) <= {FALSE_BACKS_PER_FRAME_GATE} per frame on face-up frames")
+          f"no tile + faces read as back) <= {FALSE_BACKS_PER_FRAME_GATE} per face-up frame (no back labelled)")
     f = rows[0][1]["faces"]
     print(f"  faces only: {f['tiles']} tiles, found {pct(f['found_rate']).strip()}, named right "
           f"{pct(f['named_right_rate']).strip()}, right overall {pct(f['right_rate']).strip()}")
@@ -136,12 +137,12 @@ def save_centres(weights, result, exam_dir):
     """Save the centre check, unless one on more tiles from another exam is already saved for these weights: the bench reads
     one file (judging it again by today's gates), and a smaller exam shouldn't quietly replace it. None if it was kept."""
     path = back_centres_path(weights)
-    if path.exists() and json.loads(path.read_text()).get("measured", 0) > result["measured"] \
-            and json.loads(path.read_text()).get("exam_dir") != str(exam_dir):
+    saved = json.loads(path.read_text()) if path.exists() else {}
+    if saved.get("measured", 0) > result["measured"] and saved.get("exam_dir") != str(Path(exam_dir).resolve()):
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"weights": weights_id(weights), "time": datetime.now().isoformat(timespec="seconds"),
-                                "exam_dir": str(exam_dir), **result}, indent=2) + "\n")
+                                "exam_dir": str(Path(exam_dir).resolve()), **result}, indent=2) + "\n")
     return path
 
 

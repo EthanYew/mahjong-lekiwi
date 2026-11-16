@@ -95,12 +95,14 @@ def frame_scenes(frames, share=0.6):
     back boxes went to valid with it, and best.pt found no backs. By session, each session's light and surface sit on one
     side of the split; the same spots are still in both, so valid flatters backs a little, and the exam (sessions of
     their own) is what judges them. A back frame with no session in its name is a scene of its own."""
-    scenes, sessions = detector.scenes([f["boxes"] for f in frames], share), back_sessions(frames)
+    sessions = back_sessions(frames)
+    by_labels = [f for f in frames if not has_back(f) and detector.session_of(f["image"].name) not in sessions]
+    scenes = dict(zip((id(f) for f in by_labels), detector.scenes([f["boxes"] for f in by_labels], share)))
     out = []
-    for f, scene in zip(frames, scenes):
+    for f in frames:
         session = detector.session_of(f["image"].name)
         out.append(("backs", session) if session in sessions else ("frame", f["image"].name) if has_back(f)
-                   else ("labels", str(scene)))
+                   else ("labels", str(scenes[id(f)])))
     return out
 
 

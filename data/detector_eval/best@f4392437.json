@@ -1,6 +1,6 @@
 {
   "weights": "best@f4392437",
-  "time": "2026-11-16T20:37:54",
+  "time": "2026-11-16T20:41:36",
   "exam_sessions": [
     "20261027_172928_capture",
     "20261028_162624_capture",
@@ -103,6 +103,8 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
+        "face_up_frames": 103,
+        "face_up_false": 0,
         "false_per_frame": 0.0
       },
       "faces": {
@@ -163,6 +165,8 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
+        "face_up_frames": 15,
+        "face_up_false": 0,
         "false_per_frame": 0.0
       },
       "faces": {
@@ -230,6 +234,8 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
+        "face_up_frames": 40,
+        "face_up_false": 0,
         "false_per_frame": 0.0
       },
       "faces": {
@@ -269,6 +275,8 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
+        "face_up_frames": 7,
+        "face_up_false": 0,
         "false_per_frame": 0.0
       },
       "faces": {
@@ -337,6 +345,8 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
+        "face_up_frames": 41,
+        "face_up_false": 0,
         "false_per_frame": 0.0
       },
       "faces": {
@@ -376,7 +386,9 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
-        "false_per_frame": 0.0
+        "face_up_frames": 0,
+        "face_up_false": 0,
+        "false_per_frame": null
       },
       "faces": {
         "tiles": 59,
@@ -415,7 +427,9 @@
         "false": 0,
         "extra": 0,
         "faces_read_as_back": 0,
-        "false_per_frame": 0.0
+        "face_up_frames": 0,
+        "face_up_false": 0,
+        "false_per_frame": null
       },
       "faces": {
         "tiles": 14,

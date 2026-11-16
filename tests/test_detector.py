@@ -337,11 +337,13 @@ def test_back_gate_numbers_count_found_backs_and_false_backs():
             box("5C", 0.8, 200, 100),              # boxed, but named as a face: not found as a back
             box(config.BACK, 0.7, 300, 101),       # a face read as back
             box(config.BACK, 0.6, 500, 400)]       # a back on no tile
-    s = detector.summary(detector.score([{"truth": truth, "said": said}])["all"])
+    face_up = {"truth": [box("5C", 1, 300, 100)], "said": [box(config.BACK, 0.7, 300, 101)]}     # one false back
+    s = detector.summary(detector.score([{"truth": truth, "said": said}, face_up, {"truth": [], "said": []}])["all"])
     assert {k: s["backs"][k] for k in ("labelled", "boxed", "called_back", "false", "extra", "faces_read_as_back")} == \
-        {"labelled": 2, "boxed": 2, "called_back": 1, "false": 2, "extra": 1, "faces_read_as_back": 1}
-    assert s["backs"]["found_rate"] == 0.5 and s["backs"]["false_per_frame"] == 2.0
-    assert (s["faces"]["tiles"], s["faces"]["found"], s["faces"]["named_right"]) == (1, 1, 0)
+        {"labelled": 2, "boxed": 2, "called_back": 1, "false": 3, "extra": 1, "faces_read_as_back": 2}
+    # the gate's rate counts only the face-up frames (no back labelled): 1 false back in 2, not 3 in 3
+    assert s["backs"]["found_rate"] == 0.5 and s["backs"]["face_up_frames"] == 2 and s["backs"]["false_per_frame"] == 0.5
+    assert (s["faces"]["tiles"], s["faces"]["found"], s["faces"]["named_right"]) == (2, 2, 0)
 
 
 # a camera 0.5m over the table looking straight down: 1px is ~0.8mm at the tile tops
