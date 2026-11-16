@@ -30,6 +30,7 @@ Dry-run to see what would be generated without connecting:
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import textwrap
@@ -343,19 +344,17 @@ def cmd_sync(args, cfg):
     if f"`{policy_id}`" not in readme:
         print(f"\nREADME.md does not yet name `{policy_id}`.")
         entry = remote_reg["policies"][policy_id]
-        notes = entry.get("notes", "")
-        # Pull key facts from the notes string for the README line
-        import re
-        frames = re.search(r"(\d+) frames", notes)
-        steps = re.search(r"(\d+) steps", notes)
-        datasets = re.search(r"make_policy\.py from ([^;]+)", notes)
+        datasets, (frames, steps) = entry.get("datasets"), recipe.scale_of(entry)
+        if datasets is None:        # registered before the field: the notes' list, as written
+            found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
+            datasets = found.group(1).split(" + ") if found else None
         hint = []
         if datasets:
-            hint.append(f"data: {datasets.group(1)}")
+            hint.append(f"data: {' + '.join(datasets)}")
         if frames:
-            hint.append(f"{frames.group(1)} frames")
+            hint.append(f"{frames} frames")
         if steps:
-            hint.append(f"{steps.group(1)} steps")
+            hint.append(f"{steps} steps")
         hint.append(f"trained {time.strftime('%Y-%m-%d')}")
         print("Add this to the policies list in README.md (then run the fast tests):")
         print(f"  `{policy_id}` ({'; '.join(hint)}),")
@@ -416,7 +415,8 @@ def parse_args(argv=None):
     p.add_argument("--shutdown-local", action="store_true",
                    help="shut down this machine after the sync step completes")
     p.add_argument("--dry-run", action="store_true",
-                   help="print the scripts that would be generated and uploaded; do not connect")
+                   help="print the plan and the scripts it would upload; no connection to the training machine "
+                        "(it fetches origin/main from GitHub to check the default)")
 
     return p.parse_args(argv)
 
@@ -443,24 +443,21 @@ def main():
     # checkout's default has to be main's, or the two checks would disagree (and the PC's would stop the run hours
     # later, in a detached log). The dry run adds the plan with its frame and step counts: the scripts alone don't
     # show a run's size, and v12 was started from them at a sixth of v11's frames.
-    here, mains = recipe.registry(), mains_registry()
+    here, mains = recipe.registry(), mains_registry()     # mains_registry fetches from GitHub, not the PC
     if mains is None:
         print("Warning: couldn't read origin/main's data/policies.json; the PC checks the recipe against it.")
     elif (message := recipe.default_mismatch(here, mains)):
         if not args.dry_run:
             raise SystemExit(message)
         print(f"Warning: {message}")
-    if args.dry_run:
-        local_plan(args)        # make_policy's dry run runs the recipe check itself
-        cmd_start(args, cfg=None)
-    else:
-        recipe.check(here, args.source, args.add, args.leave_out,
-                     recipe.options(args.augment, args.replace_mat, args.trim_narrowing))
-        cmd_start(args, load_config())
+    # make_policy's dry run runs the recipe check itself, and shows the size and catches a misspelt --add: every
+    # start gets it, not only the ones that were dry-run first (v12 wasn't checked against anything)
+    local_plan(args)
     if args.shutdown_train:
-        print("\nNote: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
+        print("Note: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
               "To copy the results back and then power it off, start without it and run "
-              f"--sync --version {args.version} --shutdown-train when it's done.")
+              f"--sync --version {args.version} --shutdown-train when it's done.\n")
+    cmd_start(args, cfg=None if args.dry_run else load_config())
 
 
 def mains_registry():
@@ -471,9 +468,9 @@ def mains_registry():
         if fetched.returncode != 0:
             print("Warning: git fetch failed, so origin/main may be out of date: the PC fetches it before training.")
         shown = subprocess.run(["git", "show", "origin/main:data/policies.json"], cwd=repo, capture_output=True, text=True)
-    except (OSError, subprocess.TimeoutExpired):
+        return json.loads(shown.stdout) if shown.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return None
-    return json.loads(shown.stdout) if shown.returncode == 0 else None
 
 
 def local_plan(args, run=subprocess.run):

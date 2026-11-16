@@ -19,7 +19,7 @@ def registry(entry):
 def test_v12s_command_misses_the_datasets_v11_was_registered_with():
     result = recipe.review(registry({"notes": V11_NOTES}), "mahjong_surfaces_standard_mat_v1",
                            ["Yewy/mahjong_facedown_dagger_v11"])
-    assert result.missing == ["mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
+    assert result.missing == ["Yewy/mahjong_surfaces_mat_v1", "Yewy/mahjong_facedown_dagger_v10"]   # as registered
     assert "--add Yewy/mahjong_surfaces_mat_v1 --add Yewy/mahjong_facedown_dagger_v10" in result.stop_message()
 
 
@@ -31,8 +31,27 @@ def test_the_defaults_datasets_plus_a_new_one_pass_with_or_without_the_hub_user(
 
 def test_the_datasets_field_wins_over_the_notes_and_leave_out_drops_one():
     reg = registry({"datasets": ["src", "Yewy/a", "Yewy/b"], "notes": "make_policy.py from src; 1 frames"})
-    assert recipe.review(reg, "src").missing == ["a", "b"]
-    assert recipe.review(reg, "src", leave_out=["Yewy/a"]).missing == ["b"]
+    assert recipe.review(reg, "src").missing == ["Yewy/a", "Yewy/b"]
+    assert recipe.review(reg, "src", leave_out=["a"]).missing == ["Yewy/b"]
+
+
+def test_a_missing_local_source_is_pasted_as_registered_not_under_the_hub_user():
+    # v11's source is a local recording: `Yewy/mahjong_surfaces_standard_mat_v1` would be another dataset
+    result = recipe.review(registry({"notes": V11_NOTES}), "Yewy/new",
+                           ["Yewy/mahjong_surfaces_mat_v1", "Yewy/mahjong_facedown_dagger_v10"])
+    assert "--add mahjong_surfaces_standard_mat_v1" in result.stop_message()
+    assert "Yewy/mahjong_surfaces_standard_mat_v1" not in result.stop_message()
+
+
+def test_a_new_source_warns_since_it_sets_the_hover_and_the_name():
+    add = ["mahjong_surfaces_standard_mat_v1", "mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
+    result = recipe.review(registry({"notes": V11_NOTES}), "Yewy/new_dagger", add)
+    assert result.missing == [] and any(w.startswith("--source Yewy/new_dagger") for w in result.warnings)
+
+
+def test_a_dataset_in_both_add_and_leave_out_warns_that_it_is_still_trained_on():
+    result = recipe.review(registry({"datasets": ["src", "Yewy/a"]}), "src", ["Yewy/a"], leave_out=["Yewy/a"])
+    assert any("both --add and --leave-out" in w for w in result.warnings)
 
 
 def test_notes_without_a_semicolon_after_the_list_still_read():

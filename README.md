@@ -688,7 +688,8 @@ python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 -
 
 (v3 was the first. A later version starts from the default's datasets and options, listed in its `data/policies.json`
 entry, plus the new recording: the script stops if one of the default's datasets is missing, prints the `--add` flags,
-and warns when `--augment`, `--replace-mat` or `--trim-narrowing` differ from the default's. `--leave-out REPO` drops one on purpose.)
+and warns when `--augment` or `--replace-mat` differ from the default's (`--trim-narrowing` too, for a default
+registered since 2026-11-17: older notes never recorded it). `--leave-out REPO` drops one on purpose.)
 
 | Option | What it does |
 |---|---|
@@ -730,8 +731,8 @@ default's out, and print the `--add` flags to paste; `--leave-out REPO` drops on
 started from a one-dataset example and trained on 15k frames where v11 had 88k.
 
 ```
-# Check the plan before starting: the recipe check, then make_policy.py's own dry run here (episodes,
-# frames, steps, and the default's for scale), then the scripts it would upload. No connection.
+# Check the plan before starting: make_policy.py's own dry run here (the recipe check, episodes, frames,
+# steps, and the default's for scale), then the scripts it would upload. No connection to the training machine.
 python scripts/train_remote.py --source <the default's source> --add Yewy/<each dataset it added> \
     --add Yewy/<the new recording> <the default's options, e.g. --augment --replace-mat 0.7> \
     --private --version vN --dry-run
@@ -745,7 +746,8 @@ python scripts/train_remote.py --status --version vN
 python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 ```
 
-Both scripts warn when `--augment` or `--replace-mat` differ from what the default's notes say it used, and
+Both scripts warn when `--augment` or `--replace-mat` differ from what the default used (and `--trim-narrowing`,
+once the default was registered with its options), and
 `train_remote.py` stops if this checkout's default isn't `origin/main`'s (the PC trains from main).
 
 `--shutdown-train` when *starting* powers the training machine off as training ends, before anything is

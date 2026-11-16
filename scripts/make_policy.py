@@ -170,8 +170,9 @@ def evaluate(policy, dataset_repo, hover):
 def main():
     args = parse_args()
     n = names(args)
+    reg = recipe.registry()
     if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
-        recipe.check(recipe.registry(), args.source, args.add, args.leave_out, run_options(args))
+        recipe.check(reg, args.source, args.add, args.leave_out, run_options(args))
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
@@ -212,7 +213,7 @@ def main():
         print(f"2. build: trims idle + pre-fix sag{' + gripper narrowing' if args.trim_narrowing else ''}, "
               f"~{est} frames kept (estimate)"
               + (f"; the mat swapped in ~{args.replace_mat:.0%} of episodes" if args.replace_mat else "")
-              + f"\n   for scale, the default, {recipe.scale(recipe.registry())}: a new version should be no smaller"
+              + f"\n   for scale, the default, {recipe.scale(reg)}: a new version should be no smaller"
               + f"\n3. verify\n4. upload ({'private' if args.private else 'public'})\n"
               f"5. train {steps} steps (~{steps / 4.6 / 3600:.1f}h at 4.6 steps/s){', colour jitter on' if args.augment else ''}:\n"
               f"   {' '.join(train_command(n, steps, args.private, args.augment))}\n"

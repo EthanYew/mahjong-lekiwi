@@ -28,15 +28,22 @@ def bare(repo):
     return repo.split("/")[-1]
 
 
-def trained_on(entry):
-    """The datasets a registered policy was built from, as bare names; None when the entry doesn't say."""
+def registered_datasets(entry):
+    """The datasets a registered policy was built from, as written (source first: a local recording has no Hub user,
+    so `Yewy/` can't be put back on); None when the entry doesn't say."""
     names = entry.get("datasets")
     if names is None:
         found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
         if not found:
             return None
         names = found.group(1).split(" + ")
-    return [bare(name) for name in names]
+    return names
+
+
+def trained_on(entry):
+    """registered_datasets() as bare names, to compare with a run's."""
+    names = registered_datasets(entry)
+    return None if names is None else [bare(name) for name in names]
 
 
 def options_of(entry):
@@ -64,14 +71,15 @@ def scale_of(entry):
 @dataclass
 class Review:
     default: str
-    missing: list | None            # the default's datasets this run leaves out; None: its recipe can't be read
+    missing: list | None            # the default's datasets this run leaves out, as registered; None: can't be read
     warnings: list = field(default_factory=list)
 
     def stop_message(self):
         if not self.missing:
             return None
-        flags = " ".join(f"--add {config.HF_USER}/{name}" for name in self.missing)
-        return (f"The default, {self.default}, also trained on {', '.join(self.missing)}, which this run leaves out.\n"
+        flags = " ".join(f"--add {name}" for name in self.missing)
+        return (f"The default, {self.default}, also trained on {', '.join(map(bare, self.missing))}, which this run "
+                f"leaves out.\n"
                 f"  Keep them (a new version is the default's recipe plus the new recordings): {flags}\n"
                 f"  Or drop one on purpose, and say why in the plan: --leave-out REPO")
 
@@ -80,9 +88,15 @@ def review(reg, source, add=(), leave_out=(), run_options=None):
     """This run (source + add, minus leave_out on purpose, with run_options) against the registry's default."""
     default = reg["default"]
     entry = reg["policies"][default]
-    theirs = trained_on(entry)
+    registered = registered_datasets(entry)
+    theirs = None if registered is None else [bare(name) for name in registered]
     named = {bare(repo) for repo in [source, *add, *leave_out]}
-    result = Review(default, None if theirs is None else [name for name in theirs if name not in named])
+    result = Review(default, None if registered is None else [name for name in registered if bare(name) not in named])
+    if theirs and bare(source) != theirs[0]:
+        result.warnings.append(f"--source {source}: the default's was {registered[0]}, and the source sets the hover "
+                               f"policies start from and the dataset's name: keep it, and --add the new recording")
+    result.warnings += [f"{repo} is in both --add and --leave-out: --leave-out only acknowledges a dataset left out, "
+                        f"so it's trained on" for repo in leave_out if bare(repo) in {bare(r) for r in add}]
     if theirs is None:
         result.warnings.append(f"can't tell which datasets the default, {default}, trained on (no `datasets` in "
                                f"data/policies.json, and its notes don't start 'make_policy.py from'): check this "

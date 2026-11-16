@@ -180,26 +180,31 @@ def _start(monkeypatch, argv, here=V11, mains=V11):
     return calls
 
 
-def test_a_start_missing_one_of_the_defaults_datasets_stops_before_it_connects(monkeypatch):
-    with pytest.raises(SystemExit, match="--add Yewy/a"):
-        _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/new"])
+def test_every_start_plans_here_first_and_a_failed_plan_connects_nothing(monkeypatch):
+    # the plan is make_policy's own dry run: the recipe check, the size, a misspelt --add. A start that skipped
+    # the dry run (v12's) gets it too.
+    assert _start(monkeypatch, ["--source", "src", "--version", "v99"]) == ["plan", ("start", FAKE_CFG)]
+    assert _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"]) == ["plan", ("start", None)]
+
+    def failed_plan(args):
+        raise SystemExit("make_policy.py couldn't plan this run here")
+    monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "src", "--version", "v99"])
+    monkeypatch.setattr(train_remote, "local_plan", failed_plan)
+    monkeypatch.setattr(train_remote, "load_config", lambda: pytest.fail("connected after a failed plan"))
+    with pytest.raises(SystemExit, match="couldn't plan"):
+        train_remote.main()
 
 
-def test_a_start_with_the_defaults_datasets_goes_ahead(monkeypatch):
-    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/a", "--add", "Yewy/new"])
-    assert calls == [("start", FAKE_CFG)]
-
-
-def test_the_dry_run_plans_here_and_leaves_the_check_to_make_policys_own(monkeypatch):
-    # make_policy --dry-run runs the check inside the plan: checking here too printed every warning twice
-    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"])
-    assert calls == ["plan", ("start", None)]
+def test_the_shutdown_train_note_comes_before_the_run_starts(monkeypatch, capsys):
+    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--shutdown-train"])
+    assert calls == ["plan", ("start", FAKE_CFG)]
+    assert "--sync --version v99 --shutdown-train" in capsys.readouterr().out
 
 
 def test_a_default_that_isnt_mains_stops_a_start_and_warns_a_dry_run(monkeypatch, capsys):
     newer = {"default": "newer", "policies": {"newer": {"datasets": ["src"]}}}
     with pytest.raises(SystemExit, match="origin/main's is newer"):
-        _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/a"], mains=newer)
+        _start(monkeypatch, ["--source", "src", "--version", "v99"], mains=newer)
     _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"], mains=newer)
     assert "origin/main's is newer" in capsys.readouterr().out
 
