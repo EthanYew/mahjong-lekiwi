@@ -1,14 +1,11 @@
 {
   "weights": "best@f4392437",
-  "time": "2026-11-16T20:34:01",
+  "time": "2026-11-16T20:37:54",
   "exam_dir": "/home/ethanYew/Projects/mahjong-lekiwi/data/detector/rf_exam_v9",
   "flips": 50,
   "measured": 49,
   "not_boxed_both_ways": 1,
   "no_camera": 0,
-  "gate_mm": 2.0,
-  "spread_gate_mm": 4.0,
-  "min_pairs": 8,
   "pairs": [
     {
       "frame": "20261116_103337_capture__001_capture__f0",
@@ -360,6 +357,11 @@
   "p90_dist_mm": 11.251134302897851,
   "label_median_dx_mm": 0.08474670604433077,
   "label_median_dy_mm": -0.2822637564601771,
+  "less_hand_median_dx_mm": -0.7692012603766893,
+  "less_hand_median_dy_mm": 0.478215165392315,
   "p90_spread_mm": 2.8947305750235577,
-  "passes": true
+  "passes": true,
+  "gate_mm": 2.0,
+  "spread_gate_mm": 4.0,
+  "min_pairs": 8
 }

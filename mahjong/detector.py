@@ -536,21 +536,19 @@ CENTRE_SPREAD_M = 0.004       # and 90% of tiles within this, once the hand's ow
 
 
 def scan_of(filename):
-    """(session, scan number) of an exported frame (<session>__<NNN_label>__f<i>), or None."""
+    """(session, scan folder, frame number) of an exported frame (<session>__<NNN_label>__f<i>), or None."""
     parts = original_name(filename).split(SEP)
-    if len(parts) != 3 or not parts[1][:3].isdigit():
+    if len(parts) != 3 or not parts[1][:3].isdigit() or not parts[2][1:].isdigit():
         return None
-    return parts[0], int(parts[1][:3])
+    return parts[0], parts[1], int(parts[2][1:])
 
 
 def _scan_camera(session, scan_folder, sessions_dir):
-    path = Path(sessions_dir) / session / "scans" / scan_folder / "reads.json"
-    if not path.exists():
+    folder = Path(sessions_dir) / session / "scans" / scan_folder
+    if not (folder / "reads.json").exists():
         return None
-    reads = json.loads(path.read_text())
-    if "intrinsics" not in reads or "T_cam_to_base" not in reads:
-        return None
-    return reads
+    reads = load_reads(folder)
+    return reads if "intrinsics" in reads and "T_cam_to_base" in reads else None
 
 
 def _on_table(centre, size, reads):
@@ -562,31 +560,36 @@ def _on_table(centre, size, reads):
 
 def flips(images):
     """The tiles flipped in place across the exam frames (exam_images): a labelled face in one scan and a labelled back
-    within FLIP_RADIUS_PX (in 848x480 pixels, whatever size the export was) in the next or previous scan of the same
-    session, as capture_frames' "scan it face up, then flip it in place" leaves. One frame per scan (its first exported) and
-    each face used once, so a tile counts once. [(face image, face label, back image, back label)]."""
+    within FLIP_RADIUS_PX (in 848x480 pixels, whatever size the export was) in the scan exported just before or after it
+    in the same session, as capture_frames' "scan it face up, then flip it in place" leaves. One frame per scan (its
+    lowest numbered) and each face used once, so a tile counts once. [(face image, face label, back image, back label)]."""
     by_scan = {}
-    for image in sorted(images, key=lambda i: original_name(i["frame"])):
+    for image in images:
         key = scan_of(image["frame"])
-        if key and key not in by_scan:
-            by_scan[key] = image
+        if key and ((key[0], key[1]) not in by_scan or key[2] < scan_of(by_scan[key[:2]]["frame"])[2]):
+            by_scan[key[:2]] = image
+    order = defaultdict(list)
+    for session, scan in sorted(by_scan):
+        order[session].append(scan)
 
     def native(image, xyxy):
         (cx, cy), (w, h) = _centre(xyxy), image["size"]
         return cx * NATIVE_SIZE[0] / w, cy * NATIVE_SIZE[1] / h
 
     out, used = [], set()
-    for (session, n), back_image in sorted(by_scan.items()):
-        for back in (t for t in back_image["truth"] if t["tile_name"] == config.BACK):
-            bc = native(back_image, back["xyxy"])
-            near = [(np.hypot(*np.subtract(native(by_scan[(session, m)], t["xyxy"]), bc)), (session, m), k)
-                    for m in (n - 1, n + 1) if (session, m) in by_scan
-                    for k, t in enumerate(by_scan[(session, m)]["truth"]) if t["tile_name"] != config.BACK]
-            near = [x for x in near if x[0] <= FLIP_RADIUS_PX and x[1:] not in used]
-            if near:
-                _, scan, k = min(near, key=lambda x: x[0])
-                used.add((scan, k))
-                out.append((by_scan[scan], by_scan[scan]["truth"][k], back_image, back))
+    for session, scans in order.items():
+        for i, scan in enumerate(scans):
+            back_image = by_scan[(session, scan)]
+            neighbours = [(session, scans[j]) for j in (i - 1, i + 1) if 0 <= j < len(scans)]
+            for back in (t for t in back_image["truth"] if t["tile_name"] == config.BACK):
+                bc = native(back_image, back["xyxy"])
+                near = [(np.hypot(*np.subtract(native(by_scan[key], t["xyxy"]), bc)), key, k) for key in neighbours
+                        for k, t in enumerate(by_scan[key]["truth"]) if t["tile_name"] != config.BACK]
+                near = [x for x in near if x[0] <= FLIP_RADIUS_PX and x[1:] not in used]
+                if near:
+                    _, key, k = min(near, key=lambda x: x[0])
+                    used.add((key, k))
+                    out.append((by_scan[key], by_scan[key]["truth"][k], back_image, back))
     return out
 
 
@@ -595,22 +598,23 @@ def back_centres(images, sessions_dir=None):
     hover and return models are fitted from face detections, so a back sample joins them only if the two agree. For each
     flipped tile the detector boxed both ways (a box called back on the back, any face name on the face), the offset of its
     back box's centre from its face box's on the tile-top plane, through the scan's own camera (reads.json under
-    sessions_dir), in mm. The hand moves a tile a little as it flips it, so the bias is read as the median: within
-    CENTRE_GATE_M along x and along y, over at least CENTRE_MIN_PAIRS tiles. The scatter is read with the hand's move (the
-    labels' own offset) taken out of each tile: 90% within CENTRE_SPREAD_M. Pairs without a saved camera are counted and
-    left out."""
+    sessions_dir), in mm, and the same offset less the hand's own move as it flipped the tile (the labels' offset).
+    centre_verdict reads them. Pairs without a saved camera are counted and left out."""
     sessions_dir = Path(sessions_dir or config.SESSIONS)
     pairs, measured, no_camera, unboxed = flips(images), [], 0, 0
+    matched = {}
+
+    def said_for(image, label, back):
+        if id(image) not in matched:
+            matched[id(image)] = match(image["truth"], image["said"])[0]
+        return next((s for t, s in matched[id(image)] if t is label and (s["tile_name"] == config.BACK) == back), None)
+
     for face_image, face, back_image, back in pairs:
-        said_face = next((s for t, s in match(face_image["truth"], face_image["said"])[0]
-                          if t is face and s["tile_name"] != config.BACK), None)
-        said_back = next((s for t, s in match(back_image["truth"], back_image["said"])[0]
-                          if t is back and s["tile_name"] == config.BACK), None)
+        said_face, said_back = said_for(face_image, face, False), said_for(back_image, back, True)
         if said_face is None or said_back is None:
             unboxed += 1
             continue
-        (fs, fscan), (bs, bscan) = (original_name(i["frame"]).split(SEP)[:2] for i in (face_image, back_image))
-        face_reads, back_reads = _scan_camera(fs, fscan, sessions_dir), _scan_camera(bs, bscan, sessions_dir)
+        face_reads, back_reads = (_scan_camera(*scan_of(i["frame"])[:2], sessions_dir) for i in (face_image, back_image))
         if face_reads is None or back_reads is None:
             no_camera += 1
             continue
@@ -622,32 +626,45 @@ def back_centres(images, sessions_dir=None):
                          "dy_mm": float(model[1] * 1000), "label_dx_mm": float(labels[0] * 1000),
                          "label_dy_mm": float(labels[1] * 1000)})
     out = {"flips": len(pairs), "measured": len(measured), "not_boxed_both_ways": unboxed, "no_camera": no_camera,
-           "gate_mm": CENTRE_GATE_M * 1000, "spread_gate_mm": CENTRE_SPREAD_M * 1000, "min_pairs": CENTRE_MIN_PAIRS,
            "pairs": measured}
     if measured:
         dx, dy = (np.array([m[k] for m in measured]) for k in ("dx_mm", "dy_mm"))
-        dist = np.hypot(dx, dy)
+        hx, hy = (np.array([m[k] - m["label_" + k] for m in measured]) for k in ("dx_mm", "dy_mm"))
         out.update({"median_dx_mm": float(np.median(dx)), "median_dy_mm": float(np.median(dy)),
-                    "median_dist_mm": float(np.median(dist)), "p90_dist_mm": float(np.percentile(dist, 90)),
+                    "median_dist_mm": float(np.median(np.hypot(dx, dy))),
+                    "p90_dist_mm": float(np.percentile(np.hypot(dx, dy), 90)),
                     "label_median_dx_mm": float(np.median([m["label_dx_mm"] for m in measured])),
                     "label_median_dy_mm": float(np.median([m["label_dy_mm"] for m in measured])),
-                    "p90_spread_mm": float(np.percentile([np.hypot(m["dx_mm"] - m["label_dx_mm"],
-                                                                    m["dy_mm"] - m["label_dy_mm"]) for m in measured], 90))})
-    out["passes"] = bool(len(measured) >= CENTRE_MIN_PAIRS
-                         and abs(out["median_dx_mm"]) <= CENTRE_GATE_M * 1000
-                         and abs(out["median_dy_mm"]) <= CENTRE_GATE_M * 1000
-                         and out["p90_spread_mm"] <= CENTRE_SPREAD_M * 1000)
-    return out
+                    "less_hand_median_dx_mm": float(np.median(hx)), "less_hand_median_dy_mm": float(np.median(hy)),
+                    "p90_spread_mm": float(np.percentile(np.hypot(hx, hy), 90))})
+    return {**out, **centre_verdict(out)}
 
 
-def back_centres_path(weights=None):
-    return config.DETECTOR_EVAL / f"{weights_id(weights)}_back_centres.json"
+def centre_verdict(result):
+    """The centre check's verdict on back_centres' numbers, by today's gates: at least CENTRE_MIN_PAIRS tiles; the median
+    offset within CENTRE_GATE_M along x and y both as seen and less the hand's move (a hand that nudged every tile one way
+    would otherwise hide a detector's bias, or fail a good one); 90% of tiles within CENTRE_SPREAD_M less the hand's move.
+    Read again whenever a saved check is used, so a check saved under older gates is judged by these."""
+    gate, spread = CENTRE_GATE_M * 1000, CENTRE_SPREAD_M * 1000
+    medians = [result.get(k) for k in ("median_dx_mm", "median_dy_mm", "less_hand_median_dx_mm", "less_hand_median_dy_mm")]
+    passes = (result.get("measured", 0) >= CENTRE_MIN_PAIRS and None not in medians
+              and all(abs(m) <= gate for m in medians) and result.get("p90_spread_mm", np.inf) <= spread)
+    return {"passes": bool(passes), "gate_mm": gate, "spread_gate_mm": spread, "min_pairs": CENTRE_MIN_PAIRS}
 
 
-def backs_checked(weights=None):
-    """Whether these weights' back centres passed the check against face centres (back_centres, saved by
-    detector_eval.py): only then do hover and return samples from a back join the fits."""
-    path = back_centres_path(weights)
-    if weights_id(weights) is None or not path.exists():
+def back_centres_path(weights=None, weights_name=None):
+    """Where detector_eval.py saves a detector's centre check: by its hash, whatever the file is called, since best.pt is
+    checked and then copied to assets/tile_detector.pt."""
+    name = weights_name or weights_id(weights)
+    return config.DETECTOR_EVAL / f"weights@{name.split('@')[1]}_back_centres.json"
+
+
+def backs_checked(weights=None, weights_name=None):
+    """Whether these weights' back centres pass the check against face centres (back_centres, saved by detector_eval.py,
+    judged again by centre_verdict): only then do hover and return samples from a back join the fits. weights_name: the
+    weights' id when the caller has it (it hashes the file)."""
+    name = weights_name or weights_id(weights)
+    if name is None or not back_centres_path(weights_name=name).exists():
         return False
-    return bool(json.loads(path.read_text()).get("passes"))
+    return centre_verdict(json.loads(back_centres_path(weights_name=name).read_text()))["passes"]
+

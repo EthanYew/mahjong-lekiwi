@@ -24,7 +24,7 @@ face-down exam), and false backs, boxes called back on no tile plus face tiles r
 per 5 frames, on the face-up exam). "faces" scores the face tiles alone, so weights without the class compare fairly on
 names. And where a tile was scanned face up and then flipped in place, a scan apart, the offset of its back box's
 centre from its face box's, in mm on the table (detector.back_centres): the bench keeps face-down hover and return
-samples out of the fits until a detector passes it, saved to data/detector_eval/<weights>@<hash>_back_centres.json.
+samples out of the fits until a detector passes it, saved to data/detector_eval/weights@<hash>_back_centres.json.
 
 Ship new weights only if they beat the current ones on the same exam: copy best.pt to
 assets/tile_detector.pt and commit it, with these numbers in the message.
@@ -126,16 +126,18 @@ def report_centres(result):
         print(f"    back minus face, median: x {result['median_dx_mm']:+.1f}mm, y {result['median_dy_mm']:+.1f}mm "
               f"(distance median {result['median_dist_mm']:.1f}, 90th {result['p90_dist_mm']:.1f}mm); the hand moved them "
               f"x {result['label_median_dx_mm']:+.1f}, y {result['label_median_dy_mm']:+.1f}mm by the labels; less the hand's "
-              f"move, 90% of tiles within {result['p90_spread_mm']:.1f}mm")
-    print(f"    {gate(result['passes'])}: median within {result['gate_mm']:.0f}mm along x and y, 90% within "
+              f"move, median x {result['less_hand_median_dx_mm']:+.1f}, y {result['less_hand_median_dy_mm']:+.1f}mm and 90% "
+              f"of tiles within {result['p90_spread_mm']:.1f}mm")
+    print(f"    {gate(result['passes'])}: medians within {result['gate_mm']:.0f}mm along x and y (as seen and less the hand), 90% within "
           f"{result['spread_gate_mm']:.0f}mm less the hand's move, over at least {result['min_pairs']} tiles")
 
 
 def save_centres(weights, result, exam_dir):
-    """Save the centre check, unless one on more tiles is already saved for these weights: the bench reads one file, and a
-    smaller exam (or a different one) shouldn't quietly replace it. None if it was kept."""
+    """Save the centre check, unless one on more tiles from another exam is already saved for these weights: the bench reads
+    one file (judging it again by today's gates), and a smaller exam shouldn't quietly replace it. None if it was kept."""
     path = back_centres_path(weights)
-    if path.exists() and json.loads(path.read_text()).get("measured", 0) > result["measured"]:
+    if path.exists() and json.loads(path.read_text()).get("measured", 0) > result["measured"] \
+            and json.loads(path.read_text()).get("exam_dir") != str(exam_dir):
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"weights": weights_id(weights), "time": datetime.now().isoformat(timespec="seconds"),
@@ -185,7 +187,10 @@ def main(argv=None):
                 print(f"  saved {saved}" if saved else f"  kept the saved check, on more tiles: {back_centres_path(weights)}")
     if args.against:
         new, old = faces[args.weights], faces[args.against]
-        ok = (new["right_rate"] or 0) >= (old["right_rate"] or 0)
+        if new["right_rate"] is None or old["right_rate"] is None:
+            print("\nFace tiles: none labelled on these frames, so nothing to compare names on")
+            return
+        ok = new["right_rate"] >= old["right_rate"]
         print(f"\nFace tiles, right overall: {pct(new['right_rate']).strip()} against {pct(old['right_rate']).strip()} "
               f"({gate(ok)}: no worse than {weights_id(args.against)})")
 

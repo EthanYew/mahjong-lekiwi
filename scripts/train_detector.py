@@ -60,7 +60,7 @@ def check(data_yaml, exam=None):
             for line in label.read_text().splitlines():
                 if line.split():
                     classes[names[int(line.split()[0])]] += 1
-                    train_classes[names[int(line.split()[0])]] += split == "train"
+                    train_classes[names[int(line.split()[0])]] += split in ("train", "(none)")   # no split folders: all train
                     boxes_per_split[split] += 1
     return {"splits": {s: (n, boxes_per_split[s]) for s, n in splits.items()}, "classes": classes,
             "train_classes": train_classes, "names": names,

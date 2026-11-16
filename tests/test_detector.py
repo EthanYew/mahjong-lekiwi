@@ -385,19 +385,24 @@ def test_back_centres_need_the_scans_camera(tmp_path):
 
 def test_a_back_sample_joins_the_fits_once_the_weights_pass(tmp_path, monkeypatch):
     import bench
-    weights = tmp_path / "w.pt"
-    weights.write_bytes(b"weights")
+    best = tmp_path / "best.pt"
+    best.write_bytes(b"weights")
+    installed = tmp_path / "tile_detector.pt"
+    installed.write_bytes(b"weights")                     # best.pt copied into assets: the same hash, another name
     monkeypatch.setattr(config, "DETECTOR_EVAL", tmp_path / "eval")
-    back, face = {"tile_name": config.BACK}, {"tile_name": "5C"}
-    assert not detector.backs_checked(weights)
     (tmp_path / "eval").mkdir()
-    detector.back_centres_path(weights).write_text(json.dumps({"passes": False}))
-    assert not detector.backs_checked(weights)
-    detector.back_centres_path(weights).write_text(json.dumps({"passes": True}))
-    assert detector.backs_checked(weights)
+    assert not detector.backs_checked(installed)
+    failing = detector.back_centres(flipped_scans(tmp_path / "a", 5), sessions_dir=tmp_path / "a")
+    detector.back_centres_path(best).write_text(json.dumps(failing))
+    assert not detector.backs_checked(installed)
+    passing = detector.back_centres(flipped_scans(tmp_path / "b", 0), sessions_dir=tmp_path / "b")
+    detector.back_centres_path(best).write_text(json.dumps(passing))
+    assert detector.backs_checked(installed)
+    detector.back_centres_path(best).write_text(json.dumps({**passing, "passes": True, "p90_spread_mm": 9.0}))
+    assert not detector.backs_checked(installed)          # judged by today's gates, not the saved flag
+    back, face = {"tile_name": config.BACK}, {"tile_name": "5C"}
     assert bench.back_excluded(back, False) == {"excluded": bench.BACK_UNCHECKED} and bench.back_excluded(face, False) == {}
     assert bench.back_excluded(back, True) == {}
-
 
 
 def test_face_down_frames_split_by_session_into_both_splits():
@@ -457,9 +462,13 @@ def test_a_smaller_centre_check_does_not_replace_a_larger_one(tmp_path, monkeypa
     weights = tmp_path / "w.pt"
     weights.write_bytes(b"weights")
     monkeypatch.setattr(config, "DETECTOR_EVAL", tmp_path / "eval")
-    assert detector_eval.save_centres(weights, {"measured": 60, "passes": True}, "exam_a")
-    assert detector_eval.save_centres(weights, {"measured": 5, "passes": False}, "exam_b") is None
+    big = detector.back_centres(flipped_scans(tmp_path / "a", 0, tiles=10), sessions_dir=tmp_path / "a")
+    small = detector.back_centres(flipped_scans(tmp_path / "b", 5, tiles=9), sessions_dir=tmp_path / "b")
+    assert detector_eval.save_centres(weights, big, "exam_a")
+    assert detector_eval.save_centres(weights, small, "exam_b") is None
     assert detector.backs_checked(weights)
+    assert detector_eval.save_centres(weights, small, "exam_a")          # the same exam again: replaced
+    assert not detector.backs_checked(weights)
 
 
 def split_frames(sessions, frames_each=10, backs=True):
@@ -487,3 +496,28 @@ def test_a_back_session_keeps_its_face_up_frames_and_a_back_frame_needs_no_sessi
         if split_by_scene.origin_of(f, split_by_scene.back_sessions(frames)) == "face-down frames":
             by_session.setdefault(detector.session_of(f["image"].name), set()).add(f["to"])
     assert by_session["20261111_090000_capture"] and all(len(v) == 1 for k, v in by_session.items() if k)
+
+
+def test_a_hand_that_nudged_every_tile_does_not_hide_a_bias(tmp_path):
+    images = flipped_scans(tmp_path, 0)
+    for t in images[1]["truth"]:              # the labels say the hand moved every tile 3px along u; the detector didn't
+        t["xyxy"] = [t["xyxy"][0] + 3, t["xyxy"][1], t["xyxy"][2] + 3, t["xyxy"][3]]
+    result = detector.back_centres(images, sessions_dir=tmp_path)
+    assert abs(result["median_dy_mm"]) < 0.01 and abs(result["less_hand_median_dy_mm"]) > 2 and not result["passes"]
+
+
+def test_flips_take_a_scans_lowest_frame_and_skip_a_scan_not_exported(tmp_path):
+    images = flipped_scans(tmp_path, 0, tiles=3)
+    images[1]["frame"] = Path(str(images[1]["frame"]).replace("002_capture", "004_capture"))     # 002-003 not exported
+    images.append({**images[1], "frame": Path(str(images[1]["frame"]).replace("__f0", "__f10")), "truth": []})
+    pairs = detector.flips(images)
+    assert len(pairs) == 3 and all(detector.scan_of(b["frame"])[2] == 0 for _, _, b, _ in pairs)
+
+
+def test_valid_gets_the_smallest_session_when_every_one_is_too_big():
+    import split_by_scene
+    frames = split_frames(["20261114_090000_capture"], frames_each=30) + split_frames(["20261114_100000_capture"],
+                                                                                      frames_each=20)
+    split_by_scene.split(frames, valid=0.2)
+    assert {f["to"] for f in frames if "100000" in f["image"].name} == {"valid"}
+    assert {f["to"] for f in frames if "090000" in f["image"].name} == {"train"}

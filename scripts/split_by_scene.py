@@ -140,6 +140,9 @@ def split(frames, valid=0.2, share=0.6, seed=0):
             for f in by_scene[scene]:
                 f["to"] = "valid"
             taken += len(by_scene[scene])
+        if not taken and len(by_scene) > 1:     # every scene too big (a few face-down sessions): the smallest, so valid
+            for f in min(by_scene.values(), key=len):   # still has some of this group
+                f["to"] = "valid"
     return frames
 
 

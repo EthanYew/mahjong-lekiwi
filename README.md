@@ -1236,10 +1236,10 @@ tile (play and the name ledger give it no votes). With it, `bench.py --face-down
    to `assets/tile_detector.pt`. `detector_eval.py` prints both numbers per group with pass/FAIL (`backs`: labelled, boxed,
    called back, false backs per frame), the face tiles scored alone (`faces only`, so the live weights compare fairly), and,
    for tiles scanned face up and then flipped in place a scan apart, how far the back box's centre sits from the face box's
-   on the table (median within 2mm along x and y, and 90% of tiles within 4mm once the hand's own move,
+   on the table (median within 2mm along x and y, as seen and with the hand's own move taken out, and 90% of tiles within 4mm once that move,
    read from the labels, is taken out, over at least 8 tiles; each tile counted once). From a worktree, pass
    `--sessions-dir` (the main checkout's `sessions/`): the check needs each scan's saved camera. Passing that last check is what lets the bench
-   fit face-down hover and return samples (saved as `data/detector_eval/<weights>@<hash>_back_centres.json`).
+   fit face-down hover and return samples (saved as `data/detector_eval/weights@<hash>_back_centres.json`).
    ```
    python scripts/detector_eval.py --exam-dir data/detector/<exam download> --weights outputs/detector/backs_v1/weights/best.pt --against assets/tile_detector.pt --by session
    ```
