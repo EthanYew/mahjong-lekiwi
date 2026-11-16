@@ -72,7 +72,7 @@ not a worktree, or the sessions go when the worktree does.
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
 | Record training demos that steer to the tile | `python scripts/record.py --dataset Yewy/<new_name> --hover-jitter-mm 6` |
-| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v10 --policy pickup_mat_cl_v10` (press A on the gamepad to take over) |
+| Correct the default policy where it goes wrong (DAgger) | `python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v11 --policy pickup_mat_cl_v11` (press A on the gamepad to take over) |
 | Show the policy how to recover, from where it went wrong in a bench or face-down run (DAgger) | add `--dagger-dataset Yewy/<new dagger set>` to `bench.py`, `base_cam_collect.py`, `wall_test.py` or `crude_run.py`, and press A on the gamepad when a pickup goes wrong ([below](#taking-over-mid-pickup---dagger-dataset)) |
 | Train on the corrections too | `python scripts/make_policy.py --source Yewy/<name> --add Yewy/mahjong_mat_dagger_v3c --add Yewy/<new dagger set> --version <next> --dry-run` |
 | Compare two policies across the mat on the arm | `python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout <layout> --trials 2` (2 rounds at every spot, both policies each round) |
@@ -95,11 +95,11 @@ not a worktree, or the sessions go when the worktree does.
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
 | Retrain the tile detector | `python scripts/train_detector.py --data <export>/data.yaml --name <name> --dry-run` (then drop `--dry-run`) |
 
-Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v10`, the owner's pick on 2026-11-12 for the face-down
-turn, `status.py` has the evidence; before it `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
+Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v11`, the owner's pick on 2026-11-16 after its first clean paired face-down bench
+against v10, `status.py` has the evidence; before it `pickup_mat_cl_v10` (2026-11-12, for the face-down turn), and before that `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
-`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub),
+`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub; face down it led v10 25/28 to 23/28 clean in `20261116_213816_bench`),
 `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 face down: the hand's spots green side up and station L; trained 2026-11-12, private on the Hub, one crude run so far),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
@@ -561,8 +561,8 @@ python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3 --layout eval_v1 -
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice new --layout eval_new
 python scripts/record.py --dataset Yewy/mahjong_mat_pickup_v3_jitter --hover-jitter-mm 6      # training: random hover offsets
 python scripts/record.py --dataset Yewy/mahjong_mat_eval_v1 --slice jitter --layout eval_new --hover-offsets-mm 6x,-6y
-python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v10 --policy pickup_mat_cl_v10                 # DAgger corrections
-python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v10 --policy pickup_mat_cl_v10 --wall-station F --hover-jitter-mm 6   # DAgger on wall picks
+python scripts/record.py --dataset Yewy/mahjong_mat_dagger_v11 --policy pickup_mat_cl_v11                 # DAgger corrections
+python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v11 --policy pickup_mat_cl_v11 --wall-station F --hover-jitter-mm 6   # DAgger on wall picks
 python scripts/record.py --dataset Yewy/mahjong_zone_dagger_<v> --policy <ID> --wall-station zone --wall-layers flat --hover-jitter-mm 6   # DAgger at the drop zone, on the policy crude_run.py drove
 python scripts/record.py --dataset Yewy/mahjong_facedown_dagger_<v> --policy <ID> --layout even-hand14 --face-down --start-spot S11 --repeats 3 --hover-jitter-mm 6   # DAgger on green-back tiles at layout spots
 ```
