@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import bump_report, config, interventions, scorecard
+from mahjong import bump_report, config, detector, interventions, scorecard
 from mahjong.session import read_events
 
 NEIGHBOUR = {"tile_name": "5C", "xy": [0.160, -0.220]}   # 55mm from the sim's 8D (as test_bench)
@@ -346,9 +346,11 @@ def back_near(b, xy):
                key=lambda t: (t["xy"][0] - xy[0]) ** 2 + (t["xy"][1] - xy[1]) ** 2)
 
 
+@pytest.mark.parametrize("checked", [False, True])
 def test_face_down_unattended_finds_each_back_checks_its_landing_and_keeps_its_samples_out_of_the_fits(
-        tmp_path, monkeypatch, no_input):
+        tmp_path, monkeypatch, no_input, checked):
     face_down_layout(monkeypatch)
+    monkeypatch.setattr(detector, "backs_checked", lambda *a, **k: checked)   # whether the weights passed the centre check
     b = run_bench(tmp_path, monkeypatch, "--trials", "2", "--layout", "down", "--face-down")
     events = read_events(b.session.dir)
     attempts = [e for e in events if e["type"] == "attempt"]
@@ -358,7 +360,7 @@ def test_face_down_unattended_finds_each_back_checks_its_landing_and_keeps_its_s
     assert len(landed) == 4 and all(e["landed_xy"] is not None for e in landed)
     for name in ("hover_corrections.jsonl", "return_corrections.jsonl"):
         rows = [json.loads(line) for line in (b.session.dir / name).read_text().splitlines()]
-        assert rows and all(r["excluded"].startswith("face down") for r in rows)
+        assert rows and all(("excluded" not in r) if checked else r["excluded"].startswith("face down") for r in rows)
     (seen,) = [e for e in events if e["type"] == "face_down_seen"]
     assert seen["unseen"] == [] and sorted(seen["spots"]) == ["L", "R"]
     assert next(e for e in events if e["type"] == "face_down_setup")["sees_backs"] is True

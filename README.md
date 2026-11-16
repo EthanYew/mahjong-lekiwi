@@ -1176,7 +1176,12 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
-v8 (2026-11-04, live since: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
+backs_v3 (2026-11-16, live since: `tile_detector@f4392437`): v8's start + the face-down captures of 2026-11-14 (Roboflow training
+v10), with the `back` class. On the exam (test project v9): backs called back 98.9% on the standard mat and 97.4% on green paper, 0
+false backs, back centres within 1mm of face centres. Face tiles **96.1% right overall vs v8's 97.1%** (without flowers 97.7% vs
+98.7%): the owner took that drop to see backs (2026-11-16), to be won back with hard examples from play. Worst: 7C, 1F, 3C, 5C, 3D, 7D.
+
+v8 (2026-11-04, live until backs_v3: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
 repeats: they're near copies already). On the exam, without flowers: **98.8% right overall** (v7x3: 97.6%), **98.3% on the standard
 mat** (v7x3: 96.8%). Box centres moved a median 0.16 px, at most 0.76. Not yet run on the arm.
 
