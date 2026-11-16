@@ -91,6 +91,9 @@ def frame_scenes(frames, share=0.6):
             else ("labels", scene) for f, scene in zip(frames, scenes)]
 
 
+OVERFILL = 1.25     # a scene that takes valid past this much of its share is left in train, for a smaller one
+
+
 ORIGINS = ("July frames", "session frames", "face-down frames")
 
 
@@ -112,10 +115,12 @@ def split(frames, valid=0.2, share=0.6, seed=0):
             by_scene.setdefault(f["scene"], []).append(f)
         order = sorted(by_scene)
         random.Random(seed).shuffle(order)
-        taken = 0
+        taken, target = 0, valid * len(group)
         for scene in order:
-            if taken >= valid * len(group):
+            if taken >= target:
                 break
+            if taken and taken + len(by_scene[scene]) > target * OVERFILL:
+                continue    # a scene this big would leave train short (69 bench frames took 42% of valid, 2026-11-16)
             for f in by_scene[scene]:
                 f["to"] = "valid"
             taken += len(by_scene[scene])

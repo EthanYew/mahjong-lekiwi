@@ -422,3 +422,15 @@ def test_train_detector_refuses_a_class_with_no_training_boxes(tmp_path):
     (tmp_path / "data.yaml").write_text(f"nc: {len(names)}\nnames: {names}\n")
     with pytest.raises(SystemExit, match="No boxes in train for back"):
         train_detector.main(["--data", str(tmp_path / "data.yaml"), "--name", "x", "--dry-run"])
+
+
+def test_one_big_scene_does_not_overfill_valid():
+    import split_by_scene
+    big = [{"image": Path(f"20261028_090000_bench__00{n}_x__f0.jpg"), "boxes": [box("1B", 1, 100, 100)]} for n in range(40)]
+    small = [{"image": Path(f"20261028_100000_bench__00{n}_x__f0.jpg"), "boxes": [box("2B", 1, 30 * n, 300)]}
+             for n in range(60)]
+    for seed in range(5):
+        frames = [dict(f) for f in big + small]
+        split_by_scene.split(frames, valid=0.2, seed=seed)
+        valid = sum(f["to"] == "valid" for f in frames)
+        assert 15 <= valid <= 25 * split_by_scene.OVERFILL
