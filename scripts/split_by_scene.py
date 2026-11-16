@@ -79,16 +79,29 @@ def two_names_on_a_tile(boxes):
             if detector.iou(a["xyxy"], b["xyxy"]) >= 0.5]
 
 
+def back_sessions(frames):
+    """The capture sessions with any frame labelled with a back: all their frames are face-down frames."""
+    return {detector.session_of(f["image"].name) for f in frames if has_back(f)} - {None}
+
+
+def has_back(frame):
+    return any(b["tile_name"] == config.BACK for b in frame["boxes"])
+
+
 def frame_scenes(frames, share=0.6):
-    """A scene for each frame: by labels (detector.scenes) for frames without backs, one per capture session for frames
-    with them. Every face-down frame has a back on each of the layout's spots, and the few tiles left face up sat on the
-    same spots from session to session, so by labels they all made one scene: on 2026-11-16 all 1440 back boxes went to
-    valid with it, and best.pt found no backs. By session, each session's light and surface sit on one side of the split;
-    the same spots are still in both, so valid flatters backs a little, and the exam (sessions of their own) is what
-    judges them."""
-    scenes = detector.scenes([f["boxes"] for f in frames], share)
-    return [("backs", detector.session_of(f["image"].name)) if any(b["tile_name"] == config.BACK for b in f["boxes"])
-            else ("labels", scene) for f, scene in zip(frames, scenes)]
+    """A scene for each frame: one per capture session for the sessions with backs (back_sessions), by labels
+    (detector.scenes) for the rest. Every face-down frame has a back on each of the layout's spots, and the few tiles left
+    face up sat on the same spots from session to session, so by labels they all made one scene: on 2026-11-16 all 1440
+    back boxes went to valid with it, and best.pt found no backs. By session, each session's light and surface sit on one
+    side of the split; the same spots are still in both, so valid flatters backs a little, and the exam (sessions of
+    their own) is what judges them. A back frame with no session in its name is a scene of its own."""
+    scenes, sessions = detector.scenes([f["boxes"] for f in frames], share), back_sessions(frames)
+    out = []
+    for f, scene in zip(frames, scenes):
+        session = detector.session_of(f["image"].name)
+        out.append(("backs", session) if session in sessions else ("frame", f["image"].name) if has_back(f)
+                   else ("labels", str(scene)))
+    return out
 
 
 OVERFILL = 1.25     # a scene that takes valid past this much of its share is left in train, for a smaller one
@@ -97,9 +110,10 @@ OVERFILL = 1.25     # a scene that takes valid past this much of its share is le
 ORIGINS = ("July frames", "session frames", "face-down frames")
 
 
-def origin_of(frame):
-    """Which group a frame is dealt in: each gives ~`valid` of its frames to valid, so backs are in both splits."""
-    if any(b["tile_name"] == config.BACK for b in frame["boxes"]):
+def origin_of(frame, sessions=()):
+    """Which group a frame is dealt in (sessions: back_sessions): each gives ~`valid` of its frames to valid, so backs are
+    in both splits."""
+    if has_back(frame) or detector.session_of(frame["image"].name) in sessions:
         return ORIGINS[2]
     return ORIGINS[0] if detector.session_of(frame["image"].name) is None else ORIGINS[1]
 
@@ -108,8 +122,9 @@ def split(frames, valid=0.2, share=0.6, seed=0):
     """Sets each frame's "scene" and "to" (train/valid); whole scenes, ~`valid` of the frames of each origin."""
     for f, scene in zip(frames, frame_scenes(frames, share)):
         f["scene"], f["to"] = scene, "train"
+    sessions = back_sessions(frames)
     for origin in ORIGINS:
-        group = [f for f in frames if origin_of(f) == origin]
+        group = [f for f in frames if origin_of(f, sessions) == origin]
         by_scene = {}
         for f in group:
             by_scene.setdefault(f["scene"], []).append(f)
@@ -119,8 +134,9 @@ def split(frames, valid=0.2, share=0.6, seed=0):
         for scene in order:
             if taken >= target:
                 break
-            if taken and taken + len(by_scene[scene]) > target * OVERFILL:
-                continue    # a scene this big would leave train short (69 bench frames took 42% of valid, 2026-11-16)
+            if taken + len(by_scene[scene]) > target * OVERFILL:
+                continue    # a scene this big would leave train short (69 bench frames took 42% of valid, 2026-11-16);
+                            # with one face-down session, every back stays in train
             for f in by_scene[scene]:
                 f["to"] = "valid"
             taken += len(by_scene[scene])
@@ -159,8 +175,9 @@ def main(argv=None):
             print(f"  left out, exam frame: {f['image'].name}")
         elif clashes[f["image"].name]:
             print(f"  left out, two names on one tile {clashes[f['image'].name]} (fix in Roboflow): {f['image'].name}")
+    sessions = back_sessions(kept)
     for origin in ORIGINS:
-        group = [f for f in kept if origin_of(f) == origin]
+        group = [f for f in kept if origin_of(f, sessions) == origin]
         if not group:
             continue
         counts = Counter(f["to"] for f in group)

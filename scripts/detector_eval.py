@@ -51,6 +51,9 @@ def parse_args(argv=None):
     p.add_argument("--by", choices=["lighting", "session"], default=None, help="also split the scores by this")
     p.add_argument("--ignore", type=parse_names, default=(),
                    help="tile names to leave out of the score, e.g. flowers (= 1F,2F,3F,4F) or flowers,EW")
+    p.add_argument("--sessions-dir", type=Path, default=config.SESSIONS,
+                   help="where the exam's capture sessions are, for the centre check's cameras (from a worktree: the main "
+                        "checkout's sessions/)")
     p.add_argument("--mixups", type=int, default=8, help="how many of the commonest mix-ups to print (default 8)")
     return p.parse_args(argv)
 
@@ -122,13 +125,18 @@ def report_centres(result):
     if result["measured"]:
         print(f"    back minus face, median: x {result['median_dx_mm']:+.1f}mm, y {result['median_dy_mm']:+.1f}mm "
               f"(distance median {result['median_dist_mm']:.1f}, 90th {result['p90_dist_mm']:.1f}mm); the hand moved them "
-              f"x {result['label_median_dx_mm']:+.1f}, y {result['label_median_dy_mm']:+.1f}mm by the labels")
-    print(f"    {gate(result['passes'])}: median within {result['gate_mm']:.0f}mm along x and y over at least "
-          f"{result['min_pairs']} tiles")
+              f"x {result['label_median_dx_mm']:+.1f}, y {result['label_median_dy_mm']:+.1f}mm by the labels; less the hand's "
+              f"move, 90% of tiles within {result['p90_spread_mm']:.1f}mm")
+    print(f"    {gate(result['passes'])}: median within {result['gate_mm']:.0f}mm along x and y, 90% within "
+          f"{result['spread_gate_mm']:.0f}mm less the hand's move, over at least {result['min_pairs']} tiles")
 
 
 def save_centres(weights, result, exam_dir):
+    """Save the centre check, unless one on more tiles is already saved for these weights: the bench reads one file, and a
+    smaller exam (or a different one) shouldn't quietly replace it. None if it was kept."""
     path = back_centres_path(weights)
+    if path.exists() and json.loads(path.read_text()).get("measured", 0) > result["measured"]:
+        return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"weights": weights_id(weights), "time": datetime.now().isoformat(timespec="seconds"),
                                 "exam_dir": str(exam_dir), **result}, indent=2) + "\n")
@@ -169,11 +177,12 @@ def main(argv=None):
         report(weights_id(weights), scores, args.mixups)
         print(f"  saved {save(weights, exam, scores, args.exam_dir, args.ignore)}")
         faces[weights] = detector.summary(scores["all"])["faces"]
-        centres = back_centres(images)
+        centres = back_centres(images, args.sessions_dir)
         if centres["flips"]:
             report_centres(centres)
-            if centres["measured"]:      # a run with no measured pairs leaves an earlier check standing
-                print(f"  saved {save_centres(weights, centres, args.exam_dir)}")
+            if centres["measured"]:
+                saved = save_centres(weights, centres, args.exam_dir)
+                print(f"  saved {saved}" if saved else f"  kept the saved check, on more tiles: {back_centres_path(weights)}")
     if args.against:
         new, old = faces[args.weights], faces[args.against]
         ok = (new["right_rate"] or 0) >= (old["right_rate"] or 0)

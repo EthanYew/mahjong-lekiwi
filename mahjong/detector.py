@@ -478,13 +478,6 @@ def exam_images(exam_dir, predict, exam=None, by=None, confident=config.DETECTIO
     return images, outside, duplicates
 
 
-def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE, ignore=()):
-    """Score `predict` on the exam frames under exam_dir (exam_images); ignore: tile names left out of the score. Returns
-    (score(...), frames left out because they aren't exam frames, [(frame, duplicate label)] merged away)."""
-    images, outside, duplicates = exam_images(exam_dir, predict, exam, by, confident)
-    return score(images, ignore), outside, duplicates
-
-
 def summary(tally):
     """A tally as plain numbers and rates (for a scores file), with the back gate's numbers (back_numbers) and the face
     tiles' own scores (faces: the backs left out, so weights without the back class compare fairly on names)."""
@@ -535,8 +528,11 @@ def back_numbers(tally):
 # --- a back's centre against a face's: tiles flipped in place between two scans ---
 
 FLIP_RADIUS_PX = 12           # a labelled face and back this close, a scan apart, are one tile flipped in place (~half a tile)
+NATIVE_SIZE = (848, 480)      # the RealSense frame FLIP_RADIUS_PX is measured in
 CENTRE_GATE_M = 0.002         # the median back-minus-face offset, along x and along y, must be within this
 CENTRE_MIN_PAIRS = 8          # ...over at least this many flipped tiles the detector boxed both ways
+CENTRE_SPREAD_M = 0.004       # and 90% of tiles within this, once the hand's own move (the labels') is taken out: set after
+                              # seeing backs_v3's 3.1mm (2026-11-16), to catch a detector whose backs scatter about the face
 
 
 def scan_of(filename):
@@ -566,25 +562,31 @@ def _on_table(centre, size, reads):
 
 def flips(images):
     """The tiles flipped in place across the exam frames (exam_images): a labelled face in one scan and a labelled back
-    within FLIP_RADIUS_PX in the next or previous scan of the same session, as capture_frames' "scan it face up, then flip
-    it in place" leaves. [(face image, face label, back image, back label)]."""
-    by_scan = defaultdict(list)
-    for image in images:
+    within FLIP_RADIUS_PX (in 848x480 pixels, whatever size the export was) in the next or previous scan of the same
+    session, as capture_frames' "scan it face up, then flip it in place" leaves. One frame per scan (its first exported) and
+    each face used once, so a tile counts once. [(face image, face label, back image, back label)]."""
+    by_scan = {}
+    for image in sorted(images, key=lambda i: original_name(i["frame"])):
         key = scan_of(image["frame"])
-        if key:
-            by_scan[key].append(image)
-    out = []
-    for (session, n), backs_images in sorted(by_scan.items()):
-        for back_image in backs_images:
-            for back in (t for t in back_image["truth"] if t["tile_name"] == config.BACK):
-                bc = _centre(back["xyxy"])
-                near = [(np.hypot(*np.subtract(_centre(t["xyxy"]), bc)), face_image, t)
-                        for m in (n - 1, n + 1) for face_image in by_scan.get((session, m), [])
-                        for t in face_image["truth"] if t["tile_name"] != config.BACK]
-                near = [x for x in near if x[0] <= FLIP_RADIUS_PX]
-                if near:
-                    _, face_image, face = min(near, key=lambda x: x[0])
-                    out.append((face_image, face, back_image, back))
+        if key and key not in by_scan:
+            by_scan[key] = image
+
+    def native(image, xyxy):
+        (cx, cy), (w, h) = _centre(xyxy), image["size"]
+        return cx * NATIVE_SIZE[0] / w, cy * NATIVE_SIZE[1] / h
+
+    out, used = [], set()
+    for (session, n), back_image in sorted(by_scan.items()):
+        for back in (t for t in back_image["truth"] if t["tile_name"] == config.BACK):
+            bc = native(back_image, back["xyxy"])
+            near = [(np.hypot(*np.subtract(native(by_scan[(session, m)], t["xyxy"]), bc)), (session, m), k)
+                    for m in (n - 1, n + 1) if (session, m) in by_scan
+                    for k, t in enumerate(by_scan[(session, m)]["truth"]) if t["tile_name"] != config.BACK]
+            near = [x for x in near if x[0] <= FLIP_RADIUS_PX and x[1:] not in used]
+            if near:
+                _, scan, k = min(near, key=lambda x: x[0])
+                used.add((scan, k))
+                out.append((by_scan[scan], by_scan[scan]["truth"][k], back_image, back))
     return out
 
 
@@ -593,9 +595,10 @@ def back_centres(images, sessions_dir=None):
     hover and return models are fitted from face detections, so a back sample joins them only if the two agree. For each
     flipped tile the detector boxed both ways (a box called back on the back, any face name on the face), the offset of its
     back box's centre from its face box's on the tile-top plane, through the scan's own camera (reads.json under
-    sessions_dir), in mm. The hand moves a tile a little as it flips it, so the gate reads the median: within
-    CENTRE_GATE_M along x and along y, over at least CENTRE_MIN_PAIRS tiles. The labels' own offsets are given beside it:
-    how far the hand moved the tiles. Pairs without a saved camera are counted and left out."""
+    sessions_dir), in mm. The hand moves a tile a little as it flips it, so the bias is read as the median: within
+    CENTRE_GATE_M along x and along y, over at least CENTRE_MIN_PAIRS tiles. The scatter is read with the hand's move (the
+    labels' own offset) taken out of each tile: 90% within CENTRE_SPREAD_M. Pairs without a saved camera are counted and
+    left out."""
     sessions_dir = Path(sessions_dir or config.SESSIONS)
     pairs, measured, no_camera, unboxed = flips(images), [], 0, 0
     for face_image, face, back_image, back in pairs:
@@ -619,17 +622,21 @@ def back_centres(images, sessions_dir=None):
                          "dy_mm": float(model[1] * 1000), "label_dx_mm": float(labels[0] * 1000),
                          "label_dy_mm": float(labels[1] * 1000)})
     out = {"flips": len(pairs), "measured": len(measured), "not_boxed_both_ways": unboxed, "no_camera": no_camera,
-           "gate_mm": CENTRE_GATE_M * 1000, "min_pairs": CENTRE_MIN_PAIRS, "pairs": measured}
+           "gate_mm": CENTRE_GATE_M * 1000, "spread_gate_mm": CENTRE_SPREAD_M * 1000, "min_pairs": CENTRE_MIN_PAIRS,
+           "pairs": measured}
     if measured:
         dx, dy = (np.array([m[k] for m in measured]) for k in ("dx_mm", "dy_mm"))
         dist = np.hypot(dx, dy)
         out.update({"median_dx_mm": float(np.median(dx)), "median_dy_mm": float(np.median(dy)),
                     "median_dist_mm": float(np.median(dist)), "p90_dist_mm": float(np.percentile(dist, 90)),
                     "label_median_dx_mm": float(np.median([m["label_dx_mm"] for m in measured])),
-                    "label_median_dy_mm": float(np.median([m["label_dy_mm"] for m in measured]))})
+                    "label_median_dy_mm": float(np.median([m["label_dy_mm"] for m in measured])),
+                    "p90_spread_mm": float(np.percentile([np.hypot(m["dx_mm"] - m["label_dx_mm"],
+                                                                    m["dy_mm"] - m["label_dy_mm"]) for m in measured], 90))})
     out["passes"] = bool(len(measured) >= CENTRE_MIN_PAIRS
                          and abs(out["median_dx_mm"]) <= CENTRE_GATE_M * 1000
-                         and abs(out["median_dy_mm"]) <= CENTRE_GATE_M * 1000)
+                         and abs(out["median_dy_mm"]) <= CENTRE_GATE_M * 1000
+                         and out["p90_spread_mm"] <= CENTRE_SPREAD_M * 1000)
     return out
 
 

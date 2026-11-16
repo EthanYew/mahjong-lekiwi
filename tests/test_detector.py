@@ -284,7 +284,8 @@ def test_evaluate_scores_only_exam_frames(tmp_path, monkeypatch):
     truth = mat.last_frames[0]["boxes"]
     wrong_first = [{**truth[0], "tile_name": "WW" if truth[0]["tile_name"] != "WW" else "RD"}] + truth[1:]
     exam = {"sessions": {exam_session.dir.name: {"conditions": {"daylight": "dim", "lamp": True, "ceiling_lights": False}}}}
-    scores, outside, duplicates = detector.evaluate(out, lambda image: wrong_first, exam, by="lighting")
+    images, outside, duplicates = detector.exam_images(out, lambda image: wrong_first, exam, by="lighting")
+    scores = detector.score(images)
     assert [p.name for p in outside] == ["frame_0000_exp200_jpg.rf.abc.jpg"] and duplicates == []
     s = detector.summary(scores["all"])
     assert (s["frames"], s["found"], s["named_right"]) == (1, len(truth), len(truth) - 1)
@@ -357,7 +358,8 @@ def flipped_scans(sessions, shift_px, tiles=8, session="20261116_090000_capture"
         (sessions / session / "scans" / f"00{n}_capture" / "reads.json").write_text(json.dumps({**CAMERA, "frames": []}))
         name = "5C" if n == 1 else config.BACK
         truth = [box(name, 1, 100 + 40 * i, 200) for i in range(tiles)]
-        said = [box(name, 0.9, 100 + 40 * i + (shift_px if n == 2 else 0), 200) for i in range(tiles)]
+        shift = shift_px if callable(shift_px) else (lambda i, k=shift_px: k)
+        said = [box(name, 0.9, 100 + 40 * i + (shift(i) if n == 2 else 0), 200) for i in range(tiles)]
         images.append({"frame": Path(f"{session}__00{n}_capture__f0_jpg.rf.abc.jpg"), "size": (848, 480),
                        "truth": truth, "said": said, "group": "all"})
     return images
@@ -387,12 +389,15 @@ def test_a_back_sample_joins_the_fits_once_the_weights_pass(tmp_path, monkeypatc
     weights.write_bytes(b"weights")
     monkeypatch.setattr(config, "DETECTOR_EVAL", tmp_path / "eval")
     back, face = {"tile_name": config.BACK}, {"tile_name": "5C"}
-    assert bench.back_excluded(back, weights) == {"excluded": bench.BACK_UNCHECKED} and bench.back_excluded(face, weights) == {}
+    assert not detector.backs_checked(weights)
     (tmp_path / "eval").mkdir()
     detector.back_centres_path(weights).write_text(json.dumps({"passes": False}))
-    assert bench.back_excluded(back, weights)
+    assert not detector.backs_checked(weights)
     detector.back_centres_path(weights).write_text(json.dumps({"passes": True}))
-    assert bench.back_excluded(back, weights) == {}
+    assert detector.backs_checked(weights)
+    assert bench.back_excluded(back, False) == {"excluded": bench.BACK_UNCHECKED} and bench.back_excluded(face, False) == {}
+    assert bench.back_excluded(back, True) == {}
+
 
 
 def test_face_down_frames_split_by_session_into_both_splits():
@@ -434,3 +439,51 @@ def test_one_big_scene_does_not_overfill_valid():
         split_by_scene.split(frames, valid=0.2, seed=seed)
         valid = sum(f["to"] == "valid" for f in frames)
         assert 15 <= valid <= 25 * split_by_scene.OVERFILL
+
+
+def test_back_centres_fail_when_backs_scatter_about_the_face(tmp_path):
+    result = detector.back_centres(flipped_scans(tmp_path, lambda i: 8 if i % 2 else -8), sessions_dir=tmp_path)
+    assert abs(result["median_dy_mm"]) < 0.5 and result["p90_spread_mm"] > 4 and not result["passes"]
+
+
+def test_a_tile_counts_once_however_many_frames_of_its_scan_were_exported(tmp_path):
+    images = flipped_scans(tmp_path, 0, tiles=3)
+    images += [{**i, "frame": Path(str(i["frame"]).replace("__f0", "__f3"))} for i in images]
+    assert len(detector.flips(images)) == 3
+
+
+def test_a_smaller_centre_check_does_not_replace_a_larger_one(tmp_path, monkeypatch):
+    import detector_eval
+    weights = tmp_path / "w.pt"
+    weights.write_bytes(b"weights")
+    monkeypatch.setattr(config, "DETECTOR_EVAL", tmp_path / "eval")
+    assert detector_eval.save_centres(weights, {"measured": 60, "passes": True}, "exam_a")
+    assert detector_eval.save_centres(weights, {"measured": 5, "passes": False}, "exam_b") is None
+    assert detector.backs_checked(weights)
+
+
+def split_frames(sessions, frames_each=10, backs=True):
+    spots = [box(config.BACK, 1, 100 + 40 * i, 200) for i in range(14)] if backs else []
+    return [{"image": Path(f"{s}__{n:03d}_capture__f0.jpg"), "boxes": spots + [box("5C", 1, 100 + 9 * n, 300)]}
+            for s in sessions for n in range(1, frames_each + 1)]
+
+
+def test_one_face_down_session_stays_in_train():
+    import split_by_scene
+    frames = split_frames(["20261114_090000_capture"])
+    split_by_scene.split(frames, valid=0.2)
+    assert {f["to"] for f in frames} == {"train"}
+
+
+def test_a_back_session_keeps_its_face_up_frames_and_a_back_frame_needs_no_session():
+    import split_by_scene
+    frames = split_frames([f"2026111{s}_090000_capture" for s in range(5)], frames_each=3)
+    frames += split_frames(["20261110_090000_capture"], frames_each=2, backs=False)       # face up only: by labels
+    frames += [{**frames[0], "boxes": frames[1]["boxes"][-1:], "image": Path("20261111_090000_capture__009_capture__f0.jpg")},
+               {**frames[0], "image": Path("renamed.jpg")}]                               # no session: a scene of its own
+    split_by_scene.split(frames, valid=0.2)
+    by_session = {}
+    for f in frames:
+        if split_by_scene.origin_of(f, split_by_scene.back_sessions(frames)) == "face-down frames":
+            by_session.setdefault(detector.session_of(f["image"].name), set()).add(f["to"])
+    assert by_session["20261111_090000_capture"] and all(len(v) == 1 for k, v in by_session.items() if k)

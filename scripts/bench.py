@@ -164,12 +164,11 @@ BACK_UNCHECKED = ("face down: a back box's centre hasn't been checked against a 
                   "and return models are fitted from detections")
 
 
-def back_excluded(tile, weights=None):
+def back_excluded(tile, checked):
     """Provenance that keeps a hover or return sample from a back (perception.is_back) out of the fits, logged all the same,
-    until the live weights' back centres pass the check against face centres (detector.backs_checked, detector_eval.py)."""
-    if not perception.is_back(tile) or detector.backs_checked(weights or config.TILE_DETECTOR):
-        return {}
-    return {"excluded": BACK_UNCHECKED}
+    unless the live weights' back centres passed the check against face centres (`checked`: detector.backs_checked,
+    worked out once a session)."""
+    return {"excluded": BACK_UNCHECKED} if perception.is_back(tile) and not checked else {}
 
 
 class Bench:
@@ -193,6 +192,7 @@ class Bench:
             self.policies = [sim.SimPolicy(mat=self.realsense, policy_id=i or "sim") for i in ids]
             self.takeover = takeover.make(args.dagger_dataset, None)     # nothing to hand over in the sim
             self.sees_backs = self.face_down_detector()       # before the session folder: it may refuse to start
+            self.backs_checked = detector.backs_checked()     # once: it hashes the weights
             self.session = Session(self.SESSION_KIND, ask_setup=False, policy=args.policy or "sim", sim=True,
                                    detector=detector.weights_id())
         else:
@@ -210,6 +210,7 @@ class Bench:
             if self.takeover:
                 self.takeover.expect_hover(self.hover_of(self.policies[0]))
             self.sees_backs = self.face_down_detector()       # before the session folder: it may refuse to start
+            self.backs_checked = detector.backs_checked()     # once: it hashes the weights
             self.session = Session(self.SESSION_KIND, policy=args.policy or "default", sim=False,
                                    detector=detector.weights_id())
         # →, ←, Esc and the letter keys come from this terminal only, while the arm works (terminal_keys.py)
@@ -866,7 +867,7 @@ class Bench:
             sample = grasp_record("bench", tile["xy"], run["grasp_xy"], tile_name=tile["tile_name"],
                                   hover_xy=hover["hover_xy"], hover_perturb_xy=list(perturb), policy=self.policy.id,
                                   correction=self.correction.name, session=self.session.dir.name,
-                                  attempt_dir=attempt.name, **back_excluded(tile))
+                                  attempt_dir=attempt.name, **back_excluded(tile, self.backs_checked))
             append_record(sample, self.samples_path)
         if holding:
             self.held = {"tile_name": tile["tile_name"], "detection_xy": list(tile["xy"]),
@@ -954,7 +955,7 @@ class Bench:
         home, name = held["home_xy"], held["tile_name"]
         tile, reset = check_landing(held, placed["xy"], tiles, self.session, self.returns_path, self.correction,
                                     self.hover_of(self.policy), policy=self.policy.id,
-                                    return_correction=self.returns.name, **back_excluded(held))
+                                    return_correction=self.returns.name, **back_excluded(held, self.backs_checked))
         if not reset:
             return
         # landing this far off, the returned tile showed in the after-return scan as one that appeared: that
