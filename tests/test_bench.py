@@ -913,7 +913,7 @@ def test_a_pale_surface_asks_once_a_place_and_then_goes_by_the_view(tmp_path, mo
     frame = np.full((480, 640, 3), 200, np.uint8)
     templates = []
 
-    def pale(arm, camera, x, y, hover, template=None):
+    def pale(arm, camera, x, y, hover, template=None, back=False):
         templates.append(template)
         if template is None:
             return {"present": None, "fill": 0.7, "pale": True, "why": "pale", "hover_xy": [x, y], "frame": frame}
@@ -1120,3 +1120,22 @@ def test_a_return_with_r_pressed_is_no_sample(tmp_path, monkeypatch):
             "attempt_dir": "001", "spot": "S1", "by_hand": True}
     check_landing(held, [0.24, 0.0], [{"tile_name": "8D", "xy": (0.2, 0.0)}], session, path, None, config.DEFAULT_HOVER)
     assert not path.exists() and events[0][1]["by_hand"]
+
+
+def test_a_back_the_scans_lose_is_seen_by_the_wrist_camera_and_picked_up(tmp_path, monkeypatch):
+    """2026-11-16: backs flickered out of scans, and a look at a face-down spot could only say "not there" (no white face),
+    so the spot was skipped. The look finds the back by its shape, and the bench picks it up."""
+    b = face_down_bench(tmp_path, monkeypatch, ["--trials", "1"], sees_backs=True)
+    b.realsense.flicker_at(FACE_DOWN_SPOTS[1]["xy"], 50)       # R's back unseen by every scan
+    asked = no_questions(monkeypatch)
+    try:
+        b.arm.rest()
+        b.trials(1)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    looks = [e for e in events if e["type"] == "wrist_check"]
+    assert looks and all(e["tile"] == config.BACK and e["present"] is True and e["by"] == "back shape" for e in looks)
+    assert asked == []
+    attempts = [e for e in events if e["type"] == "attempt"]
+    assert [a["spot"] for a in attempts] == ["L", "R"] and all(a["success"] for a in attempts)

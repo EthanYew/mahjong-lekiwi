@@ -41,7 +41,7 @@ What a scan sees change is settled without the end-of-batch questions:
 A `note` of straightened tiles or tiles put back, between commands, says the same for the next scan. The tiles whose detections flickered are listed at the end of trials.
 
 A tile a scan says went, or a spot's tile not detected, is looked at with the wrist camera before anyone is asked
-(mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face between the jaw
+(mahjong/wrist_check.py): the arm hovers where the tile was last seen and checks for a face (face down: a back) between the jaw
 tips. A box the detector is too unsure of to name (down to config.DETECTION_PRESENCE_CONFIDENCE) needs no look: the tile's
 there (`tile_faint` events). On a pale surface it can only compare the view with an earlier look at that place, and asks you the first time.
 Still there: a detection glitch, logged as one
@@ -559,17 +559,18 @@ class Bench:
 
     def wrist_look(self, tile, scan_n):
         """Hover over a tile the scans lost, where they last saw it (hover-corrected, this policy's hover), and see
-        whether a face is between the jaw tips (wrist_check.check). Logged as a `wrist_check` event, the frame in
-        wrist_checks/. Returns the check: present True / False, or None if it couldn't look."""
+        whether a face is between the jaw tips (wrist_check.check; a back by its shape). Logged as a `wrist_check` event, the
+        frame in wrist_checks/. Returns the check: present True / False, or None if it couldn't look."""
         name, (x, y) = tile["tile_name"], tile["xy"]
         print(f"  {name} not seen at ({x:.3f}, {y:+.3f}): looking with the wrist camera")
         # the sim's tiles are where they're detected: the real arm's correction would look ~50mm off them
         hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
         template = self.views.template((x, y))
-        result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template)
+        back = perception.is_back(tile)
+        result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
-            result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template)
+            result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
         if result["present"] is None and result.get("pale") and not self.args.unattended:
             self.arm.lift()
             result = {**result, "present": self.ask_still_there(name, x, y), "by": "person"}
@@ -591,7 +592,9 @@ class Bench:
             self.looked_empty.append((self.scan_n, [x, y]))
         verdict = {True: "still there (a detection glitch)", False: "not there",
                    None: f"couldn't look ({result.get('why')})"}[result["present"]]
-        print(f"  {name}: {verdict}" + (f", face fills {result['fill']:.0%} of the spot" if result["fill"] is not None else ""))
+        print(f"  {name}: {verdict}" + (f", face fills {result['fill']:.0%} of the spot" if result["fill"] is not None else
+                                        f", a back in {result['backs_seen']} of {wrist_check.FRAMES} frames" if back
+                                        and "backs_seen" in result else ""))
         self.session.event("wrist_check", tile=name, xy=[x, y], scan=scan_n, at_scan=self.scan_n, image=image,
                            policy=self.policy.id, **result)
         return result
@@ -606,13 +609,14 @@ class Bench:
         if home is None or any(n == self.scan_n and math.dist(xy, home) <= config.TILE_MERGE_RADIUS_M
                                for n, xy in self.looked_empty):
             return None
-        tile = {"tile_name": tile_name or self.placements.truth_at(key) or self.names.get(key) or config.UNNAMED,
+        name = config.BACK if self.args.face_down else None     # green side up: no name to read, a back to look for
+        tile = {"tile_name": name or tile_name or self.placements.truth_at(key) or self.names.get(key) or config.UNNAMED,
                 "xy": list(home)}
         box = self.faint_at(tile, self.scan_n, config.TILE_MERGE_RADIUS_M)
         if box:                     # picked up from where the box is, as a named tile would be
             self.mat.restore(tile)
             return {"tile_name": tile["tile_name"], "xy": tuple(box["xy"]), "confidence": 0.0, "faint": True}
-        if self.args.face_down:     # the wrist look finds a white face between the jaws (wrist_check.face_fill), not a back
+        if self.args.face_down and not self.sees_backs:     # saved positions: no scan lost it, nothing to look again for
             return None
         if self.crowded(tile, tiles, self.scan_n):
             return None

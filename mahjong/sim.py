@@ -124,6 +124,7 @@ class SimPerception:
         self.tiles = [{"tile_name": n, "xy": [x, y]} for n, x, y in tiles]
         self.held = None
         self.hidden = {}            # {tile name: scans it's still left out of} (flicker)
+        self.hidden_at = []         # [[xy, scans it's still left out of]] (flicker_at: one of many tiles with one name, a back)
         self.T_cam_to_base = np.load(config.T_CAM_TO_BASE)
         self.T_render = self.T_cam_to_base      # where the camera really is: a test moves it to fake a knocked tripod
         self.last_frames = []       # the latest scan's frames and boxes, like RealSense's
@@ -141,8 +142,11 @@ class SimPerception:
         """Every tile, read right; last_frames holds one rendered frame with a box per tile (no depth)."""
         from .layout import table_to_pixel, tile_corners
         boxes, pixels, seen = [], [], [t for t in self.tiles if not self.hidden.get(t["tile_name"])
+                                       and not any(np.hypot(t["xy"][0] - x, t["xy"][1] - y) <= 0.005
+                                                   for (x, y), _ in self.hidden_at)
                                        and (t["tile_name"] != config.BACK or config.BACK in self.names)]
         self.hidden = {name: n - 1 for name, n in self.hidden.items() if n > 1}
+        self.hidden_at = [[xy, n - 1] for xy, n in self.hidden_at if n > 1]
         for t in seen:
             corners = table_to_pixel(tile_corners(*t["xy"], 0.0), self.intrinsics, self.T_cam_to_base)
             (u0, v0), (u1, v1) = corners.min(axis=0), corners.max(axis=0)
@@ -183,6 +187,10 @@ class SimPerception:
     def flicker(self, name, scans=1):
         """The detector misses `name` for the next `scans` scans; the tile stays (the wrist camera sees it)."""
         self.hidden[name] = scans
+
+    def flicker_at(self, xy, scans=1):
+        """flicker() for the tile at xy: the one to miss when others share its name (backs)."""
+        self.hidden_at.append([list(xy), scans])
 
     def nudge(self, name, dx, dy):
         tile = next(t for t in self.tiles if t["tile_name"] == name)
@@ -233,7 +241,7 @@ def draw_robot(image, intrinsics, T_cam_to_base):
 
 
 class SimWristCamera:
-    """A wrist camera over a SimPerception mat: the tile nearest the jaws as a white face on a dark mat, placed
+    """A wrist camera over a SimPerception mat: the tile nearest the jaws as a white face (a back: green) on a dark mat, placed
     by where it really is relative to the tool point (a hovered tile where the real camera shows it,
     wrist_check.EXPECTED_PX) and sized by the jaws' height (4px/mm at the 40mm hover)."""
     simulated = True
@@ -256,6 +264,9 @@ class SimWristCamera:
                       v - (ax - x) * 1000 * scale)     # up = +x (away)
             size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
             box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
+            if tile["tile_name"] == config.BACK:        # green side up: a back's green (wrist_check.BACK_HSV_LO/HI), no symbols
+                cv2.fillPoly(image, [np.round(box).astype(np.int32)], (40, 85, 75))
+                return True, image
             cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
             turn = math.radians(-tile.get("yaw_deg", 0.0))
             for dx, dy in ((-0.2, -0.3), (0.1, -0.1), (0.25, 0.2), (-0.1, 0.3)):     # printed symbols, off-centre
