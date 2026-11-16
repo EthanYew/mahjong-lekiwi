@@ -274,6 +274,11 @@ python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/ma
 `7 rest`, `8 note` (log something you did by hand), `9 setup` (lighting/battery/surface changed mid-session),
 `10 quit`.
 
+**Setup questions** (asked at the start of every hardware session, and again on `9 setup`): the surface question
+takes a number, a name or a unique prefix. Type a surface that isn't listed (say `blue felt`) and it offers to add it;
+say `y` and it's answered now and listed from then on (`data/added_choices.json`, after the built-in ones, so existing
+numbers don't shift).
+
 **A tile the trials can't find** (not detected by name, or nothing near a `--layout` spot) is first looked
 at with the wrist camera: the arm hovers where it was first seen and checks for a tile face between the jaw
 tips. If it's there (the detector flickered) the pickup goes ahead from there. If not, it stops for you:

@@ -5,7 +5,7 @@ from contextlib import nullcontext
 import pytest
 
 from mahjong import config
-from mahjong.session import Session, ask_conditions, previous_conditions, read_events
+from mahjong.session import Session, ask_conditions, ask_one, previous_conditions, read_events
 
 
 def answering(*answers):
@@ -88,3 +88,31 @@ def test_interventions_are_events(tmp_path, monkeypatch):
     event = read_events(s.dir)[1]
     assert (event["type"], event["kind"], event["attempt_dir"], event["note"]) == \
         ("intervention", "discard_missed", "002_3D", "bounced off the rim")
+
+
+def test_green_paper_is_a_surface_choice():
+    surface = next(q for q in config.SETUP_QUESTIONS if q["key"] == "surface")
+    assert "green paper" in surface["choices"] and surface["choices"][0] == "black table top"
+
+
+def test_a_new_surface_typed_at_the_prompt_is_kept_for_later_sessions(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "ADDED_CHOICES", tmp_path / "added_choices.json")
+    surface = next(q for q in config.SETUP_QUESTIONS if q["key"] == "surface")
+    assert ask_one(surface, None, answering("blue felt", "y")) == "blue felt"
+    again = ask_one(surface, None, answering("blue"))                       # a prefix of the saved one now works
+    assert again == "blue felt"
+    n = len(surface["choices"])
+    assert ask_one(surface, None, answering(str(n + 1))) == "blue felt"     # and it has the next number
+
+
+def test_declining_to_add_asks_again_and_saves_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "ADDED_CHOICES", tmp_path / "added_choices.json")
+    surface = next(q for q in config.SETUP_QUESTIONS if q["key"] == "surface")
+    assert ask_one(surface, None, answering("blue felt", "n", "2")) == "green cutting mat"
+    assert not (tmp_path / "added_choices.json").exists()
+
+
+def test_a_question_that_isnt_addable_never_offers_to_add(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "ADDED_CHOICES", tmp_path / "added_choices.json")
+    daylight = next(q for q in config.SETUP_QUESTIONS if q["key"] == "daylight")
+    assert ask_one(daylight, None, answering("blue felt", "2")) == "dim"
