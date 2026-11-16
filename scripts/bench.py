@@ -528,7 +528,7 @@ class Bench:
     def crowded(self, tile, tiles, scan_n):
         """Another tile the scan sees within wrist_check.CROWDED_M of where `tile` was: its face would fill the
         look just as well, so don't look (a person is asked). Logged as a `wrist_check` that couldn't look."""
-        near = wrist_check.crowded(tile["xy"], [t for t in tiles if t["xy"] != tile["xy"]])
+        near = wrist_check.crowded(tile["xy"], [t for t in tiles if tuple(t["xy"]) != tuple(tile["xy"])])
         if near is None:
             return False
         why = f"{near['tile_name']} is {math.dist(near['xy'], tile['xy']) * 1000:.0f}mm from its spot"
@@ -586,7 +586,8 @@ class Bench:
         if frame is not None:
             folder = self.session.dir / "wrist_checks"
             folder.mkdir(exist_ok=True)
-            image = f"wrist_checks/scan{scan_n:03d}_{self.scan_n:03d}_{name}.jpg"
+            where = f"_{x * 1000:.0f}_{y * 1000:+.0f}" if name == config.BACK else ""   # every back shares a name
+            image = f"wrist_checks/scan{scan_n:03d}_{self.scan_n:03d}_{name}{where}.jpg"
             cv2.imwrite(str(self.session.dir / image), frame)
         if result["present"] is False:
             self.looked_empty.append((self.scan_n, [x, y]))

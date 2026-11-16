@@ -244,3 +244,19 @@ def test_the_olive_stripe_in_a_dim_room_has_a_backs_green_but_not_its_shape():
     assert wrist_check.back_blob(dim, centre=(180, 145)) is None
     assert wrist_check.check(Arm(), Camera(dim), 0.2, 0.0, HOVER, back=True)["present"] is False    # a face there, not a back
     assert wrist_check.check(Arm(), Camera(image("wrist_bare_at_disc")), 0.2, 0.0, HOVER, back=True)["present"] is False
+
+
+def test_a_back_look_cant_tell_when_frames_disagree_or_the_surface_is_backs_green():
+    back, bare = image("wrist_back_look"), image("wrist_bare_at_disc")
+
+    class Frames(Camera):
+        def __init__(self, frames):
+            self.frames = iter(frames)
+
+        def read(self):
+            return True, next(self.frames)
+    split = wrist_check.check(Arm(), Frames([back, bare, bare]), 0.2, 0.0, HOVER, back=True)
+    assert split["present"] is None and "some frames" in split["why"] and split["backs_seen"] == 1
+    green = np.zeros_like(back)
+    green[:] = cv2.cvtColor(np.uint8([[[36, 120, 85]]]), cv2.COLOR_HSV2BGR)[0, 0]
+    assert wrist_check.check(Arm(), Camera(green), 0.2, 0.0, HOVER, back=True)["present"] is None

@@ -54,6 +54,10 @@ BACK_AREA_PX = (6000, 30000)    # a back at the hover: ~10-22k px
 BACK_MAX_ASPECT = 2.0           # long / short side of its rotated box: a stripe is a long band
 BACK_MIN_FILL = 0.65            # blob area / its rotated box
 BACK_NEAR_PX = 70               # from EXPECTED_PX (~17mm at 4px/mm): neighbours sit ~200px away (51mm)
+# Share of the view above the jaws (SURFACE_ROWS) in the back's green: 0.26 median, 0.51 at most on the standard mat's
+# face-down views (2026-11-12 to 11-16, backs all round), 0.02-0.05 on the green cutting mat. Past this the surface itself
+# is the back's green and a back can't be told from it.
+BACK_MAX_GREEN_SHARE = 0.7
 # Another tile now this close to the spot (centres) can fill the disc as well: the look can't tell them apart. On
 # 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
 # look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
@@ -122,6 +126,12 @@ def back_blob(image_bgr, centre=EXPECTED_PX):
     return min(found, key=lambda b: math.dist(b["centre_px"], centre), default=None)
 
 
+def back_green_share(image_bgr):
+    """Share of the view above the jaws in the back's green."""
+    hsv = cv2.cvtColor(image_bgr[:SURFACE_ROWS], cv2.COLOR_BGR2HSV)
+    return float((cv2.inRange(hsv, np.array(BACK_HSV_LO, np.uint8), np.array(BACK_HSV_HI, np.uint8)) > 0).mean())
+
+
 def view_template(image_bgr):
     """A look's frame, as what check() compares a later look at the same place with."""
     return wrist_template(image_bgr, EXPECTED_PX)
@@ -148,15 +158,21 @@ def check(arm, camera, x, y, hover, template=None, back=False):
     of reach, camera lost) or can't tell (a pale surface: "pale" True), "fill": the median face share, "hover_xy"}, and
     "frame" (the last one) to save. `template`: what an earlier look saw here, which is all a pale surface can go on.
     back: the tile lies green side up, so it's looked for by its shape (back_blob) on any surface: "by" "back shape",
-    "backs_seen" of "frames" showed one, and no face share."""
+    "backs_seen" of "frames" showed one, and no face share. A back in some frames but not most, or a surface of the back's
+    green, can't tell (present None, "why")."""
     frames, result = look(arm, camera, x, y, hover)
     if not frames:
         return {"present": None, "fill": None, "why": "out of reach" if result is None else "no wrist frames",
                 "frame": None}
     if back:
         seen = sum(back_blob(f) is not None for f in frames)
-        return {"present": seen * 2 > len(frames), "fill": None, "by": "back shape", "backs_seen": seen, "frames": len(frames),
-                "hover_xy": result["hover_xy"], "frame": frames[-1]}
+        found = {"fill": None, "by": "back shape", "backs_seen": seen, "frames": len(frames), "hover_xy": result["hover_xy"],
+                 "frame": frames[-1]}
+        if float(np.median([back_green_share(f) for f in frames])) > BACK_MAX_GREEN_SHARE:
+            return {**found, "present": None, "why": "the surface is a tile back's green"}
+        if 0 < seen * 2 <= len(frames):     # some frames saw it: a shadow or a glint, not a gone tile
+            return {**found, "present": None, "why": "a back in some frames only"}
+        return {**found, "present": seen > 0}
     fill = float(np.median([face_fill(f) for f in frames]))
     if float(np.median([dark_share(f) for f in frames])) < MIN_DARK_SHARE:
         if template is not None and sum(same_view(f, template) for f in frames) * 2 > len(frames):
