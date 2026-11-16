@@ -23,7 +23,6 @@ Settle the options before starting: training takes hours, and the dataset name i
 """
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from mahjong import config
+from mahjong import config, recipe
 
 EPOCHS = 131                # what v1 and v2 were trained for
 BATCH = 96
@@ -58,7 +57,7 @@ def parse_args():
                         "record.py --policy: only their frames from the takeover on, episodes without one left out")
     p.add_argument("--leave-out", action="append", default=[], metavar="REPO",
                    help="a dataset the default policy trained on that this run leaves out on purpose (repeatable); "
-                        "without it, leaving one out stops the run (recipe_gap)")
+                        "without it, leaving one out stops the run (mahjong/recipe.py)")
     p.add_argument("--trim-narrowing", action="store_true",
                    help="also drop the opening gripper narrowing (start episodes at the pre-grasp opening)")
     p.add_argument("--augment", action="store_true",
@@ -86,82 +85,9 @@ def names(args):
             "policy_id": args.policy_id or f"pickup_mat_cl_{args.version}"}
 
 
-def trained_on(policy_id, reg):
-    """The recorded datasets a registered policy was built from, as bare names (no Hub user): its `datasets`, or for
-    policies registered before that field, the list its notes start with ("make_policy.py from A + B; ...")."""
-    entry = reg["policies"][policy_id]
-    names = entry.get("datasets")
-    if names is None:
-        found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
-        if not found:
-            return None     # no recipe to read: check_recipe says so rather than passing any list
-        names = found.group(1).split(" + ")
-    return [name.split("/")[-1] for name in names]
-
-
-def recipe_gap(source, add, leave_out=(), reg=None):
-    """(default policy id, the datasets it trained on that source + add leave out and leave_out doesn't name;
-    None when its recipe can't be read).
-
-    A new version is the default's recipe plus what was recorded since. v12 (2026-11-17) was started from a
-    one-dataset example command: 15k frames and 21k steps where v11 had 88k and 120k, so it couldn't be compared
-    with v11 and was retrained as v13. Nothing had checked the list against the default's."""
-    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
-    named = {repo.split("/")[-1] for repo in [source, *add, *leave_out]}
-    theirs = trained_on(reg["default"], reg)
-    return reg["default"], None if theirs is None else [name for name in theirs if name not in named]
-
-
-def option_gaps(options, entry):
-    """How this run's options differ from the default's: its `options` (registered since 2026-11-17), or for older
-    entries what the notes say (colour jitter, the mat swap; --trim-narrowing wasn't noted, so it isn't checked)."""
-    used = entry.get("options")
-    if used is None:
-        notes = entry.get("notes", "")
-        found = re.search(r"mat swapped in (\d+)%", notes)
-        used = {"augment": "colour jitter" in notes, "replace_mat": float(found.group(1)) / 100 if found else 0.0}
-    gaps = []
-    for name in ("augment", "trim_narrowing"):
-        if name in options and name in used and bool(options[name]) != bool(used[name]):
-            flag = "--" + name.replace("_", "-")
-            gaps.append(f"{flag} {'on' if options[name] else 'off'} (the default had it {'on' if used[name] else 'off'})")
-    if "replace_mat" in options and abs((options["replace_mat"] or 0.0) - (used.get("replace_mat") or 0.0)) > 0.005:
-        gaps.append(f"--replace-mat {options['replace_mat'] or 0} (the default had {used.get('replace_mat') or 0:g})")
-    return gaps
-
-
-def recipe_options(args):
-    """The options a version's recipe is compared on (option_gaps), as registered for the next one."""
-    return {"augment": bool(args.augment), "replace_mat": args.replace_mat or 0.0, "trim_narrowing": bool(args.trim_narrowing)}
-
-
-def check_recipe(source, add, leave_out=(), reg=None, options=None):
-    """Stop with the flags to paste when the run leaves out a dataset the default trained on; warn when its recipe
-    can't be read, when a --leave-out names none of its datasets, or when the options differ from its."""
-    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
-    default, missing = recipe_gap(source, add, leave_out, reg)
-    if missing is None:
-        print(f"Warning: can't tell which datasets the default, {default}, trained on (no `datasets` in data/policies.json, "
-              f"and its notes don't start 'make_policy.py from'): check this run's list against it by hand.")
-    elif missing:
-        flags = " ".join(f"--add {config.HF_USER}/{name}" for name in missing)
-        raise SystemExit(f"The default, {default}, also trained on {', '.join(missing)}, which this run leaves out.\n"
-                         f"  Keep them (a new version is the default's recipe plus the new recordings): {flags}\n"
-                         f"  Or drop one on purpose, and say why in the plan: --leave-out REPO")
-    theirs = trained_on(default, reg)
-    for repo in leave_out if theirs is not None else ():
-        if repo.split("/")[-1] not in theirs:
-            print(f"Warning: --leave-out {repo}: the default, {default}, didn't train on it, so it changes nothing.")
-    for gap in option_gaps(options or {}, reg["policies"][default]):
-        print(f"Warning: {gap}: say why in the plan, or match it.")
-
-
-def default_scale(reg=None):
-    """'<id>: N frames, M steps' for the default, from its registry notes, to set a dry run's numbers against."""
-    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
-    notes = reg["policies"][reg["default"]].get("notes", "")
-    frames, steps = re.search(r"(\d+) frames", notes), re.search(r"(\d+) steps", notes)
-    return f"{reg['default']}: {frames.group(1) if frames else '?'} frames, {steps.group(1) if steps else '?'} steps"
+def run_options(args):
+    """This run's options, as mahjong/recipe.py compares and registers them."""
+    return recipe.options(args.augment, args.replace_mat, args.trim_narrowing)
 
 
 def train_command(n, steps, private, augment=False):
@@ -245,7 +171,7 @@ def main():
     args = parse_args()
     n = names(args)
     if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
-        check_recipe(args.source, args.add, args.leave_out, options=recipe_options(args))
+        recipe.check(recipe.registry(), args.source, args.add, args.leave_out, run_options(args))
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
@@ -286,7 +212,7 @@ def main():
         print(f"2. build: trims idle + pre-fix sag{' + gripper narrowing' if args.trim_narrowing else ''}, "
               f"~{est} frames kept (estimate)"
               + (f"; the mat swapped in ~{args.replace_mat:.0%} of episodes" if args.replace_mat else "")
-              + f"\n   for scale, the default, {default_scale()}: a new version should be no smaller"
+              + f"\n   for scale, the default, {recipe.scale(recipe.registry())}: a new version should be no smaller"
               + f"\n3. verify\n4. upload ({'private' if args.private else 'public'})\n"
               f"5. train {steps} steps (~{steps / 4.6 / 3600:.1f}h at 4.6 steps/s){', colour jitter on' if args.augment else ''}:\n"
               f"   {' '.join(train_command(n, steps, args.private, args.augment))}\n"
@@ -352,8 +278,8 @@ def main():
     print(f"7. register {n['policy_id']}")
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
-                              "datasets": [args.source, *args.add],     # recipe_gap reads it for the next version
-                              "options": recipe_options(args),          # and these
+                              "datasets": [args.source, *args.add],     # mahjong/recipe.py checks the next version against these
+                              "options": run_options(args), "frames": summary["frames"], "steps": steps,
                               **({"left_out": args.leave_out} if args.leave_out else {}),     # for the record
                               "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
                                        + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")

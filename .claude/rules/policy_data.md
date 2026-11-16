@@ -6,6 +6,7 @@ paths:
   - "mahjong/offline_eval.py"
   - "scripts/record.py"
   - "scripts/make_policy.py"
+  - "mahjong/recipe.py"
   - "scripts/quality_report.py"
   - "scripts/offline_eval.py"
   - "scripts/spot_novelty.py"
@@ -62,7 +63,7 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
 - Dataset → policy: `scripts/make_policy.py` (settle its options with `--dry-run` first; training takes
   hours). Uploads are public under `Yewy/` unless `--private`. **A new version is the default's datasets and options plus the
   new recording**: v12 (2026-11-17) was started from a one-dataset example, trained on 15k frames where v11 had 88k, and was
-  thrown away. `make_policy.check_recipe` stops a run that leaves out one of the default's datasets (`--leave-out REPO` to mean it),
+  thrown away. `mahjong/recipe.py` (used by `make_policy.py` and `train_remote.py`) stops a run that leaves out one of the default's datasets (`--leave-out REPO` to mean it),
   and the dry run prints the default's frames and steps beside the new run's.
 - **Eval episodes are never trained on**: held-out episodes and eval-only recordings in
   `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).

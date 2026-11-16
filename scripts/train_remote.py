@@ -7,7 +7,7 @@ survives when SSH disconnects and Windows sleep is suppressed by a PowerShell
 script.
 
 Start a training run (detaches). A new version is the default's datasets plus the new recording: the
-script stops with the --add flags to paste if the list leaves one of the default's out (make_policy.recipe_gap),
+script stops with the --add flags to paste if the list leaves one of the default's out (mahjong/recipe.py),
 before it connects. --dry-run also prints make_policy.py's plan here: episodes, frames and steps, the default's beside them:
 
     python scripts/train_remote.py --source <the default's source> --add <each of its --add> \\
@@ -38,21 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import config  # noqa: E402
-
-_make_policy = None
-
-
-def load_make_policy():
-    """make_policy.py as a module, for its recipe check, so both scripts refuse the same runs. Loaded by path
-    (scripts/ isn't a package) and only when starting a run: --status and --sync don't need it."""
-    global _make_policy
-    if _make_policy is None:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("make_policy", Path(__file__).with_name("make_policy.py"))
-        _make_policy = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(_make_policy)
-    return _make_policy
+from mahjong import config, recipe  # noqa: E402
 
 CONFIG_PATH = config.DATA / "train_machine.json"
 EXAMPLE_PATH = config.DATA / "train_machine.example.json"
@@ -292,7 +278,8 @@ def cmd_status(args, cfg):
             print(f"  python scripts/train_remote.py --sync --version {version}")
         else:
             print(f"Training for {version} exited with code {code}. Check the log:")
-            print(f"  ssh {cfg['ssh']} \"wsl -d {cfg['wsl_distro']} -- bash -c 'tail -50 {log_remote}'\"")
+            # no quotes inside: the Windows end hands the line to cmd.exe, which doesn't honour single quotes
+            print(f"  ssh {cfg['ssh']} \"wsl -d {cfg['wsl_distro']} -- tail -50 {log_remote}\"")
         return
 
     # Also show tail of log if it exists
@@ -456,13 +443,19 @@ def main():
     # checkout's default has to be main's, or the two checks would disagree (and the PC's would stop the run hours
     # later, in a detached log). The dry run adds the plan with its frame and step counts: the scripts alone don't
     # show a run's size, and v12 was started from them at a sixth of v11's frames.
-    check_default_is_mains(stop=not args.dry_run)
+    here, mains = recipe.registry(), mains_registry()
+    if mains is None:
+        print("Warning: couldn't read origin/main's data/policies.json; the PC checks the recipe against it.")
+    elif (message := recipe.default_mismatch(here, mains)):
+        if not args.dry_run:
+            raise SystemExit(message)
+        print(f"Warning: {message}")
     if args.dry_run:
         local_plan(args)        # make_policy's dry run runs the recipe check itself
         cmd_start(args, cfg=None)
     else:
-        mp = load_make_policy()
-        mp.check_recipe(args.source, args.add, args.leave_out, options=mp.recipe_options(args))
+        recipe.check(here, args.source, args.add, args.leave_out,
+                     recipe.options(args.augment, args.replace_mat, args.trim_narrowing))
         cmd_start(args, load_config())
     if args.shutdown_train:
         print("\nNote: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
@@ -470,9 +463,8 @@ def main():
               f"--sync --version {args.version} --shutdown-train when it's done.")
 
 
-def check_default_is_mains(stop=True):
-    """Stop (warn, for a dry run) if this checkout's default policy isn't origin/main's, after a fetch: the PC's
-    make_policy checks the recipe against main's. Without git or a remote, says so and carries on."""
+def mains_registry():
+    """data/policies.json as origin/main has it after a fetch, which is what the PC trains from; None if git can't say."""
     repo = config.DATA.parent
     try:
         fetched = subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, timeout=30)
@@ -480,28 +472,20 @@ def check_default_is_mains(stop=True):
             print("Warning: git fetch failed, so origin/main may be out of date: the PC fetches it before training.")
         shown = subprocess.run(["git", "show", "origin/main:data/policies.json"], cwd=repo, capture_output=True, text=True)
     except (OSError, subprocess.TimeoutExpired):
-        shown = None
-    if shown is None or shown.returncode != 0:
-        print("Warning: couldn't read origin/main's data/policies.json; the PC checks the recipe against it.")
-        return
-    mains, here = json.loads(shown.stdout)["default"], json.loads(config.POLICIES.read_text())["default"]
-    if mains != here:
-        message = (f"This checkout's default is {here} but origin/main's is {mains}, and the PC trains from "
-                   f"origin/main: pull main (or merge the default switch) first.")
-        if stop:
-            raise SystemExit(message)
-        print(f"Warning: {message}")
+        return None
+    return json.loads(shown.stdout) if shown.returncode == 0 else None
 
 
-def local_plan(args):
+def local_plan(args, run=subprocess.run):
     """make_policy.py's own dry run, here: the episodes, frames and steps the remote run would train on, and the
     default's for scale. The recordings are made on this machine, so a failure here (a misspelt --add) would fail
     on the PC too: stop."""
     command = [sys.executable, str(Path(__file__).with_name("make_policy.py")), *make_policy_args(args), "--dry-run"]
     print("The plan, from make_policy.py --dry-run on this machine:", flush=True)
-    if subprocess.run(command).returncode != 0:
+    if run(command).returncode != 0:
         raise SystemExit("make_policy.py couldn't plan this run here (above): fix it before it goes to the PC")
     print()
+
 
 if __name__ == "__main__":
     main()
