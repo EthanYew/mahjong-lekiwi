@@ -58,6 +58,9 @@ BACK_NEAR_PX = 70               # from EXPECTED_PX (~17mm at 4px/mm): neighbours
 # face-down views (2026-11-12 to 11-16, backs all round), 0.02-0.05 on the green cutting mat. Past this the surface itself
 # is the back's green and a back can't be told from it.
 BACK_MAX_GREEN_SHARE = 0.7
+# A look with no back's shape but this much of the face disc in the back's green can't tell: a back under shadow, merged
+# with a knocked neighbour, or the olive stripe in a dim room (the stripe can fill a disc, test_standard_mat).
+BACK_UNSURE_DISC = 0.3
 # Another tile now this close to the spot (centres) can fill the disc as well: the look can't tell them apart. On
 # 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
 # look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
@@ -111,9 +114,7 @@ def dark_share(image_bgr):
 def back_blob(image_bgr, centre=EXPECTED_PX):
     """The tile back nearest `centre` in a wrist frame: {"centre_px", "area_px", "aspect", "fill"}, or None if no back-green
     patch of a tile's size and shape is within BACK_NEAR_PX of it."""
-    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(BACK_HSV_LO, np.uint8), np.array(BACK_HSV_HI, np.uint8))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((BACK_OPEN_PX, BACK_OPEN_PX), np.uint8))
+    mask = cv2.morphologyEx(back_mask(image_bgr), cv2.MORPH_OPEN, np.ones((BACK_OPEN_PX, BACK_OPEN_PX), np.uint8))
     found = []
     for contour in cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
         area = cv2.contourArea(contour)
@@ -126,10 +127,22 @@ def back_blob(image_bgr, centre=EXPECTED_PX):
     return min(found, key=lambda b: math.dist(b["centre_px"], centre), default=None)
 
 
+def back_mask(image_bgr):
+    """Where a wrist frame has the back's green (255) or not (0)."""
+    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    return cv2.inRange(hsv, np.array(BACK_HSV_LO, np.uint8), np.array(BACK_HSV_HI, np.uint8))
+
+
 def back_green_share(image_bgr):
     """Share of the view above the jaws in the back's green."""
-    hsv = cv2.cvtColor(image_bgr[:SURFACE_ROWS], cv2.COLOR_BGR2HSV)
-    return float((cv2.inRange(hsv, np.array(BACK_HSV_LO, np.uint8), np.array(BACK_HSV_HI, np.uint8)) > 0).mean())
+    return float((back_mask(image_bgr[:SURFACE_ROWS]) > 0).mean())
+
+
+def back_disc(image_bgr, centre=EXPECTED_PX, radius_px=RADIUS_PX):
+    """Share of the face disc in the back's green, whatever its shape."""
+    disc = np.zeros(image_bgr.shape[:2], np.uint8)
+    cv2.circle(disc, tuple(int(v) for v in centre), radius_px, 1, -1)
+    return float((back_mask(image_bgr)[disc > 0] > 0).mean())
 
 
 def view_template(image_bgr):
@@ -172,6 +185,8 @@ def check(arm, camera, x, y, hover, template=None, back=False):
             return {**found, "present": None, "why": "the surface is a tile back's green"}
         if 0 < seen * 2 <= len(frames):     # some frames saw it: a shadow or a glint, not a gone tile
             return {**found, "present": None, "why": "a back in some frames only"}
+        if not seen and float(np.median([back_disc(f) for f in frames])) >= BACK_UNSURE_DISC:
+            return {**found, "present": None, "why": "a back's green between the jaws, not a back's shape"}
         return {**found, "present": seen > 0}
     fill = float(np.median([face_fill(f) for f in frames]))
     if float(np.median([dark_share(f) for f in frames])) < MIN_DARK_SHARE:

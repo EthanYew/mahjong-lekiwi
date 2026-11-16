@@ -260,3 +260,13 @@ def test_a_back_look_cant_tell_when_frames_disagree_or_the_surface_is_backs_gree
     green = np.zeros_like(back)
     green[:] = cv2.cvtColor(np.uint8([[[36, 120, 85]]]), cv2.COLOR_HSV2BGR)[0, 0]
     assert wrist_check.check(Arm(), Camera(green), 0.2, 0.0, HOVER, back=True)["present"] is None
+
+
+def test_a_back_look_with_the_backs_green_but_not_its_shape_cant_tell():
+    """A back under the arm's shadow, or merged with a knocked neighbour, still fills the disc with its green."""
+    stripe = np.full((480, 640, 3), 200, np.uint8)
+    u, v = wrist_check.EXPECTED_PX
+    stripe[:, u - 60:u + 60] = cv2.cvtColor(np.uint8([[[35, 120, 80]]]), cv2.COLOR_HSV2BGR)[0, 0]    # a band, not a block
+    assert wrist_check.back_blob(stripe) is None and wrist_check.back_disc(stripe) > 0.9
+    result = wrist_check.check(Arm(), Camera(stripe), 0.2, 0.0, HOVER, back=True)
+    assert result["present"] is None and "shape" in result["why"]

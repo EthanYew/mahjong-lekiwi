@@ -551,9 +551,10 @@ class Bench:
         return box
 
     def ask_still_there(self, name, x, y):
-        """A pale surface and nothing to compare with: a person's look, once per place. True / False."""
+        """A look that can't tell (a pale surface and nothing to compare with, or a back it can't make out): a person's
+        look. True / False."""
         drain_stdin()
-        answer = input(f"  {name} not seen at ({x:.3f}, {y:+.3f}), and the wrist camera can't tell on this surface. Is a "
+        answer = input(f"  {name} not seen at ({x:.3f}, {y:+.3f}), and the wrist camera can't tell. Is a "
                        "tile still there? [Enter = yes / n = no]: ")
         return not answer.strip().lower().startswith("n")
 
@@ -571,7 +572,7 @@ class Bench:
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
             result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
-        if result["present"] is None and result.get("pale") and not self.args.unattended:
+        if result["present"] is None and (result.get("pale") or back and result.get("frames")) and not self.args.unattended:
             self.arm.lift()
             result = {**result, "present": self.ask_still_there(name, x, y), "by": "person"}
             result.pop("why", None)
@@ -586,7 +587,7 @@ class Bench:
         if frame is not None:
             folder = self.session.dir / "wrist_checks"
             folder.mkdir(exist_ok=True)
-            where = f"_{x * 1000:.0f}_{y * 1000:+.0f}" if name == config.BACK else ""   # every back shares a name
+            where = f"_{x * 1000:.0f}_{y * 1000:+.0f}" if back else ""    # every back shares a name
             image = f"wrist_checks/scan{scan_n:03d}_{self.scan_n:03d}_{name}{where}.jpg"
             cv2.imwrite(str(self.session.dir / image), frame)
         if result["present"] is False:

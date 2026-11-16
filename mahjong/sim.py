@@ -264,9 +264,8 @@ class SimWristCamera:
                       v - (ax - x) * 1000 * scale)     # up = +x (away)
             size = (config.TILE_FACE_M[1] * 1000 * scale, config.TILE_FACE_M[0] * 1000 * scale)
             box = cv2.boxPoints((centre, size, -tile.get("yaw_deg", 0.0)))
-            if tile["tile_name"] == config.BACK:        # green side up: the middle of a back's green, no symbols
-                from .wrist_check import BACK_HSV_HI, BACK_HSV_LO
-                hsv = np.uint8([[[(lo + hi) // 2 for lo, hi in zip(BACK_HSV_LO, BACK_HSV_HI)]]])
+            if tile["tile_name"] == config.BACK:        # green side up: a back's green as measured at the hover, no symbols
+                hsv = np.uint8([[[35, 120, 80]]])
                 cv2.fillPoly(image, [np.round(box).astype(np.int32)], [int(c) for c in cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0, 0]])
                 return True, image
             cv2.fillPoly(image, [np.round(box).astype(np.int32)], (225, 235, 240))
