@@ -154,165 +154,74 @@ def test_sync_nonzero_exit_raises(tmp_path, monkeypatch):
         train_remote.cmd_sync(args, FAKE_CFG)
 
 
-# --- the recipe check: a new version keeps the default's datasets (v12, 2026-11-17) ---
+def test_wsl_command_has_no_single_quotes_and_round_trips():
+    import base64
+    cmd = "cd ~/repo && git fetch origin && echo 'it''s' | grep \"x\" $HOME"
+    line = train_remote.wsl_command(FAKE_CFG, cmd)
+    assert "'" not in line
+    b64 = line.split("echo ")[1].split(" |")[0]
+    assert base64.b64decode(b64).decode() == cmd
 
-def _registry(default_entry):
-    return {"default": "old", "policies": {"old": default_entry}}
+# --- the recipe check, as train_remote runs it (the check itself: tests/test_recipe.py) ---
 
-
-OLD_NOTES = {"notes": "make_policy.py from mahjong_surfaces_standard_mat_v1 + Yewy/mahjong_surfaces_mat_v1 + "
-                      "Yewy/mahjong_facedown_dagger_v10; 88075 frames, 120000 steps; colour jitter (AUGMENT); "}
-
-
-def test_recipe_gap_reads_a_policy_registered_before_the_datasets_field():
-    reg = _registry(OLD_NOTES)
-    # v12's command: the source and the new recording only
-    default, missing = train_remote.load_make_policy().recipe_gap(
-        "mahjong_surfaces_standard_mat_v1", ["Yewy/mahjong_facedown_dagger_v11"], reg=reg)
-    assert default == "old"
-    assert missing == ["mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
+V11 = {"default": "old", "policies": {"old": {"datasets": ["src", "Yewy/a"]}}}
 
 
-def test_recipe_gap_is_empty_for_the_default_recipe_plus_a_new_recording_with_or_without_the_hub_user():
-    reg = _registry(OLD_NOTES)
-    add = ["mahjong_surfaces_mat_v1", "Yewy/mahjong_facedown_dagger_v10", "Yewy/mahjong_facedown_dagger_v11"]
-    assert train_remote.load_make_policy().recipe_gap("Yewy/mahjong_surfaces_standard_mat_v1", add, reg=reg)[1] == []
-
-
-def test_recipe_gap_prefers_the_datasets_field_and_honours_leave_out():
-    reg = _registry({"datasets": ["src", "Yewy/a", "Yewy/b"], "notes": "make_policy.py from src; 1 frames"})
-    assert train_remote.load_make_policy().recipe_gap("src", [], reg=reg)[1] == ["a", "b"]
-    assert train_remote.load_make_policy().recipe_gap("src", [], leave_out=["Yewy/a"], reg=reg)[1] == ["b"]
-
-
-def test_check_recipe_stops_with_the_flags_to_paste():
-    with pytest.raises(SystemExit) as stopped:
-        train_remote.load_make_policy().check_recipe("mahjong_surfaces_standard_mat_v1", [], reg=_registry(OLD_NOTES))
-    message = str(stopped.value)
-    assert "--add Yewy/mahjong_surfaces_mat_v1 --add Yewy/mahjong_facedown_dagger_v10" in message
-    assert "--leave-out" in message
-
-
-def test_start_checks_the_recipe_before_it_connects(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "mahjong_surfaces_standard_mat_v1",
-                                      "--version", "v99", "--add", "Yewy/new"])
-    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda **k: None)
-    monkeypatch.setattr(train_remote.load_make_policy(), "recipe_gap", lambda *a, **k: ("old", ["missing_set"]))
-    monkeypatch.setattr(train_remote, "load_config", lambda: pytest.fail("connected before checking the recipe"))
-    with pytest.raises(SystemExit, match="missing_set"):
-        train_remote.main()
-
-
-def test_leave_out_is_passed_to_make_policy():
-    parsed = train_remote.parse_args(["--source", "s", "--version", "v99", "--leave-out", "Yewy/old_set"])
-    assert train_remote.make_policy_args(parsed)[-2:] == ["--leave-out", "Yewy/old_set"]
-
-
-def test_a_default_whose_recipe_cant_be_read_warns_instead_of_passing_silently(capsys):
-    reg = _registry({"notes": "hand-registered from the archive"})
-    assert train_remote.load_make_policy().recipe_gap("src", [], reg=reg)[1] is None
-    train_remote.load_make_policy().check_recipe("src", [], reg=reg)
-    assert "check this run's list against it by hand" in capsys.readouterr().out
-
-
-def test_policy_id_is_passed_to_make_policy():
-    parsed = train_remote.parse_args(["--source", "s", "--version", "v99", "--policy-id", "pickup_mat_cl_v99b"])
-    assert "pickup_mat_cl_v99b" in train_remote.make_policy_args(parsed)
-
-
-@pytest.mark.parametrize("dry_run", [True, False])
-def test_only_the_dry_run_plans_locally(monkeypatch, dry_run):
-    monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "s", "--version", "v99"] + (["--dry-run"] * dry_run))
+def _start(monkeypatch, argv, here=V11, mains=V11):
+    """main() with the registries handed in and nothing able to connect; returns what ran, in order."""
     calls = []
-    monkeypatch.setattr(train_remote.load_make_policy(), "check_recipe", lambda *a, **k: calls.append("check"))
-    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda **k: None)
+    monkeypatch.setattr(sys, "argv", ["train_remote.py", *argv])
+    monkeypatch.setattr(train_remote.recipe, "registry", lambda: here)
+    monkeypatch.setattr(train_remote, "mains_registry", lambda: mains)
     monkeypatch.setattr(train_remote, "local_plan", lambda args: calls.append("plan"))
     monkeypatch.setattr(train_remote, "load_config", lambda: FAKE_CFG)
     monkeypatch.setattr(train_remote, "cmd_start", lambda args, cfg: calls.append(("start", cfg)))
     train_remote.main()
-    # the dry run's recipe check is make_policy's own, inside the plan (once, not twice)
-    assert calls == (["plan", ("start", None)] if dry_run else ["check", ("start", FAKE_CFG)])
+    return calls
 
 
-def test_a_failed_local_plan_stops_the_dry_run(monkeypatch):
-    monkeypatch.setattr(train_remote.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 1})())
+def test_a_start_missing_one_of_the_defaults_datasets_stops_before_it_connects(monkeypatch):
+    with pytest.raises(SystemExit, match="--add Yewy/a"):
+        _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/new"])
+
+
+def test_a_start_with_the_defaults_datasets_goes_ahead(monkeypatch):
+    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/a", "--add", "Yewy/new"])
+    assert calls == [("start", FAKE_CFG)]
+
+
+def test_the_dry_run_plans_here_and_leaves_the_check_to_make_policys_own(monkeypatch):
+    # make_policy --dry-run runs the check inside the plan: checking here too printed every warning twice
+    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"])
+    assert calls == ["plan", ("start", None)]
+
+
+def test_a_default_that_isnt_mains_stops_a_start_and_warns_a_dry_run(monkeypatch, capsys):
+    newer = {"default": "newer", "policies": {"newer": {"datasets": ["src"]}}}
+    with pytest.raises(SystemExit, match="origin/main's is newer"):
+        _start(monkeypatch, ["--source", "src", "--version", "v99", "--add", "Yewy/a"], mains=newer)
+    _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"], mains=newer)
+    assert "origin/main's is newer" in capsys.readouterr().out
+
+
+def test_a_failed_local_plan_stops_the_dry_run():
+    def failed(command):
+        return type("Done", (), {"returncode": 1})()
     with pytest.raises(SystemExit, match="couldn't plan"):
-        train_remote.local_plan(train_remote.parse_args(["--source", "s", "--version", "v99"]))
+        train_remote.local_plan(train_remote.parse_args(["--source", "s", "--version", "v99"]), run=failed)
 
 
-@pytest.mark.parametrize("skip_train", [False, True])
-def test_make_policy_checks_the_recipe_unless_it_only_registers(monkeypatch, skip_train):
-    mp = train_remote.load_make_policy()
-    import mahjong.quality
-
-    class Checked(Exception):
-        pass
-
-    class PastTheCheck(Exception):
-        pass
-
-    monkeypatch.setattr(sys, "argv", ["make_policy.py", "--source", "s", "--version", "v99"] + (["--skip-train"] * skip_train))
-    monkeypatch.setattr(mp, "check_recipe", lambda *a, **k: (_ for _ in ()).throw(Checked()))
-    monkeypatch.setattr(mahjong.quality, "quality_table", lambda *a, **k: (_ for _ in ()).throw(PastTheCheck()))
-    with pytest.raises(PastTheCheck if skip_train else Checked):
-        mp.main()
+def test_leave_out_and_policy_id_are_passed_to_make_policy():
+    parsed = train_remote.parse_args(["--source", "s", "--version", "v99", "--policy-id", "pickup_mat_cl_v99b",
+                                      "--leave-out", "Yewy/old_set"])
+    args = train_remote.make_policy_args(parsed)
+    assert args[args.index("--policy-id") + 1] == "pickup_mat_cl_v99b"
+    assert args[args.index("--leave-out") + 1] == "Yewy/old_set"
 
 
-def test_options_that_differ_from_the_default_warn(capsys):
-    reg = _registry(OLD_NOTES | {"notes": OLD_NOTES["notes"] + "mat swapped in 70% of episodes; "})
-    add = ["mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
-    train_remote.load_make_policy().check_recipe("mahjong_surfaces_standard_mat_v1", add, reg=reg,
-                                                 options={"augment": True, "replace_mat": 0.7})
-    assert "Warning" not in capsys.readouterr().out
-    train_remote.load_make_policy().check_recipe("mahjong_surfaces_standard_mat_v1", add, reg=reg,
-                                                 options={"augment": False, "replace_mat": 0.0})
-    out = capsys.readouterr().out
-    assert "--augment off" in out and "--replace-mat 0" in out
-
-
-def test_a_leave_out_the_default_never_trained_on_warns(capsys):
-    reg = _registry(OLD_NOTES)
-    add = ["mahjong_surfaces_mat_v1", "mahjong_facedown_dagger_v10"]
-    train_remote.load_make_policy().check_recipe("mahjong_surfaces_standard_mat_v1", add, leave_out=["Yewy/typo_v09"], reg=reg)
-    assert "--leave-out Yewy/typo_v09" in capsys.readouterr().out
-
-
-def test_notes_without_a_semicolon_after_the_list_still_read():
-    reg = _registry({"notes": "make_policy.py from src + Yewy/a"})
-    assert train_remote.load_make_policy().recipe_gap("src", [], reg=reg)[1] == ["a"]
-
-
-def test_a_default_that_isnt_mains_stops_the_start(monkeypatch, tmp_path):
-    local = tmp_path / "policies.json"
-    local.write_text(json.dumps({"default": "pickup_mat_cl_v12"}))
-    monkeypatch.setattr(train_remote.config, "POLICIES", local)
-    shown = json.dumps({"default": "pickup_mat_cl_v11"})
-    monkeypatch.setattr(train_remote.subprocess, "run",
-                        lambda cmd, **k: type("R", (), {"returncode": 0, "stdout": shown})())
-    with pytest.raises(SystemExit, match="origin/main's is pickup_mat_cl_v11"):
-        train_remote.check_default_is_mains()
-
-
-def test_registered_options_are_compared_including_trim_narrowing():
-    mp = train_remote.load_make_policy()
-    entry = {"options": {"augment": True, "replace_mat": 0.7, "trim_narrowing": False}}
-    assert mp.option_gaps({"augment": True, "replace_mat": 0.7, "trim_narrowing": False}, entry) == []
-    assert mp.option_gaps({"augment": True, "replace_mat": 0.7, "trim_narrowing": True}, entry) == [
-        "--trim-narrowing on (the default had it off)"]
-
-
-def test_a_leave_out_against_an_unreadable_recipe_doesnt_claim_the_default_never_used_it(capsys):
-    train_remote.load_make_policy().check_recipe("src", [], leave_out=["Yewy/x"], reg=_registry({"notes": "by hand"}))
-    out = capsys.readouterr().out
-    assert "by hand" in out and "changes nothing" not in out
-
-
-def test_a_dry_run_only_warns_when_the_default_isnt_mains(monkeypatch, tmp_path, capsys):
-    local = tmp_path / "policies.json"
-    local.write_text(json.dumps({"default": "pickup_mat_cl_v12"}))
-    monkeypatch.setattr(train_remote.config, "POLICIES", local)
-    shown = json.dumps({"default": "pickup_mat_cl_v11"})
-    monkeypatch.setattr(train_remote.subprocess, "run",
-                        lambda cmd, **k: type("R", (), {"returncode": 0, "stdout": shown})())
-    train_remote.check_default_is_mains(stop=False)
-    assert "origin/main's is pickup_mat_cl_v11" in capsys.readouterr().out
+def test_the_status_hint_for_a_failed_run_has_no_single_quotes(monkeypatch, capsys):
+    # the Windows end hands it to cmd.exe, which doesn't honour them (the fault wsl_command fixed)
+    monkeypatch.setattr(train_remote, "wsl_run", lambda cfg, cmd, check=True: type("R", (), {"stdout": "1\n"})())
+    train_remote.cmd_status(train_remote.parse_args(["--version", "v99", "--status"]), FAKE_CFG)
+    hint = [line for line in capsys.readouterr().out.splitlines() if line.strip().startswith("ssh ")]
+    assert hint and "'" not in hint[0]
