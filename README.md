@@ -100,6 +100,7 @@ against v10, `status.py` has the evidence; before it `pickup_mat_cl_v10` (2026-1
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
 `pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub; face down it led v10 25/28 to 23/28 clean in `20261116_213816_bench`),
+`pickup_mat_cl_v13` (v11's data + 44 DAgger corrections of v11 face down, `Yewy/mahjong_facedown_dagger_v11`, 32 with a takeover; 97446 frames, 133000 steps; trained 2026-11-17, private on the Hub; not benched yet),
 `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 face down: the hand's spots green side up and station L; trained 2026-11-12, private on the Hub, one crude run so far),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
 `pickup_mat_cl_v6` (v3c's hover-jittered demos, DAgger corrections of v3c and of v4 at 4D/7D, and 33 green-mat demos,
