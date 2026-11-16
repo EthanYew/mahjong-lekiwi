@@ -93,6 +93,8 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
   The fix is a 39th class, `back` (`config.BACK`, README "Teaching the detector tile backs"), not colour (see the pale-mat invariant). A back box
   proves a tile and which way up, never its name: `identity.scan_votes` gives it no votes, and its hover and return samples are logged
-  `excluded` until a back's box is checked against a face's at the same spots. Back boxes under `config.BACK_MIN_HEIGHT_M` above the table
+  `excluded` until the live weights pass `detector.back_centres` (tiles flipped in place; `detector.centre_verdict` has the gates; `detector_eval.py` saves it, `detector.backs_checked` reads it). Back boxes under `config.BACK_MIN_HEIGHT_M` above the table
   are mat pattern (`perception.plausible`). The scripts ask `perception.sees_backs` and keep the saved-position path for weights without the
-  class. Untrained as of 2026-11-13.
+  class (where training stands: ROADMAP "Seeing tile backs"). **Every face-down frame of a layout is one scene by its labels**
+  (a back on each spot), so a split by labels sent all 1440 backs to valid on 2026-11-16: `split_by_scene.py` deals them by
+  capture session, and `train_detector.py` refuses a class with no training boxes.

@@ -265,7 +265,7 @@ python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/ma
 | `--hover-gripper PCT` | gripper opening at the hover for every policy, instead of the one its episodes started at (`data/policies.json`; v6 26.7). The policy moves the gripper as changes from there, so its narrowing on the way down shifts by the same amount. Logged per attempt; `session_report.py` flags the session. Far outside the training opening is untested territory for the policy |
 | `--hover-lower-mm MM` | hover this many mm lower than the policy's own, up to 10 (negative = higher, to -15): the hover's offset and the clearance the settle aims for move together. For a spot where the policy closes high. On 2026-11-05 v8 at S8 closed 24.5mm up, and with 4 lower 21-23mm: the close moves about 0.6mm per mm of hover, so it cannot reach the 10mm that picks (127 of 130) inside the arm's 10mm limit. Read `grasp_clearance_m` in `session_report.py`. An experiment: the attempts save no hover samples, the session is flagged in `session_report.py` and is no counted result. The policy was trained from its own hover, so a lower start is a different image |
 | `--carry FROM,TO` | with `--layout`: trials carry one tile between these two spots, across the mat and back (a tile on FROM, TO empty) instead of returning it where it came from. A round is two carries. Every carry's landing is logged; from the drop zone's spot, it's what `play.py` checks before a hand. Needs one policy and someone watching. For a first run, consider leaving TO's neighbours off |
-| `--face-down` | with `--layout` (no `--tile`): tiles lie GREEN side up, and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. What happens next depends on the detector. **Weights with the `back` class** ([teaching it backs](#teaching-the-detector-tile-backs)): a scan right after you lay them says any spot with no back seen; each pickup aims at the back the scan finds nearest its spot, a return's landing is checked, and a knocked back shows in the scans as any tile does, so `--unattended` works. Their hover and return samples are logged but kept out of the fits (`excluded`) until a back's box is checked against a face's. **Older weights** see no backs: every pickup aims at its spot's saved position (as `record.py --face-down` and `crude_run.py` do), nothing sees where a return lands (no landing check, no samples), a tile that walked is yours to square up (press `r`), and `--unattended` is refused. Either way `session_report.py` flags the session and it's no counted result |
+| `--face-down` | with `--layout` (no `--tile`): tiles lie GREEN side up, and you're asked once to lay a tile on each spot. At the menu, `pickup` and `hover` ask which spot. What happens next depends on the detector. **Weights with the `back` class** ([teaching it backs](#teaching-the-detector-tile-backs)): a scan right after you lay them says any spot with no back seen; each pickup aims at the back the scan finds nearest its spot, a return's landing is checked, and a knocked back shows in the scans as any tile does, so `--unattended` works. Their hover and return samples are logged but kept out of the fits (`excluded`) until those weights pass `detector_eval.py`'s check of back centres against face centres. **Older weights** see no backs: every pickup aims at its spot's saved position (as `record.py --face-down` and `crude_run.py` do), nothing sees where a return lands (no landing check, no samples), a tile that walked is yours to square up (press `r`), and `--unattended` is refused. Either way `session_report.py` flags the session and it's no counted result |
 | `--dagger-dataset REPO` | connect the gamepad too: A during any pickup hands you the arm, and your recovery is saved to REPO as a DAgger episode ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). The attempt counts as a rescue, not clean. With `--policy a,b` both must start from the same hover |
 | `--device PATH` | gamepad device path (teach-discard, `--dagger-dataset`) |
 
@@ -1176,7 +1176,12 @@ v4 (2026-10-27: the July frames + 21 of the current scene, split by Roboflow) lo
 on the exam, 52.4% vs 66.7% right overall: it named 93% of what it found right but found only 56%,
 less sure of the current scene the longer it trained (95% of its frames were July ones).
 
-v8 (2026-11-04, live since: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
+backs_v3 (2026-11-16, live since: `tile_detector@f4392437`): v8's start + the face-down captures of 2026-11-14 (Roboflow training
+v10), with the `back` class. On the exam (test project v9): backs called back 98.9% on the standard mat and 97.4% on green paper, 0
+false backs, back centres within 1mm of face centres. Face tiles **96.1% right overall vs v8's 97.1%** (without flowers 97.7% vs
+98.7%): the owner took that drop to see backs (2026-11-16), to be won back with hard examples from play. Worst: 7C, 1F, 3C, 5C, 3D, 7D.
+
+v8 (2026-11-04, live until backs_v3: `tile_detector@47bbd02d`): v7x3's training set + 93 frames of a played hand (`hand_frames.py --onto`, no
 repeats: they're near copies already). On the exam, without flowers: **98.8% right overall** (v7x3: 97.6%), **98.3% on the standard
 mat** (v7x3: 96.8%). Box centres moved a median 0.16 px, at most 0.76. Not yet run on the arm.
 
@@ -1230,14 +1235,24 @@ tile (play and the name ledger give it no votes). With it, `bench.py --face-down
    Correct the boxes in Roboflow (a back you nudged off its spot; an empty spot that got a box): training frames to the training
    project, the exam to its own. List the exam session in `data/detector_exam.json` as usual.
 3. **Split and train** with the class kept (`--with-backs`; without it the back labels are dropped). The new head has one more
-   class than the live weights; the rest carries over from `--start`.
+   class than the live weights; the rest carries over from `--start`. Face-down frames are split by capture session, a share to valid like the other frames, and
+   `train_detector.py` refuses a split that leaves a class with no training boxes.
    ```
    python scripts/split_by_scene.py --data "data/detector/<download>/data.yaml" --out data/detector/train_backs --with-backs
    python scripts/train_detector.py --data data/detector/train_backs/data.yaml --name backs_v1 --dry-run
    ```
 4. **The gate, set before training**: on the face-down exam at least 95% of backs found; on the face-up exam no more than 1 false
    back per 5 frames and right overall no worse than the live weights (`detector_eval.py --against`). Only then copy `best.pt`
-   to `assets/tile_detector.pt`.
+   to `assets/tile_detector.pt`. `detector_eval.py` prints both numbers per group with pass/FAIL (`backs`: labelled, boxed,
+   called back, false backs per frame), the face tiles scored alone (`faces only`, so the live weights compare fairly), and,
+   for tiles scanned face up and then flipped in place a scan apart, how far the back box's centre sits from the face box's
+   on the table (median within 2mm along x and y, as seen and with the hand's own move taken out, and 90% of tiles within 4mm once that move,
+   read from the labels, is taken out, over at least 8 tiles; each tile counted once). From a worktree, pass
+   `--sessions-dir` (the main checkout's `sessions/`): the check needs each scan's saved camera. Passing that last check is what lets the bench
+   fit face-down hover and return samples (saved as `data/detector_eval/weights@<hash>_back_centres.json`).
+   ```
+   python scripts/detector_eval.py --exam-dir data/detector/<exam download> --weights outputs/detector/backs_v1/weights/best.pt --against assets/tile_detector.pt --by session
+   ```
 5. **On the arm**: one attended `bench.py --face-down --layout even-hand14 --trials 2`, then `bump_report.py`: the scans' calls should
    agree with yours. Then `--unattended`.
 

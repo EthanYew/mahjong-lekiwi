@@ -49,6 +49,32 @@
         "surface": "standard mat"
       },
       "note": ""
+    },
+    "20261116_103337_capture": {
+      "added": "2026-11-16T10:33:38",
+      "conditions": {
+        "daylight": "bright",
+        "lamp": false,
+        "ceiling_lights": false,
+        "moved": "nothing",
+        "tiles": "rows",
+        "battery": "full",
+        "surface": "standard mat"
+      },
+      "note": ""
+    },
+    "20261116_103851_capture": {
+      "added": "2026-11-16T10:38:52",
+      "conditions": {
+        "daylight": "dim",
+        "lamp": false,
+        "ceiling_lights": true,
+        "moved": "mat",
+        "tiles": "rows",
+        "battery": "full",
+        "surface": "green paper"
+      },
+      "note": ""
     }
   }
 }

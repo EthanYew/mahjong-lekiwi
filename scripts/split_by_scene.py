@@ -8,7 +8,8 @@ same places landed in train and valid (134 of v4's 182 valid frames had a train 
 rose while the detector got worse on the exam, and best.pt was picked on it. This pools every split of
 the export, groups frames into scenes by their labels (detector.scenes), and deals whole scenes to valid
 until it holds --valid of the frames, apart for the July frames and the frames from sessions so both are
-in valid. Roboflow's test split goes into the pool: the exam is the detector's test.
+in valid. Roboflow's test split goes into the pool: the exam is the detector's test. Frames with tile backs are
+a third group, one scene per capture session (frame_scenes): by labels every face-down frame on a layout was one scene.
 
 On the way, labels are made into what train_detector expects: only the 38 tile names (aruco_marker
 and other classes dropped, so the head still matches the live weights; --with-backs keeps `back`, tiles lying
@@ -78,24 +79,72 @@ def two_names_on_a_tile(boxes):
             if detector.iou(a["xyxy"], b["xyxy"]) >= 0.5]
 
 
+def back_sessions(frames):
+    """The capture sessions with any frame labelled with a back: all their frames are face-down frames."""
+    return {detector.session_of(f["image"].name) for f in frames if has_back(f)} - {None}
+
+
+def has_back(frame):
+    return any(b["tile_name"] == config.BACK for b in frame["boxes"])
+
+
+def frame_scenes(frames, share=0.6):
+    """A scene for each frame: one per capture session for the sessions with backs (back_sessions), by labels
+    (detector.scenes) for the rest. Every face-down frame has a back on each of the layout's spots, and the few tiles left
+    face up sat on the same spots from session to session, so by labels they all made one scene: on 2026-11-16 all 1440
+    back boxes went to valid with it, and best.pt found no backs. By session, each session's light and surface sit on one
+    side of the split; the same spots are still in both, so valid flatters backs a little, and the exam (sessions of
+    their own) is what judges them. A back frame with no session in its name is a scene of its own."""
+    sessions = back_sessions(frames)
+    by_labels = [f for f in frames if not has_back(f) and detector.session_of(f["image"].name) not in sessions]
+    scenes = dict(zip((id(f) for f in by_labels), detector.scenes([f["boxes"] for f in by_labels], share)))
+    out = []
+    for f in frames:
+        session = detector.session_of(f["image"].name)
+        out.append(("backs", session) if session in sessions else ("frame", f["image"].name) if has_back(f)
+                   else ("labels", str(scenes[id(f)])))
+    return out
+
+
+OVERFILL = 1.25     # a scene that takes valid past this much of its share is left in train, for a smaller one
+
+
+ORIGINS = ("July frames", "session frames", "face-down frames")
+
+
+def origin_of(frame, sessions=()):
+    """Which group a frame is dealt in (sessions: back_sessions): each gives ~`valid` of its frames to valid, so backs are
+    in both splits."""
+    if has_back(frame) or detector.session_of(frame["image"].name) in sessions:
+        return ORIGINS[2]
+    return ORIGINS[0] if detector.session_of(frame["image"].name) is None else ORIGINS[1]
+
+
 def split(frames, valid=0.2, share=0.6, seed=0):
     """Sets each frame's "scene" and "to" (train/valid); whole scenes, ~`valid` of the frames of each origin."""
-    for f, scene in zip(frames, detector.scenes([f["boxes"] for f in frames], share)):
+    for f, scene in zip(frames, frame_scenes(frames, share)):
         f["scene"], f["to"] = scene, "train"
-    for from_sessions in (False, True):
-        group = [f for f in frames if (detector.session_of(f["image"].name) is not None) == from_sessions]
+    sessions = back_sessions(frames)
+    for origin in ORIGINS:
+        group = [f for f in frames if origin_of(f, sessions) == origin]
         by_scene = {}
         for f in group:
             by_scene.setdefault(f["scene"], []).append(f)
         order = sorted(by_scene)
         random.Random(seed).shuffle(order)
-        taken = 0
+        taken, target = 0, valid * len(group)
         for scene in order:
-            if taken >= valid * len(group):
+            if taken >= target:
                 break
+            if taken + len(by_scene[scene]) > target * OVERFILL:
+                continue    # a scene this big would leave train short (69 bench frames took 42% of valid, 2026-11-16);
+                            # with one face-down session, every back stays in train
             for f in by_scene[scene]:
                 f["to"] = "valid"
             taken += len(by_scene[scene])
+        if not taken and len(by_scene) > 1:     # every scene too big (a few face-down sessions): the smallest, so valid
+            for f in min(by_scene.values(), key=len):   # still has some of this group
+                f["to"] = "valid"
     return frames
 
 
@@ -131,11 +180,14 @@ def main(argv=None):
             print(f"  left out, exam frame: {f['image'].name}")
         elif clashes[f["image"].name]:
             print(f"  left out, two names on one tile {clashes[f['image'].name]} (fix in Roboflow): {f['image'].name}")
-    for origin, from_sessions in (("July frames", False), ("session frames", True)):
-        group = [f for f in kept if (detector.session_of(f["image"].name) is not None) == from_sessions]
+    sessions = back_sessions(kept)
+    for origin in ORIGINS:
+        group = [f for f in kept if origin_of(f, sessions) == origin]
+        if not group:
+            continue
         counts = Counter(f["to"] for f in group)
         scenes = {to: len({f["scene"] for f in group if f["to"] == to}) for to in ("train", "valid")}
-        print(f"  {origin:<15} train {counts['train']:>4} frames ({scenes['train']} scenes), "
+        print(f"  {origin:<16} train {counts['train']:>4} frames ({scenes['train']} scenes), "
               f"valid {counts['valid']:>4} frames ({scenes['valid']} scenes)")
     moved = Counter((f["split"], f["to"]) for f in kept)
     print("  from Roboflow's split: " + ", ".join(f"{a}->{b} {n}" for (a, b), n in sorted(moved.items())))

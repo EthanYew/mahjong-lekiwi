@@ -50,7 +50,7 @@ def check(data_yaml, exam=None):
     if isinstance(names, dict):
         names = [names[k] for k in sorted(names)]
     images = sorted(p for p in root.rglob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png") and p.parent.name == "images")
-    splits, classes = Counter(), Counter()
+    splits, classes, train_classes = Counter(), Counter(), Counter()
     boxes_per_split = Counter()
     for image in images:
         split = image.parent.parent.name if image.parent.parent != root else "(none)"
@@ -60,8 +60,10 @@ def check(data_yaml, exam=None):
             for line in label.read_text().splitlines():
                 if line.split():
                     classes[names[int(line.split()[0])]] += 1
+                    train_classes[names[int(line.split()[0])]] += split in ("train", "(none)")   # no split folders: all train
                     boxes_per_split[split] += 1
-    return {"splits": {s: (n, boxes_per_split[s]) for s, n in splits.items()}, "classes": classes, "names": names,
+    return {"splits": {s: (n, boxes_per_split[s]) for s, n in splits.items()}, "classes": classes,
+            "train_classes": train_classes, "names": names,
             "exam_frames": detector.exam_frames(images, exam), "images": len(images)}
 
 
@@ -75,6 +77,10 @@ def main(argv=None):
     print("  boxes per class: " + ", ".join(f"{n} {found['classes'][n]}" for n in found["names"]))
     if few:
         print(f"  under 30 boxes: {', '.join(few)} — expect these to stay weak")
+    unseen = [n for n in found["names"] if found["classes"][n] and not found["train_classes"][n]]
+    if unseen:
+        raise SystemExit(f"No boxes in train for {', '.join(unseen)} (all in other splits): the model can't learn them. "
+                         "Re-split (scripts/split_by_scene.py) so each class has training boxes")
     if found["exam_frames"]:
         raise SystemExit(f"{len(found['exam_frames'])} exam frames in the training data (e.g. "
                          f"{found['exam_frames'][0].name}): take them out of this dataset version first")

@@ -1,0 +1,464 @@
+{
+  "weights": "best@44025c23",
+  "time": "2026-11-16T17:40:32",
+  "exam_sessions": [
+    "20261027_172928_capture",
+    "20261028_162624_capture",
+    "20261104_092917_capture",
+    "20261104_101205_capture",
+    "20261116_103337_capture",
+    "20261116_103851_capture"
+  ],
+  "exam_dir": "/home/ethanYew/Projects/mahjong-lekiwi/data/detector/rf_exam_v9",
+  "ignored_names": [],
+  "scores": {
+    "all": {
+      "frames": 129,
+      "tiles": 1413,
+      "found": 1390,
+      "named_right": 1362,
+      "missed": 23,
+      "extra": 6,
+      "found_rate": 0.9837225760792639,
+      "named_right_rate": 0.9798561151079137,
+      "right_rate": 0.9639065817409767,
+      "mixups": [
+        [
+          "5C",
+          "6C",
+          4
+        ],
+        [
+          "3F",
+          "1F",
+          3
+        ],
+        [
+          "7C",
+          "6C",
+          3
+        ],
+        [
+          "3C",
+          "2C",
+          3
+        ],
+        [
+          "3D",
+          "5D",
+          2
+        ],
+        [
+          "1F",
+          "3F",
+          2
+        ],
+        [
+          "4C",
+          "5C",
+          2
+        ],
+        [
+          "2F",
+          "4F",
+          1
+        ],
+        [
+          "4F",
+          "3F",
+          1
+        ],
+        [
+          "4F",
+          "1F",
+          1
+        ],
+        [
+          "2F",
+          "3F",
+          1
+        ],
+        [
+          "1F",
+          "2F",
+          1
+        ],
+        [
+          "NW",
+          "EW",
+          1
+        ],
+        [
+          "GD",
+          "1B",
+          1
+        ],
+        [
+          "SW",
+          "WW",
+          1
+        ],
+        [
+          "6B",
+          "7B",
+          1
+        ]
+      ],
+      "missed_names": {
+        "back": 10,
+        "1F": 4,
+        "5C": 1,
+        "2F": 1,
+        "3F": 1,
+        "EW": 1,
+        "7D": 1,
+        "6B": 1,
+        "6D": 1,
+        "NW": 1,
+        "4B": 1
+      },
+      "backs": {
+        "labelled": 291,
+        "boxed": 281,
+        "called_back": 281,
+        "found_rate": 0.9656357388316151,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 1122,
+        "found": 1109,
+        "named_right": 1081,
+        "found_rate": 0.9884135472370766,
+        "named_right_rate": 0.9747520288548241,
+        "right_rate": 0.9634581105169341
+      }
+    },
+    "20261027_172928_capture": {
+      "frames": 15,
+      "tiles": 126,
+      "found": 124,
+      "named_right": 120,
+      "missed": 2,
+      "extra": 2,
+      "found_rate": 0.9841269841269841,
+      "named_right_rate": 0.967741935483871,
+      "right_rate": 0.9523809523809523,
+      "mixups": [
+        [
+          "3D",
+          "5D",
+          1
+        ],
+        [
+          "2F",
+          "4F",
+          1
+        ],
+        [
+          "3F",
+          "1F",
+          1
+        ],
+        [
+          "1F",
+          "3F",
+          1
+        ]
+      ],
+      "missed_names": {
+        "5C": 1,
+        "2F": 1
+      },
+      "backs": {
+        "labelled": 0,
+        "boxed": 0,
+        "called_back": 0,
+        "found_rate": null,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 126,
+        "found": 124,
+        "named_right": 120,
+        "found_rate": 0.9841269841269841,
+        "named_right_rate": 0.967741935483871,
+        "right_rate": 0.9523809523809523
+      }
+    },
+    "20261028_162624_capture": {
+      "frames": 40,
+      "tiles": 336,
+      "found": 329,
+      "named_right": 319,
+      "missed": 7,
+      "extra": 3,
+      "found_rate": 0.9791666666666666,
+      "named_right_rate": 0.9696048632218845,
+      "right_rate": 0.9494047619047619,
+      "mixups": [
+        [
+          "3F",
+          "1F",
+          2
+        ],
+        [
+          "7C",
+          "6C",
+          2
+        ],
+        [
+          "4F",
+          "3F",
+          1
+        ],
+        [
+          "4F",
+          "1F",
+          1
+        ],
+        [
+          "1F",
+          "3F",
+          1
+        ],
+        [
+          "2F",
+          "3F",
+          1
+        ],
+        [
+          "1F",
+          "2F",
+          1
+        ],
+        [
+          "4C",
+          "5C",
+          1
+        ]
+      ],
+      "missed_names": {
+        "1F": 4,
+        "3F": 1,
+        "EW": 1,
+        "7D": 1
+      },
+      "backs": {
+        "labelled": 0,
+        "boxed": 0,
+        "called_back": 0,
+        "found_rate": null,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 336,
+        "found": 329,
+        "named_right": 319,
+        "found_rate": 0.9791666666666666,
+        "named_right_rate": 0.9696048632218845,
+        "right_rate": 0.9494047619047619
+      }
+    },
+    "20261104_092917_capture": {
+      "frames": 7,
+      "tiles": 238,
+      "found": 236,
+      "named_right": 233,
+      "missed": 2,
+      "extra": 1,
+      "found_rate": 0.9915966386554622,
+      "named_right_rate": 0.9872881355932204,
+      "right_rate": 0.9789915966386554,
+      "mixups": [
+        [
+          "5C",
+          "6C",
+          1
+        ],
+        [
+          "NW",
+          "EW",
+          1
+        ],
+        [
+          "GD",
+          "1B",
+          1
+        ]
+      ],
+      "missed_names": {
+        "6B": 1,
+        "6D": 1
+      },
+      "backs": {
+        "labelled": 0,
+        "boxed": 0,
+        "called_back": 0,
+        "found_rate": null,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 238,
+        "found": 236,
+        "named_right": 233,
+        "found_rate": 0.9915966386554622,
+        "named_right_rate": 0.9872881355932204,
+        "right_rate": 0.9789915966386554
+      }
+    },
+    "20261104_101205_capture": {
+      "frames": 41,
+      "tiles": 349,
+      "found": 347,
+      "named_right": 337,
+      "missed": 2,
+      "extra": 0,
+      "found_rate": 0.994269340974212,
+      "named_right_rate": 0.9711815561959655,
+      "right_rate": 0.9656160458452722,
+      "mixups": [
+        [
+          "5C",
+          "6C",
+          3
+        ],
+        [
+          "3C",
+          "2C",
+          2
+        ],
+        [
+          "4C",
+          "5C",
+          1
+        ],
+        [
+          "7C",
+          "6C",
+          1
+        ],
+        [
+          "SW",
+          "WW",
+          1
+        ],
+        [
+          "3D",
+          "5D",
+          1
+        ],
+        [
+          "6B",
+          "7B",
+          1
+        ]
+      ],
+      "missed_names": {
+        "NW": 1,
+        "4B": 1
+      },
+      "backs": {
+        "labelled": 0,
+        "boxed": 0,
+        "called_back": 0,
+        "found_rate": null,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 349,
+        "found": 347,
+        "named_right": 337,
+        "found_rate": 0.994269340974212,
+        "named_right_rate": 0.9711815561959655,
+        "right_rate": 0.9656160458452722
+      }
+    },
+    "20261116_103337_capture": {
+      "frames": 11,
+      "tiles": 154,
+      "found": 153,
+      "named_right": 153,
+      "missed": 1,
+      "extra": 0,
+      "found_rate": 0.9935064935064936,
+      "named_right_rate": 1.0,
+      "right_rate": 0.9935064935064936,
+      "mixups": [],
+      "missed_names": {
+        "back": 1
+      },
+      "backs": {
+        "labelled": 95,
+        "boxed": 94,
+        "called_back": 94,
+        "found_rate": 0.9894736842105263,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 59,
+        "found": 59,
+        "named_right": 59,
+        "found_rate": 1.0,
+        "named_right_rate": 1.0,
+        "right_rate": 1.0
+      }
+    },
+    "20261116_103851_capture": {
+      "frames": 15,
+      "tiles": 210,
+      "found": 201,
+      "named_right": 200,
+      "missed": 9,
+      "extra": 0,
+      "found_rate": 0.9571428571428572,
+      "named_right_rate": 0.9950248756218906,
+      "right_rate": 0.9523809523809523,
+      "mixups": [
+        [
+          "3C",
+          "2C",
+          1
+        ]
+      ],
+      "missed_names": {
+        "back": 9
+      },
+      "backs": {
+        "labelled": 196,
+        "boxed": 187,
+        "called_back": 187,
+        "found_rate": 0.9540816326530612,
+        "false": 0,
+        "extra": 0,
+        "faces_read_as_back": 0,
+        "false_per_frame": 0.0
+      },
+      "faces": {
+        "tiles": 14,
+        "found": 14,
+        "named_right": 13,
+        "found_rate": 1.0,
+        "named_right_rate": 0.9285714285714286,
+        "right_rate": 0.9285714285714286
+      }
+    }
+  }
+}
