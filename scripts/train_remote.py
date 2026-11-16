@@ -146,14 +146,22 @@ def ssh_run(cfg, windows_cmd, check=True):
     return result
 
 
+def wsl_command(cfg, bash_cmd):
+    """The ssh command line that runs `bash_cmd` in WSL.
+
+    Windows OpenSSH hands the line to cmd.exe, which doesn't treat single quotes as
+    quoting, so a quoted `bash -c '...'` falls apart at the first space. The script is
+    sent base64-encoded instead: the line then holds only letters, digits and `+/=`,
+    which no Windows shell rewrites.
+    """
+    import base64
+    b64 = base64.b64encode(bash_cmd.encode()).decode()
+    return f"wsl -d {cfg['wsl_distro']} -- bash -c \"echo {b64} | base64 -d | bash\""
+
+
 def wsl_run(cfg, bash_cmd, check=True):
     """Run a bash command inside WSL on the remote machine."""
-    return ssh_run(cfg, f"wsl -d {cfg['wsl_distro']} -- bash -c {_sh_quote(bash_cmd)}", check=check)
-
-
-def _sh_quote(s):
-    """Single-quote a string for a Windows SSH command line."""
-    return "'" + s.replace("'", "'\\''") + "'"
+    return ssh_run(cfg, wsl_command(cfg, bash_cmd), check=check)
 
 
 def wsl_write(cfg, remote_path, content):

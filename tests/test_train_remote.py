@@ -152,3 +152,12 @@ def test_sync_nonzero_exit_raises(tmp_path, monkeypatch):
     args = train_remote.parse_args(["--version", "v99", "--sync"])
     with pytest.raises(SystemExit, match="exited with code 1"):
         train_remote.cmd_sync(args, FAKE_CFG)
+
+
+def test_wsl_command_has_no_single_quotes_and_round_trips():
+    import base64
+    cmd = "cd ~/repo && git fetch origin && echo 'it''s' | grep \"x\" $HOME"
+    line = train_remote.wsl_command(FAKE_CFG, cmd)
+    assert "'" not in line
+    b64 = line.split("echo ")[1].split(" |")[0]
+    assert base64.b64decode(b64).decode() == cmd
