@@ -62,6 +62,10 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   bench doesn't look within `wrist_check.CROWDED_M`. A pale surface fills it with no tile at all, so without enough dark
   surface in view (`wrist_check.MIN_DARK_SHARE`) it can only say the view matches an earlier look at that place, and a
   person is asked the first time (`wrist_check.PlaceViews`). Evidence: `docs/invariant_notes.md`.
+  **A face-down tile has no face to see**, so the face disc read ~0 over every back (36 of 36 looks on 2026-11-16 said
+  "not there" with the back between the jaws). A back is found by its shape (`wrist_check.back_blob`: a compact tile-sized
+  patch of its green), never its colour alone: the standard mat's olive stripe has the back's green in a dim room.
+  Unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
 - **Whether a tile is there and which tile it is are separate questions.** The detector boxes tiles it can't name (3C at a
   median 0.18, so it looked gone in 45 of 46 scans), so a box down to `config.DETECTION_PRESENCE_CONFIDENCE` proves a tile
   is there (`perception.faint_tiles`, `tile_faint` events), and only a name over `DETECTION_CONFIDENCE` is acted on as one.
