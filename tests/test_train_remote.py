@@ -152,3 +152,81 @@ def test_sync_nonzero_exit_raises(tmp_path, monkeypatch):
     args = train_remote.parse_args(["--version", "v99", "--sync"])
     with pytest.raises(SystemExit, match="exited with code 1"):
         train_remote.cmd_sync(args, FAKE_CFG)
+
+
+def test_wsl_command_has_no_single_quotes_and_round_trips():
+    import base64
+    cmd = "cd ~/repo && git fetch origin && echo 'it''s' | grep \"x\" $HOME"
+    line = train_remote.wsl_command(FAKE_CFG, cmd)
+    assert "'" not in line
+    b64 = line.split("echo ")[1].split(" |")[0]
+    assert base64.b64decode(b64).decode() == cmd
+
+# --- the recipe check, as train_remote runs it (the check itself: tests/test_recipe.py) ---
+
+V11 = {"default": "old", "policies": {"old": {"datasets": ["src", "Yewy/a"]}}}
+
+
+def _start(monkeypatch, argv, here=V11, mains=V11):
+    """main() with the registries handed in and nothing able to connect; returns what ran, in order."""
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["train_remote.py", *argv])
+    monkeypatch.setattr(train_remote.recipe, "registry", lambda: here)
+    monkeypatch.setattr(train_remote, "mains_registry", lambda: mains)
+    monkeypatch.setattr(train_remote, "local_plan", lambda args: calls.append("plan"))
+    monkeypatch.setattr(train_remote, "load_config", lambda: FAKE_CFG)
+    monkeypatch.setattr(train_remote, "cmd_start", lambda args, cfg: calls.append(("start", cfg)))
+    train_remote.main()
+    return calls
+
+
+def test_every_start_plans_here_first_and_a_failed_plan_connects_nothing(monkeypatch):
+    # the plan is make_policy's own dry run: the recipe check, the size, a misspelt --add. A start that skipped
+    # the dry run (v12's) gets it too.
+    assert _start(monkeypatch, ["--source", "src", "--version", "v99"]) == ["plan", ("start", FAKE_CFG)]
+    assert _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"]) == ["plan", ("start", None)]
+
+    def failed_plan(args):
+        raise SystemExit("make_policy.py couldn't plan this run here")
+    monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "src", "--version", "v99"])
+    monkeypatch.setattr(train_remote, "local_plan", failed_plan)
+    monkeypatch.setattr(train_remote, "load_config", lambda: pytest.fail("connected after a failed plan"))
+    with pytest.raises(SystemExit, match="couldn't plan"):
+        train_remote.main()
+
+
+def test_the_shutdown_train_note_comes_before_the_run_starts(monkeypatch, capsys):
+    calls = _start(monkeypatch, ["--source", "src", "--version", "v99", "--shutdown-train"])
+    assert calls == ["plan", ("start", FAKE_CFG)]
+    assert "--sync --version v99 --shutdown-train" in capsys.readouterr().out
+
+
+def test_a_default_that_isnt_mains_stops_a_start_and_warns_a_dry_run(monkeypatch, capsys):
+    newer = {"default": "newer", "policies": {"newer": {"datasets": ["src"]}}}
+    with pytest.raises(SystemExit, match="origin/main's is newer"):
+        _start(monkeypatch, ["--source", "src", "--version", "v99"], mains=newer)
+    _start(monkeypatch, ["--source", "src", "--version", "v99", "--dry-run"], mains=newer)
+    assert "origin/main's is newer" in capsys.readouterr().out
+
+
+def test_a_failed_local_plan_stops_the_dry_run():
+    def failed(command):
+        return type("Done", (), {"returncode": 1})()
+    with pytest.raises(SystemExit, match="couldn't plan"):
+        train_remote.local_plan(train_remote.parse_args(["--source", "s", "--version", "v99"]), run=failed)
+
+
+def test_leave_out_and_policy_id_are_passed_to_make_policy():
+    parsed = train_remote.parse_args(["--source", "s", "--version", "v99", "--policy-id", "pickup_mat_cl_v99b",
+                                      "--leave-out", "Yewy/old_set"])
+    args = train_remote.make_policy_args(parsed)
+    assert args[args.index("--policy-id") + 1] == "pickup_mat_cl_v99b"
+    assert args[args.index("--leave-out") + 1] == "Yewy/old_set"
+
+
+def test_the_status_hint_for_a_failed_run_has_no_single_quotes(monkeypatch, capsys):
+    # the Windows end hands it to cmd.exe, which doesn't honour them (the fault wsl_command fixed)
+    monkeypatch.setattr(train_remote, "wsl_run", lambda cfg, cmd, check=True: type("R", (), {"stdout": "1\n"})())
+    train_remote.cmd_status(train_remote.parse_args(["--version", "v99", "--status"]), FAKE_CFG)
+    hint = [line for line in capsys.readouterr().out.splitlines() if line.strip().startswith("ssh ")]
+    assert hint and "'" not in hint[0]

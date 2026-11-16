@@ -9,6 +9,7 @@ What each file is for. `tests/test_docs.py` fails on a script not listed here.
 | `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command`, `grasp_point` |
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |
 | `mahjong/policy.py` | registry (`data/policies.json`), loading, the ACT control loop |
+| `mahjong/recipe.py` | a new version's datasets and options checked against the default policy's (`make_policy.py`, `train_remote.py`) |
 | `mahjong/perception.py`, `camera.py`, `gamepad.py` | RealSense tiles, wrist camera, XLeRobot gamepad |
 | `mahjong/handoff_trace.py`, `scripts/handoff_report.py` | what the arm does once the gamepad has it (collect_corrections' `handoff/` traces): sag, drift, command moves |
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
