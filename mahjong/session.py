@@ -46,10 +46,32 @@ def previous_conditions():
     return {}
 
 
+def added_choices(key):
+    """Answers a person added at run time to the setup question `key` (data/added_choices.json)."""
+    try:
+        return list(json.loads(config.ADDED_CHOICES.read_text()).get(key, []))
+    except (OSError, ValueError):
+        return []
+
+
+def add_choice(key, answer):
+    try:
+        saved = json.loads(config.ADDED_CHOICES.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    saved[key] = [*dict.fromkeys([*saved.get(key, []), answer])]
+    config.ADDED_CHOICES.parent.mkdir(parents=True, exist_ok=True)
+    config.ADDED_CHOICES.write_text(json.dumps(saved, indent=2) + "\n")
+
+
 def ask_one(question, default, ask):
     """One question ({"ask", "choices": [...] or "yn"}): a number, a unique prefix or y/n; Enter takes
-    `default` (None: skip). Unclear answers are asked again."""
+    `default` (None: skip). Unclear answers are asked again. On a question with "addable" (and a "key"), text
+    that matches no choice can be added as a new one, kept in data/added_choices.json for every later session."""
     choices = question["choices"]
+    addable = choices != "yn" and question.get("addable") and question.get("key")
+    if addable:
+        choices = [*choices, *(c for c in added_choices(question["key"]) if c not in choices)]
     if choices == "yn":
         shown = {True: "y", False: "n", None: "skip"}.get(default, default)
         while True:
@@ -65,9 +87,15 @@ def ask_one(question, default, ask):
             return default
         if answer.isdigit() and 1 <= int(answer) <= len(choices):
             return choices[int(answer) - 1]
+        if answer in choices:
+            return answer
         matches = [c for c in choices if c.startswith(answer)]
         if len(matches) == 1:
             return matches[0]
+        if addable and not answer.isdigit() and not matches:
+            if ask(f"  '{answer}' isn't listed. Add it as a new {question['key']}? [y/n]: ").strip().lower().startswith("y"):
+                add_choice(question["key"], answer)
+                return answer
 
 
 def ask_conditions(previous, questions=None, ask=None, confirm=True):

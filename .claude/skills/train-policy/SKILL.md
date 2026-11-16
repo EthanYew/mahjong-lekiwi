@@ -1,6 +1,7 @@
 ---
 name: train-policy
 description: Train a policy on the PC over SSH and follow it to a registered, screened policy. Use when the user says train it on the other machine, start training, has training finished, or how is v-something doing.
+model: sonnet
 ---
 
 Training runs on the PC (Windows, WSL inside) through `scripts/train_remote.py`, which detaches the run so it outlives SSH and

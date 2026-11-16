@@ -133,6 +133,7 @@ XLEROBOT_MODEL = Path.home() / "Projects" / "XLeRobot" / "software" / "plugins" 
 # --- session setup questions: asked at the start of every hardware session and stored as `conditions`
 # on session_start, so sessions compare (scripts/session_report.py --all). Choices are a list, or "yn".
 # sticky: Enter keeps the previous session's answer; otherwise Enter means the first choice.
+ADDED_CHOICES = DATA / "added_choices.json"    # answers typed in at a setup question marked "addable": {key: [answer, ...]}
 SURFACE_BEFORE_ASKED = "black table top"    # what every session before the surface question was recorded on
 SETUP_QUESTIONS = [
     {"key": "daylight", "ask": "Daylight in the room", "choices": ["bright", "dim", "none"], "sticky": True},
@@ -146,5 +147,5 @@ SETUP_QUESTIONS = [
     # table top, and v5 failed on a green cutting mat (2026-10-29). Earlier sessions: SURFACE_BEFORE_ASKED.
     {"key": "surface", "ask": "Surface under the tiles",
      "choices": ["black table top", "green cutting mat", "grey mat", "paper", "brown table", "brown paper",
-                 "standard mat", "other"], "sticky": True},
+                 "standard mat", "green paper", "other"], "sticky": True, "addable": True},
 ]

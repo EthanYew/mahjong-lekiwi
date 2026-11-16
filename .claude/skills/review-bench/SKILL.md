@@ -2,6 +2,7 @@
 name: review-bench
 description: Review a bench session on the arm. Use when the user says they ran the bench or asks what happened in a session, what failed, or to review the latest data.
 context: fork
+model: sonnet
 ---
 
 Report what the session shows and what it can't. The session, and what the user said about it: $ARGUMENTS
