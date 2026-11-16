@@ -18,6 +18,14 @@ another tile read as one of them is still a mix-up. A label drawn twice on one t
 overlapping 80%+) is merged and listed: delete the copy in Roboflow. Each score is saved to
 data/detector_eval/<weights>@<hash>[_without_<names>].json.
 
+Tile backs (the `back` class): with backs labelled or called, each group also gets the back gate's two numbers
+(detector.back_numbers): backs found, the share of labelled backs given a box called back (gate: at least 95%, on the
+face-down exam), and false backs, boxes called back on no tile plus face tiles read as back, per frame (gate: at most 1
+per 5 frames, on the face-up exam). "faces" scores the face tiles alone, so weights without the class compare fairly on
+names. And where a tile was scanned face up and then flipped in place, a scan apart, the offset of its back box's
+centre from its face box's, in mm on the table (detector.back_centres): the bench keeps face-down hover and return
+samples out of the fits until a detector passes it, saved to data/detector_eval/<weights>@<hash>_back_centres.json.
+
 Ship new weights only if they beat the current ones on the same exam: copy best.pt to
 assets/tile_detector.pt and commit it, with these numbers in the message.
 """
@@ -30,7 +38,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, detector
-from mahjong.detector import weights_id, wrong_rate_bound
+from mahjong.detector import (BACKS_FOUND_GATE, FALSE_BACKS_PER_FRAME_GATE, back_centres, back_centres_path, weights_id,
+                              wrong_rate_bound)
 from mahjong.perception import predictor
 
 
@@ -82,6 +91,48 @@ def report(name, scores, mixups):
         print("  mix-ups (true -> said): " + ", ".join(f"{t}->{w} x{n}" for t, w, n in s["mixups"][:mixups]))
     if s["missed_names"]:
         print("  missed most: " + ", ".join(f"{t} x{n}" for t, n in list(s["missed_names"].items())[:mixups]))
+    report_backs(scores)
+
+
+def gate(ok):
+    return "pass" if ok else "FAIL"
+
+
+def report_backs(scores):
+    """The back gate's numbers per group, and the face tiles on their own, when any back was labelled or called."""
+    rows = [(g, detector.summary(scores[g])) for g in ["all"] + sorted(g for g in scores if g != "all")]
+    if not any(s["backs"]["labelled"] or s["backs"]["false"] for _, s in rows):
+        return
+    print(f"  {'backs':<40} {'labelled':>8} {'boxed':>6} {'called back':>11} {'false':>6} {'per frame':>9}")
+    for group, s in rows:
+        b = s["backs"]
+        found = (f"{pct(b['found_rate'])} {gate(b['found_rate'] >= BACKS_FOUND_GATE)}" if b["labelled"] else "  -")
+        print(f"  {group:<40} {b['labelled']:>8} {b['boxed']:>6} {found:>11} {b['false']:>6} "
+              f"{b['false_per_frame']:>5.2f} {gate(b['false_per_frame'] <= FALSE_BACKS_PER_FRAME_GATE)}")
+    print(f"    gates: backs called back >= {BACKS_FOUND_GATE:.0%} on face-down frames; false backs (boxes called back on "
+          f"no tile + faces read as back) <= {FALSE_BACKS_PER_FRAME_GATE} per frame on face-up frames")
+    f = rows[0][1]["faces"]
+    print(f"  faces only: {f['tiles']} tiles, found {pct(f['found_rate']).strip()}, named right "
+          f"{pct(f['named_right_rate']).strip()}, right overall {pct(f['right_rate']).strip()}")
+
+
+def report_centres(result):
+    print(f"  back centres vs face centres: {result['flips']} tiles flipped in place a scan apart, {result['measured']} "
+          f"boxed both ways" + (f", {result['no_camera']} without a saved camera" if result["no_camera"] else ""))
+    if result["measured"]:
+        print(f"    back minus face, median: x {result['median_dx_mm']:+.1f}mm, y {result['median_dy_mm']:+.1f}mm "
+              f"(distance median {result['median_dist_mm']:.1f}, 90th {result['p90_dist_mm']:.1f}mm); the hand moved them "
+              f"x {result['label_median_dx_mm']:+.1f}, y {result['label_median_dy_mm']:+.1f}mm by the labels")
+    print(f"    {gate(result['passes'])}: median within {result['gate_mm']:.0f}mm along x and y over at least "
+          f"{result['min_pairs']} tiles")
+
+
+def save_centres(weights, result, exam_dir):
+    path = back_centres_path(weights)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"weights": weights_id(weights), "time": datetime.now().isoformat(timespec="seconds"),
+                                "exam_dir": str(exam_dir), **result}, indent=2) + "\n")
+    return path
 
 
 def save(weights, exam, scores, exam_dir, ignore=()):
@@ -101,9 +152,10 @@ def main(argv=None):
     if not exam["sessions"]:
         raise SystemExit(f"No exam sessions in {config.DETECTOR_EXAM}: capture some with "
                          "scripts/capture_frames.py --exam, label them, then score.")
+    faces = {}
     for weights in [args.weights] + ([args.against] if args.against else []):
-        scores, outside, duplicates = detector.evaluate(args.exam_dir, predictor(weights), exam, by=args.by,
-                                                        ignore=args.ignore)
+        images, outside, duplicates = detector.exam_images(args.exam_dir, predictor(weights), exam, by=args.by)
+        scores = detector.score(images, args.ignore)
         if weights == args.weights and outside:
             print(f"Left out {len(outside)} frames that aren't from an exam session, e.g. {outside[0].name}")
         if weights == args.weights and duplicates:
@@ -116,6 +168,17 @@ def main(argv=None):
             raise SystemExit(f"No exam frames under {args.exam_dir} (labelled, from {', '.join(exam['sessions'])})")
         report(weights_id(weights), scores, args.mixups)
         print(f"  saved {save(weights, exam, scores, args.exam_dir, args.ignore)}")
+        faces[weights] = detector.summary(scores["all"])["faces"]
+        centres = back_centres(images)
+        if centres["flips"]:
+            report_centres(centres)
+            if centres["measured"]:      # a run with no measured pairs leaves an earlier check standing
+                print(f"  saved {save_centres(weights, centres, args.exam_dir)}")
+    if args.against:
+        new, old = faces[args.weights], faces[args.against]
+        ok = (new["right_rate"] or 0) >= (old["right_rate"] or 0)
+        print(f"\nFace tiles, right overall: {pct(new['right_rate']).strip()} against {pct(old['right_rate']).strip()} "
+              f"({gate(ok)}: no worse than {weights_id(args.against)})")
 
 
 if __name__ == "__main__":

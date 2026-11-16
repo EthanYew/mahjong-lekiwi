@@ -164,9 +164,12 @@ BACK_UNCHECKED = ("face down: a back box's centre hasn't been checked against a 
                   "and return models are fitted from detections")
 
 
-def back_excluded(tile):
-    """Provenance that keeps a hover or return sample from a back (perception.is_back) out of the fits, logged all the same."""
-    return {"excluded": BACK_UNCHECKED} if perception.is_back(tile) else {}
+def back_excluded(tile, weights=None):
+    """Provenance that keeps a hover or return sample from a back (perception.is_back) out of the fits, logged all the same,
+    until the live weights' back centres pass the check against face centres (detector.backs_checked, detector_eval.py)."""
+    if not perception.is_back(tile) or detector.backs_checked(weights or config.TILE_DETECTOR):
+        return {}
+    return {"excluded": BACK_UNCHECKED}
 
 
 class Bench:

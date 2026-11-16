@@ -328,3 +328,68 @@ def test_unchanged_share_matches_by_name_and_position():
 def test_count_panel_covers_every_name_once():
     import capture_frames
     assert sorted(n for column in capture_frames.COLUMNS for n in column) == sorted(detector.TILE_NAMES)
+
+
+def test_back_gate_numbers_count_found_backs_and_false_backs():
+    truth = [box(config.BACK, 1, 100, 100), box(config.BACK, 1, 200, 100), box("5C", 1, 300, 100)]
+    said = [box(config.BACK, 0.9, 101, 100),       # found, called back
+            box("5C", 0.8, 200, 100),              # boxed, but named as a face: not found as a back
+            box(config.BACK, 0.7, 300, 101),       # a face read as back
+            box(config.BACK, 0.6, 500, 400)]       # a back on no tile
+    s = detector.summary(detector.score([{"truth": truth, "said": said}])["all"])
+    assert {k: s["backs"][k] for k in ("labelled", "boxed", "called_back", "false", "extra", "faces_read_as_back")} == \
+        {"labelled": 2, "boxed": 2, "called_back": 1, "false": 2, "extra": 1, "faces_read_as_back": 1}
+    assert s["backs"]["found_rate"] == 0.5 and s["backs"]["false_per_frame"] == 2.0
+    assert (s["faces"]["tiles"], s["faces"]["found"], s["faces"]["named_right"]) == (1, 1, 0)
+
+
+# a camera 0.5m over the table looking straight down: 1px is ~0.8mm at the tile tops
+CAMERA = {"intrinsics": {"fx": 600.0, "fy": 600.0, "ppx": 424.0, "ppy": 240.0},
+          "T_cam_to_base": [[0, -1, 0, 0.2], [-1, 0, 0, 0.0], [0, 0, -1, 0.5], [0, 0, 0, 1]], "size": [848, 480]}
+
+
+def flipped_scans(sessions, shift_px, tiles=8, session="20261116_090000_capture"):
+    """Scan 1 with `tiles` faces in a row, scan 2 with each flipped in place; the detector puts each back box shift_px along
+    u from its face box. Returns exam_images-style frames."""
+    images = []
+    for n in (1, 2):
+        (sessions / session / "scans" / f"00{n}_capture").mkdir(parents=True)
+        (sessions / session / "scans" / f"00{n}_capture" / "reads.json").write_text(json.dumps({**CAMERA, "frames": []}))
+        name = "5C" if n == 1 else config.BACK
+        truth = [box(name, 1, 100 + 40 * i, 200) for i in range(tiles)]
+        said = [box(name, 0.9, 100 + 40 * i + (shift_px if n == 2 else 0), 200) for i in range(tiles)]
+        images.append({"frame": Path(f"{session}__00{n}_capture__f0_jpg.rf.abc.jpg"), "size": (848, 480),
+                       "truth": truth, "said": said, "group": "all"})
+    return images
+
+
+def test_back_centres_pass_when_backs_sit_where_faces_did(tmp_path):
+    result = detector.back_centres(flipped_scans(tmp_path, 0), sessions_dir=tmp_path)
+    assert result["flips"] == result["measured"] == 8 and result["passes"]
+    assert abs(result["median_dx_mm"]) < 0.01 and abs(result["median_dy_mm"]) < 0.01
+
+
+def test_back_centres_fail_on_a_steady_offset_or_too_few_tiles(tmp_path):
+    shifted = detector.back_centres(flipped_scans(tmp_path / "a", 5), sessions_dir=tmp_path / "a")
+    assert not shifted["passes"] and abs(shifted["median_dy_mm"]) > 3     # u runs along -y with this camera
+    few = detector.back_centres(flipped_scans(tmp_path / "b", 0, tiles=3), sessions_dir=tmp_path / "b")
+    assert few["measured"] == 3 and not few["passes"]
+
+
+def test_back_centres_need_the_scans_camera(tmp_path):
+    result = detector.back_centres(flipped_scans(tmp_path, 0), sessions_dir=tmp_path / "elsewhere")
+    assert result["flips"] == 8 and result["measured"] == 0 and result["no_camera"] == 8 and not result["passes"]
+
+
+def test_a_back_sample_joins_the_fits_once_the_weights_pass(tmp_path, monkeypatch):
+    import bench
+    weights = tmp_path / "w.pt"
+    weights.write_bytes(b"weights")
+    monkeypatch.setattr(config, "DETECTOR_EVAL", tmp_path / "eval")
+    back, face = {"tile_name": config.BACK}, {"tile_name": "5C"}
+    assert bench.back_excluded(back, weights) == {"excluded": bench.BACK_UNCHECKED} and bench.back_excluded(face, weights) == {}
+    (tmp_path / "eval").mkdir()
+    detector.back_centres_path(weights).write_text(json.dumps({"passes": False}))
+    assert bench.back_excluded(back, weights)
+    detector.back_centres_path(weights).write_text(json.dumps({"passes": True}))
+    assert bench.back_excluded(back, weights) == {}

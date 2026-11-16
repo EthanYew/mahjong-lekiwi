@@ -401,7 +401,8 @@ def score(images, ignore=()):
     missed_names {true: n}. Tiles named in `ignore` (e.g. the flowers) are matched like any other, then
     left out: their boxes count for nothing, while another tile called by an ignored name is still a mix-up."""
     tallies = defaultdict(lambda: {"frames": 0, "tiles": 0, "found": 0, "named_right": 0, "missed": 0, "extra": 0,
-                                   "mixups": Counter(), "missed_names": Counter()})
+                                   "mixups": Counter(), "missed_names": Counter(), "labelled": Counter(),
+                                   "extra_names": Counter()})
     for image in images:
         pairs, missed, extra = match(image["truth"], image["said"])
         if ignore:
@@ -423,6 +424,8 @@ def score(images, ignore=()):
                 else:
                     t["mixups"][(true["tile_name"], said["tile_name"])] += 1
             t["missed_names"].update(b["tile_name"] for b in missed)
+            t["labelled"].update(b["tile_name"] for b in truth)
+            t["extra_names"].update(b["tile_name"] for b in extra)
     return dict(tallies)
 
 
@@ -452,10 +455,10 @@ def dedupe(boxes, min_iou=0.8):
     return kept, dropped
 
 
-def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE, ignore=()):
-    """Score `predict` (BGR image -> boxes, as perception.run_detector) on the exam frames under exam_dir.
-    by: None, "lighting" or "session"; ignore: tile names left out of the score. Returns (score(...),
-    frames left out because they aren't exam frames, [(frame, duplicate label)] merged away)."""
+def exam_images(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE):
+    """The exam frames under exam_dir with their labels and `predict`'s boxes (BGR image -> boxes, as
+    perception.run_detector) at the cut: ([{"frame", "size", "truth", "said", "group"}], frames left out because they
+    aren't exam frames, [(frame, duplicate label)] merged away). by: None, "lighting" or "session"."""
     import cv2
     exam = exam or load_exam()
     images, outside, duplicates = [], [], []
@@ -470,18 +473,174 @@ def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_C
                  "session": lambda: session}.get(by, lambda: "all")()  # noqa: B023
         truth, dropped = dedupe(read_yolo_labels(label_path, names, (w, h)))
         duplicates += [(image_path, b) for b in dropped]
-        images.append({"truth": truth, "group": group,
+        images.append({"frame": image_path, "size": (w, h), "truth": truth, "group": group,
                        "said": [b for b in predict(image) if b["confidence"] >= confident]})
+    return images, outside, duplicates
+
+
+def evaluate(exam_dir, predict, exam=None, by=None, confident=config.DETECTION_CONFIDENCE, ignore=()):
+    """Score `predict` on the exam frames under exam_dir (exam_images); ignore: tile names left out of the score. Returns
+    (score(...), frames left out because they aren't exam frames, [(frame, duplicate label)] merged away)."""
+    images, outside, duplicates = exam_images(exam_dir, predict, exam, by, confident)
     return score(images, ignore), outside, duplicates
 
 
 def summary(tally):
-    """A tally as plain numbers and rates (for a scores file)."""
+    """A tally as plain numbers and rates (for a scores file), with the back gate's numbers (back_numbers) and the face
+    tiles' own scores (faces: the backs left out, so weights without the back class compare fairly on names)."""
     tiles, found = tally["tiles"], tally["found"]
-    return {"frames": tally["frames"], "tiles": tiles, "found": found, "named_right": tally["named_right"],
-            "missed": tally["missed"], "extra": tally["extra"],
-            "found_rate": found / tiles if tiles else None,
-            "named_right_rate": tally["named_right"] / found if found else None,
-            "right_rate": tally["named_right"] / tiles if tiles else None,     # found and named right
-            "mixups": [[t, s, n] for (t, s), n in tally["mixups"].most_common()],
-            "missed_names": dict(tally["missed_names"].most_common())}
+    out = {"frames": tally["frames"], "tiles": tiles, "found": found, "named_right": tally["named_right"],
+           "missed": tally["missed"], "extra": tally["extra"],
+           "found_rate": found / tiles if tiles else None,
+           "named_right_rate": tally["named_right"] / found if found else None,
+           "right_rate": tally["named_right"] / tiles if tiles else None,     # found and named right
+           "mixups": [[t, s, n] for (t, s), n in tally["mixups"].most_common()],
+           "missed_names": dict(tally["missed_names"].most_common())}
+    if "labelled" in tally:
+        backs = back_numbers(tally)
+        faces_n = tiles - backs["labelled"]
+        faces_found = found - backs["boxed"]
+        faces_right = tally["named_right"] - backs["called_back"]
+        out["backs"] = backs
+        out["faces"] = {"tiles": faces_n, "found": faces_found, "named_right": faces_right,
+                        "found_rate": faces_found / faces_n if faces_n else None,
+                        "named_right_rate": faces_right / faces_found if faces_found else None,
+                        "right_rate": faces_right / faces_n if faces_n else None}
+    return out
+
+
+# --- the back class's gate (README "Teaching the detector tile backs") ---
+
+BACKS_FOUND_GATE = 0.95           # face down (exam A): at least this share of the labelled backs boxed and called back
+FALSE_BACKS_PER_FRAME_GATE = 0.2  # face up: at most 1 false back per 5 frames
+
+
+def back_numbers(tally):
+    """The back gate's two numbers from a tally (score). Backs found: of the labelled backs, how many got a box (`boxed`,
+    whatever its name) and how many a box called back (`called_back`, what the gate reads: a back boxed as 5C is a tile
+    with a wrong name). False backs: boxes called back on no tile (`extra`) plus face tiles read as back (`faces_read_as_back`),
+    per frame."""
+    labelled = tally["labelled"][config.BACK]
+    boxed = labelled - tally["missed_names"][config.BACK]
+    called_back = boxed - sum(n for (t, _), n in tally["mixups"].items() if t == config.BACK)
+    extra = tally["extra_names"][config.BACK]
+    faces_as_back = sum(n for (t, s), n in tally["mixups"].items() if s == config.BACK and t != config.BACK)
+    frames = tally["frames"]
+    return {"labelled": labelled, "boxed": boxed, "called_back": called_back,
+            "found_rate": called_back / labelled if labelled else None,
+            "false": extra + faces_as_back, "extra": extra, "faces_read_as_back": faces_as_back,
+            "false_per_frame": (extra + faces_as_back) / frames if frames else None}
+
+
+# --- a back's centre against a face's: tiles flipped in place between two scans ---
+
+FLIP_RADIUS_PX = 12           # a labelled face and back this close, a scan apart, are one tile flipped in place (~half a tile)
+CENTRE_GATE_M = 0.002         # the median back-minus-face offset, along x and along y, must be within this
+CENTRE_MIN_PAIRS = 8          # ...over at least this many flipped tiles the detector boxed both ways
+
+
+def scan_of(filename):
+    """(session, scan number) of an exported frame (<session>__<NNN_label>__f<i>), or None."""
+    parts = original_name(filename).split(SEP)
+    if len(parts) != 3 or not parts[1][:3].isdigit():
+        return None
+    return parts[0], int(parts[1][:3])
+
+
+def _scan_camera(session, scan_folder, sessions_dir):
+    path = Path(sessions_dir) / session / "scans" / scan_folder / "reads.json"
+    if not path.exists():
+        return None
+    reads = json.loads(path.read_text())
+    if "intrinsics" not in reads or "T_cam_to_base" not in reads:
+        return None
+    return reads
+
+
+def _on_table(centre, size, reads):
+    """A frame's pixel (in a frame of `size`) as a point on the tile-top plane, with the scan's own camera."""
+    from .layout import pixel_to_table
+    sx, sy = reads["size"][0] / size[0], reads["size"][1] / size[1]
+    return pixel_to_table([[centre[0] * sx, centre[1] * sy]], reads["intrinsics"], np.array(reads["T_cam_to_base"]))[0][:2]
+
+
+def flips(images):
+    """The tiles flipped in place across the exam frames (exam_images): a labelled face in one scan and a labelled back
+    within FLIP_RADIUS_PX in the next or previous scan of the same session, as capture_frames' "scan it face up, then flip
+    it in place" leaves. [(face image, face label, back image, back label)]."""
+    by_scan = defaultdict(list)
+    for image in images:
+        key = scan_of(image["frame"])
+        if key:
+            by_scan[key].append(image)
+    out = []
+    for (session, n), backs_images in sorted(by_scan.items()):
+        for back_image in backs_images:
+            for back in (t for t in back_image["truth"] if t["tile_name"] == config.BACK):
+                bc = _centre(back["xyxy"])
+                near = [(np.hypot(*np.subtract(_centre(t["xyxy"]), bc)), face_image, t)
+                        for m in (n - 1, n + 1) for face_image in by_scan.get((session, m), [])
+                        for t in face_image["truth"] if t["tile_name"] != config.BACK]
+                near = [x for x in near if x[0] <= FLIP_RADIUS_PX]
+                if near:
+                    _, face_image, face = min(near, key=lambda x: x[0])
+                    out.append((face_image, face, back_image, back))
+    return out
+
+
+def back_centres(images, sessions_dir=None):
+    """Whether the detector puts a back's centre where it puts the same tile's face, on tiles flipped in place (flips): the
+    hover and return models are fitted from face detections, so a back sample joins them only if the two agree. For each
+    flipped tile the detector boxed both ways (a box called back on the back, any face name on the face), the offset of its
+    back box's centre from its face box's on the tile-top plane, through the scan's own camera (reads.json under
+    sessions_dir), in mm. The hand moves a tile a little as it flips it, so the gate reads the median: within
+    CENTRE_GATE_M along x and along y, over at least CENTRE_MIN_PAIRS tiles. The labels' own offsets are given beside it:
+    how far the hand moved the tiles. Pairs without a saved camera are counted and left out."""
+    sessions_dir = Path(sessions_dir or config.SESSIONS)
+    pairs, measured, no_camera, unboxed = flips(images), [], 0, 0
+    for face_image, face, back_image, back in pairs:
+        said_face = next((s for t, s in match(face_image["truth"], face_image["said"])[0]
+                          if t is face and s["tile_name"] != config.BACK), None)
+        said_back = next((s for t, s in match(back_image["truth"], back_image["said"])[0]
+                          if t is back and s["tile_name"] == config.BACK), None)
+        if said_face is None or said_back is None:
+            unboxed += 1
+            continue
+        (fs, fscan), (bs, bscan) = (original_name(i["frame"]).split(SEP)[:2] for i in (face_image, back_image))
+        face_reads, back_reads = _scan_camera(fs, fscan, sessions_dir), _scan_camera(bs, bscan, sessions_dir)
+        if face_reads is None or back_reads is None:
+            no_camera += 1
+            continue
+        model = (_on_table(_centre(said_back["xyxy"]), back_image["size"], back_reads)
+                 - _on_table(_centre(said_face["xyxy"]), face_image["size"], face_reads))
+        labels = (_on_table(_centre(back["xyxy"]), back_image["size"], back_reads)
+                  - _on_table(_centre(face["xyxy"]), face_image["size"], face_reads))
+        measured.append({"frame": original_name(back_image["frame"]), "dx_mm": float(model[0] * 1000),
+                         "dy_mm": float(model[1] * 1000), "label_dx_mm": float(labels[0] * 1000),
+                         "label_dy_mm": float(labels[1] * 1000)})
+    out = {"flips": len(pairs), "measured": len(measured), "not_boxed_both_ways": unboxed, "no_camera": no_camera,
+           "gate_mm": CENTRE_GATE_M * 1000, "min_pairs": CENTRE_MIN_PAIRS, "pairs": measured}
+    if measured:
+        dx, dy = (np.array([m[k] for m in measured]) for k in ("dx_mm", "dy_mm"))
+        dist = np.hypot(dx, dy)
+        out.update({"median_dx_mm": float(np.median(dx)), "median_dy_mm": float(np.median(dy)),
+                    "median_dist_mm": float(np.median(dist)), "p90_dist_mm": float(np.percentile(dist, 90)),
+                    "label_median_dx_mm": float(np.median([m["label_dx_mm"] for m in measured])),
+                    "label_median_dy_mm": float(np.median([m["label_dy_mm"] for m in measured]))})
+    out["passes"] = bool(len(measured) >= CENTRE_MIN_PAIRS
+                         and abs(out["median_dx_mm"]) <= CENTRE_GATE_M * 1000
+                         and abs(out["median_dy_mm"]) <= CENTRE_GATE_M * 1000)
+    return out
+
+
+def back_centres_path(weights=None):
+    return config.DETECTOR_EVAL / f"{weights_id(weights)}_back_centres.json"
+
+
+def backs_checked(weights=None):
+    """Whether these weights' back centres passed the check against face centres (back_centres, saved by
+    detector_eval.py): only then do hover and return samples from a back join the fits."""
+    path = back_centres_path(weights)
+    if weights_id(weights) is None or not path.exists():
+        return False
+    return bool(json.loads(path.read_text()).get("passes"))
