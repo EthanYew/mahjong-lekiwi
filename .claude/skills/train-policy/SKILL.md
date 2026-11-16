@@ -29,12 +29,14 @@ Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a 
 3. **Start it**: the same command without `--dry-run`. It warns if the PC's `data/` has uncommitted changes the pull would overwrite;
    say so rather than answering for the user. Shutting down: `--shutdown-train` at the start powers the PC off as training ends,
    before the sync can copy anything, so use it only when the results can wait until the PC is switched on again. "Shut both down
-   when it's done" is step 5's `--sync --version vN --shutdown-train`, then this machine once `merge_pr.py` has merged the PR
-   and the post-merge review it starts has finished (`--shutdown-local` on the sync would power it off before the PR exists).
+   when it's done" is step 5's sync without shutdown flags (`--shutdown-local` would power this machine off before the PR exists,
+   `--shutdown-train` the PC before a sent-back PR can sync again), then, once `merge_pr.py` says merged, the PC
+   (`shutdown /s /t 60` over SSH) and this machine (`sudo shutdown -h now`). That stops a post-merge review it started in the
+   background (`claude agents` shows it); `merge_pr.py --review` reruns it later.
 4. **Check progress**: `python scripts/train_remote.py --status --version vN`. Report the step, the steps left and the time that
    implies. A failure is diagnosed from the log it names.
-5. **Once it has finished**, register it in a worktree branched from an up-to-date `main` (the sync rewrites `data/policies.json`
-   whole) and merge it through the queue (it isn't made the default). Copy `data/train_machine.json` into the worktree
+5. **Once it has finished**, register it in a worktree branched from an up-to-date `main` (the sync adds its entry to that
+   checkout's `data/policies.json`, so a stale one would undo entries merged since; edit only there) and merge it through the queue (it isn't made the default). Copy `data/train_machine.json` into the worktree
    first: it's gitignored, and the sync reads it.
    - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`.
    - Add the line it prints to README.md's policy list and a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
