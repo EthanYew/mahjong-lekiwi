@@ -95,4 +95,6 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   proves a tile and which way up, never its name: `identity.scan_votes` gives it no votes, and its hover and return samples are logged
   `excluded` until the live weights pass `detector.back_centres` (tiles flipped in place: median back-minus-face offset within 2mm; `detector_eval.py` saves it, `detector.backs_checked` reads it). Back boxes under `config.BACK_MIN_HEIGHT_M` above the table
   are mat pattern (`perception.plausible`). The scripts ask `perception.sees_backs` and keep the saved-position path for weights without the
-  class. Untrained as of 2026-11-13.
+  class. First trained 2026-11-16 (`backs_v3`): backs pass, face names 1 point worse than the live weights, so not installed
+  (ROADMAP "Seeing tile backs"). **One scene per layout**: every face-down frame has a back on each spot, so a split by labels
+  made them one scene and sent all 1440 backs to valid; `split_by_scene.py` deals them by capture session.
