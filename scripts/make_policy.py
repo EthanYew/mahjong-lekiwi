@@ -92,30 +92,57 @@ def trained_on(policy_id, reg):
     entry = reg["policies"][policy_id]
     names = entry.get("datasets")
     if names is None:
-        found = re.search(r"make_policy\.py from (.*?);", entry.get("notes", ""))
-        names = found.group(1).split(" + ") if found else []
+        found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
+        if not found:
+            return None     # no recipe to read: check_recipe says so rather than passing any list
+        names = found.group(1).split(" + ")
     return [name.split("/")[-1] for name in names]
 
 
 def recipe_gap(source, add, leave_out=(), reg=None):
-    """(default policy id, the datasets it trained on that source + add leave out and leave_out doesn't name).
+    """(default policy id, the datasets it trained on that source + add leave out and leave_out doesn't name;
+    None when its recipe can't be read).
 
     A new version is the default's recipe plus what was recorded since. v12 (2026-11-17) was started from a
     one-dataset example command: 15k frames and 21k steps where v11 had 88k and 120k, so it couldn't be compared
     with v11 and was retrained as v13. Nothing had checked the list against the default's."""
-    reg = reg or json.loads(config.POLICIES.read_text())
+    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
     named = {repo.split("/")[-1] for repo in [source, *add, *leave_out]}
-    return reg["default"], [name for name in trained_on(reg["default"], reg) if name not in named]
+    theirs = trained_on(reg["default"], reg)
+    return reg["default"], None if theirs is None else [name for name in theirs if name not in named]
 
 
-def check_recipe(source, add, leave_out=(), reg=None):
-    """Stop with the flags to paste when the run leaves out a dataset the default trained on."""
+def option_gaps(options, notes):
+    """How this run's --augment / --replace-mat differ from what the default's notes say it used."""
+    used = {"augment": "colour jitter" in notes,
+            "replace_mat": float(found.group(1)) / 100 if (found := re.search(r"mat swapped in (\d+)%", notes)) else 0.0}
+    gaps = []
+    if "augment" in options and bool(options["augment"]) != used["augment"]:
+        gaps.append(f"--augment {'off' if used['augment'] else 'on'} (the default had it {'on' if used['augment'] else 'off'})")
+    if "replace_mat" in options and abs((options["replace_mat"] or 0.0) - used["replace_mat"]) > 0.005:
+        gaps.append(f"--replace-mat {options['replace_mat'] or 0} (the default had {used['replace_mat']:g})")
+    return gaps
+
+
+def check_recipe(source, add, leave_out=(), reg=None, options=None):
+    """Stop with the flags to paste when the run leaves out a dataset the default trained on; warn when its recipe
+    can't be read, when a --leave-out names none of its datasets, or when the options differ from its."""
+    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
     default, missing = recipe_gap(source, add, leave_out, reg)
-    if missing:
+    if missing is None:
+        print(f"Warning: can't tell which datasets the default, {default}, trained on (no `datasets` in data/policies.json, "
+              f"and its notes don't start 'make_policy.py from'): check this run's list against it by hand.")
+    elif missing:
         flags = " ".join(f"--add {config.HF_USER}/{name}" for name in missing)
         raise SystemExit(f"The default, {default}, also trained on {', '.join(missing)}, which this run leaves out.\n"
                          f"  Keep them (a new version is the default's recipe plus the new recordings): {flags}\n"
                          f"  Or drop one on purpose, and say why in the plan: --leave-out REPO")
+    theirs = trained_on(default, reg) or []
+    for repo in leave_out:
+        if repo.split("/")[-1] not in theirs:
+            print(f"Warning: --leave-out {repo}: the default, {default}, didn't train on it, so it changes nothing.")
+    for gap in option_gaps(options or {}, reg["policies"][default].get("notes", "")):
+        print(f"Warning: {gap}: say why in the plan, or match it.")
 
 
 def default_scale(reg=None):
@@ -207,7 +234,8 @@ def main():
     args = parse_args()
     n = names(args)
     if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
-        check_recipe(args.source, args.add, args.leave_out)
+        check_recipe(args.source, args.add, args.leave_out,
+                     options={"augment": args.augment, "replace_mat": args.replace_mat})
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
@@ -315,6 +343,7 @@ def main():
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
                               "datasets": [args.source, *args.add],     # recipe_gap reads it for the next version
+                              **({"left_out": args.leave_out} if args.leave_out else {}),
                               "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
                                        + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
                                        + ("colour jitter (AUGMENT); " if args.augment else "")

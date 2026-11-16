@@ -728,20 +728,21 @@ started from a one-dataset example and trained on 15k frames where v11 had 88k.
 ```
 # Check the plan before starting: the recipe check, then make_policy.py's own dry run here (episodes,
 # frames, steps, and the default's for scale), then the scripts it would upload. No connection.
-python scripts/train_remote.py --source mahjong_surfaces_standard_mat_v1 \
-    --add Yewy/mahjong_surfaces_mat_v1 --add Yewy/mahjong_mat_pickup_jitter_v3 \
-    --add Yewy/mahjong_wall_dagger_v8 --add Yewy/mahjong_facedown_dagger_v9 \
-    --add Yewy/mahjong_facedown_dagger_v10 --add Yewy/mahjong_facedown_dagger_v11 \
-    --augment --replace-mat 0.7 --private --version v13 --dry-run
+python scripts/train_remote.py --source <the default's source> --add Yewy/<each dataset it added> \
+    --add Yewy/<the new recording> <the default's options, e.g. --augment --replace-mat 0.7> \
+    --private --version vN --dry-run
 
 # Start training: the same without --dry-run (detaches; prints status/sync commands)
 
 # Check whether a detached run has finished
-python scripts/train_remote.py --status --version v13
+python scripts/train_remote.py --status --version vN
 
 # Sync results back (data/policies.json + data/offline_eval/), then power both machines off
-python scripts/train_remote.py --sync --version v13 --shutdown-train --shutdown-local
+python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 ```
+
+Both scripts warn when `--augment` or `--replace-mat` differ from what the default's notes say it used, and
+`train_remote.py` stops if this checkout's default isn't `origin/main`'s (the PC trains from main).
 
 `--shutdown-train` when *starting* powers the training machine off as training ends, before anything is
 synced: use it there only when the sync can wait until it's switched on again.

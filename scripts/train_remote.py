@@ -8,7 +8,7 @@ script.
 
 Start a training run (detaches). A new version is the default's datasets plus the new recording: the
 script stops with the --add flags to paste if the list leaves one of the default's out (make_policy.recipe_gap),
-and prints make_policy.py's plan, frames and steps, before it connects:
+before it connects. --dry-run also prints make_policy.py's plan here: episodes, frames and steps, the default's beside them:
 
     python scripts/train_remote.py --source <the default's source> --add <each of its --add> \\
         --add Yewy/<new recording> --augment --replace-mat 0.7 --private --version vN
@@ -37,10 +37,22 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import make_policy  # noqa: E402 — the recipe check, shared so both scripts refuse the same runs
 from mahjong import config  # noqa: E402
+
+_make_policy = None
+
+
+def load_make_policy():
+    """make_policy.py as a module, for its recipe check, so both scripts refuse the same runs. Loaded by path
+    (scripts/ isn't a package) and only when starting a run: --status and --sync don't need it."""
+    global _make_policy
+    if _make_policy is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("make_policy", Path(__file__).with_name("make_policy.py"))
+        _make_policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_make_policy)
+    return _make_policy
 
 CONFIG_PATH = config.DATA / "train_machine.json"
 EXAMPLE_PATH = config.DATA / "train_machine.example.json"
@@ -117,6 +129,8 @@ def keepawake_script(cfg, version, shutdown_train=False):
 def make_policy_args(args):
     """Build the make_policy.py argument list from train_remote's args."""
     parts = ["--source", args.source, "--version", args.version]
+    if args.policy_id:
+        parts += ["--policy-id", args.policy_id]
     for repo in args.add:
         parts += ["--add", repo]
     for repo in args.leave_out:
@@ -430,33 +444,51 @@ def main():
         raise SystemExit("--source is required to start a training run "
                          "(or use --sync/--status to manage an existing one)")
 
-    # Before anything connects: the dataset list against the default's, then the plan with its frame and step
-    # counts. The scripts alone don't show a run's size; v12 was started from them at a sixth of v11's frames.
-    make_policy.check_recipe(args.source, args.add, args.leave_out)
-    if args.shutdown_train:
-        print("Note: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
-              "To copy the results back and then power it off, leave it out here and run "
-              f"--sync --version {args.version} --shutdown-train when it's done.\n")
-    local_plan(args)
+    # Before anything connects: the dataset list against the default's. The PC trains from origin/main, so this
+    # checkout's default has to be main's, or the two checks would disagree (and the PC's would stop the run hours
+    # later, in a detached log). The dry run adds the plan with its frame and step counts: the scripts alone don't
+    # show a run's size, and v12 was started from them at a sixth of v11's frames.
+    check_default_is_mains()
+    load_make_policy().check_recipe(args.source, args.add, args.leave_out,
+                                    options={"augment": args.augment, "replace_mat": args.replace_mat})
     if args.dry_run:
+        local_plan(args)
         cmd_start(args, cfg=None)
-        return
+    else:
+        cmd_start(args, load_config())
+    if args.shutdown_train:
+        print("\nNote: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
+              "To copy the results back and then power it off, start without it and run "
+              f"--sync --version {args.version} --shutdown-train when it's done.")
 
-    cfg = load_config()
-    cmd_start(args, cfg)
+
+def check_default_is_mains():
+    """Stop if this checkout's default policy isn't origin/main's (after a fetch): the PC's make_policy checks the
+    recipe against main's. Without git or a remote, says so and carries on."""
+    repo = config.DATA.parent
+    try:
+        subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, timeout=60)
+        shown = subprocess.run(["git", "show", "origin/main:data/policies.json"], cwd=repo, capture_output=True, text=True)
+    except (OSError, subprocess.TimeoutExpired):
+        shown = None
+    if shown is None or shown.returncode != 0:
+        print("Warning: couldn't read origin/main's data/policies.json; the PC checks the recipe against it.")
+        return
+    mains, here = json.loads(shown.stdout)["default"], json.loads(config.POLICIES.read_text())["default"]
+    if mains != here:
+        raise SystemExit(f"This checkout's default is {here} but origin/main's is {mains}, and the PC trains from "
+                         f"origin/main: pull main (or merge the default switch) first.")
 
 
 def local_plan(args):
-    """make_policy.py's own dry run, here: the episodes, frames and steps the remote run would train on. Needs the
-    recordings on this machine (they're recorded here); without them it says so and carries on."""
-    command = [sys.executable, str(Path(__file__).with_name("make_policy.py")),
-               *make_policy_args(args), "--dry-run"]
-    print("The plan, from make_policy.py --dry-run on this machine:")
-    result = subprocess.run(command, capture_output=True, text=True)
-    print(textwrap.indent((result.stdout + result.stderr).strip(), "  ") + "\n")
-    if result.returncode != 0:
-        print("  (it couldn't plan here: check the recordings are on this machine before trusting the size)\n")
-
+    """make_policy.py's own dry run, here: the episodes, frames and steps the remote run would train on, and the
+    default's for scale. The recordings are made on this machine, so a failure here (a misspelt --add) would fail
+    on the PC too: stop."""
+    command = [sys.executable, str(Path(__file__).with_name("make_policy.py")), *make_policy_args(args), "--dry-run"]
+    print("The plan, from make_policy.py --dry-run on this machine:", flush=True)
+    if subprocess.run(command).returncode != 0:
+        raise SystemExit("make_policy.py couldn't plan this run here (above): fix it before it goes to the PC")
+    print()
 
 if __name__ == "__main__":
     main()
