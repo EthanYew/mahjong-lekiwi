@@ -196,7 +196,7 @@ def test_check_recipe_stops_with_the_flags_to_paste():
 def test_start_checks_the_recipe_before_it_connects(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "mahjong_surfaces_standard_mat_v1",
                                       "--version", "v99", "--add", "Yewy/new"])
-    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda: None)
+    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda **k: None)
     monkeypatch.setattr(train_remote.load_make_policy(), "recipe_gap", lambda *a, **k: ("old", ["missing_set"]))
     monkeypatch.setattr(train_remote, "load_config", lambda: pytest.fail("connected before checking the recipe"))
     with pytest.raises(SystemExit, match="missing_set"):
@@ -225,12 +225,13 @@ def test_only_the_dry_run_plans_locally(monkeypatch, dry_run):
     monkeypatch.setattr(sys, "argv", ["train_remote.py", "--source", "s", "--version", "v99"] + (["--dry-run"] * dry_run))
     calls = []
     monkeypatch.setattr(train_remote.load_make_policy(), "check_recipe", lambda *a, **k: calls.append("check"))
-    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda: None)
+    monkeypatch.setattr(train_remote, "check_default_is_mains", lambda **k: None)
     monkeypatch.setattr(train_remote, "local_plan", lambda args: calls.append("plan"))
     monkeypatch.setattr(train_remote, "load_config", lambda: FAKE_CFG)
     monkeypatch.setattr(train_remote, "cmd_start", lambda args, cfg: calls.append(("start", cfg)))
     train_remote.main()
-    assert calls == (["check", "plan", ("start", None)] if dry_run else ["check", ("start", FAKE_CFG)])
+    # the dry run's recipe check is make_policy's own, inside the plan (once, not twice)
+    assert calls == (["plan", ("start", None)] if dry_run else ["check", ("start", FAKE_CFG)])
 
 
 def test_a_failed_local_plan_stops_the_dry_run(monkeypatch):
@@ -290,3 +291,28 @@ def test_a_default_that_isnt_mains_stops_the_start(monkeypatch, tmp_path):
                         lambda cmd, **k: type("R", (), {"returncode": 0, "stdout": shown})())
     with pytest.raises(SystemExit, match="origin/main's is pickup_mat_cl_v11"):
         train_remote.check_default_is_mains()
+
+
+def test_registered_options_are_compared_including_trim_narrowing():
+    mp = train_remote.load_make_policy()
+    entry = {"options": {"augment": True, "replace_mat": 0.7, "trim_narrowing": False}}
+    assert mp.option_gaps({"augment": True, "replace_mat": 0.7, "trim_narrowing": False}, entry) == []
+    assert mp.option_gaps({"augment": True, "replace_mat": 0.7, "trim_narrowing": True}, entry) == [
+        "--trim-narrowing on (the default had it off)"]
+
+
+def test_a_leave_out_against_an_unreadable_recipe_doesnt_claim_the_default_never_used_it(capsys):
+    train_remote.load_make_policy().check_recipe("src", [], leave_out=["Yewy/x"], reg=_registry({"notes": "by hand"}))
+    out = capsys.readouterr().out
+    assert "by hand" in out and "changes nothing" not in out
+
+
+def test_a_dry_run_only_warns_when_the_default_isnt_mains(monkeypatch, tmp_path, capsys):
+    local = tmp_path / "policies.json"
+    local.write_text(json.dumps({"default": "pickup_mat_cl_v12"}))
+    monkeypatch.setattr(train_remote.config, "POLICIES", local)
+    shown = json.dumps({"default": "pickup_mat_cl_v11"})
+    monkeypatch.setattr(train_remote.subprocess, "run",
+                        lambda cmd, **k: type("R", (), {"returncode": 0, "stdout": shown})())
+    train_remote.check_default_is_mains(stop=False)
+    assert "origin/main's is pickup_mat_cl_v11" in capsys.readouterr().out

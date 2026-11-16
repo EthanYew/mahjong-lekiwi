@@ -353,7 +353,7 @@ def cmd_sync(args, cfg):
         import re
         frames = re.search(r"(\d+) frames", notes)
         steps = re.search(r"(\d+) steps", notes)
-        datasets = re.search(r"make_policy\.py from (.*?);", notes)
+        datasets = re.search(r"make_policy\.py from ([^;]+)", notes)
         hint = []
         if datasets:
             hint.append(f"data: {datasets.group(1)}")
@@ -448,13 +448,13 @@ def main():
     # checkout's default has to be main's, or the two checks would disagree (and the PC's would stop the run hours
     # later, in a detached log). The dry run adds the plan with its frame and step counts: the scripts alone don't
     # show a run's size, and v12 was started from them at a sixth of v11's frames.
-    check_default_is_mains()
-    load_make_policy().check_recipe(args.source, args.add, args.leave_out,
-                                    options={"augment": args.augment, "replace_mat": args.replace_mat})
+    check_default_is_mains(stop=not args.dry_run)
     if args.dry_run:
-        local_plan(args)
+        local_plan(args)        # make_policy's dry run runs the recipe check itself
         cmd_start(args, cfg=None)
     else:
+        mp = load_make_policy()
+        mp.check_recipe(args.source, args.add, args.leave_out, options=mp.recipe_options(args))
         cmd_start(args, load_config())
     if args.shutdown_train:
         print("\nNote: --shutdown-train powers the training machine off when training ends, and --sync needs it on. "
@@ -462,12 +462,14 @@ def main():
               f"--sync --version {args.version} --shutdown-train when it's done.")
 
 
-def check_default_is_mains():
-    """Stop if this checkout's default policy isn't origin/main's (after a fetch): the PC's make_policy checks the
-    recipe against main's. Without git or a remote, says so and carries on."""
+def check_default_is_mains(stop=True):
+    """Stop (warn, for a dry run) if this checkout's default policy isn't origin/main's, after a fetch: the PC's
+    make_policy checks the recipe against main's. Without git or a remote, says so and carries on."""
     repo = config.DATA.parent
     try:
-        subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, timeout=60)
+        fetched = subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, timeout=30)
+        if fetched.returncode != 0:
+            print("Warning: git fetch failed, so origin/main may be out of date: the PC fetches it before training.")
         shown = subprocess.run(["git", "show", "origin/main:data/policies.json"], cwd=repo, capture_output=True, text=True)
     except (OSError, subprocess.TimeoutExpired):
         shown = None
@@ -476,8 +478,11 @@ def check_default_is_mains():
         return
     mains, here = json.loads(shown.stdout)["default"], json.loads(config.POLICIES.read_text())["default"]
     if mains != here:
-        raise SystemExit(f"This checkout's default is {here} but origin/main's is {mains}, and the PC trains from "
-                         f"origin/main: pull main (or merge the default switch) first.")
+        message = (f"This checkout's default is {here} but origin/main's is {mains}, and the PC trains from "
+                   f"origin/main: pull main (or merge the default switch) first.")
+        if stop:
+            raise SystemExit(message)
+        print(f"Warning: {message}")
 
 
 def local_plan(args):

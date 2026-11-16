@@ -67,7 +67,7 @@ not a worktree, or the sessions go when the worktree does.
 | Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
 | Add hover-correction samples from demos or older bench sessions | `python scripts/hover_samples.py --dataset Yewy/<name>` / `--sessions` |
 | Add return-correction samples from older bench sessions | `python scripts/return_samples.py` |
-| Train a policy | `python scripts/make_policy.py --source Yewy/<name> --version v3 --dry-run` (then drop `--dry-run`) |
+| Train a policy | `python scripts/make_policy.py --source <the default's source> --add <each dataset it added> --add Yewy/<new> <its options> --version <next> --dry-run` (then drop `--dry-run`; it stops if one of the default's datasets is missing) |
 | Score a policy offline | `python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1` |
 | Set up tile positions on the mat | `python scripts/layout.py --name <layout> --teach` |
 | Check eval spots are new (or familiar) to a policy | `python scripts/spot_novelty.py <layout>` |
@@ -685,6 +685,10 @@ register in `data/policies.json`.
 python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --dry-run   # check the plan first
 python scripts/make_policy.py --source Yewy/mahjong_mat_pickup_v3 --version v3 --default   # registers pickup_mat_cl_v3
 ```
+
+(v3 was the first. A later version starts from the default's datasets and options, listed in its `data/policies.json`
+entry, plus the new recording: the script stops if one of the default's datasets is missing, prints the `--add` flags,
+and warns when `--augment`, `--replace-mat` or `--trim-narrowing` differ from the default's. `--leave-out REPO` drops one on purpose.)
 
 | Option | What it does |
 |---|---|

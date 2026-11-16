@@ -112,16 +112,27 @@ def recipe_gap(source, add, leave_out=(), reg=None):
     return reg["default"], None if theirs is None else [name for name in theirs if name not in named]
 
 
-def option_gaps(options, notes):
-    """How this run's --augment / --replace-mat differ from what the default's notes say it used."""
-    used = {"augment": "colour jitter" in notes,
-            "replace_mat": float(found.group(1)) / 100 if (found := re.search(r"mat swapped in (\d+)%", notes)) else 0.0}
+def option_gaps(options, entry):
+    """How this run's options differ from the default's: its `options` (registered since 2026-11-17), or for older
+    entries what the notes say (colour jitter, the mat swap; --trim-narrowing wasn't noted, so it isn't checked)."""
+    used = entry.get("options")
+    if used is None:
+        notes = entry.get("notes", "")
+        found = re.search(r"mat swapped in (\d+)%", notes)
+        used = {"augment": "colour jitter" in notes, "replace_mat": float(found.group(1)) / 100 if found else 0.0}
     gaps = []
-    if "augment" in options and bool(options["augment"]) != used["augment"]:
-        gaps.append(f"--augment {'off' if used['augment'] else 'on'} (the default had it {'on' if used['augment'] else 'off'})")
-    if "replace_mat" in options and abs((options["replace_mat"] or 0.0) - used["replace_mat"]) > 0.005:
-        gaps.append(f"--replace-mat {options['replace_mat'] or 0} (the default had {used['replace_mat']:g})")
+    for name in ("augment", "trim_narrowing"):
+        if name in options and name in used and bool(options[name]) != bool(used[name]):
+            flag = "--" + name.replace("_", "-")
+            gaps.append(f"{flag} {'on' if options[name] else 'off'} (the default had it {'on' if used[name] else 'off'})")
+    if "replace_mat" in options and abs((options["replace_mat"] or 0.0) - (used.get("replace_mat") or 0.0)) > 0.005:
+        gaps.append(f"--replace-mat {options['replace_mat'] or 0} (the default had {used.get('replace_mat') or 0:g})")
     return gaps
+
+
+def recipe_options(args):
+    """The options a version's recipe is compared on (option_gaps), as registered for the next one."""
+    return {"augment": bool(args.augment), "replace_mat": args.replace_mat or 0.0, "trim_narrowing": bool(args.trim_narrowing)}
 
 
 def check_recipe(source, add, leave_out=(), reg=None, options=None):
@@ -137,17 +148,17 @@ def check_recipe(source, add, leave_out=(), reg=None, options=None):
         raise SystemExit(f"The default, {default}, also trained on {', '.join(missing)}, which this run leaves out.\n"
                          f"  Keep them (a new version is the default's recipe plus the new recordings): {flags}\n"
                          f"  Or drop one on purpose, and say why in the plan: --leave-out REPO")
-    theirs = trained_on(default, reg) or []
-    for repo in leave_out:
+    theirs = trained_on(default, reg)
+    for repo in leave_out if theirs is not None else ():
         if repo.split("/")[-1] not in theirs:
             print(f"Warning: --leave-out {repo}: the default, {default}, didn't train on it, so it changes nothing.")
-    for gap in option_gaps(options or {}, reg["policies"][default].get("notes", "")):
+    for gap in option_gaps(options or {}, reg["policies"][default]):
         print(f"Warning: {gap}: say why in the plan, or match it.")
 
 
 def default_scale(reg=None):
     """'<id>: N frames, M steps' for the default, from its registry notes, to set a dry run's numbers against."""
-    reg = reg or json.loads(config.POLICIES.read_text())
+    reg = json.loads(config.POLICIES.read_text()) if reg is None else reg
     notes = reg["policies"][reg["default"]].get("notes", "")
     frames, steps = re.search(r"(\d+) frames", notes), re.search(r"(\d+) steps", notes)
     return f"{reg['default']}: {frames.group(1) if frames else '?'} frames, {steps.group(1) if steps else '?'} steps"
@@ -234,8 +245,7 @@ def main():
     args = parse_args()
     n = names(args)
     if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
-        check_recipe(args.source, args.add, args.leave_out,
-                     options={"augment": args.augment, "replace_mat": args.replace_mat})
+        check_recipe(args.source, args.add, args.leave_out, options=recipe_options(args))
     from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
@@ -343,7 +353,8 @@ def main():
     from mahjong.policy import register
     register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
                               "datasets": [args.source, *args.add],     # recipe_gap reads it for the next version
-                              **({"left_out": args.leave_out} if args.leave_out else {}),
+                              "options": recipe_options(args),          # and these
+                              **({"left_out": args.leave_out} if args.leave_out else {}),     # for the record
                               "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
                                        + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
                                        + ("colour jitter (AUGMENT); " if args.augment else "")
