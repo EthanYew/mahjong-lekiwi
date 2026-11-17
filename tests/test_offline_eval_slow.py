@@ -32,4 +32,4 @@ def test_v2_passes_and_v1_fails_the_gates(split):
     v2, v1 = rows("pickup_mat_cl", split), rows("pickup_mat_cl_v1", split)
     assert all(ok for ok, _ in offline_eval.gates(v2, v1)), offline_eval.gates(v2, v1)
     failed = [m for ok, m in offline_eval.gates(v1) if not ok]
-    assert any("freezes" in m for m in failed) and any("descent starts" in m for m in failed)
+    assert any("freezes" in m for m in failed)

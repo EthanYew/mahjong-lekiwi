@@ -425,6 +425,12 @@ def test_dagger_episodes_are_training_data_only(tmp_path, monkeypatch):
         run_dagger(tmp_path, monkeypatch, TouchedAt, ["--slice", "jitter"])
 
 
+def test_the_facedown_eval_slice_needs_face_down_tiles():
+    import record
+    with pytest.raises(SystemExit, match="--face-down"):       # refused before anything connects
+        record.main(["--dataset", "test/record", "--slice", "facedown"])
+
+
 def test_session_report_counts_dagger_takeovers(tmp_path, monkeypatch, capsys):
     import session_report
     _, session = run_dagger(tmp_path, monkeypatch, TouchedAt)

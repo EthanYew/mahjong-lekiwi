@@ -18,7 +18,8 @@ plans a chunk (no temporal ensembling); its first action is compared with the de
   roll is what a tilted tile needs. demo_roll_deg is the demo's own roll at close (a tilt measure).
 
 Limits: teacher forcing can't show errors compounding (a policy 2mm off sees different images from
-then on). The offline gates catch freezes and gross regressions; the bench decides what ships.
+then on). The offline gates catch freezes and gross regressions; they don't rank policies that work,
+and the bench decides what ships.
 """
 import hashlib
 import json
@@ -37,13 +38,15 @@ GRASP_PROBE_S = 1.0
 HELDOUT_FRACTION = 0.10
 HELDOUT_MIN_CLUSTER = 3        # a spot needs this many episodes before one is held out
 NARROWED_HOVER_BELOW = 50.0    # hover gripper (%) below which a policy starts from the narrowed opening
-NOT_GATED = ("tilt",)          # slices reported but not gated (no dataset has trained on tilt yet)
-# Gates per gated slice. Calibrated 2026-10-23 on v2's 15 held-out episodes (both policies trained on
-# them): v1, which froze on hardware, had 4 freezes, a mean descent lag of 21 steps and 0.37s close
-# error; v2, which didn't, had 0, 1 step and 0.06s. Their arm error (0.22 vs 0.21 deg) and grasp point
-# (1.4 vs 0.9mm) did NOT separate them — teacher-forced error can't see a policy that waits.
-GATE_ONSET_LAG_STEPS = 10      # fail if the plan's descent starts on average this much later than the demo's
-GATE_CLOSE_ERR_S = 0.25        # fail if the open-loop close timing is off by more (mean, absolute)
+NOT_GATED = ("tilt", "facedown")   # slices reported but not gated: no dataset has trained on tilt yet; facedown
+                                   # until it has a baseline (docs/retrospectives/2026-11-17_scorecard_refresh.md)
+# Gates per gated slice: no freezes. Calibrated 2026-10-23 on v2's 15 held-out episodes (both policies
+# trained on them): v1, which froze on hardware, had 4 freezes; v2, which didn't, had 0. Descent lag and
+# close timing were gates too (limits +10 steps, 0.25s) until 2026-11-17, and are now reported only: they
+# failed v6, v10, v11 and v13, which all worked on the arm (close timing 0.25-0.39s on every slice, descent
+# +11 to +16 steps on `new`), so they no longer told working policies from failing ones
+# (docs/retrospectives/2026-11-17_scorecard_refresh.md). Their arm error (0.22 vs 0.21 deg) and grasp point
+# (1.4 vs 0.9mm) did NOT separate v1 and v2 either: teacher-forced error can't see a policy that waits.
 # Against a reference policy (e.g. the current default): no gated slice much worse.
 GATE_ARM_MAE_RATIO, GATE_ARM_MAE_SLACK = 1.25, 0.1     # fail if arm_mae > ratio * reference + slack
 GATE_GRASP_MM_SLACK = 3.0                              # fail if median grasp_mm > reference + slack
@@ -276,8 +279,8 @@ def summarise(rows, by="slice"):
 
 
 def gates(candidate_rows, reference_rows=None):
-    """[(passed, message)] per gated slice: no freezes, descent on time, close on time; with a reference,
-    arm error and grasp point not much worse than its."""
+    """[(passed, message)] per gated slice: no freezes; with a reference, arm error and grasp point not much
+    worse than its. Descent lag and close timing are in the table, not gated (see above)."""
     results = []
     candidate = summarise(candidate_rows)
     reference = summarise(reference_rows) if reference_rows else {}
@@ -285,12 +288,6 @@ def gates(candidate_rows, reference_rows=None):
         if name in NOT_GATED:
             continue
         results.append((c["freezes"] == 0, f"{name}: {c['freezes']} freezes"))
-        if c["onset_lag"] is not None:
-            results.append((c["onset_lag"] <= GATE_ONSET_LAG_STEPS,
-                            f"{name}: descent starts {c['onset_lag']:+.0f} steps from the demo's (limit +{GATE_ONSET_LAG_STEPS})"))
-        if c["close_err_s"] is not None:
-            results.append((c["close_err_s"] <= GATE_CLOSE_ERR_S,
-                            f"{name}: closes {c['close_err_s']:.2f}s off the demo (limit {GATE_CLOSE_ERR_S:.2f}s)"))
         r = reference.get(name)
         if r:
             limit = GATE_ARM_MAE_RATIO * r["arm_mae"] + GATE_ARM_MAE_SLACK

@@ -53,6 +53,7 @@ scan can't see a green back to check where a return landed. Lay the rest of the 
     python scripts/record.py --dataset Yewy/mahjong_wall_dagger_v8 --policy pickup_mat_cl_v8 --wall-station F --hover-jitter-mm 6
     python scripts/record.py --dataset Yewy/mahjong_zone_dagger_<v> --policy <ID> --wall-station zone --wall-layers flat --hover-jitter-mm 6
     python scripts/record.py --dataset Yewy/mahjong_facedown_dagger_<v> --policy <ID> --layout even-hand14 --face-down --start-spot S11 --repeats 3 --hover-jitter-mm 6
+    python scripts/record.py --dataset Yewy/mahjong_facedown_eval_v1 --slice facedown --layout even-hand14 --face-down
 """
 import argparse
 import json
@@ -80,7 +81,8 @@ from mahjong.takeover import open_dataset
 
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
 SAME_TILE_NO = {"knocked a tile", "hover was wrong"}      # discards after which a same-tile retry defaults to no
-SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter"]   # train: for training; the rest: eval-only (offline_eval.py)
+FACEDOWN_SLICE = "facedown"     # face-down demos on the hand's spots, never trained on (docs/scorecard.md)
+SLICES = ["train", "familiar", "new", "dim", "tilt", "jitter", FACEDOWN_SLICE]   # train: for training; the rest: eval-only (offline_eval.py)
 
 
 ZONE = markers.ZONE_ID     # --wall-station zone: the drop zone's saved position, not a station of the layout
@@ -110,7 +112,7 @@ def parse_args(argv=None):
     p.add_argument("--no-correction", action="store_true", help="hover over the raw detection")
     p.add_argument("--slice", choices=SLICES, default="train",
                    help="what these episodes are for: train, or an eval slice (familiar spots / new spots / dim light / "
-                        "tilted tiles / jittered hovers) — eval datasets are never trained on")
+                        "tilted tiles / jittered hovers / face-down demos, with --face-down) — eval datasets are never trained on")
     jitter = p.add_mutually_exclusive_group()
     jitter.add_argument("--hover-jitter-mm", type=float, default=0.0,
                         help="move each episode's hover by a random offset within this radius (mm), so the policy "
@@ -216,6 +218,8 @@ def main(argv=None):
     wall = wall_setup(args)    # before connecting anything, so a typo fails fast
     if args.face_down and not args.layout:
         raise SystemExit("--face-down needs --layout: it aims at the layout's saved spots")
+    if args.slice == FACEDOWN_SLICE and not args.face_down:
+        raise SystemExit(f"--slice {FACEDOWN_SLICE} is face-down demos: add --face-down --layout even-hand14")
     if args.face_down:
         config.discard_pose(why="A face-down tile goes in the container afterwards")
     spots, todo, ghost = [], [], None
