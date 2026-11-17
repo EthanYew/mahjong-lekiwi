@@ -28,6 +28,32 @@ the stray's share, those landings are predicted at 6.1mm RMS (from 16.9mm), not 
 above, and a later "x 0.69, y 0.85", mixed a close's stray with the mat-wide gap; with the position trend removed it's 70% in
 x, 52% in y (738 returns).
 
+## A return to the same place needs position, and a landing past 30mm is no sample (2026-11-17)
+
+On even-hand14, returns at S1/S2 landed left of home (+y, toward the wall). Mean landed - home y over S1-S6: face up
+-1.8 to +2.5mm (11-10..11-13), face down +2.6mm (`20261116_213816_bench`), face down +7.9mm (`20261117_093921_bench`, S2
++11.7 to +15.2mm). S7-S12 stayed about +1 to +2mm. Not face-down as such: face-up S2 landed +5.7 to +8.6mm on 11-12.
+
+- **What changed was the policy's move after the hover.** Hover - detection at S2 was about +1mm y every session; grasp -
+  hover at S2 went from +10mm (11-12, 11-16) to +18.6mm (11-17, v11 and v13), and at S1 from +5 to +15mm.
+- **The `grip` model aimed with that offset as if the tile kept it.** Its y coefficient said the tile keeps ~88% of the jaws'
+  y offset, but most of the spread in grasp - detection is the gap across the mat (+9mm left, +24mm right), not a stray; a real
+  stray keeps ~50% (the carried-tile section above found the same mix-up). On the left, its y residual grew with grasp -
+  detection: slope +0.66 face down, +0.36 face up.
+- **`grip+position` was held back by neighbours taken for landings.** 22 fitted records had landed 44-50mm from home (9 face
+  down, 11-16/11-17), the spot pitch; nothing real had landed past 24mm (1061 under 25mm). With `LANDED_WITHIN_M` at 50mm,
+  a return the scan didn't see took the next spot's tile: face up through the misread fallback (any name; e.g. 6C and 5C
+  "landed" on 1B, `20261030_155453_bench`), face down by the shared name "back". Without them, leave-one-position-out: grip 5.35mm,
+  grip+position 4.72mm (12%, past `MIN_GAIN`). Cutting the search radius to 30mm instead would have left a tile landing
+  30-50mm off unreset, so the search stays at 50mm and only the fit leaves them out (`SAMPLE_WITHIN_M`,
+  `far_landing`): they stay in the file. Still open: an unseen tile's reset prompt and `session_report`'s landing stats act on
+  the neighbour; fixing that needs the matcher to know the other spots' homes (bench.py, record.py).
+- **Fitted without each session, landings at S1-S6** (predicted against measured; not a re-run): 20261117 grip +8.1mm y, RMS
+  9.2mm, against grip+position +3.1mm, 4.6mm; 20261116 +2.3mm, 4.3mm against -0.2mm, 3.8mm; 20261112 +2.4mm, 4.7mm against
+  +1.5mm, 3.8mm. For 11-17's grasps the aim moves 7.4mm -y at S2, 5.6mm at S1, 4.2mm at S3, and under 3mm elsewhere.
+
+The policy still closes 15-19mm +y of the hover at S1/S2, which brings the jaws nearer the wall at the pick; that's for its data.
+
 ## Hand corrections record the commanded tool point, not where the jaws were — and that's fine
 
 In the 23 gamepad corrections of 2026-10-22 the measured tool point at → sat ~11mm short in reach (median; up

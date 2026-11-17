@@ -76,6 +76,24 @@ def test_a_misread_landing_isnt_lost_to_another_copy_of_the_name_across_the_mat(
     assert landed_tile(tiles, "2C", [0.192, 0.141])["tile_name"] == "3C"
 
 
+def test_a_landing_a_spot_away_is_reset_and_kept_but_not_fitted(tmp_path, monkeypatch):
+    # 20261117_093921_bench: every back reads "back", so an unseen S2 return took S1's tile 45mm away for its landing
+    import types
+    from mahjong import config, return_correction
+    from mahjong.return_correction import check_landing
+    monkeypatch.setattr(return_correction, "setup_fingerprint", lambda: {})
+    session = types.SimpleNamespace(dir=tmp_path, event=lambda kind, **f: None)
+    path = tmp_path / "returns.jsonl"
+    held = {"tile_name": "back", "home_xy": [0.147, 0.141], "detection_xy": [0.147, 0.141], "grasp_xy": [0.19, 0.15],
+            "attempt_dir": "005", "spot": "S2"}
+    tile, reset = check_landing(held, [0.19, 0.15], [{"tile_name": "back", "xy": (0.192, 0.141)}], session, path, None,
+                                config.DEFAULT_HOVER)
+    assert tile is not None and reset
+    check_landing(held, [0.19, 0.15], [{"tile_name": "back", "xy": (0.15, 0.143)}], session, path, None, config.DEFAULT_HOVER)
+    fitted, _, excluded = load_records(path)
+    assert [r["landed_xy"] for r in fitted] == [[0.15, 0.143]] and [r["landed_xy"] for r in excluded] == [[0.192, 0.141]]
+
+
 def test_landings_pair_each_return_with_its_after_return_scan():
     attempt = {"type": "attempt", "tile": "8D", "attempt_dir": "001", "detection_xy": [0.2, 0.0],
                "hover_xy": [0.23, 0.01], "grasp_xy": [0.235, 0.012], "policy": "p"}
@@ -154,7 +172,7 @@ def test_too_few_returns_to_aim_a_carried_tile_says_so(capsys):
     assert "too few returns" in capsys.readouterr().out
 
 
-def test_carried_returns_and_a_persons_hands_stay_out_of_the_fit(tmp_path, monkeypatch):
+def test_carried_returns_a_persons_hands_and_a_neighbours_tile_stay_out_of_the_fit(tmp_path, monkeypatch):
     import json
     from mahjong import return_correction
     fingerprint = {"follower_id": "arm", "t_cam_to_base_sha": "abc"}
@@ -164,9 +182,11 @@ def test_carried_returns_and_a_persons_hands_stay_out_of_the_fit(tmp_path, monke
     (session, attempt) = sorted(HAND_MOVED)[0]
     by_hand = {**keep, "session": session, "attempt_dir": attempt}
     path = tmp_path / "returns.jsonl"
-    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand)))
+    neighbour = {**keep, "landed_xy": [0.2, 0.045]}          # the next spot's tile, taken for an unseen landing
+    near = {**keep, "landed_xy": [0.2, 0.02]}                # a poor landing, but this tile's
+    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand, neighbour, near)))
     fitted, _, excluded = load_records(path)
-    assert fitted == [keep] and excluded == [across, by_hand]
+    assert fitted == [keep, near] and excluded == [across, by_hand, neighbour]
 
 
 def test_landings_say_when_r_was_pressed_during_the_return():
@@ -176,3 +196,19 @@ def test_landings_say_when_r_was_pressed_during_the_return():
     pressed, clean = landings([attempt, keys, {"type": "return", "xy": [0.23, 0.01]}, scan,
                                attempt, {"type": "return", "xy": [0.23, 0.01]}, scan])
     assert pressed["by_hand"] and not clean["by_hand"]
+
+
+def test_the_report_counts_only_returns_left_out_for_landing_far(tmp_path, monkeypatch, capsys):
+    import json
+    from mahjong import config, return_correction
+    monkeypatch.setattr(return_correction, "setup_fingerprint", lambda: {})
+    keep = return_record([0.2, 0.0], [0.24, 0.01], [0.24, 0.01], [0.2, 0.0], home_xy=[0.2, 0.0])
+    far = {**keep, "landed_xy": [0.2, 0.045]}                       # the next spot's tile: counted
+    marked_far = {**far, "excluded": "face down, unchecked"}        # far, but left out for its mark
+    carried_far = {**far, "home_xy": [0.14, 0.09]}                  # far from its new home, but left out as carried
+    near = {**keep, "landed_xy": [0.2, 0.027]}                      # a poor landing, under 30mm: fitted
+    path = tmp_path / "returns.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, far, marked_far, carried_far, near)))
+    monkeypatch.setattr(config, "RETURN_CORRECTIONS", path)
+    return_correction.report()
+    assert "3 record(s) excluded, 1 landed over 30mm from home" in capsys.readouterr().out
