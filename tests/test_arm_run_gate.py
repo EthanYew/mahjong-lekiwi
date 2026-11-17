@@ -50,7 +50,9 @@ spec.loader.exec_module(gate)
     f"{PY} -c \"import subprocess; subprocess.run(['python', 'scripts/bench.py'])\"",
     f"{PY} -c \"exec(open('scripts/bench.py').read())\"",
     f"{PY} scripts/wall_test.py --stations F",                        # a real wall test, not --report
-    f"{PY} scripts/bench.py --report",                                # --report is wall_test's alone
+    f"{PY} scripts/bench.py --report",                                # --report is wall_test's and play_face_down's alone
+    f"{PY} scripts/play_face_down.py --unattended",
+    f"{PY} scripts/play_face_down.py --resume",
     # Ways round the 2026-11-13 changes that must still ask.
     f"T=/tmp/x && mkfifo $T/in && nohup {PY} -u scripts/bench.py --policy a,b < $T/in > $T/log 2>&1 &",
     f"for f in scripts/bench.py; do bash -c \"{PY} $f\"; done",
@@ -106,6 +108,8 @@ def test_a_run_of_an_arm_script_asks(command):
     f"P={PY}; $P scripts/setup_check.py --sim --save-reference 2>&1",
     # Prompts that came up in the sessions to 2026-11-11 without being arm runs.
     f"{PY} scripts/wall_test.py --report 2>&1",
+    f"{PY} scripts/play_face_down.py --report",
+    f"{PY} scripts/play_face_down.py --sim --unattended",
     f"{PY} scripts/wall_test.py --exclude-session 20261109_1200_wall --why test",
     f"{PY} -m ruff check --select F scripts/base_cam_collect.py scripts/bench.py scripts/wall_test.py",
     "ruff check scripts/bench.py",

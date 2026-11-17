@@ -160,10 +160,12 @@ def close_windows():
     cv2.waitKey(1)
 
 
-def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None, overlay=None):
+def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None, overlay=None, keys=""):
     """A live RealSense window until the tile is laid: the spot's outline, the end where the picture's top goes, the tile's name.
-    Returns "" (laid, go), "s" or "q". The caller closes the window before the arm moves (close_windows): nothing pumps it then.
+    Returns "" (laid, go), "s" or "q", or one of `keys` (letters the caller answers to, e.g. play_face_down's "e": the wall's
+    empty). The caller closes the window before the arm moves (close_windows): nothing pumps it then.
     `text` replaces the default title; `overlay(frame)` draws on each frame (wall_test.py's picture of what to lay)."""
+    answers = {13: "", 10: "", 32: "", ord("s"): "s", ord("q"): "q", 27: "q", **{ord(k): k for k in keys}}
     show = show or (lambda image: cv2.imshow(GUIDE_WINDOW, image))
     wait_key = wait_key or (lambda: cv2.waitKey(30) & 0xFF)
     text = text or (f"Lay {placement['tile']} FACE DOWN on {spot['id']}"
@@ -174,7 +176,7 @@ def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None,
             overlay(out)
         show(out)
         key = wait_key()
-        answer = {13: "", 10: "", 32: "", ord("s"): "s", ord("q"): "q", 27: "q"}.get(key)
+        answer = answers.get(key)
         if answer is not None:
             return answer
 
@@ -198,13 +200,13 @@ def draw_picture(frame, rows):
     return frame
 
 
-def prompt(rig, station, step, ask):
-    """Show what to lay, on the live RealSense window (or the terminal). Returns "", "s" or "q"."""
+def prompt(rig, station, step, ask, keys=""):
+    """Show what to lay, on the live RealSense window (or the terminal). Returns "", "s" or "q", or one of `keys` (guide)."""
     text = wall_test.step_text(step)
     if rig.realsense is None:
         return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
     print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")
     answer = guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
-                    overlay=lambda frame: draw_picture(frame, step["picture"]))
+                   overlay=lambda frame: draw_picture(frame, step["picture"]), keys=keys)
     close_windows()
     return answer

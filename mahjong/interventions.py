@@ -75,6 +75,10 @@ KINDS = {
     "pickup_failed": ("moved a tile by hand: the robot couldn't pick it up after its retries", RESCUE),
     "silent_error": ("the end-of-hand check found a tile the robot had wrong without noticing", FAILURE),
     "zone_unchecked": ("played before the bench checked a pickup on the drop zone (--skip-zone-test)", OBSERVATION),
+    # face-down play (scripts/play_face_down.py): pressing Enter on the reader's name is no question, a correction is
+    "name_corrected": ("said a tile's name: the base camera's reader had it wrong, or had none", ASK),
+    "fd_by_hand": ("did a step by hand that the arm couldn't (a pick, a set-down, a lost tile)", RESCUE),
+    "fd_conflict": ("unattended: a read made a fifth copy of a tile, and play went on with it", OBSERVATION),
 }
 MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other"]
 # Pressed during a pickup or a return (the bench's KeyMarks): what happened, said as it happens. 2026-10-30: the

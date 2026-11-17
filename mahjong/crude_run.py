@@ -216,6 +216,23 @@ class Run:
         else:
             self.broke(step, f"lost {what} before the container")
 
+    def show_held(self, pick, step):
+        """The held tile at every saved pose (Rig.show), more looks if `more_looks` wants them, each photo face-blurred into the
+        pick's attempt folder. Returns (frames, which pose each is from); a hold that stopped early is noted under `step`."""
+        frames, from_pose, problem = self.rig.show(self.rng, still_held=self.jaws_have_tile)
+        if problem:
+            self.broke(step, problem)
+        else:
+            frames, from_pose = self.more_looks(frames, from_pose)
+        for i, (frame, pose) in enumerate(zip(frames, from_pose)):
+            cv2.imwrite(str(pick["attempt"] / f"base_{pose}_{i}.jpg"), privacy.blur_faces(frame)[0])
+        return frames, from_pose
+
+    def more_looks(self, frames, from_pose):
+        """A second hold at the poses, before the tile is set down: none here (a person reads every tile); play_face_down's
+        unattended mode takes one when the reader isn't sure."""
+        return frames, from_pose
+
     def draw(self, plan):
         """Draw, show and set on the zone. Returns the photos and which pose each is from. None if a person quit."""
         layer = plan["layer"]
@@ -224,11 +241,7 @@ class Run:
         pick = self.pick("draw", self.station, f"t{self.turn_no}_draw_{layer}", raise_m, back_m)
         if pick is None:
             return ([], []) if self.by_hand("draw", "the wall's tile wasn't drawn", spot=self.zone_spot, where="the drop zone") else None
-        frames, from_pose, problem = self.rig.show(self.rng, still_held=self.jaws_have_tile)
-        for i, (frame, pose) in enumerate(zip(frames, from_pose)):
-            cv2.imwrite(str(pick["attempt"] / f"base_{pose}_{i}.jpg"), privacy.blur_faces(frame)[0])
-        if problem:
-            self.broke("show", problem)
+        frames, from_pose = self.show_held(pick, "show")
         self.rig.arm.rest()
         if not self.jaws_have_tile():
             return (frames, from_pose) if self.by_hand("show", "the tile came out of the jaws", spot=self.zone_spot, where="the drop zone") else None
