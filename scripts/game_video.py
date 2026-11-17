@@ -243,6 +243,7 @@ class Desk:
             ok, self.first = self.capture.read()
             if not ok:              # a game killed mid-recording leaves desk.mp4 unfinished: the scans still show the hand
                 print(f"{desk_video.VIDEO} can't be read (the game stopped before it was finished?): using the scans")
+                self.capture.release()
                 self.desk, self.capture, self.first = [], None, None
         self.frames = self.desk or scan_frames(session_dir, events)
         self.crop = crop
