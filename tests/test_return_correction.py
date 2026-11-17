@@ -196,3 +196,19 @@ def test_landings_say_when_r_was_pressed_during_the_return():
     pressed, clean = landings([attempt, keys, {"type": "return", "xy": [0.23, 0.01]}, scan,
                                attempt, {"type": "return", "xy": [0.23, 0.01]}, scan])
     assert pressed["by_hand"] and not clean["by_hand"]
+
+
+def test_the_report_counts_only_returns_left_out_for_landing_far(tmp_path, monkeypatch, capsys):
+    import json
+    from mahjong import config, return_correction
+    monkeypatch.setattr(return_correction, "setup_fingerprint", lambda: {})
+    keep = return_record([0.2, 0.0], [0.24, 0.01], [0.24, 0.01], [0.2, 0.0], home_xy=[0.2, 0.0])
+    far = {**keep, "landed_xy": [0.2, 0.045]}                       # the next spot's tile: counted
+    marked_far = {**far, "excluded": "face down, unchecked"}        # far, but left out for its mark
+    carried_far = {**far, "home_xy": [0.14, 0.09]}                  # far from its new home, but left out as carried
+    near = {**keep, "landed_xy": [0.2, 0.027]}                      # a poor landing, under 30mm: fitted
+    path = tmp_path / "returns.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, far, marked_far, carried_far, near)))
+    monkeypatch.setattr(config, "RETURN_CORRECTIONS", path)
+    return_correction.report()
+    assert "3 record(s) excluded, 1 landed over 30mm from home" in capsys.readouterr().out
