@@ -20,8 +20,8 @@ constants. Git catches overlapping lines, not overlapping intent. So:
 - **In a branch**: touch CLAUDE.md, ROADMAP.md and README.md only for that branch's own items; the merge
   reconciles them (they took 14, 11 and 3 commits from separate branches that day and drifted). Run
   hardware from the main checkout (sessions are per-checkout).
-- **Handing a branch back** (Claude's job, `/hand-back`): merge the latest `main` into it, ruff and the tests, `/code-review` until
-  clean, and a ready PR whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or other open branches),
+- **Handing a branch back** (Claude's job, `/hand-back`): merge the latest `main` into it, ruff and the tests, `/code-review` (one
+  medium pass, then a low one on the fixes), and a ready PR whose body has `## What changed` (and why), `## Files`, `## Overlaps` (with `main` or other open branches),
   `## Review` (each finding and what was done) and `## Unverified on the arm`. Then the queue merges it:
   `python scripts/merge_pr.py --auto N` (README, "The merge queue"). It refuses rather than asks: an unfinished description, a missing
   review for `REVIEW_FILES`, a name added on both sides, a merged tree that fails the tests or the sim runs. A sent-back PR has the
