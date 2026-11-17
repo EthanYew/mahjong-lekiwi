@@ -104,6 +104,12 @@ def summary(turns, result, grade, unattended, reads, corrections, by_hand, silen
             "end_check": audited, "holds_waiting_for_review": waiting}
 
 
+def break_lines(breaks):
+    """Where the hand broke, one line each (the crude run's list, without its reader line: here the reader's names aren't a person's)."""
+    return ["Where it broke:"] + [f"  turn {b['turn']} {b['step']}: {b['what']}" + (" (done by hand)" if b["by_hand"] else "")
+                                  for b in breaks] if breaks else ["Nothing broke."]
+
+
 def summary_lines(s):
     mode = "Unattended hand" if s["mode"] == "unattended" else "Hand"
     lines = [f"{mode} over ({s['result']}) after {s['turns']} turn(s): {s['grade'] or 'not graded (it stopped before the end check)'}",

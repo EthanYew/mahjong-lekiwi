@@ -52,6 +52,15 @@ def test_split_holds_out_the_newest_session_or_the_last_holds():
     assert len(one[0]) + len(one[1]) == 24
 
 
+def test_a_split_by_hold_keeps_play_holds_in_training():
+    """Play's holds are numbered per name from 1 and are a different tile each: 'the last holds' would be all of them."""
+    play = [{"truth": t, "kind": base_cam.UNKNOWN_KIND, "hold": h, "shot": h, "session": "c_play_fd", "path": f"c/{t}_{h}.jpg"}
+            for t in ("5C", "3C") for h in (1, 2)]
+    train, test, _, _ = base_cam.split(fake_rows(["a_holdup"]) + play, "hold", test_holds=2)
+    assert len([r for r in train if r["session"] == "c_play_fd"]) == 4 and not [r for r in test if r["session"] == "c_play_fd"]
+    assert {r["hold"] for r in test} == {3, 4}
+
+
 def test_check_summary_compares_with_chance_and_a_constant_answer():
     rows = fake_rows(["a_holdup"])
     s = base_cam.check_summary(rows, [r["truth"] if r["truth"] != "2C" else "5C" for r in rows])

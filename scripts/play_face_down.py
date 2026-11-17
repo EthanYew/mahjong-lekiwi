@@ -265,7 +265,7 @@ class Player(crude_run.Run):
                 return False
         for slot in self.slots:
             frames, from_pose, guess = seen[slot]
-            by = "reader" if self.unattended else "person"
+            by = "reader" if self.unattended and guess is not None else "person"       # a name a person typed isn't the reader's
             self.save_hold(frames, from_pose, self.hand[slot], guess, slot, by)
         self.rig.session.event("fd_hand_confirmed", hand=dict(self.hand), fixed=fixed, by="reader" if self.unattended else "person")
         return True
@@ -331,6 +331,10 @@ class Player(crude_run.Run):
                 return None
             if face_down_play.bad_names(fixes):
                 print(f"  {', '.join(face_down_play.bad_names(fixes))} isn't a tile name")
+                continue
+            tried = game.too_many([*{**self.hand, **fixes}.values(), *self.discards])
+            if tried:
+                print(f"  That would be more than {game.COPIES} of {', '.join(tried)} with the discards: not taken. Correct the other one too, in one answer.")
                 continue
             for slot, name in fixes.items():
                 if name != self.hand[slot]:
@@ -487,8 +491,7 @@ def main(argv=None, ask=input):
             waiting = len(base_cam.waiting_for_review(folder))
             s = face_down_play.summary(player.done, result, grade, args.unattended, player.registered + len(player.reads),
                                        player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(wrong), checked, waiting)
-            print("\n" + "\n".join(face_down_play.summary_lines(s) + crude_run.summary_lines(
-                crude_run.summary(player.done, player.breaks, player.reads, player.shallow), player.breaks)[2:]))
+            print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(player.breaks)))
             (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": player.breaks, "hand": player.hand,
                                                                      "discards": player.discards}, indent=2) + "\n")
             rig.session.event("hand_end", **s, hand=player.hand, discards=player.discards)

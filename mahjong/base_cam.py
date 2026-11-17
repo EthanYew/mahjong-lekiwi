@@ -322,7 +322,9 @@ def split(rows, by="auto", test_holds=2, test_session=None):
     for r in rows:
         key = (r["session"], r["truth"], r["kind"])
         top[key] = max(top[key], r["hold"])
-    held = [r["hold"] > top[(r["session"], r["truth"], r["kind"])] - test_holds for r in rows]
+    # a hold from play (kind unknown) is a different tile each time, numbered from 1 per name: "the last holds" would be all of
+    # them, so they stay in training and are tested only by a held-out session
+    held = [r["kind"] != UNKNOWN_KIND and r["hold"] > top[(r["session"], r["truth"], r["kind"])] - test_holds for r in rows]
     test = [r for r, h in zip(rows, held) if h]
     train = [r for r, h in zip(rows, held) if not h]
     return train, test, f"held out the last {test_holds} holds of every tile and way up", \

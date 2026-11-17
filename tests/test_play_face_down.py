@@ -35,7 +35,7 @@ def script_in(monkeypatch, tmp_path, reads, unattended_reader=True):
         monkeypatch.setattr(base_cam, "READER", tmp_path / "none.pt")
         return script
     monkeypatch.setattr(base_cam, "load_reader", lambda: Reader())
-    queue = [r if isinstance(r, tuple) else (r, 0.9) for r in reads]
+    queue = [r if isinstance(r, tuple) or r is None else (r, 0.9) for r in reads]       # None: a hold the reader has no name for
     by_hold = {}
 
     def read_held(reader, frames, from_pose, boxes):
@@ -43,8 +43,11 @@ def script_in(monkeypatch, tmp_path, reads, unattended_reader=True):
             return None
         key = id(frames[0])         # the frame is kept below, so its id can't be reused by a later hold's
         if key not in by_hold:
-            by_hold[key] = (*(queue.pop(0) if queue else ("9B", 0.9)), len(frames), frames[0])
-        name, confidence, first_look, _ = by_hold[key]
+            by_hold[key] = (queue.pop(0) if queue else ("9B", 0.9), len(frames), frames[0])
+        read, first_look, _ = by_hold[key]
+        if read is None:
+            return None
+        name, confidence = read
         if len(frames) > first_look:        # a second look's photos added: surer
             confidence = 0.95
         return {"name": name, "confidence": confidence, "votes": {name: confidence}}
@@ -218,3 +221,22 @@ def test_a_step_done_by_hand_is_a_rescue(monkeypatch, tmp_path):
     assert any(i["kind"] == "fd_by_hand" for i in events_of(folder, "intervention"))
     assert interventions.class_of("fd_by_hand") == interventions.RESCUE
     assert events_of(folder, "hand_end")[0]["grade"] == "rescued"
+
+
+def test_a_name_a_person_typed_unattended_is_filed_as_theirs_not_the_readers(monkeypatch, tmp_path):
+    reads = HAND[:3] + [None] + HAND[4:] + ["4D"]                           # no read for S4
+    script = script_in(monkeypatch, tmp_path, reads)
+    folder, _ = run(script, ["--unattended"], [*LIGHT, "", "5C", "e", ""])     # lay; S4's name; the wall's empty at turn 3; end check
+    shots = {s["spot"]: s for s in events_of(folder, "holdup_shot")}
+    assert shots["S4"]["filed_by"] == "person" and shots["S4"]["tile"] == "5C" and shots["S4"]["guess"] is None
+    assert shots["S3"]["filed_by"] == "reader"
+
+
+def test_a_correction_after_a_turn_cant_make_a_fifth_copy(monkeypatch, tmp_path, capsys):
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D"])
+    # the hand holds 1C 2C 3C 5C 5C 7C 7C 9C 9C 1B 1B 2C 3C and the turn discards the drawn 4D: S1=5C S2=5C S3=5C would be five 5Cs
+    answers = [*LIGHT, "", "", "", "S1=5C S2=5C S3=5C", "S1=5C", "end", ""]       # lay; hand check; turn 1's read; the fixes; then end; end check
+    folder, _ = run(script, [], answers)
+    assert "That would be more than 4 of 5C" in capsys.readouterr().out
+    assert json.loads((folder / "checkpoint.json").read_text())["hand"]["S1"] == "5C"      # the one fix that fit was taken
+    assert [e["fixes"] for e in events_of(folder, "fd_hand_fixed")] == [{"S1": "5C"}]
