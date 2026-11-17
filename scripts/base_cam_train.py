@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import camera_poses, config, base_cam, name_check
+from mahjong import camera_poses, config, base_cam, base_cam_collect, name_check
 
 PASS_RATE, FAIL_RATE = 0.70, 0.40
 CONTROL_MARGIN = 0.15           # the tile-less control this far above the best constant answer: the background names the tile
@@ -79,7 +79,8 @@ def find_sessions(arg):
     if arg:
         folders = [Path(s) for s in arg.split(",")]
     else:
-        folders = sorted(config.SESSIONS.glob("*_holdup"))
+        # face-down play's holds too: base_cam.rows leaves out every one a person hasn't reviewed (base_cam_review.py --play)
+        folders = sorted([*config.SESSIONS.glob("*_holdup"), *config.SESSIONS.glob(f"*_{base_cam_collect.PLAY_KIND}")], key=lambda f: f.name)
     return [f for f in folders if f.is_dir() and not base_cam.is_sim(f)]
 
 

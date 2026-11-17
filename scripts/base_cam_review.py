@@ -4,6 +4,10 @@
     python scripts/base_cam_review.py                  # review every name's photos not yet reviewed
     python scripts/base_cam_review.py --name 3C --only # one name
     python scripts/base_cam_review.py --all            # reviewed ones too
+    python scripts/base_cam_review.py --play           # the holds face-down play saved: nothing trains on them until reviewed
+
+Holds from play (play_face_down.py) are filed under the name a person confirmed or, unattended, the reader's read (the
+caption says which), and wait out of training and the counts until a person gives them a verdict here: Space (ok) or a rename.
 
 Why: the reader (base_cam_train.py) learns each tile from the photos filed under its name, and the name is the one a person
 said they laid on the spot (base_cam_collect.py): a tile laid on the wrong spot, or a hold whose tile slipped out of view,
@@ -47,6 +51,8 @@ def parse_args(argv=None):
     p.add_argument("--all", action="store_true", help="show reviewed photos too (default: rows with any unreviewed)")
     p.add_argument("--all-sessions", action="store_true",
                    help="review the sessions from before interleaving too (they aren't counted or trained on)")
+    p.add_argument("--play", action="store_true",
+                   help="only the holds from face-down play (play_face_down.py): nothing trains on them until they're reviewed here")
     return p.parse_args(argv)
 
 
@@ -63,7 +69,8 @@ class Reviewer(photo_review.Reviewer):
         first = row[0]
         where = f"{first['spot']}, laying {first['arrangement']}" if first["arrangement"] is not None else f"shot {first['shot']}"
         holds = sorted({p["hold"] for p in row if p["hold"] is not None})
-        return [first["session"][4:15], where, f"filed {first['name']} {first['kind']}",
+        by = " (reader's read)" if first.get("filed_by") == "reader" else ""
+        return [first["session"][4:15], where, f"filed {first['name']}{by} {first['kind']}",
                 "holds " + ",".join(map(str, holds))]
 
     def image_of(self, photo):
@@ -87,20 +94,25 @@ def count_lines(counts, target, counted, left_out):
         light = " ".join(f"{k[0]}{n}" for k, n in c["daylight"].items()) or "-"
         reviewed = f"{c['reviewed'] / c['photos']:.0%}" if c["photos"] else "-"
         short = sum(max(0, target - n) for n in holds)
-        return (f"{tile:<5}{holds[0]:>8}{holds[1]:>7}{c['photos']:>8}{c['sessions']:>9}  {light:<14}{reviewed:>9}"
-                f"{short or '':>7}")
+        return (f"{tile:<5}{holds[0]:>8}{holds[1]:>7}{c.get('play_holds', 0) or '':>6}{c['photos']:>8}{c['sessions']:>9}  {light:<14}"
+                f"{reviewed:>9}{short or '':>7}{c.get('waiting', 0) or '':>9}")
     order = sorted(counts, key=lambda t: (sum(counts[t]["holds"].values()), detector.TILE_NAMES.index(t)))
     playable = [t for t in order if t not in FLOWERS]
-    head = f"{'tile':<5}{'upright':>8}{'turned':>7}{'photos':>8}{'sessions':>9}  {'daylight':<14}{'reviewed':>9}{'short':>7}"
-    total = sum(sum(c["holds"].values()) for c in counts.values())
+    head = (f"{'tile':<5}{'upright':>8}{'turned':>7}{'play':>6}{'photos':>8}{'sessions':>9}  {'daylight':<14}{'reviewed':>9}{'short':>7}"
+            f"{'waiting':>9}")
+    total = sum(sum(c["holds"].values()) + c.get("play_holds", 0) for c in counts.values())
+    waiting = sum(c.get("waiting", 0) for c in counts.values())
     none = [t for t in playable if not counts[t]["photos"]]
     lines = [f"Base camera photos per tile, as reviewed: {total} holds in {len(counted)} interleaved session(s); "
              f"short = holds missing to {target} each way up",
-             "(daylight: b bright, d dim, n none, in holds; a hold is one pickup shown at every pose)", "", head]
+             "(daylight: b bright, d dim, n none, in holds; a hold is one pickup shown at every pose; play: reviewed holds from "
+             "play_face_down.py, way up unknown, not in short; waiting: play holds no one has reviewed, which nothing trains on)", "", head]
     lines += [line(t) for t in playable]
     lines += ["", "Flowers (collected, never played):", head] + [line(t) for t in order if t in FLOWERS]
     lines += ["", f"{len(playable) - len(none)} of {len(playable)} playable tiles have photos"
               + (f"; none yet: {', '.join(sorted(none, key=detector.TILE_NAMES.index))}" if none else "")]
+    if waiting:
+        lines.append(f"{waiting} hold(s) from play wait for review: python scripts/base_cam_review.py --play")
     left_out = [s for s in left_out if base_cam.rows(s)]          # an empty session (quit before a hold) is no news
     if left_out:
         lines.append(f"Not counted (collected before interleaving, so the scene named the tile): "
@@ -118,6 +130,8 @@ def main(argv=None, ask=None):
     from wrist_capture import ask_pumping
     ask = ask_pumping(ask or input)
     folders = counted + (left_out if args.all_sessions else [])
+    if args.play:
+        folders = [f for f in folders if f.name.endswith(f"_{base_cam_collect.PLAY_KIND}")]
     photos = base_cam.review_photos(folders)
     names = photo_review.name_order(detector.TILE_NAMES, args.name, args.only)
     reviewer = Reviewer(photos, base_cam.load_review(), names, show_all=args.all)

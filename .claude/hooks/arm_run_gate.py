@@ -22,10 +22,12 @@ import shlex
 import sys
 from pathlib import Path
 
-ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run")
-SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run")   # `record` and `collect_corrections` have no --sim
+ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
+               "play_face_down")
+SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
+               "play_face_down")   # `record` and `collect_corrections` have no --sim
 SAFE_FLAGS = {"--help", "-h"}
-NO_HARDWARE_FLAGS = {"wall_test": {"--report", "--exclude-session"}}   # these return before anything connects
+NO_HARDWARE_FLAGS = {"wall_test": {"--report", "--exclude-session"}, "play_face_down": {"--report"}}   # these return before anything connects
 
 MENTION = re.compile(r"scripts/(%s)\.py" % "|".join(ARM_SCRIPTS))
 IMPORTS_ARM = re.compile(r"\b(?:from\s+scripts\s+import\s+(?:%s)\b|(?:from|import)\s+(?:scripts\.)?(?:%s)\b)|['\"](?:scripts\.)?(?:%s)['\"]"

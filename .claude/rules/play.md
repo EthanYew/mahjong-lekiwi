@@ -20,6 +20,7 @@ Autonomous play: names, questions, the window and the drop zone. Evidence in `do
   hand; it asks instead of guessing a tile name, and the hand grades clean / attended / rescued / silent
   error (`interventions.hand_grade`). Silent wrong tiles are a gate, not a target: one stops play. Bench the
   hand with `bench.py --layout even-hand14` (even-hand13 + the drop zone's spot): play won't start until the zone is.
+  Face-down hands are `scripts/play_face_down.py`, with their own rules in face_down.md (its `--unattended` is the exception to this gate).
 - **A stricter rule for a problem tile has to go on the name read, not the tile.** The robot never sees "8C", only the "7C"
   it reads, so real 7Cs pay too (`identity.ALWAYS_ASK_READS`, a stopgap in play). Confidence alone isn't enough: wrong EW and
   7C reads overlap real ones. Evidence: `docs/name_data.md`.

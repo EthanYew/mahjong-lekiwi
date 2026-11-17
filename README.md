@@ -91,6 +91,8 @@ not a worktree, or the sessions go when the worktree does.
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
 | Check the saved base-camera poses with nothing in the jaws, before collecting | `python scripts/base_cam_collect.py --empty` |
 | Try a whole face-down turn: draw, show, read, you check, discard (crude, to find where it breaks) | `python scripts/crude_run.py --hand <13 names> --turns 6` |
+| Play a face-down hand: the arm reads its own hand, then draws from the wall until a win or the wall runs out | `python scripts/play_face_down.py` (`--unattended`: no names asked, only the wall) ([below](#face-down-play-scriptsplay_face_downpy)) |
+| Check the photos face-down play saved before the reader trains on them, then score its reads | `python scripts/base_cam_review.py --play`, then `python scripts/play_face_down.py --report` |
 | Test drawing face-down tiles from a wall, at one station you feed by hand | `python scripts/wall_test.py --stations F --cases flat --trials 10`; `--report` scores every session so far |
 | Re-split a Roboflow download so no scene is in train and valid | `python scripts/split_by_scene.py --data <download>/data.yaml --out data/detector/train_<v> --list` (then drop `--list`) |
 | Score a played hand frame by frame against a person's names, or build training frames from it | `python scripts/hand_frames.py <session>` (`--out`, `--onto`) |
@@ -948,7 +950,7 @@ python scripts/base_cam_train.py --save-reader --sessions sessions/A_holdup,sess
 python scripts/base_cam_train.py --history                        # every score so far, oldest first
 ```
 
-`base_cam_train.py`: `--sessions A,B` (default: every real holdup session; simulated ones never count), `--by auto|session|hold`
+`base_cam_train.py`: `--sessions A,B` (default: every real holdup session, and face-down play's reviewed holds; simulated ones never count), `--by auto|session|hold`
 (auto holds out the newest session when every tile in it is also in an older one, else the last `--test-holds` 2 holds of each
 tile and way up, which is optimistic: the same light and hands are on both sides), `--test-session NAME` (hold out that
 session and train on the others in `--sessions`, whatever `--by` says; only the tiles another session has are tested, the rest
@@ -986,6 +988,52 @@ python scripts/crude_run.py --hand ... --sim                                    
 A turn: the arm draws from the station, holds the tile up at each saved `base_view_*` pose, and sets it on the drop zone. A window shows the photos and the reader's guess: Enter accepts it, or type the name, and `X` says the face wasn't visible. `game.py` chooses the discard, and the arm plays it. Whatever fails is written down
 (`crude_break`, printed as "Noted for the list") and you do that step by hand, in the outline the window shows; each turn ends by asking if anything else went wrong. If the jaws read too low for the held check but not as low as empty (the held reading fell from 9.5 to 3.0 over 2026-11-09), it asks whether there's a tile in them, and carries on if so.
 `--dagger-dataset REPO`: A on the gamepad takes over a draw or a pick going wrong, and your recovery is saved ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)). `--leave-empty S7` is for a slot with no tile on the mat: still named in `--hand`, never chosen as a discard. A tile on S7 sits right behind station F and threw the draw off. Other options: `--station ID` (default `F`), `--layout NAME` (default `even-hand13`), `--policy ID`. The reader only knows the tiles it trained on (`--save-reader`, saved to `assets/holdup_reader.pt`); without it you name every tile. Results: `sessions/<time>_crude/`, with `crude_summary.json`. It needs a discard pose and a taught drop zone.
+
+### Face-down play: `scripts/play_face_down.py`
+
+Moves the arm (asks a person to run it). A hand of play with face-down tiles, built on the crude run's turn: the robot reads its
+own hand, so you don't name it, and it plays until a win or the wall runs out. Every tile is found by its saved position.
+
+```
+python scripts/play_face_down.py                          # even-hand13, the wall at L2: you check the hand once, then each drawn tile
+python scripts/play_face_down.py --unattended             # the reader's names are taken: you lay the hand and feed the wall, nothing else
+python scripts/play_face_down.py --resume                 # carry on the latest hand from its last finished turn
+python scripts/base_cam_review.py --play                  # afterwards: check the photos it saved (nothing trains on them before)
+python scripts/play_face_down.py --report                 # then: every read against your review, and the discards a wrong read changed
+python scripts/play_face_down.py --sim                    # simulated arm and cameras
+```
+
+1. **Lay the hand and the wall.** A RealSense window outlines the 13 slots in green, the wall's station in blue (`WALL`, `--station`,
+   default `L2`) and the drop zone in orange (keep it clear). Lay any 13 tiles GREEN side up on the outlines, and the wall:
+   `--wall-stacks` (4) stacks of 2 from the station, running away from the robot. Space/Enter when done.
+2. **The arm reads the hand.** Each slot in turn: it picks up the tile, holds it up at the saved `base_view_*` poses, and puts it back
+   on its slot (aimed as a return is). A slot it can't pick is yours to leave in place, and you're asked its name.
+3. **You check the hand once.** A window shows each slot's photo with the name and the reader's confidence, low ones outlined red.
+   Enter in the terminal if all 13 are right, or the wrong ones as `S3=5C S9=EW`. A hand with five of a tile isn't taken.
+4. **The turns.** Every other turn you're asked to push the wall's next stack onto the station (`e` in that window: the wall's
+   empty, end the hand). The arm draws the top tile, then the bottom one, shows it, sets it on the drop zone, and you confirm its
+   name in the photo window (Enter, a name, or `X` for a face it didn't see). `game.py` chooses the discard: the drawn tile straight to
+   the container, or a hand tile to the container and the drawn tile into its slot. After each turn: Enter, a correction (`S3=5C`),
+   `end` (the wall's empty), `q`, or a note of anything that went wrong (a bump, a bad landing).
+5. **The end check.** Turn the 13 over and say which the robot had wrong (`S3=5C`), or Enter if none, or `s` to skip it. A tile it
+   had wrong without anyone noticing is a silent error. The hand is graded as play's are (`session_report.py`): pressing Enter on
+   a read isn't a question, a correction is (`name_corrected`), a step done by hand is a rescue (`fd_by_hand`).
+
+`--unattended` asks no names. A read under `--reshow-below` (0.6) gets a second hold at the poses, with both holds' votes added. The
+reader's name is taken, even when it makes a fifth copy (logged as `fd_conflict`). It still asks for the wall's feed and for a step
+the arm couldn't do (a pick missed twice, a tile lost), since only a person can put a tile right. It needs a reader. Wrong names
+can get in silently by design, so an unattended hand isn't a play-ready result: it measures the reader and the arm together.
+
+**Every hold is saved as the reader's training photos**, filed under the name the hand used (yours, or unattended the reader's),
+and kept out of training and the counts until you review them: `base_cam_review.py --play`, where the caption says who named
+each one. Space marks a page ok, a right-click renames. `--report [SESSION]` (no arm) then scores every read against your review,
+discards too, and lists the discards a wrong read changed. Other options: `--top-back-mm` (10, a top tile's hover nearer the
+robot), `--layout` (`even-hand13`), `--policy`, `--no-view`, `--dagger-dataset REPO` ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)).
+`--resume [SESSION]` starts from the last finished turn, with the tiles where they were: nothing is laid or read again. A drop zone
+the bench hasn't checked is a warning, not a refusal as in `play.py`: scans can't check a face-down carry. Results:
+`sessions/<time>_play_fd/` (the crude run's events, `fd_*` events, `holdup_shot` events and `photos/`, `checkpoint.json`,
+`play_fd_summary.json`). It needs a discard pose, a taught drop zone and saved `base_view_*` poses. Run `setup_check.py` first,
+and from the main checkout.
 
 `wall_test.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, "The wall: one station"): v8 draws face-down tiles from one saved spot, a station, while
 you feed the wall by hand. Stations are in the layout `wall-stations` (`F` in front of the hand, `L` on its left; `F2` 5mm further out and `L2` 10mm further left, for more room beside the hand's tiles, e.g. `--stations F2,L2`, `record.py --wall-station L2`): lay a tile face up to green with `layout.py --name wall-stations`, tape around it, then flip it.
@@ -1053,7 +1101,12 @@ python scripts/base_cam_review.py --counts           # per tile: holds each way 
 python scripts/base_cam_review.py                    # review every name's photos not yet reviewed
 python scripts/base_cam_review.py --name 3C --only   # one name
 python scripts/base_cam_review.py --all              # reviewed ones too
+python scripts/base_cam_review.py --play             # only the holds face-down play saved, which wait for this before training
 ```
+
+Holds from `play_face_down.py` are filed under the name the hand used: yours, or, unattended, the reader's own read (the caption
+says "reader's read"). None of them is trained on or counted until it has a verdict here. `--counts` shows the reviewed ones as
+`play` (way up unknown, so not in `short`) and the rest as `waiting`.
 
 `--counts` lists the playable tiles fewest holds first (a tile never collected at the top), then the flowers (collected, never
 played), and names the sessions from before interleaving it leaves out. Daylight is in holds: `b` bright, `d` dim, `n` none.

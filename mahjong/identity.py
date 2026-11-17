@@ -130,3 +130,10 @@ class Votes:
     def describe(self, slot):
         votes = self.totals.get(slot) or {}
         return ", ".join(f"{n} {v:.2f}" for n, v in sorted(votes.items(), key=lambda nv: -nv[1])) or "no reads"
+
+
+def parse_fixes(answer, ids):
+    """{slot: NAME} from "S9=5C H3=5D" (any case, commas too), slots looked up in ids ({SLOT in capitals: slot}); None if it isn't that.
+    A person's corrections to the hand: play.py's hand check and audit, play_face_down.py's."""
+    parts = [part.split("=", 1) for part in answer.strip().upper().replace(",", " ").split()]
+    return {ids[p[0]]: p[1] for p in parts} if all(len(p) == 2 and p[0] in ids for p in parts) else None

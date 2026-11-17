@@ -164,7 +164,9 @@ def seeking(names13, visible=()):
 
 
 def is_win(names14):
-    return len(names14) == HAND_SIZE + 1 and shanten(counts(names14)) == -1
+    """A complete hand of 14. Never one with five of a tile: there are four, so a name is misread (face-down play unattended
+    once read every noise frame of the sim as 2C, and 14 2Cs were a win)."""
+    return len(names14) == HAND_SIZE + 1 and not too_many(names14) and shanten(counts(names14)) == -1
 
 
 def choose_discard(hand, drawn, visible=()):

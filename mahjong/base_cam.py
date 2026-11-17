@@ -19,6 +19,7 @@ from . import config, name_check, privacy
 from .session import ask_conditions, is_sim, previous_conditions, read_events  # noqa: F401 (is_sim: callers use base_cam.is_sim)
 
 KINDS = ("upright", "turned")            # a tile held right way up, and turned 180 degrees
+UNKNOWN_KIND = "unknown"                 # a hold in play (play_face_down.py): nothing says which way up the tile was laid
 BOX_PAD = 1.3                            # the square around a detector box is this much wider than its longer side
 LIGHT_KEYS = ("daylight", "lamp", "ceiling_lights")
 
@@ -71,7 +72,8 @@ def _shots(session_dir):
             if (session_dir / f).exists():
                 out.append({"truth": e["tile"], "kind": e["kind"], "hold": e.get("hold"), "path": session_dir / f,
                             "daylight": conditions.get("daylight"), "shot": e["shot"], "session": session_dir.name,
-                            "pose": pose, "spot": e.get("spot"), "arrangement": arrangement, "key": key})
+                            "pose": pose, "spot": e.get("spot"), "arrangement": arrangement, "key": key,
+                            "review_first": bool(e.get("review_first")), "filed_by": e.get("filed_by", "person")})
     return out
 
 
@@ -86,10 +88,25 @@ def rows(session_dir, review=None):
     review = load_review() if review is None else review
     out = []
     for row in _shots(session_dir):
+        if not_yet_reviewed(row, review):
+            continue
         name = photo_review.name_of({"key": row["key"], "name": row["truth"]}, review)
         if name is not None:
             out.append({**row, "truth": name, "filed_as": row["truth"], "reviewed": row["key"] in review})
     return out
+
+
+def not_yet_reviewed(row, review):
+    """A photo saved in play (`review_first`: filed under the reader's name, or a name a person only pressed Enter on) that
+    no person has given a verdict on in the review window: kept out of training and the counts until one has (the owner's
+    rule, 2026-11-17). Holds a person laid and named (base_cam_collect.py) count as filed."""
+    return row["review_first"] and row["key"] not in review
+
+
+def waiting_for_review(session_dir, review=None):
+    """The holds of a session no person has reviewed yet: {shot number: the name it was filed under}."""
+    review = load_review() if review is None else review
+    return {r["shot"]: r["truth"] for r in _shots(session_dir) if not_yet_reviewed(r, review)}
 
 
 def load_review(path=None):
@@ -112,7 +129,7 @@ def review_photos(folders):
                 photo = out[row["key"]] = {
                     "key": row["key"], "path": row["path"], "name": row["truth"], "session": row["session"],
                     "group": f"{row['session']}/{where}/{row['truth']}", "frames": [],
-                    **{k: row[k] for k in ("kind", "hold", "shot", "pose", "spot", "arrangement")}}
+                    **{k: row[k] for k in ("kind", "hold", "shot", "pose", "spot", "arrangement", "review_first", "filed_by")}}
             photo["frames"].append(row["path"])
     return list(out.values())
 
@@ -305,7 +322,9 @@ def split(rows, by="auto", test_holds=2, test_session=None):
     for r in rows:
         key = (r["session"], r["truth"], r["kind"])
         top[key] = max(top[key], r["hold"])
-    held = [r["hold"] > top[(r["session"], r["truth"], r["kind"])] - test_holds for r in rows]
+    # a hold from play (kind unknown) is a different tile each time, numbered from 1 per name: "the last holds" would be all of
+    # them, so they stay in training and are tested only by a held-out session
+    held = [r["kind"] != UNKNOWN_KIND and r["hold"] > top[(r["session"], r["truth"], r["kind"])] - test_holds for r in rows]
     test = [r for r, h in zip(rows, held) if h]
     train = [r for r, h in zip(rows, held) if not h]
     return train, test, f"held out the last {test_holds} holds of every tile and way up", \

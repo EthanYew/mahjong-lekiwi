@@ -5,6 +5,9 @@ paths:
   - "scripts/wall_test.py"
   - "mahjong/crude_run.py"
   - "scripts/crude_run.py"
+  - "mahjong/face_down_play.py"
+  - "scripts/play_face_down.py"
+  - "tests/test_play_face_down.py"
   - "mahjong/base_cam.py"
   - "scripts/base_cam_train.py"
   - "mahjong/base_cam_collect.py"
@@ -17,8 +20,18 @@ paths:
   - "scripts/base_cam_review.py"
   - "data/camera_poses.json"
 ---
-Face-down tiles: drawing from the wall station, the base camera's reader, the crude turn. Plan and evidence in
+Face-down tiles: drawing from the wall station, the base camera's reader, the crude turn, face-down play. Plan and evidence in
 `docs/face_down_plan.md`.
+
+- **Face-down play asks a person to confirm every read, unless `--unattended`** (`scripts/play_face_down.py`). The base camera's reader
+  has passed no exam, and its two wrong reads in its first crude run came at 41% and 61% (`20261117_140038_crude`). So a person checks
+  the 13 once and each drawn tile. `--unattended` takes the reader's names at the owner's request (2026-11-17): wrong names can get in
+  silently, against play.md's gate, so an unattended hand is no play-ready result, only a measure of the reader and the arm together.
+  A low read gets a second hold (`--reshow-below` 0.6, a guess from 6 reads). Unconfirmed on the arm.
+- **A hold saved in play trains nothing until a person has reviewed it** (the owner's rule, 2026-11-17). Unattended, its name is the
+  reader's own, and training on that teaches the reader its mistakes. Every hold is `review_first`, and `base_cam.rows` is the one check,
+  so training, `base_cam_collect`'s counts and `--counts` all leave it out until `data/holdup_review.jsonl` has a verdict
+  (`base_cam_review.py --play`).
 
 - **A green hand in the wrist view pulls v8 back at station F.** The jaws moved about 5mm further out on an empty mat and 2-8mm back with the hand laid, closing short (2026-11-09), so a wall result counts only with the hand in place. Evidence: `docs/face_down_plan.md`.
 - **A two-high stack behind the target pulls v8 forward, and a top tile gets the next column's** (station F, 2026-11-09; 3 top tries). The jaw tips moved 9.4-9.7mm out from the hover with a stack

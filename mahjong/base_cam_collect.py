@@ -36,18 +36,26 @@ def interleaved(session_dir):
     return any(e["type"] == "holdup_conditions" and e.get("order") == "interleaved" for e in read_events(session_dir))
 
 
+PLAY_KIND = "play_fd"       # play_face_down.py's sessions: each hold a different tile, from the wall or a slot
+
+
 def counted_sessions(sessions_dir=None):
-    """(the real, interleaved hold-up sessions, the real ones left out): only the first count (`interleaved`)."""
+    """(the real hold-up sessions that count, the real ones left out): interleaved hold-up sessions (`interleaved`), and
+    face-down play's, whose holds count only once a person has reviewed them (base_cam.not_yet_reviewed)."""
     folder = sessions_dir or config.SESSIONS
     real = [s for s in sorted(folder.glob("*_holdup")) if not base_cam.is_sim(s)]
     counted = [s for s in real if interleaved(s)]
-    return counted, [s for s in real if s not in counted]
+    played = [s for s in sorted(folder.glob(f"*_{PLAY_KIND}")) if not base_cam.is_sim(s)]
+    return sorted(counted + played, key=lambda s: s.name), [s for s in real if s not in counted]
 
 
 def hold_counts(sessions_dir=None, review=None):
     """{(tile, kind): distinct holds} over every real, interleaved hold-up session (`interleaved`); simulated ones don't count.
     By a person's review (base_cam.rows): a hold renamed counts under its right name, one whose photos are all wrong not at all."""
     return {key: len(v["holds"]) for key, v in _tallies(sessions_dir, review).items()}
+
+
+WAITING = "waiting"         # _tallies: holds from play no one has reviewed, by the name they were filed under
 
 
 def _tallies(sessions_dir, review):
@@ -64,17 +72,22 @@ def _tallies(sessions_dir, review):
             t["reviewed"] += row["reviewed"]
             t["sessions"].add(row["session"])
             t["daylight"][row["daylight"] or "unknown"].add(hold)
+        for shot, name in base_cam.waiting_for_review(session, review).items():
+            seen[(name, WAITING)]["holds"].add((session.name, shot))
     return seen
 
 
 def tile_counts(sessions_dir=None, review=None, tiles=DEFAULT_TILES, kinds=base_cam.KINDS):
-    """{tile: {"holds": {kind: n}, "photos", "reviewed" (photos a person has looked at), "sessions", "daylight": {bright / dim / none: holds}}} for
+    """{tile: {"holds": {kind: n}, "play_holds" (reviewed holds from play, way up unknown), "waiting" (play holds filed under it,
+    not reviewed yet), "photos", "reviewed" (photos a person has looked at), "sessions", "daylight": {bright / dim / none: holds}}} for
     every tile in `tiles`, 0s for one never collected: how well each is represented in what the reader trains on."""
     tallies = _tallies(sessions_dir, review)
     out = {}
     for tile in tiles:
-        parts = [tallies[(tile, k)] for k in kinds if (tile, k) in tallies]
+        parts = [tallies[(tile, k)] for k in (*kinds, base_cam.UNKNOWN_KIND) if (tile, k) in tallies]
         out[tile] = {"holds": {k: len(tallies[(tile, k)]["holds"]) if (tile, k) in tallies else 0 for k in kinds},
+                     "play_holds": len(tallies[(tile, base_cam.UNKNOWN_KIND)]["holds"]) if (tile, base_cam.UNKNOWN_KIND) in tallies else 0,
+                     "waiting": len(tallies[(tile, WAITING)]["holds"]) if (tile, WAITING) in tallies else 0,
                      "photos": sum(p["photos"] for p in parts), "reviewed": sum(p["reviewed"] for p in parts),
                      "sessions": len(set().union(*(p["sessions"] for p in parts))),
                      "daylight": {light: sum(len(p["daylight"].get(light, ())) for p in parts)

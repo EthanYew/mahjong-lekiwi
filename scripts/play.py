@@ -54,7 +54,7 @@ import cv2
 
 from mahjong import config, game, hand_view, interventions, layout, markers, name_check
 from mahjong.camera import grab_frames
-from mahjong.identity import ALWAYS_ASK_READS, DRAWN_MIN_SHARE, Votes
+from mahjong.identity import ALWAYS_ASK_READS, DRAWN_MIN_SHARE, Votes, parse_fixes
 from mahjong.perception import drain_stdin
 
 import bench
@@ -880,12 +880,6 @@ class Player:
         self.bench.close()
         if self.view is not None:
             self.view.close()
-
-
-def parse_fixes(answer, ids):
-    """{slot: NAME} from "S9=5C H3=5D" (any case), slots looked up in ids ({SLOT in capitals: slot}); None if it isn't that."""
-    parts = [part.split("=", 1) for part in answer.strip().upper().split()]
-    return {ids[p[0]]: p[1] for p in parts} if all(len(p) == 2 and p[0] in ids for p in parts) else None
 
 
 def bench_argv(args):
