@@ -54,6 +54,8 @@ def test_known_hands():
     assert game.is_win(["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "9B", "EW", "EW", "EW", "RD", "RD"])
     assert not game.is_win(["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "9B", "EW", "EW", "EW", "RD", "GD"])
     assert game.is_win(["1C", "1C", "4D", "4D", "7B", "7B", "9B", "9B", "EW", "EW", "RD", "RD", "GD", "GD"])
+    assert not game.is_win(["2C"] * 14)                                  # five of a tile: a misread, never a win
+    assert not game.is_win(["2C"] * 5 + ["3C", "4C", "5C", "6C", "7C", "8C", "EW", "EW", "EW"])
 
 
 def test_flowers_and_typos_are_refused():
