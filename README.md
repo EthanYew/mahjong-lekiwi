@@ -63,6 +63,7 @@ not a worktree, or the sessions go when the worktree does.
 | A face-down candidate's face-up round | `python scripts/bench.py --policy FACE_UP_BEST,CANDIDATE --layout even-hand14 --trials 1`, face up: anything but Drop (`status.py` says when it's owed) |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout even-hand13` |
 | Play a hand without the robot | `python scripts/play.py --sim` |
+| Make a video of a played hand (to show it) | `python scripts/game_video.py --crop mat` (play with `--record-desk` to see the arm move) |
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
 | Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
@@ -447,6 +448,25 @@ played a part, which is where to point the next demonstrations or DAgger takeove
 For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
 `--all` ends with one line per hand.
 
+## A game's video: `scripts/game_video.py`
+
+A video of a played hand, to show it (no arm). The desk from above as the hand goes, each pickup's gripper clip (`wrist.mp4`) cut in
+where it happened, and on every frame the session, the clock, the turn and what a person did so far: questions answered, and
+hands-on (rescues and resets, the session report's classes). It opens with the session and policy and ends with the result, the
+grade and the totals, so every video traces back to one session.
+
+```
+python scripts/game_video.py                                              # the latest play session
+python scripts/game_video.py sessions/20261104_183142_play --crop mat     # a square of the tiles and the arm
+python scripts/game_video.py latest --style timelapse --clip-every 4      # the desk only; or every 4th pickup for a shorter one
+```
+
+The desk comes from `desk.mp4` when the hand was played with `--record-desk` (the arm seen moving), else from the first frame of each
+scan, where the arm is always at rest: the board changes and the arm doesn't. Faces are blurred on every desk frame (`privacy.py`)
+and `--crop mat` cuts it to a square around the tiles down to the arm, which leaves most of the room out. The blur lowers the
+chance of a face; watch the video through before posting it. Written to `<session>/video/game_<style>.mp4` (H.264 through
+`ffmpeg`), or `--out`. Options: `--fps` (desk frames a second: 8 from scans, 30 from a desk video), `--clip-speed` (4).
+
 ## Autonomous play: `scripts/play.py`
 
 The robot plays one closed hand (no calls, no flowers). Your only job is to put each drawn tile on the
@@ -545,6 +565,7 @@ holds a tile).
 | `--read-hand` | after registering the hand, hover over all 13 tiles and read each with the wrist camera (a tile never discarded is otherwise never read) |
 | `--via-rest` | go to rest and scan after every pickup before setting the tile down, as the bench does (slower) |
 | `--no-view` | no window showing what each question is about; the terminal only |
+| `--record-desk` | keep a slow video of the desk from the RealSense (`desk.mp4`, 2 fps), so a [game's video](#a-games-video-scriptsgame_videopy) shows the arm moving: the scans only see it at rest. Taken between scans, never through the depth filters |
 | `--sim` | simulated arm, cameras, mat and policy (no second read) |
 
 ## Recording demonstrations: `scripts/record.py`
@@ -1028,7 +1049,8 @@ can get in silently by design, so an unattended hand isn't a play-ready result: 
 and kept out of training and the counts until you review them: `base_cam_review.py --play`, where the caption says who named
 each one. Space marks a page ok, a right-click renames. `--report [SESSION]` (no arm) then scores every read against your review,
 discards too, and lists the discards a wrong read changed. Other options: `--top-back-mm` (10, a top tile's hover nearer the
-robot), `--layout` (`even-hand13`), `--policy`, `--no-view`, `--dagger-dataset REPO` ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)).
+robot), `--layout` (`even-hand13`), `--policy`, `--no-view`, `--record-desk` (a desk video, as `play.py`'s; it opens the
+RealSense even with `--no-view`), `--dagger-dataset REPO` ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)).
 `--resume [SESSION]` starts from the last finished turn, with the tiles where they were: nothing is laid or read again. A drop zone
 the bench hasn't checked is a warning, not a refusal as in `play.py`: scans can't check a face-down carry. Results:
 `sessions/<time>_play_fd/` (the crude run's events, `fd_*` events, `holdup_shot` events and `photos/`, `checkpoint.json`,

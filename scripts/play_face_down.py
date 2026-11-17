@@ -38,8 +38,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import (base_cam, base_cam_collect, config, crude_run, face_down_play, face_down_rig, game, hand_view, interventions,
-                     layout, markers, privacy, takeover, wall_test)
+from mahjong import (base_cam, base_cam_collect, config, crude_run, desk_video, face_down_play, face_down_rig, game, hand_view,
+                     interventions, layout, markers, privacy, takeover, wall_test)
 from mahjong.identity import parse_fixes
 from mahjong.perception import drain_stdin
 from mahjong.session import read_events
@@ -62,6 +62,8 @@ def parse_args(argv=None):
                    help="score a hand's reads (default: the latest) against your review of its photos, and stop: no hardware")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
     p.add_argument("--no-view", action="store_true", help="no windows: the hand to lay and the hand check in the terminal only")
+    p.add_argument("--record-desk", action="store_true",
+                   help="keep a slow video of the desk from the RealSense (desk.mp4, 2 fps) for scripts/game_video.py")
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
     takeover.add_argument(p)
     p.set_defaults(empty=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0, stacked=True)     # what face_down_rig's Rig and crude_run's Run read
@@ -462,7 +464,7 @@ def main(argv=None, ask=input):
     station = stations[args.station]
     print(f"Reader: {base_cam.READER.name}, knows {len(reader.classes)} names" if reader else f"No reader ({base_cam.READER}): you'll name every tile")
     rig = face_down_rig.Rig(args, [station, zone, *spots], poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
-    player, window, result = None, None, "quit"
+    player, window, result, desk = None, None, "quit", None
     try:
         conditions = base_cam.ask_lighting(ask)
         rig.open_session(face_down_play.PLAY_KIND, station=args.station, unattended=args.unattended, zone_xy=zone["xy"],
@@ -471,6 +473,8 @@ def main(argv=None, ask=input):
         rig.session.conditions = conditions
         rig.session.event("holdup_conditions", conditions=conditions, source="arm", order="play")     # base_cam._shots reads the light from it
         rig.session.event("zone_test", **check_zone(zone, spots, args.layout))
+        if args.record_desk:
+            desk = desk_video.start(rig.session, rig.desk_camera)
         if not (args.sim or args.no_view or args.unattended):
             window = hand_view.Window()
         rig.arm.rest()
@@ -485,6 +489,8 @@ def main(argv=None, ask=input):
         if window is not None:
             window.close()
         folder = rig.session.dir if rig.session else None
+        if desk is not None:
+            desk_video.stop(rig.session, rig.desk_camera, desk)     # before the camera closes
         rig.close()
         if rig.session and player:
             grade, checked, wrong = player.audit(result) if result in ("win", "end") else (None, False, {})
