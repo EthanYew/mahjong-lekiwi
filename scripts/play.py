@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, game, hand_view, interventions, layout, markers, name_check
+from mahjong import config, desk_video, game, hand_view, interventions, layout, markers, name_check
 from mahjong.camera import grab_frames
 from mahjong.identity import ALWAYS_ASK_READS, DRAWN_MIN_SHARE, Votes, parse_fixes
 from mahjong.perception import drain_stdin
@@ -133,6 +133,7 @@ class Player:
                       "layout": args.layout, "zone_xy": self.zone["xy"]}
         self.session.event("play_setup", layout=args.layout, slots=self.slots, zone=self.zone,
                            policy=self.bench.policy.id, direct=self.bench.direct)
+        self.desk = desk_video.start(self.session, self.bench.realsense) if args.record_desk else None
 
     # --- what the scans see ---
 
@@ -877,6 +878,7 @@ class Player:
         return self.audit(result)
 
     def close(self):
+        desk_video.stop(self.session, self.bench.realsense, getattr(self, "desk", None))    # before the camera closes
         self.bench.close()
         if self.view is not None:
             self.view.close()
@@ -910,6 +912,8 @@ def parse_args(argv=None):
     p.add_argument("--via-rest", action="store_true",
                    help="go to rest and scan after every pickup before setting the tile down, as the bench does (slower)")
     p.add_argument("--no-view", action="store_true", help="no window showing what each question is about; the terminal only")
+    p.add_argument("--record-desk", action="store_true",
+                   help="keep a slow video of the desk from the RealSense (desk.mp4, 2 fps) for scripts/game_video.py")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, mat and policy, a fixed hand and wall")
     args = p.parse_args(argv)
     if not args.sim and not args.layout:

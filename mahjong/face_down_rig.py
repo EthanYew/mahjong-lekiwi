@@ -24,11 +24,13 @@ class Rig:
         """sim_empty: spots the simulated mat starts without a tile on (the drop zone: on the arm it's empty until a draw)."""
         self.args, self.spots, self.pose_list = args, spots, pose_list
         self.realsense = None           # opened only to show where to lay tiles (not --sim, --no-view or --empty)
+        self.desk_camera = None         # the RealSense a desk video records (--record-desk): opened for it if not for the above
         if args.sim:
             from mahjong import sim
             tiles = [("5C", *s["xy"]) for s in spots if s not in sim_empty]
             devices = sim.connect(tiles=tiles, wrist_view=True)
             self.arm, self.wrist, self.mat = devices["arm"], devices["wrist_camera"], devices["realsense"]
+            self.desk_camera = self.mat
             self.base = sim.SimBaseCamera()
             self.policy = sim.SimPolicy(mat=self.mat, policy_id=args.policy or "sim")
             self.takeover = takeover.make(getattr(args, "dagger_dataset", None), None)     # nothing to hand over in the sim
@@ -38,13 +40,15 @@ class Rig:
             self.policy = Policy(args.policy)             # before connecting, so a mistyped id fails fast
             guided = not (args.no_view or args.empty)
             repo = getattr(args, "dagger_dataset", None)
-            devices = hardware.connect(["arm", "wrist_camera", "base_camera"] + (["realsense"] if guided else [])
+            desk = getattr(args, "record_desk", False)
+            devices = hardware.connect(["arm", "wrist_camera", "base_camera"] + (["realsense"] if guided or desk else [])
                                        + takeover.devices(repo), gamepad_kwargs=takeover.gamepad_kwargs())
             self.arm, self.wrist, self.base = devices["arm"], devices["wrist_camera"], devices["base_camera"]
             self.takeover = takeover.make(repo, devices.get("gamepad"))
             if self.takeover:
                 self.takeover.expect_hover(self.policy.hover)
-            self.realsense = devices.get("realsense")
+            self.realsense = devices.get("realsense") if guided else None
+            self.desk_camera = devices.get("realsense")
         self.events = new_events()
         self.terminal = TerminalKeys(self.events)
         self.abort = Abort(self.events)
@@ -70,8 +74,8 @@ class Rig:
             self.arm.disconnect()
             self.wrist.release()
             self.base.release()
-            if self.realsense is not None:
-                self.realsense.close()
+            if not self.args.sim and self.desk_camera is not None:     # the same RealSense as self.realsense when both
+                self.desk_camera.close()
             if self.takeover:
                 self.takeover.close()
         if holding:

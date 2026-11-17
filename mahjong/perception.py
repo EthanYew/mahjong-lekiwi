@@ -7,6 +7,7 @@ camera; nothing here does that).
 """
 import math
 import sys
+import threading
 import time
 from collections import defaultdict
 
@@ -44,6 +45,9 @@ class RealSense:
         self._boxes_of = (None, [])  # the last frame tile_boxes ran on, and its boxes
         self.last_frames = []       # the latest scan's frames and boxes (detector.save_scan)
         self.faint = []             # the latest scan's tiles too unsure to name (faint_tiles)
+        self.on_colour = None       # called with each colour frame pulled (a desk video: mahjong/desk_video.py)
+        self._lock = threading.Lock()   # one pull at a time: the desk video's thread shares the pipeline
+        self._last_pull = 0.0
         for _ in range(warmup_frames):
             self.pipeline.wait_for_frames()
 
@@ -57,11 +61,31 @@ class RealSense:
         self.close()
 
     def _frames(self):
-        aligned = self.align.process(self.pipeline.wait_for_frames(timeout_ms=10000))
+        with self._lock:
+            aligned = self.align.process(self.pipeline.wait_for_frames(timeout_ms=10000))
+            self._last_pull = time.monotonic()
         depth = aligned.get_depth_frame()
         for f in self.filters:
             depth = f.process(depth)
-        return np.asanyarray(aligned.get_color_frame().get_data()), depth.as_depth_frame()
+        color = np.asanyarray(aligned.get_color_frame().get_data())
+        if self.on_colour is not None:
+            self.on_colour(color)
+        return color, depth.as_depth_frame()
+
+    def idle_colour(self, idle_s=1.0):
+        """A colour frame for the desk video, or None: only once nothing else has pulled a frame for `idle_s` (a scan's frames
+        stay consecutive), never blocking, and never through align or the depth filters (the temporal filter keeps state, and
+        the scans' depth would change with extra frames through it)."""
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            if time.monotonic() - self._last_pull < idle_s:
+                return None
+            frames = self.pipeline.poll_for_frames()
+            color = frames.get_color_frame() if frames else None
+            return np.asanyarray(color.get_data()).copy() if color else None
+        finally:
+            self._lock.release()
 
     def snapshot(self):
         """A BGR colour frame (for session logs)."""
