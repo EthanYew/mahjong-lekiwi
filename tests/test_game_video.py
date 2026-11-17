@@ -218,6 +218,25 @@ def test_every_desk_frame_has_its_faces_blurred(tmp_path, monkeypatch):
     assert face.std() < image[20:60, 20:60].std() / 3            # blurred, not the noise it was
 
 
+def test_an_unfinished_desk_video_falls_back_to_the_scans(tmp_path, monkeypatch):
+    folder = play_sim(tmp_path, monkeypatch, [])
+    (folder / desk_video.VIDEO).write_bytes(b"not a video: the game was killed")
+    (folder / desk_video.TIMES).write_text(json.dumps({"fps": 2, "times": ["2026-11-04T18:00:00"]}))
+    result = game_video.build(folder, "timelapse", out=tmp_path / "t.mp4")
+    assert result["desk"].endswith("scans")
+
+
+def test_a_recorder_that_fails_to_stop_never_stops_the_cleanup(tmp_path, capsys):
+    class Broken:
+        def stop(self):
+            raise OSError("disk full")
+
+    class Session:
+        dir = tmp_path
+    desk_video.stop(Session(), None, Broken())
+    assert "couldn't finish it" in capsys.readouterr().out
+
+
 def test_a_session_with_nothing_to_show_says_so(tmp_path):
     folder = tmp_path / "20261104_180000_play"
     folder.mkdir()

@@ -45,30 +45,35 @@ class DeskRecorder:
         return frame if frame is not None else self.grab()
 
     def _run(self):
-        while not self._stop.wait(self.period):
-            try:
-                frame = self._take()
-                if frame is None:
-                    continue
-                if self._writer is None:
-                    height, width = frame.shape[:2]
-                    self._writer = cv2.VideoWriter(str(self.folder / VIDEO), cv2.VideoWriter_fourcc(*"mp4v"), self.fps,
-                                                   (width, height))
-                self._writer.write(frame)
-                self.times.append(self.clock())
-            except Exception as e:          # a camera hiccup must not end the game
-                self.failures += 1
-                self.last_error = repr(e)
+        try:
+            while not self._stop.wait(self.period):
+                try:
+                    frame = self._take()
+                    if frame is None:
+                        continue
+                    if self._writer is None:
+                        height, width = frame.shape[:2]
+                        self._writer = cv2.VideoWriter(str(self.folder / VIDEO), cv2.VideoWriter_fourcc(*"mp4v"), self.fps,
+                                                       (width, height))
+                    self._writer.write(frame)
+                    self.times.append(self.clock())
+                except Exception as e:          # a camera hiccup must not end the game
+                    self.failures += 1
+                    self.last_error = repr(e)
+        finally:
+            if self._writer is not None:        # this thread's own writer: closed here, so nothing writes after it
+                self._writer.release()
 
-    def stop(self):
-        """Stops the thread and closes the file; returns what the session log keeps: {frames, failures, ...}."""
+    def stop(self, wait_s=10):
+        """Stops the thread and closes the file; returns what the session log keeps: {frames, failures, ...}. A thread that
+        hasn't stopped by `wait_s` (a grab hung) is left to finish on its own, and its file may be unreadable."""
         self._stop.set()
-        self._thread.join(timeout=5)
-        if self._writer is not None:
-            self._writer.release()
-        (self.folder / TIMES).write_text(json.dumps({"fps": self.fps, "times": self.times}) + "\n")
-        return {"video": VIDEO if self.times else None, "frames": len(self.times), "failures": self.failures,
-                **({"last_error": self.last_error} if self.last_error else {})}
+        self._thread.join(timeout=wait_s)
+        hung = self._thread.is_alive()
+        times = list(self.times)
+        (self.folder / TIMES).write_text(json.dumps({"fps": self.fps, "times": times}) + "\n")
+        return {"video": VIDEO if times else None, "frames": len(times), "failures": self.failures,
+                **({"last_error": self.last_error} if self.last_error else {}), **({"hung": True} if hung else {})}
 
 
 def start(session, camera, fps=None):
@@ -77,7 +82,7 @@ def start(session, camera, fps=None):
         print("--record-desk: no RealSense open, so no desk video")
         return None
     fps = fps or FPS
-    grab =getattr(camera, "idle_colour", None) or camera.snapshot     # the sim's mat has no stream to share
+    grab = getattr(camera, "idle_colour", None) or camera.snapshot     # the sim's mat has no stream to share
     recorder = DeskRecorder(session.dir, grab, fps)
     if hasattr(camera, "on_colour"):
         camera.on_colour = recorder.offer
@@ -87,14 +92,17 @@ def start(session, camera, fps=None):
 
 
 def stop(session, camera, recorder):
-    """Stops recording before the camera closes; logs `desk_video_end`."""
+    """Stops recording before the camera closes; logs `desk_video_end`. Never raises: it runs before the arm's own cleanup."""
     if recorder is None:
         return
-    if hasattr(camera, "on_colour"):
-        camera.on_colour = None
-    result = recorder.stop()
-    session.event("desk_video_end", **result)
-    print(f"Desk video: {result['frames']} frames" + (f", {result['failures']} failed" if result["failures"] else ""))
+    try:
+        if hasattr(camera, "on_colour"):
+            camera.on_colour = None
+        result = recorder.stop()
+        session.event("desk_video_end", **result)
+        print(f"Desk video: {result['frames']} frames" + (f", {result['failures']} failed" if result["failures"] else ""))
+    except Exception as e:
+        print(f"Desk video: couldn't finish it ({e!r}); the game is unaffected")
 
 
 def wall_time(stamp):

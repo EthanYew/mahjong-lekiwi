@@ -69,7 +69,10 @@ class RealSense:
             depth = f.process(depth)
         color = np.asanyarray(aligned.get_color_frame().get_data())
         if self.on_colour is not None:
-            self.on_colour(color)
+            try:
+                self.on_colour(color)
+            except Exception:       # a desk video's trouble never costs a scan its frame
+                pass
         return color, depth.as_depth_frame()
 
     def idle_colour(self, idle_s=1.0):

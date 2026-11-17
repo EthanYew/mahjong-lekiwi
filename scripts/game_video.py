@@ -237,13 +237,21 @@ class Desk:
     """Desk frames by time, blurred and cropped, from scans or desk.mp4."""
 
     def __init__(self, session_dir, events, crop):
-        self.desk = desk_frames(session_dir)
+        self.desk, self.capture, self.first = desk_frames(session_dir), None, None
+        if self.desk:
+            self.capture = cv2.VideoCapture(str(session_dir / desk_video.VIDEO))
+            ok, self.first = self.capture.read()
+            if not ok:              # a game killed mid-recording leaves desk.mp4 unfinished: the scans still show the hand
+                print(f"{desk_video.VIDEO} can't be read (the game stopped before it was finished?): using the scans")
+                self.desk, self.capture, self.first = [], None, None
         self.frames = self.desk or scan_frames(session_dir, events)
-        self.capture = cv2.VideoCapture(str(session_dir / desk_video.VIDEO)) if self.desk else None
         self.crop = crop
         self.box, self.size = None, None
 
     def read(self, item):
+        if self.first is not None:
+            frame, self.first = self.first, None
+            return frame
         if self.capture is not None:
             ok, frame = self.capture.read()     # in order, one at a time
             return frame if ok else None
@@ -283,7 +291,10 @@ class Writer:
             frame = cv2.resize(frame, self.size)
         for _ in range(times):
             if self.ffmpeg:
-                self.proc.stdin.write(frame.tobytes())
+                try:
+                    self.proc.stdin.write(frame.tobytes())
+                except BrokenPipeError:
+                    raise SystemExit(f"ffmpeg stopped while writing {self.path} (its error is above)") from None
             else:
                 self.video.write(frame)
             self.frames += 1
@@ -324,7 +335,12 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
     out = Path(out) if out else session_dir / "video" / f"game_{style}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    first = desk.prepare(desk.read(desk.frames[0][1]), events) if desk.frames else None
+    first = None
+    if desk.frames:
+        raw = desk.read(desk.frames[0][1])
+        if raw is None:
+            raise SystemExit(f"can't read {desk.frames[0][1]}")
+        first = desk.prepare(raw, events)
     size = desk.size or (MAX_SIZE[0], int(MAX_SIZE[0] * 480 / 848) // 2 * 2)
     writer = Writer(out, size)
     writer.write(card(size, story.title()), int(TITLE_S * OUT_FPS))
@@ -337,7 +353,7 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
             label = f"gripper camera, {clip_speed}x speed: {c['tile']} " + ("picked up" if c["success"] else "missed")
             for k, frame in clip_frames(c["path"], clip_speed):
                 t = c["time"] + k / config.FPS
-                shot = inset(last, frame, label)
+                shot = inset(last, privacy.blur_faces(frame)[0], label)     # the gripper camera can see the room too
                 top, *bottom = story.lines(t)
                 text_band(shot, [top], top=True)
                 text_band(shot, bottom, top=False)
@@ -378,6 +394,8 @@ def parse_args(argv=None):
     args = p.parse_args(argv)
     if args.clip_speed < 1 or args.clip_every < 1:
         p.error("--clip-speed and --clip-every are at least 1")
+    if args.fps is not None and not 0 < args.fps <= OUT_FPS:
+        p.error(f"--fps is over 0 and at most {OUT_FPS}")
     return args
 
 
