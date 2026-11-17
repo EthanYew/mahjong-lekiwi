@@ -59,7 +59,8 @@ not a worktree, or the sessions go when the worktree does.
 | Compare all bench sessions | `python scripts/session_report.py --all` |
 | Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot), then `--carry S13,S1` added (a tile on S13, S1 empty) |
 | Check a new policy iteration against the default (`docs/scorecard.md`) | `python scripts/bench.py --policy BASELINE,CANDIDATE --layout even-hand14 --trials 1`, then `session_report.py` |
-| Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` |
+| Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` (add `--face-down` for the face-down setup: counted on its own, `docs/scorecard.md`) |
+| A face-down candidate's face-up round | `python scripts/bench.py --policy FACE_UP_BEST,CANDIDATE --layout even-hand14 --trials 1`, face up: anything but Drop (`status.py` says when it's owed) |
 | Play a hand on its own (you only put drawn tiles on the drop zone) | `python scripts/play.py --layout even-hand13` |
 | Play a hand without the robot | `python scripts/play.py --sim` |
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
@@ -433,7 +434,10 @@ Shows the setup, success per tile and policy, stalls, clearances, ACT seconds, t
 and a ship / revert / extend verdict when the session paired two policies: `docs/scorecard.md`), interventions
 (rescues per 10 attempts, unassisted vs. assisted successes) and saves a contact sheet (one image row per attempt).
 Bench sessions also get close height: how high the tip was as the jaws closed, per policy and spot. Under 10mm
-picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`). It explains a run; it doesn't decide one.
+picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_validity.md`); since then, under 13mm 92-96%
+and 13-16mm 66%, hence the 13mm+ column (`docs/retrospectives/2026-11-17_scorecard_refresh.md`). It explains a run; it
+doesn't decide one or rank policies. A session named in `data/void_sessions.json` says VOIDED at the top and in `--all`,
+and counts for nothing in `status.py` or the checks.
 Layout sessions also get **where to record more**: per spot, the misses, the keys you pressed (pushed, bumped, low,
 high, shallow) and knocks the scans found, closes 20mm or more up, and the wrist camera there (attempts it voided and
 reran, or a pickup it stopped). Then a list of the spots with trouble, most first, each saying whether the camera
@@ -766,12 +770,15 @@ machine's address and is gitignored.
 
 ## Scoring offline: `scripts/offline_eval.py`
 
-Scores a policy on recorded episodes it never trained on (GPU, minutes, no arm). Good for screening;
-the bench decides what ships.
+Scores a policy on recorded episodes it never trained on (GPU, minutes, no arm). Good for catching gross failures;
+it doesn't rank policies that work, and the bench decides what ships. The gates are no freezes on a gated slice and,
+with `--against`, no slice much worse on arm error or grasp point. Descent lag and close timing are printed, not gated
+(they failed v6, v10, v11 and v13, which all worked: `docs/scorecard.md`). The `tilt` and `facedown` slices aren't gated.
 
 ```
 python scripts/offline_eval.py --policy pickup_mat_cl                                  # scores per slice
 python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1       # + pass/fail gates vs a reference
+python scripts/record.py --dataset Yewy/mahjong_facedown_eval_v1 --slice facedown --layout even-hand14 --face-down   # face-down eval demos, then --add-eval-set
 python scripts/offline_eval.py --policy pickup_mat_cl --by spot                        # or --by lighting / surface (default: --by slice)
 python scripts/offline_eval.py --show                                                  # what's in the eval split
 python scripts/offline_eval.py --make-split Yewy/<training_dataset>                    # hold out 1 per spot, >= 10% (v2: 15/104)

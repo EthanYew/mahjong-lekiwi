@@ -79,7 +79,8 @@ scan sees nearest the spot, a return's landing is checked, a knocked back shows 
 hover and return samples are logged but excluded from the fits until a back's box is checked against a face's. With older
 weights nothing sees a back, so each pickup aims at its spot's saved position (layout.saved_target, as record.py --face-down
 does), nothing sees where a return lands (no landing check, no samples), and a tile that walked is yours to square up (r).
-A face-down session is no counted result (scorecard.off_standard).
+A face-down session counts as the face-down setup when the scans found the backs, compared only with other face-down
+sessions; by saved position it's no counted result (scorecard.off_standard, docs/scorecard.md).
 
 --unattended runs --trials with no one watching: nothing is asked once the trials start (the setup questions still
 are, before them). A neighbour the scans see move or turn is a self-reported bump, settled by the later scans like

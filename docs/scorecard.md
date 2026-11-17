@@ -1,6 +1,7 @@
 # The scorecard: when a policy ships
 
-**Status: adopted 2026-11-03.** The numbers are built: `session_report.py` prints them for any bench session, and
+**Status: adopted 2026-11-03, revised 2026-11-17** (face down counted as its own setup, the odds at today's clean rates,
+voided sessions, the offline timing gates made report-only: `docs/retrospectives/2026-11-17_scorecard_refresh.md`). The numbers are built: `session_report.py` prints them for any bench session, and
 `status.py` totals them per policy. Code: `mahjong/scorecard.py`. This covers policy changes only. The fuller draft,
 with cards for hover and control-code changes, is `~/.claude/plans/reviewing-item-4-in-soft-blanket.md`; add those
 cards when such a decision comes up.
@@ -20,10 +21,17 @@ Offline scores come before all three as a screen. They can't clear a policy: v5'
 in about 50 minutes (`20261029_094543_bench`).
 
 They also can't rank policies that basically work: over 53 standard-mat demos neither had trained on, v6 and v7 tied on
-arm, grasp and timing error, while this bench had them at 6/14 vs 11/14 picked. Use them to catch gross failures such as
-freezes or jaws that never close. `session_report.py`'s close height helps explain a run (under 10mm: 127/130 picked; 20mm
-or more: 3/25), but it's a diagnostic and doesn't decide anything here. Evidence:
-`docs/retrospectives/2026-11-03_eval_validity.md`.
+arm, grasp and timing error, while this bench had them at 6/14 vs 11/14 picked. That held again in November: v10, v11 and
+v13 scored 0.64, 0.62 and 0.61° held-out arm error while their paired face-down runs went 23, 25 and 27 clean of 28. Use
+them to catch gross failures. Since 2026-11-17 the gates are no freezes on a gated slice, and against a reference no slice
+much worse on arm error or grasp point. Descent lag and close timing are printed but don't gate: they failed v6, v10, v11 and
+v13, which all worked on the arm. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`,
+`docs/retrospectives/2026-11-17_scorecard_refresh.md`.
+
+`session_report.py`'s close height helps explain a run, but it's a diagnostic and doesn't decide anything here. It was
+picked from the sessions up to 2026-11-03 and held on the 473 real attempts since: under 13mm 92-96% picked, 13-16mm 66%
+(mostly face down), 20mm or more 1 of 8. It doesn't rank policies either: in `20261117_093921_bench` v13 closed 13mm or
+higher 5 times to v11's 1, and picked 28/28 to v11's 26/28.
 
 ## The standard setup
 
@@ -38,6 +46,26 @@ A counted result needs:
   `--hover-gripper`.
 - **After an unattended run (`bench.py --unattended`), its self-reported bumps checked:** unchecked ones count as knocks,
   and scans are often wrong about them, so read the clean count after `bump_report.py`.
+- **Not voided:** `data/void_sessions.json` names sessions that a fault found afterwards makes worthless, with the reason
+  (`20261113_100710_bench` ran on torn wrist frames). They're left out of every count in `status.py`, the owed list and
+  the checks. Voiding is a decision, so the file is held for the owner (`merge_pr.HOLD_FILES`). Don't void a session to
+  get rid of a result you don't like: it needs a fault in the setup, shown by evidence.
+
+### Two counted setups: face up and face down
+
+Since 2026-11-17 a `bench.py --face-down` session on the standard mat and layout counts as a second setup, when the scans
+found the backs (`data/standard_setup.json`'s `face_down`). Sessions that picked by saved position, from before the back
+class, still don't count. Each setup is compared only with itself, and `status.py` prints them on separate lines. They
+are never added together: how far apart they are depends on the policy.
+
+Why: v10, v11 and v13 were all chosen face down, where the checks didn't apply, so each went through as the owner's
+exception. Read face down, the iteration check said Ahead for each (3-1, 3-1, and 7-1 for v10 over v8), which matches
+what was decided.
+
+**A face-down candidate also needs a face-up round:** one `bench.py --policy <face-up best>,<candidate> --layout
+even-hand14 --trials 1`, face up, that doesn't end in **Drop** (or a play-ready pass face up). Otherwise a face-down gain
+can hide a face-up loss: v9, the first face-down policy, missed face up at S12-S14. v10 passed play-ready face up
+(28/28, `20261112_174429_bench`), but v11 and v13 have no valid face-up run. `owed.py` says so until the default has had one.
 
 **Lighting can't be locked if the setup travels.** It's still recorded on every session. Pairing shares it between both
 policies, and a play-ready run should happen in the room where you'll play.
@@ -68,13 +96,24 @@ both rounds (`scorecard.iteration_chance`):
 So about one in four candidates that are 10 points worse gets through on the count alone, before the named-failure test.
 That's acceptable because the play-ready bar is fixed, so it catches a slide across several iterations.
 
+**At today's rates it sorts less well.** Paired face-down defaults ran 89-96% clean in November, and nearer the top
+fewer pairs differ:
+
+| True clean rate of the candidate, against a 90% default | 97% | 95% | 90% | 85% | 80% |
+|---|---|---|---|---|---|
+| Kept | 83% | 73% | 51% | 32% | 19% |
+
+A level candidate is a coin toss, and one 5 points worse is kept about a third of the time. The play-ready bar is still the
+backstop, so read its result on the setup you'll play on.
+
 **The default means the working best.** It is what you bench and correct from next. Being the default says nothing
 about being ready to play.
 
 ## The play-ready check
 
-In one session on the standard setup: **at least 26 of 28 attempts clean**, no spot missing twice, and no silent wrong
-tile name. Run `bench.py --policy ID --layout even-hand14 --trials 2`. The steering test
+In one session on a counted setup: **at least 26 of 28 attempts clean**, no spot missing twice, and no silent wrong
+tile name. Run `bench.py --policy ID --layout even-hand14 --trials 2` (add `--face-down` for the face-down setup). A pass
+says ready on that setup only: a face-down hand needs it face down, and a face-up hand face up. The steering test
 (`bench.py --hover-perturb-mm`) is reported alongside, but it doesn't gate: no policy has a slope near 0, so a gate would
 block everything, and we don't yet know how slope relates to clean attempts.
 
@@ -159,6 +198,18 @@ really is better (`scorecard.ship_chance`):
 | 80% → 90% | 9% | 15% | 23% | 37% |
 | 90% → 95% | 2% | 4% | 9% | 15% |
 
+At November's rates, the same odds:
+
+| True clean rate, baseline → candidate | 28 pairs | 56 | 84 |
+|---|---|---|---|
+| 90% → 97% | 7% | 27% | 45% |
+| 90% → 95% | 4% | 14% | 24% |
+| 85% → 95% | 16% | 42% | 63% |
+
+So near the top, a claim that one policy beats another needs about three sessions of 28 pairs (84) and still mostly
+reads Extend. v10 → v11 and v11 → v13 each read Extend 3-1. The rule is for a public claim, not for picking the next
+base: that's the iteration check's job.
+
 Two policies that are truly equal get a false Ship only 1-3% of the time at these sizes, so the rule is cautious. These
 odds treat the two attempts in a pair as independent, which is an approximation: both are at one spot, which probably
 makes differing pairs rarer and these chances lower still.
@@ -198,5 +249,6 @@ attempts each, as above. I haven't traced why.
   because the knock check works out arm reach per tile per scan. It then saves each session's count in
   `clean_counts.json` beside its events.
 
-Totals in `status.py` mix layouts and surfaces, so they're for orientation. It also prints a line for the standard setup
-alone, still for orientation, because each check reads one session (two for a second iteration round).
+Totals in `status.py` mix layouts and surfaces, so they're for orientation. It also prints lines for the counted setups
+alone, face up and face down separately, still for orientation, because each check reads one session (two for a second
+iteration round). Voided sessions are left out of all of them and listed.

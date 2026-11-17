@@ -10,7 +10,7 @@ from math import comb
 from scipy.stats import beta
 
 from . import config, interventions
-from .session import read_events
+from .session import read_events, void_reason
 
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
 # that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
@@ -27,6 +27,8 @@ PLAY_READY_MISSES = 2       # ...at most this many not clean (26/28)...
 PLAY_READY_SPOT_MISSES = 2  # ...and no spot not clean this many times
 HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: .claude/rules/policy_data.md, "Datasets store..."
 STANDARD_SETUP = config.DATA / "standard_setup.json"
+SEES_BACKS = "found by the scans' back boxes"          # face_down_aim's wording. What counts is standard_setup.json's
+                                                       # face_down.sees_backs flag; its "aim" is the same rule in words
 
 
 def exact_ci(k, n, confidence=0.95):
@@ -123,25 +125,37 @@ def standard_setup(path=None):
     return json.loads((path or STANDARD_SETUP).read_text())
 
 
-def off_standard(events, standard=None):
-    """Why a session's attempts don't count towards the gates: a list of reasons, empty if they do. A setup check
-    isn't logged on the session, so passing it stays a person's step (docs/scorecard.md)."""
+def off_standard(events, standard=None, folder=None):
+    """Why a session's attempts don't count towards the gates: a list of reasons, empty if they do. Face down counts as its
+    own setup when the standard names one and the scans found the backs (docs/scorecard.md). A setup check isn't logged on
+    the session, so passing it stays a person's step. folder: also checks data/void_sessions.json."""
     standard = standard or standard_setup()
     start = next((e for e in events if e["type"] == "session_start"), {})
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
-    return (["a simulated run (--sim)"] if start.get("sim") else []) \
+    void = void_reason(folder) if folder is not None else None
+    sees_backs = next((e for e in events if e["type"] == "face_down_setup"), {}).get("sees_backs", False)
+    face_down_counts = bool(standard.get("face_down")) and (sees_backs or not standard["face_down"].get("sees_backs", True))
+    return ([f"voided: {void}"] if void else []) \
+        + (["a simulated run (--sim)"] if start.get("sim") else []) \
         + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
-        + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") else [])
+        + ([f"hover {abs(setup['hover_lower_mm']):g}mm {'lower' if setup['hover_lower_mm'] > 0 else 'higher'} than the "
+            "policy's own (--hover-lower-mm): an experiment"] if setup.get("hover_lower_mm") else []) \
+        + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") and not face_down_counts else [])
 
 
 def face_down_aim(events):
     """How a bench --face-down session found its tiles: by the scan's back boxes (weights with the class), or by saved
     position (older weights, and sessions from before the class: no face_down_setup event)."""
     setup = next((e for e in events if e["type"] == "face_down_setup"), {})
-    return "found by the scans' back boxes" if setup.get("sees_backs") else "picked by saved position"
+    return SEES_BACKS if setup.get("sees_backs") else "picked by saved position"
+
+
+def setup_label(events):
+    """Which counted setup a session ran: "face down" or "face up". Each is compared only with itself."""
+    return "face down" if next((e for e in events if e["type"] == "bench_setup"), {}).get("face_down") else "face up"
 
 
 def iteration_check(events, baseline, candidate, found=None):
@@ -208,7 +222,8 @@ def play_ready_chance(rate):
     return sum(comb(n, k) * (1 - rate) ** k * rate ** (n - k) for k in range(most + 1))
 
 
-SUMMARY_VERSION = 2       # 2: the gates too (mahjong/owed.py), so a session's interventions are derived once for both
+SUMMARY_VERSION = 3       # 2: the gates too (mahjong/owed.py), so a session's interventions are derived once for both;
+                          # 3: face up or down, and who each policy had a full round with and dropped against
 
 
 def _summary_key(session_dir):
@@ -226,8 +241,11 @@ def cached_summary(session_dir):
 
 
 def session_summary(session_dir):
-    """{"clean": policy -> clean attempts, "gates": policy -> {"play_ready", "ahead_of": [policies]}} for a session folder,
-    saved beside its events: status.py reads every session, and deriving them all takes minutes. Redone if the events grow
+    """{"clean": policy -> clean attempts, "face_down": bool, "gates": policy -> {"play_ready", "attempts", "ahead_of",
+    "paired_with", "dropped_against": [policies]}} for a session folder, saved beside its events: status.py reads every
+    session, and deriving them all takes minutes. Each policy is scored as the candidate against each other one, whichever
+    order the bench ran them in (pairs() matches by spot, not by role): paired_with is a full iteration round
+    (ITERATION_PAIRS) with that policy, dropped_against one that left this policy 3 pairs behind. Redone if the events grow
     (a keys_void) or NOT_CLEAN changes."""
     if (old := cached_summary(session_dir)):
         return old
@@ -235,10 +253,15 @@ def session_summary(session_dir):
     found = interventions.derive(events)
     clean = {policy: row["clean"] for policy, row in policy_rows(events, found).items() if policy}
     policies = sorted(clean)
-    gates = {p: {"play_ready": play_ready(events, p, found)["ok"],
-                 "ahead_of": [q for q in policies if q != p and iteration_check(events, q, p, found)["result"] == "ahead"]}
+    checks = {(q, p): iteration_check(events, q, p, found) for p in policies for q in policies if q != p}
+    ready = {p: play_ready(events, p, found) for p in policies}
+    gates = {p: {"play_ready": ready[p]["ok"], "attempts": ready[p]["attempts"],
+                 "ahead_of": [q for q in policies if q != p and checks[(q, p)]["result"] == "ahead"],
+                 "paired_with": [q for q in policies if q != p and checks[(q, p)]["pairs"] >= ITERATION_PAIRS],
+                 "dropped_against": [q for q in policies if q != p and checks[(q, p)]["result"] == "drop"]}
              for p in policies}
-    summary = {"key": _summary_key(session_dir), "clean": clean, "gates": gates}
+    summary = {"key": _summary_key(session_dir), "clean": clean, "face_down": setup_label(events) == "face down",
+               "gates": gates}
     (session_dir / "clean_counts.json").write_text(json.dumps(summary))
     return summary
 
@@ -248,9 +271,9 @@ def session_clean(session_dir):
     return session_summary(session_dir)["clean"]
 
 
-def report(events, found=None):
+def report(events, found=None, folder=None):
     """The scorecard for one session, as text lines. A verdict only if exactly two policies ran, the second the
-    candidate (bench.py --policy baseline,candidate)."""
+    candidate (bench.py --policy baseline,candidate). folder: the session's, so a voided one says so."""
     found = interventions.derive(events) if found is None else found
     rows = policy_rows(events, found)
     voided = sum(e["type"] == "attempt_void" for e in events)
@@ -276,22 +299,25 @@ def report(events, found=None):
     openings = [p["hover"]["gripper"] for p in start.get("policies", []) if p.get("hover")]
     if openings and max(openings) - min(openings) > HOVER_GRIPPER_SPREAD:
         lines.append(f"  check: hover openings differ ({min(openings)}-{max(openings)}%), so this isn't one change")
-    return lines + gate_lines(events, order if len(order) == 2 and set(order) == set(policies) else None, policies, found)
+    return lines + gate_lines(events, order if len(order) == 2 and set(order) == set(policies) else None, policies, found,
+                              folder)
 
 
-def gate_lines(events, pair, policies, found):
-    """The iteration and play-ready checks, for a session on the standard setup; otherwise why they don't apply."""
-    away = off_standard(events)
+def gate_lines(events, pair, policies, found, folder=None):
+    """The iteration and play-ready checks, for a session on a counted setup; otherwise why they don't apply."""
+    away = off_standard(events, folder=folder)
     if away:
         return [f"  gates don't apply: {'; '.join(away)}"]
-    lines = []
+    label = setup_label(events)
+    lines = [f"  counted setup: {label} (compare only with other {label} sessions)"]
     if pair:
         c = iteration_check(events, pair[0], pair[1], found)
         lines.append(f"  iteration check: {c['result'].upper()} ({c['wins']}-{c['losses']} clean pairs of {c['pairs']}); "
-                     "keeping also needs the named failure improved, no new failure type, no freezes")
+                     "keeping also needs the named failure improved, no new failure type, no freezes"
+                     + ("; and a face-up round with no Drop" if label == "face down" else ""))
     for policy in policies:
         r = play_ready(events, policy, found)
-        lines.append(f"  play-ready, {policy}: {'PASS' if r['ok'] else 'not yet'} ({r['clean']}/{r['attempts']} clean"
+        lines.append(f"  play-ready ({label}), {policy}: {'PASS' if r['ok'] else 'not yet'} ({r['clean']}/{r['attempts']} clean"
                      + (f", repeated misses at {', '.join(r['repeated_spots'])}" if r["repeated_spots"] else "")
                      + f"; needs {PLAY_READY_ATTEMPTS - PLAY_READY_MISSES}/{PLAY_READY_ATTEMPTS}); "
                        "also needs a passing setup check and no silent wrong tile name")

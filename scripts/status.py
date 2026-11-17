@@ -20,13 +20,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import checkout, config, layout, markers, name_ledger, owed, scorecard
-from mahjong.session import is_sim, read_events
+from mahjong.session import counted_real, read_events
+from mahjong.session import voided as session_voided
 
 
 def real_benches(sessions_dir=None):
-    """Every bench session's events file but simulated ones: `bench.py --sim --policy <id>` logs attempts under a real policy's
-    id (20261112_091817_bench gave v10 a clean pickup that never happened)."""
-    return [f for f in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")) if not is_sim(f.parent)]
+    """Every bench session's events file but simulated and voided ones: `bench.py --sim --policy <id>` logs attempts under a
+    real policy's id (20261112_091817_bench gave v10 a clean pickup that never happened); data/void_sessions.json names
+    sessions a fault found afterwards makes worthless."""
+    return [f for f in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl"))
+            if counted_real(f.parent)]
 
 
 def bench_results(sessions_dir=None):
@@ -56,19 +59,21 @@ def bench_clean(sessions_dir=None):
 
 
 def standard_results(sessions_dir=None):
-    """policy -> {"attempts", "clean", "sessions"} over the bench sessions on the standard setup only."""
+    """(setup, policy) -> {"attempts", "clean", "sessions"} over the bench sessions on a counted setup only: setup is
+    "face up" or "face down" (scorecard.setup_label), never added together."""
     out = defaultdict(lambda: {"attempts": 0, "clean": 0, "sessions": 0})
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        if scorecard.off_standard(events):
+        if scorecard.off_standard(events, folder=events_file.parent):
             continue
+        label = scorecard.setup_label(events)
         clean = scorecard.session_clean(events_file.parent)
         attempts = defaultdict(int)
         for e in events:
             if e["type"] == "attempt" and e.get("policy"):
                 attempts[e["policy"]] += 1
         for policy, count in attempts.items():
-            row = out[policy]
+            row = out[(label, policy)]
             row["attempts"] += count
             row["clean"] += clean.get(policy, 0)
             row["sessions"] += 1
@@ -100,9 +105,14 @@ def report(sessions_dir=None):
                  "  bumps were marked more closely as the sessions went on: compare policies only within a paired session")
     standard = scorecard.standard_setup()
     lines.append(f"\nStandard setup: {standard['surface']}, {standard['layout']} (data/standard_setup.json, since {standard['since']})")
+    if standard.get("face_down"):
+        lines.append(f"  counted face up, and face down when the tiles were {standard['face_down']['aim']} (decided "
+                     f"{standard['face_down']['since']}; earlier sessions that did count too): the two are never added together")
     on_it = standard_results(sessions_dir)
-    lines += [f"  {pid:<20} {r['clean']}/{r['attempts']} clean over {r['sessions']} session(s), for orientation: gates read one session"
-              for pid, r in on_it.items()] or ["  no bench sessions on it yet"]
+    lines += [f"  {label:<9} {pid:<20} {r['clean']}/{r['attempts']} clean over {r['sessions']} session(s), for orientation: "
+              "gates read one session" for (label, pid), r in sorted(on_it.items())] or ["  no bench sessions on it yet"]
+    if (voided := session_voided()):
+        lines.append(f"  voided, left out of every count above (data/void_sessions.json): {', '.join(voided)}")
 
     split = json.loads((config.DATA / "eval_split.json").read_text())
     lines.append(f"\nEval sets (never trained on): {', '.join(split.get('eval_sets', [])) or 'none'}; "

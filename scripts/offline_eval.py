@@ -1,7 +1,7 @@
 """Score policies on recorded episodes they never trained on, without the arm (mahjong/offline_eval.py).
 
 data/eval_split.json lists the eval episodes: held-out episodes of training recordings (make_policy.py
-leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter).
+leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter/facedown).
 Scores are per slice — never averaged into one number — and optionally per spot or lighting.
 
     python scripts/offline_eval.py --show
@@ -10,8 +10,10 @@ Scores are per slice — never averaged into one number — and optionally per s
     python scripts/offline_eval.py --policy pickup_mat_cl
     python scripts/offline_eval.py --policy pickup_mat_cl --against pickup_mat_cl_v1 --by spot
 
-With --against, the gates compare the two: no freezes, and no gated slice (all but tilt) much worse than
-the reference. Offline scores screen out bad policies; the bench decides what ships.
+Gates: no freezes on a gated slice (all but tilt); with --against, no gated slice's arm error or grasp point
+much worse than the reference's. Descent lag and close timing are printed, not gated: they failed policies
+that worked on the arm. Offline scores catch gross failures and don't rank working policies; the bench
+decides what ships (docs/scorecard.md).
 """
 import argparse
 import os
@@ -122,7 +124,8 @@ def main():
     print(f"\nGates for {results[0][0]}" + (f" against {results[1][0]}" if reference else " (freezes only)") + ":")
     for ok, message in checks:
         print(f"  {'pass' if ok else 'FAIL'}  {message}")
-    print("All gates pass." if all(ok for ok, _ in checks) else "Some gates fail — not worth bench time yet.")
+    print("All gates pass: no gross failure. The bench decides." if all(ok for ok, _ in checks)
+          else "Some gates fail: a gross failure. Look at it before spending bench time.")
 
 
 if __name__ == "__main__":

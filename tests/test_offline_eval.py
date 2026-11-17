@@ -127,12 +127,13 @@ def test_gates_catch_freezes_and_regressions_but_not_on_tilt():
     assert not all(ok for ok, _ in offline_eval.gates(far, [row("familiar", 0.5)]))
 
 
-def test_gates_catch_a_late_descent_or_close_without_a_reference():
-    late = [{**row("familiar", 0.5), "onset": 50, "demo_onset": 28}]           # v1 lagged ~21 steps
-    assert [m for ok, m in offline_eval.gates(late) if not ok] == [
-        "familiar: descent starts +22 steps from the demo's (limit +10)"]
-    slow_close = [{**row("familiar", 0.5), "close_err_s": 0.4}]
-    assert [m for ok, m in offline_eval.gates(slow_close) if not ok][0].startswith("familiar: closes 0.40s")
+def test_late_descent_and_slow_close_are_reported_not_gated():
+    # both failed v6, v10, v11 and v13 on slices where they worked on the arm (2026-11-17)
+    late_and_slow = [{**row("familiar", 0.5), "onset": 50, "demo_onset": 28, "close_err_s": 0.4}]
+    assert all(ok for ok, _ in offline_eval.gates(late_and_slow))
+    summary = offline_eval.summarise(late_and_slow)
+    assert summary["familiar"]["onset_lag"] == 22 and summary["familiar"]["close_err_s"] == 0.4
+    assert "0.40" in offline_eval.table(summary, "t")
 
 
 def test_summary_table_prints_every_slice():

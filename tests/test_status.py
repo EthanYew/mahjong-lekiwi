@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import status
-from mahjong import config
+from mahjong import config, session
 
 
 def bench_session(sessions, name, policy, results):
@@ -76,3 +76,27 @@ def test_a_simulated_bench_adds_nothing_to_a_real_policys_totals(tmp_path):
     bench_session(tmp_path, "20261112_202418", "pickup_mat_cl_v10", [True, False])
     assert status.bench_results(tmp_path)["pickup_mat_cl_v10"]["attempts"] == 2
     assert status.bench_clean(tmp_path).get("pickup_mat_cl_v10", 0) <= 1
+
+
+def test_a_voided_session_is_left_out_of_every_count(tmp_path, monkeypatch):
+    void = tmp_path / "void.json"
+    void.write_text(json.dumps({"20261113_100710_bench": "torn wrist frames"}))
+    monkeypatch.setattr(session, "VOID_SESSIONS", void)
+    bench_session(tmp_path / "s", "20261113_100710", "pickup_mat_cl_v10", [False, False])
+    bench_session(tmp_path / "s", "20261116_213816", "pickup_mat_cl_v10", [True])
+    assert status.bench_results(tmp_path / "s")["pickup_mat_cl_v10"]["attempts"] == 1
+    assert "voided, left out of every count above (data/void_sessions.json): 20261113_100710_bench" in status.report(
+        sessions_dir=tmp_path / "s")
+
+
+def test_face_up_and_face_down_are_counted_on_separate_lines(tmp_path):
+    from test_scorecard import face_down, on_standard, paired
+    for name, events in (("20261117_100000", on_standard(paired(2))), ("20261117_110000", face_down(on_standard(paired(3))))):
+        folder = tmp_path / f"{name}_bench"
+        folder.mkdir()
+        (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    on_it = status.standard_results(tmp_path)
+    assert on_it[("face up", "a")]["attempts"] == 2 and on_it[("face down", "a")]["attempts"] == 3
+    text = status.report(sessions_dir=tmp_path)
+    assert "face down when the tiles were found by the scans' back boxes" in text
+    assert any(line.strip().startswith("face down b") and "3/3" in line for line in text.splitlines())

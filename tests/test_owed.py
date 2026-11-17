@@ -1,7 +1,7 @@
 """mahjong/owed.py: what's owed and overdue, shown by status.py and at each hardware session's start."""
 import json
 
-from mahjong import owed, scorecard
+from mahjong import owed, scorecard, session
 from test_scorecard import on_standard, paired
 
 REGISTRY = {"default": "b", "default_note": {"since": "2026-11-12"}, "policies": {"a": {}, "b": {}, "c": {}}}
@@ -43,6 +43,72 @@ def test_a_bench_earlier_on_the_day_of_the_decision_doesnt_count(tmp_path):
     assert owed.default_checks(tmp_path, decided)
     bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
     assert owed.default_checks(tmp_path, decided) is None
+
+
+def test_a_default_chosen_face_down_still_owes_a_face_up_round(tmp_path):
+    from test_scorecard import face_down
+    rounds = scorecard.ITERATION_PAIRS
+    bench(tmp_path, "20261112_120000", face_down(on_standard(paired(rounds, a_clean=lambda i: i > 2))))
+    assert owed.default_checks(tmp_path, REGISTRY) is None                       # face down now counts: Ahead 3-0
+    assert "has had no face-up round" in owed.face_up_round(tmp_path, REGISTRY)
+    bench(tmp_path, "20261112_150000", on_standard(paired(rounds, b_clean=lambda i: i > 2)))
+    assert "fallen behind in its latest face-up round" in owed.face_up_round(tmp_path, REGISTRY)   # a round, but a Drop
+    bench(tmp_path, "20261112_180000", on_standard(paired(rounds)))
+    assert owed.face_up_round(tmp_path, REGISTRY) is None                        # level is no Drop: settled
+
+
+def test_a_face_up_round_counts_with_the_default_as_the_baseline_too(tmp_path):
+    """bench.py --policy <default>,<new> runs the default first, as the baseline: that's a face-up round for it as well."""
+    as_baseline = {**REGISTRY, "default": "a"}                                    # paired() runs a first
+    bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS)))
+    assert owed.face_up_round(tmp_path, as_baseline) is None
+    bench(tmp_path, "20261112_190000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
+    assert "fallen behind" in owed.face_up_round(tmp_path, as_baseline)        # the latest round decides: a later Drop shows
+
+
+def test_a_default_left_3_pairs_behind_as_the_baseline_still_owes_one(tmp_path):
+    as_baseline = {**REGISTRY, "default": "a"}
+    bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
+    assert "fallen behind in its latest face-up round" in owed.face_up_round(tmp_path, as_baseline)
+
+
+def solo(n, misses=0):
+    """bench.py --policy b --trials 2: b alone, n attempts, the first `misses` of them bumping a neighbour."""
+    from test_scorecard import attempt, bump
+    events = [{"type": "session_start"}, {"type": "bench_setup", "policies": [{"id": "b"}]}]
+    for i in range(n):
+        events.append(attempt(i, "b", f"S{i % 14}"))
+        if i < misses:
+            events.append(bump(i))
+    return events
+
+
+def test_a_failed_face_up_play_ready_run_alone_brings_the_line_back(tmp_path):
+    bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS)))
+    assert owed.face_up_round(tmp_path, REGISTRY) is None
+    bench(tmp_path, "20261112_190000", on_standard(solo(scorecard.PLAY_READY_ATTEMPTS, misses=6)))
+    assert "fallen behind in its latest face-up round" in owed.face_up_round(tmp_path, REGISTRY)
+    bench(tmp_path, "20261112_200000", on_standard(solo(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.face_up_round(tmp_path, REGISTRY) is None                        # a later pass settles it again
+
+
+def test_a_play_ready_pass_and_a_drop_cant_both_happen_in_one_session(tmp_path):
+    """A pass allows PLAY_READY_MISSES (2) misses; a Drop needs ITERATION_DROP_BEHIND (3) more lost pairs than won, so 3 misses."""
+    assert scorecard.PLAY_READY_MISSES < scorecard.ITERATION_DROP_BEHIND
+    rounds = 2 * scorecard.ITERATION_PAIRS
+    events = on_standard(paired(rounds, b_clean=lambda i: i > 2))              # b misses 3 where a is clean
+    bench(tmp_path, "20261112_180000", events)
+    gates = scorecard.session_summary(tmp_path / "20261112_180000_bench")["gates"]["b"]
+    assert gates["dropped_against"] == ["a"] and not gates["play_ready"]
+    assert "fallen behind" in owed.face_up_round(tmp_path, REGISTRY)
+
+
+def test_a_voided_session_settles_nothing(tmp_path, monkeypatch):
+    void = tmp_path / "void.json"
+    void.write_text(json.dumps({"20261112_174429_bench": "torn wrist frames"}))
+    monkeypatch.setattr(session, "VOID_SESSIONS", void)
+    bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.default_checks(tmp_path, REGISTRY) and owed.face_up_round(tmp_path, REGISTRY)
 
 
 def test_roadmap_behind_the_registry(tmp_path):

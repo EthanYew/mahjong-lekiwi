@@ -2,5 +2,11 @@
   "surface": "standard mat",
   "layout": "even-hand14",
   "since": "2026-11-03",
-  "why": "Changing surfaces and layouts kept breaking comparisons. The owner's own mat travels with the setup, and every counted result runs on it (docs/scorecard.md). Generalising to other surfaces stays a goal, measured separately and never blocking."
+  "why": "Changing surfaces and layouts kept breaking comparisons. The owner's own mat travels with the setup, and every counted result runs on it (docs/scorecard.md). Generalising to other surfaces stays a goal, measured separately and never blocking.",
+  "face_down": {
+    "since": "2026-11-17",
+    "sees_backs": true,
+    "aim": "found by the scans' back boxes",
+    "why": "Every default since v10 was chosen face down, where the checks didn't apply, so each went through as the owner's exception. Face down on the same mat and layout now counts as a second setup, compared only with itself, and a face-down candidate also needs a face-up round with no Drop so a face-down gain can't hide a face-up loss (docs/retrospectives/2026-11-17_scorecard_refresh.md)."
+  }
 }

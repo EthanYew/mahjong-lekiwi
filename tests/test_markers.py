@@ -107,6 +107,18 @@ def test_a_simulated_bench_doesnt_check_the_real_zone(tmp_path):
     assert markers.benched_at(ZONE, tmp_path) == (0, 0, 0)
 
 
+def test_a_voided_bench_doesnt_check_the_real_zone(tmp_path, monkeypatch):
+    from mahjong import session
+    folder = tmp_path / "20261104_120000_bench"
+    folder.mkdir()
+    events = [{"type": "session_start"}, {"type": "attempt", "spot_xy": ZONE, "success": True, "attempt_dir": "001_x"}]
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert markers.benched_at(ZONE, tmp_path) == (1, 1, 0)
+    (tmp_path / "void.json").write_text(json.dumps({folder.name: "torn wrist frames"}))
+    monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "void.json")
+    assert markers.benched_at(ZONE, tmp_path) == (0, 0, 0)
+
+
 def test_the_zone_counts_as_checked_only_after_a_bench_pickup_and_return_there(tmp_path):
     test_layout = HAND + [{"id": "S14", "xy": [0.1627, -0.1626]}]
     result = markers.zone_test(ZONE, HAND, test_layout, sessions_dir=tmp_path)
