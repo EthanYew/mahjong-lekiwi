@@ -55,8 +55,13 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
   median. Evidence: `docs/invariant_notes.md`.
 - **Closing high is what a miss looks like, and only the arm shows it.** Tip under 10mm above the grasp point as the
   jaws close: 127/130 picked; 20mm or more: 3/25 (295 real attempts, `grasp_clearance_m`; `session_report.py` prints it).
+  It held on the 473 attempts after it was chosen (2026-11-04 to 11-17): under 13mm 92-96% picked, 13-16mm 66%, mostly
+  face down. It explains an attempt; it doesn't rank policies (v13 closed 13mm+ 5 times to v11's 1 and picked more).
   Teacher-forced scores don't see it: v6 and v7 tied on arm, grasp and timing error over 53 demos they never trained on,
-  while the bench had them at 6/14 vs 11/14. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`.
+  while the bench had them at 6/14 vs 11/14, and v10/v11/v13 tied again while the bench had them 23/25/27 of 28 clean. The
+  offline gates are freezes and, against a reference, arm error and grasp point; descent lag and close timing failed
+  working policies, so they're printed only. Evidence: `docs/retrospectives/2026-11-03_eval_validity.md`,
+  `docs/retrospectives/2026-11-17_scorecard_refresh.md`.
 - New recordings go to a new dataset name (`record.py --dataset`, required); never append to one recorded
   from a different hover (record.py refuses different features). One eval set holds all its slices and
   tile layouts: each episode's log row records its slice, layout spot and hover offset.
@@ -68,7 +73,9 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
 - **Eval episodes are never trained on**: held-out episodes and eval-only recordings in
   `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).
   Folding an eval set into training retires it: record the next one. Don't change an existing split
-  (scores stop comparing). Offline scores screen; the bench decides what ships.
+  (scores stop comparing). Offline scores screen; the bench decides what ships. Face-down eval demos:
+  `record.py --slice facedown --layout even-hand14 --face-down` to a new eval dataset (none recorded yet); the slice isn't
+  gated until it has a baseline.
 - **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05). What seems to matter is white
   face-up tiles near the target: about 8mm with them, 13-18mm with none or only green backs, and turning the lights on doesn't close the gap (a pattern across 4
   sessions, not a deliberate test: `docs/retrospectives/2026-11-09_face_down_progress.md`).
