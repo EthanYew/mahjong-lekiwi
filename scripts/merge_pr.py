@@ -50,7 +50,7 @@ REVIEW_FILES = ("scripts/play.py", "scripts/bench.py", "mahjong/arm.py", "mahjon
 SLOW_FILES = ("mahjong/policy.py", "mahjong/dataset.py")      # CLAUDE.md: run the slow tests too
 # Decisions: what counts as a result or which policy runs. The queue holds a PR changing one for the owner (`needs-owner`).
 HOLD_FILES = ("data/eval_split.json", "data/detector_exam.json", "data/name_check_exam.json", "data/standard_setup.json",
-              "docs/scorecard.md", "mahjong/scorecard.py")
+              "data/void_sessions.json", "docs/scorecard.md", "mahjong/scorecard.py")
 HOLD_LABELS = ("owner", "needs-owner")
 QUEUE_RETRIES = 3               # main moved between the tests and the merge: test the new main + branch again, this many times
 DEF = re.compile(r"^\+\s*def (\w+)\(|^\+([A-Z][A-Z0-9_]+) = |add_argument\(\s*\"(--[\w-]+)\"")

@@ -26,6 +26,7 @@ from mahjong.session import conditions_text, read_events
 
 THUMB = (240, 180)
 CLOSE_LOW_MM, CLOSE_HIGH_MM = 10.0, 20.0     # close_height_report's bands
+CLOSE_RISK_MM = 13.0     # where picks fall off since 2026-11-04: 92-96% under it, 66% at 13-16mm (scorecard refresh, 2026-11-17)
 
 
 def latest_session():
@@ -110,15 +111,18 @@ def success_map(attempts):
 
 def close_height_report(attempts):
     """How high the tip was as the jaws closed (grasp_clearance_m: measured, above the grasp point), per policy and
-    per spot. The bands are from 295 real attempts: under 10mm 98% picked, 20mm or more 12%
-    (docs/retrospectives/2026-11-03_eval_validity.md). A diagnostic: picks and clean attempts still decide."""
+    per spot. Chosen on the sessions up to 2026-11-03 (docs/retrospectives/2026-11-03_eval_validity.md) and held on the 473
+    real attempts after: under 13mm 92-96% picked, 13-16mm 66%, 20mm or more 1/8 (mostly face down above 13mm;
+    docs/retrospectives/2026-11-17_scorecard_refresh.md). A diagnostic per attempt, not a way to rank policies: v13 closed
+    13mm+ 5 times to v11's 1 in one session and picked more. Picks and clean attempts decide."""
     closed = [a for a in attempts if a.get("grasp_clearance_m") is not None]
     if not closed:
         return
     heights = lambda group: [a["grasp_clearance_m"] * 1000 for a in group]
     policies = sorted({a["policy"] for a in attempts})
     print("\nclose height: tip above the grasp point as the jaws closed (mm, measured)")
-    print(f"  {'policy':<20} {'closed':>7} {'median':>7} {'picked':>7} {'missed':>7} {f'<{CLOSE_LOW_MM:.0f}mm':>6} {f'{CLOSE_HIGH_MM:.0f}mm+':>6}")
+    print(f"  {'policy':<20} {'closed':>7} {'median':>7} {'picked':>7} {'missed':>7} {f'<{CLOSE_LOW_MM:.0f}mm':>6} "
+          f"{f'{CLOSE_RISK_MM:.0f}mm+':>6} {f'{CLOSE_HIGH_MM:.0f}mm+':>6}")
     for p in policies:
         mine = [a for a in closed if a["policy"] == p]
         if not mine:
@@ -127,7 +131,7 @@ def close_height_report(attempts):
         all_mine = sum(a["policy"] == p for a in attempts)
         print(f"  {p:<20} {f'{len(mine)}/{all_mine}':>7} {median(mine):>7} {median([a for a in mine if a['success']]):>7} "
               f"{median([a for a in mine if not a['success']]):>7} {sum(h < CLOSE_LOW_MM for h in heights(mine)):>6} "
-              f"{sum(h >= CLOSE_HIGH_MM for h in heights(mine)):>6}")
+              f"{sum(h >= CLOSE_RISK_MM for h in heights(mine)):>6} {sum(h >= CLOSE_HIGH_MM for h in heights(mine)):>6}")
     spots = list(dict.fromkeys(where(a) for a in closed))
     print(f"  {'':<8} " + " ".join(f"{p:>20}" for p in policies) + "   (x: a miss there)")
     by_spot = {}
@@ -290,7 +294,8 @@ def all_sessions():
         rescues = interventions.summary(found, attempts)["rescues_per_10"]
         clean = sum(scorecard.clean_flags(events, found).values())
         print(f"{folder.name:<24} {clean:>2}/{len(attempts):<3} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
-              f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}")
+              f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}"
+              + ("  VOIDED" if scorecard.void_reason(folder) else ""))
     hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play"))
              if (folder / "events.jsonl").exists()]
     hands = [(folder, events, next(e for e in events if e["type"] == "hand_end")) for folder, events in hands
@@ -316,6 +321,8 @@ def main():
     events = read_events(session_dir)
     start = next((e for e in events if e["type"] == "session_start"), {})
     print(f"{session_dir.name}: {start.get('kind')} at commit {start.get('commit')}")
+    if (void := scorecard.void_reason(session_dir)):
+        print(f"  VOIDED (data/void_sessions.json): {void}. Nothing below counts towards a policy's totals or checks")
     if setup_text(start):
         print(f"  setup: {setup_text(start)}")
     bench_setup = next((e for e in events if e["type"] == "bench_setup"), {})
@@ -326,8 +333,10 @@ def main():
               "not a counted result")
     if bench_setup.get("face_down"):
         aim = scorecard.face_down_aim(events)
+        counted = aim == scorecard.SEES_BACKS and scorecard.standard_setup().get("face_down")
         print(f"  face-down tiles (bench --face-down): {aim}"
-              + ("" if "back boxes" in aim else ", landings unseen") + "; not a counted result")
+              + ("; counted as the face-down setup, compared only with other face-down sessions" if counted
+                 else ("" if aim == scorecard.SEES_BACKS else ", landings unseen") + "; not a counted result"))
     if bench_setup.get("unattended"):
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "
@@ -380,7 +389,7 @@ def main():
     found = interventions_report(events, attempts or episodes, "attempt" if attempts or not episodes else "episode")
     if attempts:
         recording_focus(events, attempts, found)
-        print("\n" + "\n".join(scorecard.report(events, found)))
+        print("\n" + "\n".join(scorecard.report(events, found, folder=session_dir)))
         tags = defaultdict(set)
         for i in found:
             if i["class"] in (interventions.RESCUE, interventions.FAILURE):

@@ -110,7 +110,51 @@ def test_only_the_standard_surface_and_layout_count():
     text = "\n".join(scorecard.report(events))
     assert "gates don't apply" in text and "iteration check" not in text
     text = "\n".join(scorecard.report(on_standard(paired(14, a_clean=lambda i: i > 2))))
-    assert "iteration check: AHEAD (3-0" in text and "play-ready, b: not yet (14/14" in text
+    assert "iteration check: AHEAD (3-0" in text and "play-ready (face up), b: not yet (14/14" in text
+
+
+def face_down(events, sees_backs=True):
+    """bench --face-down: the setup flag, and how the tiles were found (face_down_setup)."""
+    out = [{**e, "face_down": True} if e["type"] == "bench_setup" else e for e in events]
+    return out[:2] + [{"type": "face_down_setup", "sees_backs": sees_backs}] + out[2:]
+
+
+def test_face_down_counts_as_its_own_setup_when_the_scans_found_the_backs():
+    standard = scorecard.standard_setup()
+    assert standard.get("face_down"), "data/standard_setup.json names the face-down setup"
+    found = face_down(on_standard(paired(14, a_clean=lambda i: i > 2)))
+    assert scorecard.off_standard(found) == [] and scorecard.setup_label(found) == "face down"
+    text = "\n".join(scorecard.report(found))
+    assert "counted setup: face down" in text and "iteration check: AHEAD (3-0" in text
+    assert "and a face-up round with no Drop" in text and "play-ready (face down), b" in text
+    by_position = face_down(on_standard(paired(14)), sees_backs=False)          # before the backs class: still not counted
+    assert scorecard.off_standard(by_position) == ["face-down tiles, picked by saved position"]
+    without = {k: v for k, v in standard.items() if k != "face_down"}            # a standard without it counts face up only
+    assert scorecard.off_standard(found, without) == [f"face-down tiles, {scorecard.SEES_BACKS}"]
+
+
+def test_a_voided_session_counts_for_nothing(tmp_path, monkeypatch):
+    void = tmp_path / "void_sessions.json"
+    void.write_text(json.dumps({"20261113_100710_bench": "torn wrist frames"}))
+    monkeypatch.setattr(scorecard, "VOID_SESSIONS", void)
+    events = on_standard(paired(14))
+    assert scorecard.off_standard(events, folder=tmp_path / "20261113_100710_bench") == ["voided: torn wrist frames"]
+    assert scorecard.off_standard(events, folder=tmp_path / "20261113_100711_bench") == []
+    assert scorecard.off_standard(events) == []                                   # no folder: the events can't say
+    assert "gates don't apply: voided" in "\n".join(scorecard.report(events, folder=tmp_path / "20261113_100710_bench"))
+    monkeypatch.setattr(scorecard, "VOID_SESSIONS", tmp_path / "none.json")
+    assert scorecard.void_reason("20261113_100710_bench") is None
+
+
+def test_the_saved_summary_says_who_a_policy_had_a_full_round_with_and_dropped_against(tmp_path):
+    folder = tmp_path / "20261117_100000_bench"
+    folder.mkdir()
+    events = face_down(on_standard(paired(14, b_clean=lambda i: i > 2)))         # b 3 behind a: Drop
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    summary = scorecard.session_summary(folder)
+    assert summary["face_down"] is True
+    assert summary["gates"]["b"]["paired_with"] == ["a"] and summary["gates"]["b"]["dropped_against"] == ["a"]
+    assert summary["gates"]["a"]["ahead_of"] == ["b"] and summary["gates"]["a"]["dropped_against"] == []
 
 
 @pytest.mark.parametrize("a_misses, b_misses, rounds, expected", [

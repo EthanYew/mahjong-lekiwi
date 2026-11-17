@@ -13,29 +13,55 @@ from . import checkout, config, scorecard
 from .session import is_sim, read_events
 
 
-def default_checks(sessions_dir=None, registry=None, quick=False):
-    """A line if the default policy has passed neither scorecard check (docs/scorecard.md) on the standard setup since it became
-    the default, else None. Simulated sessions and sessions off the standard setup don't count. quick (a hardware session's start):
-    only sessions already summarised count, and if any isn't, nothing is said rather than guessed (status.py summarises them)."""
-    reg = registry or json.loads(config.POLICIES.read_text())
+def _counted_since_default(sessions_dir, reg, quick):
+    """(default, since, standard, [summary of each counted bench session since it became the default]), or None in quick mode
+    when one isn't summarised yet: nothing is said rather than guessed (status.py summarises them)."""
     default, note = reg["default"], reg.get("default_note", {})
     since = note.get("since", "")
     cutoff = note.get("at") or since.replace("-", "")       # "at" (YYYYMMDD_HHMMSS) since 2026-11-13; older notes have the day only
     standard = scorecard.standard_setup()
+    summaries = []
     for events_file in sorted((Path(sessions_dir or config.SESSIONS)).glob("*_bench/events.jsonl")):
         folder = events_file.parent
         if folder.name[:len(cutoff)] < cutoff or is_sim(folder):
             continue
-        if scorecard.off_standard(read_events(folder), standard):
+        if scorecard.off_standard(read_events(folder), standard, folder=folder):
             continue
         summary = scorecard.cached_summary(folder) if quick else scorecard.session_summary(folder)
         if summary is None:
             return None
-        mine = summary["gates"].get(default)
-        if mine and (mine["play_ready"] or mine["ahead_of"]):
-            return None
+        summaries.append(summary)
+    return default, since, standard, summaries
+
+
+def default_checks(sessions_dir=None, registry=None, quick=False):
+    """A line if the default policy has passed neither scorecard check (docs/scorecard.md) on a counted setup since it became
+    the default, else None. Simulated, voided and uncounted sessions don't count. quick (a hardware session's start): only
+    sessions already summarised count."""
+    found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
+    if found is None:
+        return None
+    default, since, standard, summaries = found
+    if any((mine := s["gates"].get(default)) and (mine["play_ready"] or mine["ahead_of"]) for s in summaries):
+        return None
     return (f"the default, {default} (since {since or '?'}), has passed neither scorecard check on the standard setup since: "
             f"pair it with the policy it replaced, bench.py --policy <that>,{default} --layout {standard['layout']} (docs/scorecard.md)")
+
+
+def face_up_round(sessions_dir=None, registry=None, quick=False):
+    """A line if the default has had no face-up round on the standard setup since it became the default: a play-ready pass, or a
+    full iteration round against another policy that didn't end in Drop. A face-down gain mustn't hide a face-up loss
+    (docs/scorecard.md); v10, v11 and v13 were all chosen face down, and only v10 had a valid face-up run (2026-11-17)."""
+    found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
+    if found is None:
+        return None
+    default, since, standard, summaries = found
+    for s in summaries:
+        mine = s["gates"].get(default)
+        if mine and not s.get("face_down") and (mine["play_ready"] or (mine["paired_with"] and not mine["dropped_against"])):
+            return None
+    return (f"the default, {default} (since {since or '?'}), has had no face-up round on the standard setup since: "
+            f"bench.py --policy <the face-up best>,{default} --layout {standard['layout']} --trials 1, face up (docs/scorecard.md)")
 
 
 def _named(policy, text):
@@ -71,7 +97,8 @@ def items(repo=None, sessions_dir=None, quick=False):
     """Every owed line, most consequential first. Each part fails quietly: a reminder must never stop a hardware session.
     quick: nothing that derives a session (a hardware session's start, with the arm connected)."""
     out = []
-    for part in (lambda: [default_checks(sessions_dir, quick=quick)], lambda: roadmap_lines(repo),
+    for part in (lambda: [default_checks(sessions_dir, quick=quick)], lambda: [face_up_round(sessions_dir, quick=quick)],
+                 lambda: roadmap_lines(repo),
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
                  lambda: [] if quick else _held_prs(),

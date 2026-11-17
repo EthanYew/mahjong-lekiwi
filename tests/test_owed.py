@@ -45,6 +45,26 @@ def test_a_bench_earlier_on_the_day_of_the_decision_doesnt_count(tmp_path):
     assert owed.default_checks(tmp_path, decided) is None
 
 
+def test_a_default_chosen_face_down_still_owes_a_face_up_round(tmp_path):
+    from test_scorecard import face_down
+    rounds = scorecard.ITERATION_PAIRS
+    bench(tmp_path, "20261112_120000", face_down(on_standard(paired(rounds, a_clean=lambda i: i > 2))))
+    assert owed.default_checks(tmp_path, REGISTRY) is None                       # face down now counts: Ahead 3-0
+    assert "has had no face-up round" in owed.face_up_round(tmp_path, REGISTRY)
+    bench(tmp_path, "20261112_150000", on_standard(paired(rounds, b_clean=lambda i: i > 2)))
+    assert "has had no face-up round" in owed.face_up_round(tmp_path, REGISTRY)  # a face-up round, but a Drop
+    bench(tmp_path, "20261112_180000", on_standard(paired(rounds)))
+    assert owed.face_up_round(tmp_path, REGISTRY) is None                        # level is no Drop: settled
+
+
+def test_a_voided_session_settles_nothing(tmp_path, monkeypatch):
+    void = tmp_path / "void.json"
+    void.write_text(json.dumps({"20261112_174429_bench": "torn wrist frames"}))
+    monkeypatch.setattr(scorecard, "VOID_SESSIONS", void)
+    bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
+    assert owed.default_checks(tmp_path, REGISTRY) and owed.face_up_round(tmp_path, REGISTRY)
+
+
 def test_roadmap_behind_the_registry(tmp_path):
     (tmp_path / "ROADMAP.md").write_text("| Item | State (2026-11-02) | Evidence | Next |\n| Default | b |\n")
     lines = owed.roadmap_lines(tmp_path, REGISTRY)

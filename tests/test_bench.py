@@ -497,7 +497,7 @@ def test_a_paired_round_of_the_standard_layout_reaches_the_gates(tmp_path, monke
     assert len(scorecard.pairs(events, "a", "b")) == len(spots)
     assert scorecard.off_standard(events) == []
     text = "\n".join(scorecard.report(events))
-    assert "iteration check:" in text and f"of {len(spots)})" in text and "play-ready, a:" in text
+    assert "iteration check:" in text and f"of {len(spots)})" in text and "play-ready (face up), a:" in text
     assert "hover openings differ" not in text
 
 

@@ -36,9 +36,9 @@ def test_close_height_is_given_per_policy_and_spot_and_says_which_closed_lower(c
                                         attempt("b", "S2", 9), {"policy": "b", "spot": "S3", "tile": "4D", "success": False}])
     lines = capsys.readouterr().out.splitlines()
     row = next(line for line in lines if line.strip().startswith("a ")).split()
-    assert row == ["a", "2/2", "17.0", "12.0", "22.0", "0", "1"]    # closed, median, picked, missed, under 10, 20+
+    assert row == ["a", "2/2", "17.0", "12.0", "22.0", "0", "1", "1"]    # closed, median, picked, missed, under 10, 13+, 20+
     row = next(line for line in lines if line.strip().startswith("b ")).split()
-    assert row == ["b", "2/3", "8.5", "8.5", "-", "2", "0"]         # one attempt never closed
+    assert row == ["b", "2/3", "8.5", "8.5", "-", "2", "0", "0"]         # one attempt never closed
     assert next(line for line in lines if line.strip().startswith("S1 ")).split() == ["S1", "22.0x", "8.0"]
     assert any("b closed lower than a at 2 of 2 spots" in line for line in lines)
 
