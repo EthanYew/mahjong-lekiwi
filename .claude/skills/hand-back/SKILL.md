@@ -5,7 +5,8 @@ model: sonnet
 ---
 
 A branch is merged by `python scripts/merge_pr.py --auto N` (the queue), not by a person, once it passes everything below. A round
-is one pass through steps 1-5 (a send-back starts the next); at most 3 rounds; if still not clean, stop and say what's left. Never `--no-verify`, never push to `main`.
+is one pass through steps 1-5 (a send-back starts the next); at most 3 rounds; if still not clean, stop and say what's left.
+Never `--no-verify`, never push to `main`.
 
 1. **Up to date**: `git fetch origin && git merge origin/main`; resolve conflicts by keeping both sides' intent. If the work was planned
    before recent merges, run `/recheck-main` first.
