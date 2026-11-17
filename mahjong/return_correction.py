@@ -14,7 +14,8 @@ it lands depends on how off-centre this grasp was. Predicting the landing (leave
     + how off-centre this grasp was ("grip")              6.8mm
     + both ("grip+position")                              6.1mm
 
-Over 1061 returns to 2026-11-17: none 8.0mm, grip 5.3mm, grip+position 4.7mm. Position matters because detection - grasp
+Over 1061 returns to 2026-11-17 (`python -m mahjong.return_correction` prints today's): none 8.0mm, grip 5.3mm,
+grip+position 4.7mm. Position matters because detection - grasp
 is mostly the gap across the mat, not how off-centre the grasp was: without it, a policy closing 15-19mm +y at S1/S2
 dragged the aim along and tiles landed +8mm toward the wall (docs/invariant_notes.md, 2026-11-17).
 
@@ -57,7 +58,7 @@ MIN_POSITIONS = {"grip": 3, "grip+position": 5}
 MAX_CORRECTION_M = 0.02         # from the baseline target
 LANDED_WITHIN_M = 0.05          # the returned tile is the same-name detection nearest its home, this close
 SAMPLE_WITHIN_M = 0.03          # a landing further from home is still reset and recorded, but left out of the fit
-# Tied to the layouts' 50mm spot pitch: a returned tile the scan didn't see took the next spot's tile 48-50mm away (22 of 1083
+# Tied to the layouts' 50mm spot pitch: a returned tile the scan didn't see took the next spot's tile 44-50mm away (22 of 1083
 # fitted returns to 2026-11-17), through landed_tile's misread fallback (any name) or, face down, the same name (every back
 # reads "back"). No real landing was over 24mm (RETURN_DRIFT_RESET_M is 25). Those samples kept grip+position from being chosen.
 # Samples whose landing a person's hands may be in: `r` was pressed during the return. New ones aren't recorded.

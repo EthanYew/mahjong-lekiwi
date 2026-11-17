@@ -30,7 +30,7 @@ Setting a held tile back down. Evidence in `docs/invariant_notes.md`.
   detection is mostly the gap across the mat (y: +9mm on the left, +24mm on the right), and a model without position (`grip`)
   read that as the tile keeping its offset in the jaws. When v11/v13 closed 15-19mm +y past the hover at S1/S2 face down, its
   aim followed them and tiles landed +8mm (S2 +12 to +15mm), toward the wall (`20261117_093921_bench`). `grip+position` predicts
-  those at +3mm, but it lost the fit's own test to 22 neighbours' tiles taken for unseen landings 48-50mm away: the 50mm
+  those at +3mm, but it lost the fit's own test to 22 neighbours' tiles taken for unseen landings 44-50mm away: the 50mm
   search reaches the next spot, and takes it by the misread fallback (any name) or, face down, the shared name "back". `check_landing` still finds and resets within 50mm and records every
   landing; `load_records` fits only those within `SAMPLE_WITHIN_M` (30mm; no real landing past 24mm), and the report counts the
   rest. The search itself still takes a neighbour when a tile is unseen. Unconfirmed on the arm.
