@@ -17,20 +17,20 @@ Never `--no-verify`, never push to `main`.
    - the slow tests too if `mahjong/policy.py` or `mahjong/dataset.py` changed: `python -m pytest -m slow -q`
    - `python scripts/review_brief.py --range origin/main..HEAD` is the reviewer's view; its sim runs are the queue's too.
 3. **Review**: `/code-review medium` on `git diff origin/main...HEAD`, every round. Fix what's clearly a bug and **commit it**, rerun
-   2, then `/code-review low` on the fixes only: `<commit before the first fix>..HEAD` (step 1's merge is already behind it). At most 2
-   low passes a round, one per new fix. A bug still open after that: stop before opening or re-readying the PR and say what's left.
+   2, then `/code-review low` on that fix only (`<commit before this fix>..HEAD`) and the callers of what it changed. At most 2 low passes
+   a round; a bug the second one finds is open. A bug still open: stop before opening or re-readying the PR and say what's left.
    Note each finding and what was done (fixed, or declined and why; a declined finding isn't open).
 4. **The PR body**, written to a file in the scratchpad and passed with `--body-file` (never inline: quotes and backticks break):
    `## What changed` (and why), `## Files`, `## Overlaps` (with main and open branches; the overlap hook's notes go here), `## Review`
    (every round's /code-review findings and what was done), `## Unverified on the arm` (what's checked offline, what needs hardware).
-5. **Open it ready, then queue it**. Round 1: `gh pr create --base main --title "..." --body-file <file>` (not `--draft`). After a
+5. **Push, open it ready, then queue it**: `git push -u origin HEAD`. Round 1: `gh pr create --base main --title "..." --body-file <file>` (not `--draft`). After a
    send-back: `gh pr edit <N> --body-file <file>` and `gh pr ready <N>`. Then, from the main checkout,
    `cd <main checkout> && python scripts/merge_pr.py --auto <N>`.
    - **merged**: say so, with the PR link. The queue pulls main and closes the branch.
    - **sent back**: read the PR's newest comment, fix on the branch, and go round again from 1.
    - **held** (`needs-owner`: it changes a decision, such as the default policy, an exam or eval split, the standard setup, the
      scorecard or installed weights): stop; tell the user plainly it is waiting for them and why (`merge_pr.py <N>` merges it).
-6. If a low review ran, say that a plain `/code-review` now reuses the low level, so type `/code-review medium` next time. Then end
+6. If a low review ran, say that a plain `/code-review` may now reuse the low level, so type `/code-review medium` next time. Then end
    with one plain line: merged, or not merged and what it waits on.
 
 Real arm runs still ask a person (the arm gate); everything here is `--sim`.
