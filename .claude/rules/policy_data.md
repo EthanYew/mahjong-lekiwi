@@ -74,8 +74,9 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
   `data/eval_split.json` (`make_policy` leaves them out; `--slice` other than `train` marks eval recordings).
   Folding an eval set into training retires it: record the next one. Don't change an existing split
   (scores stop comparing). Offline scores screen; the bench decides what ships. Face-down eval demos:
-  `record.py --slice facedown --layout even-hand14 --face-down` to a new eval dataset (none recorded yet); the slice isn't
-  gated until it has a baseline.
+  `record.py --slice facedown --layout even-hand14 --face-down` to a new eval dataset (none recorded yet), then
+  `offline_eval.py --add-eval-set REPO`: until it's in `eval_sets`, `make_policy.py` will train on it and nothing scores it.
+  The slice isn't gated until it has a baseline.
 - **A lone tile closes higher than one in a full layout, and S8 is where it crosses the line** (partly confirmed, 2026-11-05). What seems to matter is white
   face-up tiles near the target: about 8mm with them, 13-18mm with none or only green backs, and turning the lights on doesn't close the gap (a pattern across 4
   sessions, not a deliberate test: `docs/retrospectives/2026-11-09_face_down_progress.md`).
