@@ -23,9 +23,9 @@ Never `--no-verify`, never push to `main`.
 4. **The PR body**, written to a file in the scratchpad and passed with `--body-file` (never inline: quotes and backticks break):
    `## What changed` (and why), `## Files`, `## Overlaps` (with main and open branches; the overlap hook's notes go here), `## Review`
    (every round's /code-review findings and what was done), `## Unverified on the arm` (what's checked offline, what needs hardware).
-5. **Push, open it ready, then queue it**: `git push -u origin HEAD`. Round 1: `gh pr create --base main --title "..." --body-file <file>` (not `--draft`). After a
-   send-back: `gh pr edit <N> --body-file <file>` and `gh pr ready <N>`. Then, from the main checkout,
-   `cd <main checkout> && python scripts/merge_pr.py --auto <N>`.
+5. **Push, open it ready, then queue it**: `git push -u origin HEAD`. Round 1: `gh pr create --base main --title "..."
+   --body-file <file>` (not `--draft`). After a send-back: `gh pr edit <N> --body-file <file>` and `gh pr ready <N>`. Then, from the
+   main checkout, `cd <main checkout> && python scripts/merge_pr.py --auto <N>`.
    - **merged**: say so, with the PR link. The queue pulls main and closes the branch.
    - **sent back**: read the PR's newest comment, fix on the branch, and go round again from 1.
    - **held** (`needs-owner`: it changes a decision, such as the default policy, an exam or eval split, the standard setup, the
