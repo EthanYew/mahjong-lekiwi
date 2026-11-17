@@ -177,3 +177,34 @@ def guide(realsense, placement, spot, sign, show=None, wait_key=None, text=None,
         answer = {13: "", 10: "", 32: "", ord("s"): "s", ord("q"): "q", 27: "q"}.get(key)
         if answer is not None:
             return answer
+
+
+def draw_picture(frame, rows):
+    """The step's side view in the window's bottom left: white and green tiles, the one the arm goes for outlined in yellow."""
+    tile_w, tile_h, gap, left = 46, 24, 3, 76
+    h = frame.shape[0]
+    top = h - 40 - len(rows) * (tile_h + gap)
+    cv2.rectangle(frame, (0, top - 26), (max(left + 4 * (tile_w + gap), 310), h - 30), (0, 0, 0), -1)
+    cv2.putText(frame, "side view, yellow = the tile the arm goes for", (6, top - 9), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.putText(frame, "robot >", (6, top + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if cell is None:
+                continue
+            x, y = left + c * (tile_w + gap), top + r * (tile_h + gap)
+            colour = (255, 255, 255) if "W" in cell else (60, 150, 60)
+            cv2.rectangle(frame, (x, y), (x + tile_w, y + tile_h), colour, -1)
+            cv2.rectangle(frame, (x, y), (x + tile_w, y + tile_h), (0, 255, 255) if cell.startswith("[") else (130, 130, 130), 3 if cell.startswith("[") else 1)
+    return frame
+
+
+def prompt(rig, station, step, ask):
+    """Show what to lay, on the live RealSense window (or the terminal). Returns "", "s" or "q"."""
+    text = wall_test.step_text(step)
+    if rig.realsense is None:
+        return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
+    print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")
+    answer = guide(rig.realsense, {"tile": "", "laying": ""}, station, None, text="\n".join(step["lines"]),
+                    overlay=lambda frame: draw_picture(frame, step["picture"]))
+    close_windows()
+    return answer
