@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from mahjong import scorecard
+from mahjong import scorecard, session
 
 
 def attempt(n, policy, spot, success=True, **fields):
@@ -107,6 +107,8 @@ def test_only_the_standard_surface_and_layout_count():
     assert ["carries between two spots, not a walk of the layout"] == scorecard.off_standard(carrying)
     simulated = [{**e, "sim": True} if e["type"] == "session_start" else e for e in on_standard(events)]
     assert scorecard.off_standard(simulated) == ["a simulated run (--sim)"]
+    lowered = [{**e, "hover_lower_mm": 3.0} if e["type"] == "bench_setup" else e for e in on_standard(events)]
+    assert scorecard.off_standard(lowered) == ["hover 3mm lower than the policy's own (--hover-lower-mm): an experiment"]
     text = "\n".join(scorecard.report(events))
     assert "gates don't apply" in text and "iteration check" not in text
     text = "\n".join(scorecard.report(on_standard(paired(14, a_clean=lambda i: i > 2))))
@@ -131,18 +133,21 @@ def test_face_down_counts_as_its_own_setup_when_the_scans_found_the_backs():
     assert scorecard.off_standard(by_position) == ["face-down tiles, picked by saved position"]
     without = {k: v for k, v in standard.items() if k != "face_down"}            # a standard without it counts face up only
     assert scorecard.off_standard(found, without) == [f"face-down tiles, {scorecard.SEES_BACKS}"]
+    assert standard["face_down"]["sees_backs"] is True                           # a flag, not a match on the aim's wording
+    reworded = {**standard, "face_down": {**standard["face_down"], "aim": "seen by the scans"}}
+    assert scorecard.off_standard(found, reworded) == []
 
 
 def test_a_voided_session_counts_for_nothing(tmp_path, monkeypatch):
     void = tmp_path / "void_sessions.json"
     void.write_text(json.dumps({"20261113_100710_bench": "torn wrist frames"}))
-    monkeypatch.setattr(scorecard, "VOID_SESSIONS", void)
+    monkeypatch.setattr(session, "VOID_SESSIONS", void)
     events = on_standard(paired(14))
     assert scorecard.off_standard(events, folder=tmp_path / "20261113_100710_bench") == ["voided: torn wrist frames"]
     assert scorecard.off_standard(events, folder=tmp_path / "20261113_100711_bench") == []
     assert scorecard.off_standard(events) == []                                   # no folder: the events can't say
     assert "gates don't apply: voided" in "\n".join(scorecard.report(events, folder=tmp_path / "20261113_100710_bench"))
-    monkeypatch.setattr(scorecard, "VOID_SESSIONS", tmp_path / "none.json")
+    monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "none.json")
     assert scorecard.void_reason("20261113_100710_bench") is None
 
 

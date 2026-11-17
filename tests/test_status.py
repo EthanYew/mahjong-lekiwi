@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import status
-from mahjong import config
+from mahjong import config, session
 
 
 def bench_session(sessions, name, policy, results):
@@ -81,7 +81,7 @@ def test_a_simulated_bench_adds_nothing_to_a_real_policys_totals(tmp_path):
 def test_a_voided_session_is_left_out_of_every_count(tmp_path, monkeypatch):
     void = tmp_path / "void.json"
     void.write_text(json.dumps({"20261113_100710_bench": "torn wrist frames"}))
-    monkeypatch.setattr(status.scorecard, "VOID_SESSIONS", void)
+    monkeypatch.setattr(session, "VOID_SESSIONS", void)
     bench_session(tmp_path / "s", "20261113_100710", "pickup_mat_cl_v10", [False, False])
     bench_session(tmp_path / "s", "20261116_213816", "pickup_mat_cl_v10", [True])
     assert status.bench_results(tmp_path / "s")["pickup_mat_cl_v10"]["attempts"] == 1

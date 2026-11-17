@@ -1,7 +1,7 @@
 """mahjong/owed.py: what's owed and overdue, shown by status.py and at each hardware session's start."""
 import json
 
-from mahjong import owed, scorecard
+from mahjong import owed, scorecard, session
 from test_scorecard import on_standard, paired
 
 REGISTRY = {"default": "b", "default_note": {"since": "2026-11-12"}, "policies": {"a": {}, "b": {}, "c": {}}}
@@ -52,7 +52,7 @@ def test_a_default_chosen_face_down_still_owes_a_face_up_round(tmp_path):
     assert owed.default_checks(tmp_path, REGISTRY) is None                       # face down now counts: Ahead 3-0
     assert "has had no face-up round" in owed.face_up_round(tmp_path, REGISTRY)
     bench(tmp_path, "20261112_150000", on_standard(paired(rounds, b_clean=lambda i: i > 2)))
-    assert "has had no face-up round" in owed.face_up_round(tmp_path, REGISTRY)  # a face-up round, but a Drop
+    assert "dropped behind in its latest face-up round" in owed.face_up_round(tmp_path, REGISTRY)   # a round, but a Drop
     bench(tmp_path, "20261112_180000", on_standard(paired(rounds)))
     assert owed.face_up_round(tmp_path, REGISTRY) is None                        # level is no Drop: settled
 
@@ -63,19 +63,19 @@ def test_a_face_up_round_counts_with_the_default_as_the_baseline_too(tmp_path):
     bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS)))
     assert owed.face_up_round(tmp_path, as_baseline) is None
     bench(tmp_path, "20261112_190000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
-    assert owed.face_up_round(tmp_path, as_baseline) is None                     # the earlier level round still stands
+    assert "dropped behind" in owed.face_up_round(tmp_path, as_baseline)        # the latest round decides: a later Drop shows
 
 
 def test_a_default_left_3_pairs_behind_as_the_baseline_still_owes_one(tmp_path):
     as_baseline = {**REGISTRY, "default": "a"}
     bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
-    assert "has had no face-up round" in owed.face_up_round(tmp_path, as_baseline)
+    assert "dropped behind in its latest face-up round" in owed.face_up_round(tmp_path, as_baseline)
 
 
 def test_a_voided_session_settles_nothing(tmp_path, monkeypatch):
     void = tmp_path / "void.json"
     void.write_text(json.dumps({"20261112_174429_bench": "torn wrist frames"}))
-    monkeypatch.setattr(scorecard, "VOID_SESSIONS", void)
+    monkeypatch.setattr(session, "VOID_SESSIONS", void)
     bench(tmp_path, "20261112_174429", on_standard(paired(scorecard.PLAY_READY_ATTEMPTS)))
     assert owed.default_checks(tmp_path, REGISTRY) and owed.face_up_round(tmp_path, REGISTRY)
 

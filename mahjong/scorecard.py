@@ -10,7 +10,7 @@ from math import comb
 from scipy.stats import beta
 
 from . import config, interventions
-from .session import read_events
+from .session import read_events, void_reason
 
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
 # that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
@@ -27,7 +27,6 @@ PLAY_READY_MISSES = 2       # ...at most this many not clean (26/28)...
 PLAY_READY_SPOT_MISSES = 2  # ...and no spot not clean this many times
 HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: .claude/rules/policy_data.md, "Datasets store..."
 STANDARD_SETUP = config.DATA / "standard_setup.json"
-VOID_SESSIONS = config.DATA / "void_sessions.json"    # session folder name -> why it counts for nothing
 SEES_BACKS = "found by the scans' back boxes"          # face_down_aim: the only face-down sessions that count
 
 
@@ -125,19 +124,6 @@ def standard_setup(path=None):
     return json.loads((path or STANDARD_SETUP).read_text())
 
 
-def voided(path=None):
-    """{session folder name: why it counts for nothing} (data/void_sessions.json), {} without the file. For a fault found
-    afterwards that the log can't show, e.g. 20261113_100710_bench ran 25 minutes on torn wrist frames before the bench
-    could see them."""
-    path = path or VOID_SESSIONS
-    return json.loads(path.read_text()) if path.exists() else {}
-
-
-def void_reason(folder, path=None):
-    """Why a session folder (or its name) counts for nothing, or None."""
-    return voided(path).get(folder.name if hasattr(folder, "name") else str(folder))
-
-
 def off_standard(events, standard=None, folder=None):
     """Why a session's attempts don't count towards the gates: a list of reasons, empty if they do. Face down counts as its
     own setup when the standard names one and the scans found the backs (docs/scorecard.md). A setup check isn't logged on
@@ -147,12 +133,15 @@ def off_standard(events, standard=None, folder=None):
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
     void = void_reason(folder) if folder is not None else None
-    face_down_counts = standard.get("face_down") and face_down_aim(events) == standard["face_down"]["aim"]
+    sees_backs = next((e for e in events if e["type"] == "face_down_setup"), {}).get("sees_backs", False)
+    face_down_counts = bool(standard.get("face_down")) and (sees_backs or not standard["face_down"].get("sees_backs", True))
     return ([f"voided: {void}"] if void else []) \
         + (["a simulated run (--sim)"] if start.get("sim") else []) \
         + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
+        + ([f"hover {setup['hover_lower_mm']:g}mm lower than the policy's own (--hover-lower-mm): an experiment"]
+           if setup.get("hover_lower_mm") else []) \
         + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") and not face_down_counts else [])
 
 

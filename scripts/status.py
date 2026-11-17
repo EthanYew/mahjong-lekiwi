@@ -20,7 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import checkout, config, layout, markers, name_ledger, owed, scorecard
-from mahjong.session import is_sim, read_events
+from mahjong.session import counted_real, read_events
+from mahjong.session import voided as session_voided
 
 
 def real_benches(sessions_dir=None):
@@ -28,7 +29,7 @@ def real_benches(sessions_dir=None):
     real policy's id (20261112_091817_bench gave v10 a clean pickup that never happened); data/void_sessions.json names
     sessions a fault found afterwards makes worthless."""
     return [f for f in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl"))
-            if not is_sim(f.parent) and not scorecard.void_reason(f.parent)]
+            if counted_real(f.parent)]
 
 
 def bench_results(sessions_dir=None):
@@ -110,7 +111,7 @@ def report(sessions_dir=None):
     on_it = standard_results(sessions_dir)
     lines += [f"  {label:<9} {pid:<20} {r['clean']}/{r['attempts']} clean over {r['sessions']} session(s), for orientation: "
               "gates read one session" for (label, pid), r in sorted(on_it.items())] or ["  no bench sessions on it yet"]
-    if (voided := scorecard.voided()):
+    if (voided := session_voided()):
         lines.append(f"  voided, left out of every count above (data/void_sessions.json): {', '.join(voided)}")
 
     split = json.loads((config.DATA / "eval_split.json").read_text())

@@ -209,3 +209,31 @@ def is_sim(session_dir):
     path = Path(session_dir) / "events.jsonl"
     start = next((e for e in read_jsonl(path) if e.get("type") == "session_start"), {}) if path.exists() else {}
     return bool(start.get("sim"))
+
+
+VOID_SESSIONS = config.DATA / "void_sessions.json"    # session folder name -> why it counts for nothing
+_voided_cache = {}
+
+
+def voided(path=None):
+    """{session folder name: why it counts for nothing} (data/void_sessions.json), {} without the file. For a fault found
+    afterwards that the log can't show, e.g. 20261113_100710_bench ran 25 minutes on torn wrist frames before the bench
+    could see them. Read once per change of the file: it's asked about every session folder."""
+    path = Path(path or VOID_SESSIONS)
+    if not path.exists():
+        return {}
+    key = (str(path), path.stat().st_mtime_ns)
+    if key not in _voided_cache:
+        _voided_cache.clear()
+        _voided_cache[key] = json.loads(path.read_text())
+    return _voided_cache[key]
+
+
+def void_reason(folder, path=None):
+    """Why a session folder (or its name) counts for nothing, or None."""
+    return voided(path).get(folder.name if hasattr(folder, "name") else Path(str(folder)).name)
+
+
+def counted_real(session_dir):
+    """A real session that counts: not simulated and not voided. Every total over bench sessions goes through this."""
+    return not is_sim(session_dir) and not void_reason(session_dir)
