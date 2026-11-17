@@ -18,8 +18,8 @@ Never `--no-verify`, never push to `main`.
    - `python scripts/review_brief.py --range origin/main..HEAD` is the reviewer's view; its sim runs are the queue's too.
 3. **Review**: `/code-review medium` on `git diff origin/main...HEAD`, every round. Fix what's clearly a bug and **commit it**, rerun
    2, then one `/code-review low` on all of this round's fixes (`<commit before them>..HEAD`; name the changed functions so it
-   checks their callers). At most 2 low passes a round; a bug the second one finds is open. A bug still open: stop before opening or re-readying the PR and say what's left.
-   Note each finding and what was done (fixed, or declined and why; a declined finding isn't open).
+   checks their callers). At most 2 low passes a round; a bug the second one finds is open. A bug still open: stop before opening
+   or re-readying the PR and say what's left. Note each finding and what was done (fixed, or declined and why; a declined finding isn't open).
 4. **The PR body**, written to a file in the scratchpad and passed with `--body-file` (never inline: quotes and backticks break):
    `## What changed` (and why), `## Files`, `## Overlaps` (with main and open branches; the overlap hook's notes go here), `## Review`
    (every round's /code-review findings and what was done), `## Unverified on the arm` (what's checked offline, what needs hardware).
