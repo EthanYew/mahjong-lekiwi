@@ -703,6 +703,7 @@ registered since 2026-11-17: older notes never recorded it). `--leave-out REPO` 
 | `--default` | make it the default policy for `bench.py` |
 | `--dry-run` | print the plan and stop. Always do this first |
 | `--add REPO` | train on another recorded dataset as well (repeatable), e.g. DAgger corrections: only their frames from the takeover on |
+| `--leave-out REPO` | leave out one of the default's datasets on purpose (repeatable); without it, a run missing one stops (`mahjong/recipe.py`) |
 | `--trim-narrowing` | also cut the slow gripper narrowing at the start of each episode |
 | `--augment` | colour jitter while training (brightness, contrast, saturation, hue, sharpness; no shifting or rotating the image, the jaws stay put) |
 | `--replace-mat FRACTION` | swap the black table top for another surface (grid mat, plain colour, wood, cloth, paper) in that fraction of episodes, e.g. `0.7`; `--dry-run` saves a preview sheet next to the training output to check before training |
