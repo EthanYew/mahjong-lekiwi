@@ -57,6 +57,21 @@ def test_a_default_chosen_face_down_still_owes_a_face_up_round(tmp_path):
     assert owed.face_up_round(tmp_path, REGISTRY) is None                        # level is no Drop: settled
 
 
+def test_a_face_up_round_counts_with_the_default_as_the_baseline_too(tmp_path):
+    """bench.py --policy <default>,<new> runs the default first, as the baseline: that's a face-up round for it as well."""
+    as_baseline = {**REGISTRY, "default": "a"}                                    # paired() runs a first
+    bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS)))
+    assert owed.face_up_round(tmp_path, as_baseline) is None
+    bench(tmp_path, "20261112_190000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
+    assert owed.face_up_round(tmp_path, as_baseline) is None                     # the earlier level round still stands
+
+
+def test_a_default_left_3_pairs_behind_as_the_baseline_still_owes_one(tmp_path):
+    as_baseline = {**REGISTRY, "default": "a"}
+    bench(tmp_path, "20261112_180000", on_standard(paired(scorecard.ITERATION_PAIRS, a_clean=lambda i: i > 2)))
+    assert "has had no face-up round" in owed.face_up_round(tmp_path, as_baseline)
+
+
 def test_a_voided_session_settles_nothing(tmp_path, monkeypatch):
     void = tmp_path / "void.json"
     void.write_text(json.dumps({"20261112_174429_bench": "torn wrist frames"}))

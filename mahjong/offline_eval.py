@@ -1,7 +1,7 @@
 """Offline evaluation: score a policy on recorded episodes it never trained on, without the arm.
 
 The eval episodes (data/eval_split.json) are held-out episodes of training recordings plus whole
-eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter). Each is built like a training
+eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter/facedown). Each is built like a training
 dataset (dataset.build: 224px, trims, re-anchored deltas), with the narrowing trimmed when the policy's
 hover is the narrowed one, so one 90%-hover recording scores both kinds of policy.
 

@@ -125,11 +125,17 @@ def standard_setup(path=None):
     return json.loads((path or STANDARD_SETUP).read_text())
 
 
-def void_reason(folder, path=None):
-    """Why a session folder counts for nothing (data/void_sessions.json), or None. For a fault found afterwards that the
-    log can't show, e.g. 20261113_100710_bench ran 25 minutes on torn wrist frames before the bench could see them."""
+def voided(path=None):
+    """{session folder name: why it counts for nothing} (data/void_sessions.json), {} without the file. For a fault found
+    afterwards that the log can't show, e.g. 20261113_100710_bench ran 25 minutes on torn wrist frames before the bench
+    could see them."""
     path = path or VOID_SESSIONS
-    return json.loads(path.read_text()).get(folder.name if hasattr(folder, "name") else str(folder)) if path.exists() else None
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def void_reason(folder, path=None):
+    """Why a session folder (or its name) counts for nothing, or None."""
+    return voided(path).get(folder.name if hasattr(folder, "name") else str(folder))
 
 
 def off_standard(events, standard=None, folder=None):
@@ -141,7 +147,7 @@ def off_standard(events, standard=None, folder=None):
     setup = next((e for e in events if e["type"] == "bench_setup"), {})
     surface, name = start.get("conditions", {}).get("surface"), setup.get("layout")
     void = void_reason(folder) if folder is not None else None
-    face_down_counts = standard.get("face_down") and face_down_aim(events) == SEES_BACKS
+    face_down_counts = standard.get("face_down") and face_down_aim(events) == standard["face_down"]["aim"]
     return ([f"voided: {void}"] if void else []) \
         + (["a simulated run (--sim)"] if start.get("sim") else []) \
         + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \

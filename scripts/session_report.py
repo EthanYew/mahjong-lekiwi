@@ -333,7 +333,7 @@ def main():
               "not a counted result")
     if bench_setup.get("face_down"):
         aim = scorecard.face_down_aim(events)
-        counted = aim == scorecard.SEES_BACKS and scorecard.standard_setup().get("face_down")
+        counted = not scorecard.off_standard(events, folder=session_dir)     # the gates' own test, so the two lines agree
         print(f"  face-down tiles (bench --face-down): {aim}"
               + ("; counted as the face-down setup, compared only with other face-down sessions" if counted
                  else ("" if aim == scorecard.SEES_BACKS else ", landings unseen") + "; not a counted result"))

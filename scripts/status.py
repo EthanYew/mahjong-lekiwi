@@ -105,13 +105,12 @@ def report(sessions_dir=None):
     standard = scorecard.standard_setup()
     lines.append(f"\nStandard setup: {standard['surface']}, {standard['layout']} (data/standard_setup.json, since {standard['since']})")
     if standard.get("face_down"):
-        lines.append(f"  counted face up, and face down when the tiles were {standard['face_down']['aim']} "
-                     f"(since {standard['face_down']['since']}): the two are never added together")
+        lines.append(f"  counted face up, and face down when the tiles were {standard['face_down']['aim']} (decided "
+                     f"{standard['face_down']['since']}; earlier sessions that did count too): the two are never added together")
     on_it = standard_results(sessions_dir)
     lines += [f"  {label:<9} {pid:<20} {r['clean']}/{r['attempts']} clean over {r['sessions']} session(s), for orientation: "
               "gates read one session" for (label, pid), r in sorted(on_it.items())] or ["  no bench sessions on it yet"]
-    voided = json.loads(scorecard.VOID_SESSIONS.read_text()) if scorecard.VOID_SESSIONS.exists() else {}
-    if voided:
+    if (voided := scorecard.voided()):
         lines.append(f"  voided, left out of every count above (data/void_sessions.json): {', '.join(voided)}")
 
     split = json.loads((config.DATA / "eval_split.json").read_text())

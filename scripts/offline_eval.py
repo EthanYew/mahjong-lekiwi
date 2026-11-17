@@ -1,7 +1,7 @@
 """Score policies on recorded episodes they never trained on, without the arm (mahjong/offline_eval.py).
 
 data/eval_split.json lists the eval episodes: held-out episodes of training recordings (make_policy.py
-leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter).
+leaves them out of training) and whole eval-only recordings (record.py --slice familiar/new/dim/tilt/jitter/facedown).
 Scores are per slice — never averaged into one number — and optionally per spot or lighting.
 
     python scripts/offline_eval.py --show

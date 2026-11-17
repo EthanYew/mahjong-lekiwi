@@ -34,11 +34,15 @@ def _counted_since_default(sessions_dir, reg, quick):
     return default, since, standard, summaries
 
 
-def default_checks(sessions_dir=None, registry=None, quick=False):
+_UNSET = object()
+
+
+def default_checks(sessions_dir=None, registry=None, quick=False, found=_UNSET):
     """A line if the default policy has passed neither scorecard check (docs/scorecard.md) on a counted setup since it became
     the default, else None. Simulated, voided and uncounted sessions don't count. quick (a hardware session's start): only
-    sessions already summarised count."""
-    found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
+    sessions already summarised count. found: _counted_since_default's result, when the caller already has it."""
+    if found is _UNSET:
+        found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
     if found is None:
         return None
     default, since, standard, summaries = found
@@ -48,11 +52,13 @@ def default_checks(sessions_dir=None, registry=None, quick=False):
             f"pair it with the policy it replaced, bench.py --policy <that>,{default} --layout {standard['layout']} (docs/scorecard.md)")
 
 
-def face_up_round(sessions_dir=None, registry=None, quick=False):
+def face_up_round(sessions_dir=None, registry=None, quick=False, found=_UNSET):
     """A line if the default has had no face-up round on the standard setup since it became the default: a play-ready pass, or a
-    full iteration round against another policy that didn't end in Drop. A face-down gain mustn't hide a face-up loss
-    (docs/scorecard.md); v10, v11 and v13 were all chosen face down, and only v10 had a valid face-up run (2026-11-17)."""
-    found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
+    full iteration round against another policy, in either order on the bench, that didn't leave it 3 pairs behind (Drop). A
+    face-down gain mustn't hide a face-up loss (docs/scorecard.md); v10, v11 and v13 were all chosen face down, and only v10
+    had a valid face-up run (2026-11-17)."""
+    if found is _UNSET:
+        found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
     if found is None:
         return None
     default, since, standard, summaries = found
@@ -97,8 +103,10 @@ def items(repo=None, sessions_dir=None, quick=False):
     """Every owed line, most consequential first. Each part fails quietly: a reminder must never stop a hardware session.
     quick: nothing that derives a session (a hardware session's start, with the arm connected)."""
     out = []
-    for part in (lambda: [default_checks(sessions_dir, quick=quick)], lambda: [face_up_round(sessions_dir, quick=quick)],
-                 lambda: roadmap_lines(repo),
+    def default_lines():        # the sessions are read and summarised once, for both
+        found = _counted_since_default(sessions_dir, json.loads(config.POLICIES.read_text()), quick)
+        return [default_checks(found=found), face_up_round(found=found)]
+    for part in (default_lines, lambda: roadmap_lines(repo),
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
                  lambda: [] if quick else _held_prs(),
