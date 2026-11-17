@@ -106,3 +106,14 @@ def test_skills_name_real_scripts_and_no_machine():
         for script in re.findall(r"scripts/(\w+\.py)", text):
             assert (REPO / "scripts" / script).exists(), f"{skill}: scripts/{script} doesn't exist"
         assert not re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b|/home/(?!<)\w+", text), f"{skill} names a machine or a home folder"
+
+
+def test_the_make_policy_table_lists_every_option():
+    """README's make_policy.py options table, against the script's own options: --leave-out (2026-11-17) reached the script
+    and the text above the table, not the table, where a person looks up what a flag does."""
+    section = README.split("## Training a policy: `scripts/make_policy.py`")[1].split("\n## ")[0]
+    rows = "\n".join(line for line in section.splitlines() if line.startswith("| `--"))
+    defined = re.findall(r"add_argument\(\"(--[\w-]+)\"", (REPO / "scripts" / "make_policy.py").read_text())
+    assert "--leave-out" in defined, "the add_argument pattern no longer finds make_policy.py's options"
+    missing = sorted(o for o in defined if not re.search(rf"`{re.escape(o)}[` ]", rows))     # `--add` isn't `--add-foo`
+    assert not missing, f"README.md's make_policy.py options table doesn't list {missing}"
