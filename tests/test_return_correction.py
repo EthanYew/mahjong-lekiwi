@@ -76,6 +76,22 @@ def test_a_misread_landing_isnt_lost_to_another_copy_of_the_name_across_the_mat(
     assert landed_tile(tiles, "2C", [0.192, 0.141])["tile_name"] == "3C"
 
 
+def test_a_landing_a_spot_away_is_reset_but_no_sample(tmp_path):
+    # 20261117_093921_bench: every back reads "back", so an unseen S2 return took S1's tile 45mm away for its landing
+    import types
+    from mahjong import config
+    from mahjong.return_correction import check_landing
+    session = types.SimpleNamespace(dir=tmp_path, event=lambda kind, **f: None)
+    path = tmp_path / "returns.jsonl"
+    held = {"tile_name": "back", "home_xy": [0.147, 0.141], "detection_xy": [0.147, 0.141], "grasp_xy": [0.19, 0.15],
+            "attempt_dir": "005", "spot": "S2"}
+    tile, reset = check_landing(held, [0.19, 0.15], [{"tile_name": "back", "xy": (0.192, 0.141)}], session, path, None,
+                                config.DEFAULT_HOVER)
+    assert tile is not None and reset and not path.exists()
+    check_landing(held, [0.19, 0.15], [{"tile_name": "back", "xy": (0.15, 0.143)}], session, path, None, config.DEFAULT_HOVER)
+    assert len(path.read_text().splitlines()) == 1        # a landing near home still is one
+
+
 def test_landings_pair_each_return_with_its_after_return_scan():
     attempt = {"type": "attempt", "tile": "8D", "attempt_dir": "001", "detection_xy": [0.2, 0.0],
                "hover_xy": [0.23, 0.01], "grasp_xy": [0.235, 0.012], "policy": "p"}
@@ -154,7 +170,7 @@ def test_too_few_returns_to_aim_a_carried_tile_says_so(capsys):
     assert "too few returns" in capsys.readouterr().out
 
 
-def test_carried_returns_and_a_persons_hands_stay_out_of_the_fit(tmp_path, monkeypatch):
+def test_carried_returns_a_persons_hands_and_a_neighbours_tile_stay_out_of_the_fit(tmp_path, monkeypatch):
     import json
     from mahjong import return_correction
     fingerprint = {"follower_id": "arm", "t_cam_to_base_sha": "abc"}
@@ -164,9 +180,11 @@ def test_carried_returns_and_a_persons_hands_stay_out_of_the_fit(tmp_path, monke
     (session, attempt) = sorted(HAND_MOVED)[0]
     by_hand = {**keep, "session": session, "attempt_dir": attempt}
     path = tmp_path / "returns.jsonl"
-    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand)))
+    neighbour = {**keep, "landed_xy": [0.2, 0.045]}          # a neighbour's tile, matched before the radius was cut
+    near = {**keep, "landed_xy": [0.2, 0.02]}                # a poor landing, but this tile's
+    path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand, neighbour, near)))
     fitted, _, excluded = load_records(path)
-    assert fitted == [keep] and excluded == [across, by_hand]
+    assert fitted == [keep, near] and excluded == [across, by_hand, neighbour]
 
 
 def test_landings_say_when_r_was_pressed_during_the_return():
