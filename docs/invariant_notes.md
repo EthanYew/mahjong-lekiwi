@@ -44,7 +44,9 @@ On even-hand14, returns at S1/S2 landed left of home (+y, toward the wall). Mean
   down, 11-16/11-17), the spot pitch; nothing real had landed past 24mm (1061 under 25mm). A back always reads "back", so
   with `LANDED_WITHIN_M` at 50mm an unseen return took the next spot's tile. Without them, leave-one-position-out: grip 5.35mm,
   grip+position 4.72mm (12%, past `MIN_GAIN`). Cutting the search radius to 30mm instead would have left a tile landing
-  30-50mm off unreset, so the search stays at 50mm and only the sample is cut (`SAMPLE_WITHIN_M`).
+  30-50mm off unreset, so the search stays at 50mm and only the fit leaves them out (`SAMPLE_WITHIN_M`,
+  `far_landing`): they stay in the file. Still open: an unseen tile's reset prompt and `session_report`'s landing stats act on
+  the neighbour; fixing that needs the matcher to know the other spots' homes (bench.py, record.py).
 - **Fitted without each session, landings at S1-S6** (predicted against measured; not a re-run): 20261117 grip +8.1mm y, RMS
   9.2mm, against grip+position +3.1mm, 4.6mm; 20261116 +2.3mm, 4.3mm against -0.2mm, 3.8mm; 20261112 +2.4mm, 4.7mm against
   +1.5mm, 3.8mm. For 11-17's grasps the aim moves 7.4mm -y at S2, 5.6mm at S1, 4.2mm at S3, and under 3mm elsewhere.

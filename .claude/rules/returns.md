@@ -31,8 +31,9 @@ Setting a held tile back down. Evidence in `docs/invariant_notes.md`.
   read that as the tile keeping its offset in the jaws. When v11/v13 closed 15-19mm +y past the hover at S1/S2 face down, its
   aim followed them and tiles landed +8mm (S2 +12 to +15mm), toward the wall (`20261117_093921_bench`). `grip+position` predicts
   those at +3mm, but it lost the fit's own test to 22 neighbours' tiles taken for landings 40-50mm away: every back reads
-  "back", and the 50mm search reaches the next spot. `check_landing` still resets anything it finds within 50mm, but records
-  a sample only within `SAMPLE_WITHIN_M` (30mm; no real landing past 24mm), and `load_records` leaves out older ones. Unconfirmed on the arm.
+  "back", and the 50mm search reaches the next spot. `check_landing` still finds and resets within 50mm and records every
+  landing; `load_records` fits only those within `SAMPLE_WITHIN_M` (30mm; no real landing past 24mm), and the report counts the
+  rest. The search itself still takes a neighbour when a tile is unseen. Unconfirmed on the arm.
 - **A landing is matched by place first, then name.** The name a tile read before it moved says little: a carried 2C read 3C
   3mm from home, and a real 2C 104mm away took the name match, so a good landing was logged as not seen and blocked play
   (`20261104_195901_bench`). `layout.nearest_tile` filters by radius first, and `markers.carried_from` rescores old ones from their scan.
