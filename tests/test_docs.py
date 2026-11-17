@@ -114,5 +114,6 @@ def test_the_make_policy_table_lists_every_option():
     section = README.split("## Training a policy: `scripts/make_policy.py`")[1].split("\n## ")[0]
     rows = "\n".join(line for line in section.splitlines() if line.startswith("| `--"))
     defined = re.findall(r"add_argument\(\"(--[\w-]+)\"", (REPO / "scripts" / "make_policy.py").read_text())
-    missing = sorted(o for o in defined if f"`{o}" not in rows)
+    assert "--leave-out" in defined, "the add_argument pattern no longer finds make_policy.py's options"
+    missing = sorted(o for o in defined if not re.search(rf"`{re.escape(o)}[` ]", rows))     # `--add` isn't `--add-foo`
     assert not missing, f"README.md's make_policy.py options table doesn't list {missing}"
