@@ -57,7 +57,7 @@ Git catches overlapping lines, not overlapping intent. `merging.md` has the deta
 - Parallel work: a helper, constant or option several tasks need lands on `main` first. Two branches shouldn't both change
   `bench.py`, `record.py` or `config.py`; `.claude/hooks/overlap_warning.py` says so after the first edit to a file another open branch changes. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
 - **Handing a branch back is `/hand-back`**: merge `main` in, ruff and the tests (the motion watchdog checks every sim arm command),
-  `/code-review` (one medium pass, then low on the fixes), a ready PR with `## What changed`, `## Files`, `## Overlaps`, `## Review`, `## Unverified on the arm`,
+  `/code-review` (the skill says how far), a ready PR with `## What changed`, `## Files`, `## Overlaps`, `## Review`, `## Unverified on the arm`,
   then the queue, `python scripts/merge_pr.py --auto N` from the main checkout, which merges it, pulls and closes the branch.
 - **Only decisions wait for the person** (`needs-owner`: the default policy, eval/exam splits, the standard setup, the scorecard,
   installed weights; `merge_pr.HOLD_FILES`); they merge those with `merge_pr.py N`. Merge only through the queue, never `gh pr merge`

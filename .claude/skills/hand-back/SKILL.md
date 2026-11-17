@@ -15,11 +15,11 @@ is one pass through steps 1-5 (a send-back starts the next); at most 3 rounds; i
      a watchdog failure is a motion bug until shown otherwise: never mark a test `motion_unwatched` to pass it)
    - the slow tests too if `mahjong/policy.py` or `mahjong/dataset.py` changed: `python -m pytest -m slow -q`
    - `python scripts/review_brief.py --range origin/main..HEAD` is the reviewer's view; its sim runs are the queue's too.
-3. **Review**: `/code-review medium` once on `git diff origin/main...HEAD`. Fix what's clearly a bug and rerun 2. If you fixed
-   anything, note `HEAD` before the first fix (after step 1's merge) and run `/code-review low` on just that diff
-   (`git diff <that commit>..HEAD`) and the callers of what it changed, not the whole branch again. If that finds a bug, fix it and
-   rerun 2 once more; anything still open goes in `## Review` and you stop and say so. Note each finding and what was done (fixed,
-   or declined and why).
+3. **Review**: `/code-review medium` on what hasn't been reviewed yet: `git diff origin/main...HEAD` in round 1; after a send-back,
+   only the commits since the last reviewed one (and the callers of what they changed). Fix what's clearly a bug, **commit it**, rerun
+   2, then `/code-review low` on just the fix commits and the callers of what they changed, never the whole branch again. Repeat the
+   low pass for each new fix, at most twice. A bug still open after that: stop before opening the PR and say what's left. Note each
+   finding and what was done (fixed, or declined and why; a declined finding isn't open).
 4. **The PR body**, written to a file in the scratchpad and passed with `--body-file` (never inline: quotes and backticks break):
    `## What changed` (and why), `## Files`, `## Overlaps` (with main and open branches; the overlap hook's notes go here), `## Review`
    (the /code-review findings and what was done), `## Unverified on the arm` (what's checked offline, what needs hardware).
