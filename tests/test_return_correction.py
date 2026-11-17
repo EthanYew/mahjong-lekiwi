@@ -182,7 +182,7 @@ def test_carried_returns_a_persons_hands_and_a_neighbours_tile_stay_out_of_the_f
     (session, attempt) = sorted(HAND_MOVED)[0]
     by_hand = {**keep, "session": session, "attempt_dir": attempt}
     path = tmp_path / "returns.jsonl"
-    neighbour = {**keep, "landed_xy": [0.2, 0.045]}          # a neighbour's tile, matched before the radius was cut
+    neighbour = {**keep, "landed_xy": [0.2, 0.045]}          # the next spot's tile, taken for an unseen landing
     near = {**keep, "landed_xy": [0.2, 0.02]}                # a poor landing, but this tile's
     path.write_text("".join(json.dumps(r) + "\n" for r in (keep, across, by_hand, neighbour, near)))
     fitted, _, excluded = load_records(path)

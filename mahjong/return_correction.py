@@ -57,9 +57,9 @@ MIN_POSITIONS = {"grip": 3, "grip+position": 5}
 MAX_CORRECTION_M = 0.02         # from the baseline target
 LANDED_WITHIN_M = 0.05          # the returned tile is the same-name detection nearest its home, this close
 SAMPLE_WITHIN_M = 0.03          # a landing further from home is still reset and recorded, but left out of the fit
-# Under the layouts' 50mm spot pitch: every face-down tile is "back", so the name can't tell a tile from its neighbour, and an
-# unseen landing took the next spot's tile 40-50mm away (22 of 1083 fitted returns to 2026-11-17, 8 face down). No real
-# landing was over 24mm (RETURN_DRIFT_RESET_M is 25). Those samples kept grip+position from being chosen.
+# Tied to the layouts' 50mm spot pitch: a returned tile the scan didn't see took the next spot's tile 48-50mm away (22 of 1083
+# fitted returns to 2026-11-17), through landed_tile's misread fallback (any name) or, face down, the same name (every back
+# reads "back"). No real landing was over 24mm (RETURN_DRIFT_RESET_M is 25). Those samples kept grip+position from being chosen.
 # Samples whose landing a person's hands may be in: `r` was pressed during the return. New ones aren't recorded.
 HAND_MOVED = {("20261030_163108_bench", "015_164126_2B"), ("20261030_163108_bench", "016_164209_2B"),
               ("20261030_163108_bench", "017_164250_NW"), ("20261030_163108_bench", "018_164334_NW"),
@@ -211,10 +211,27 @@ def fit_across(records):
     return {"usual": usual, "aim": coef[:3], "kept": coef[3:], "bounds": (landed.min(axis=0), landed.max(axis=0))}
 
 
+def _home(record):
+    return record.get("home_xy") or record["detection_xy"]     # sessions from before homes: the detection before the pickup
+
+
 def far_landing(record):
-    """Did this return land further from home than SAMPLE_WITHIN_M? Likely the next spot's tile taken for it (all backs read
-    "back"); it's still in the file, so a real run of big misses would show in the report's count."""
-    return math.dist(record["landed_xy"], record.get("home_xy") or record["detection_xy"]) > SAMPLE_WITHIN_M
+    """Did this return land further from home than SAMPLE_WITHIN_M? Likely the next spot's tile taken for an unseen one; it's
+    still in the file, so a real run of big misses would show in the report's count."""
+    return math.dist(record["landed_xy"], _home(record)) > SAMPLE_WITHIN_M
+
+
+def _excluded_by(record):
+    """Why load_records leaves this record out of the fit (None: it doesn't)."""
+    if record.get("excluded"):
+        return "marked"
+    if (record.get("session"), record.get("attempt_dir")) in HAND_MOVED:
+        return "by_hand"
+    if carried(record["detection_xy"], _home(record)):
+        return "carried"
+    if far_landing(record):
+        return "far"
+    return None
 
 
 def load_records(path=None):
@@ -226,8 +243,7 @@ def load_records(path=None):
     for record in read_all(path or config.RETURN_CORRECTIONS):
         if any(record.get(k) != v for k, v in fingerprint.items()):
             set_aside.append(record)
-        elif (record.get("excluded") or (record.get("session"), record.get("attempt_dir")) in HAND_MOVED
-              or carried(record["detection_xy"], record.get("home_xy") or record["detection_xy"]) or far_landing(record)):
+        elif _excluded_by(record):
             excluded.append(record)
         else:
             fitted.append(record)
@@ -327,7 +343,7 @@ def report():
     if model.set_aside:
         print(f"{len(model.set_aside)} record(s) from a different setup set aside.")
     if model.excluded:
-        far = sum(map(far_landing, model.excluded))
+        far = sum(_excluded_by(r) == "far" for r in model.excluded)
         print(f"{len(model.excluded)} record(s) excluded"
               + (f", {far} landed over {SAMPLE_WITHIN_M * 1000:.0f}mm from home (likely a neighbour's tile)." if far else "."))
     print(model.summary())

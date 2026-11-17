@@ -40,9 +40,10 @@ On even-hand14, returns at S1/S2 landed left of home (+y, toward the wall). Mean
   y offset, but most of the spread in grasp - detection is the gap across the mat (+9mm left, +24mm right), not a stray; a real
   stray keeps ~50% (the carried-tile section above found the same mix-up). On the left, its y residual grew with grasp -
   detection: slope +0.66 face down, +0.36 face up.
-- **`grip+position` was held back by neighbours taken for landings.** 22 fitted records had landed 40-50mm from home (8 face
-  down, 11-16/11-17), the spot pitch; nothing real had landed past 24mm (1061 under 25mm). A back always reads "back", so
-  with `LANDED_WITHIN_M` at 50mm an unseen return took the next spot's tile. Without them, leave-one-position-out: grip 5.35mm,
+- **`grip+position` was held back by neighbours taken for landings.** 22 fitted records had landed 48-50mm from home (8 face
+  down, 11-16/11-17), the spot pitch; nothing real had landed past 24mm (1061 under 25mm). With `LANDED_WITHIN_M` at 50mm,
+  a return the scan didn't see took the next spot's tile: face up through the misread fallback (any name; e.g. 6C and 5C
+  "landed" on 1B, `20261030_155453_bench`), face down by the shared name "back". Without them, leave-one-position-out: grip 5.35mm,
   grip+position 4.72mm (12%, past `MIN_GAIN`). Cutting the search radius to 30mm instead would have left a tile landing
   30-50mm off unreset, so the search stays at 50mm and only the fit leaves them out (`SAMPLE_WITHIN_M`,
   `far_landing`): they stay in the file. Still open: an unseen tile's reset prompt and `session_report`'s landing stats act on
