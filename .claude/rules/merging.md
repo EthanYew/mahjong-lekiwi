@@ -23,8 +23,8 @@ constants. Git catches overlapping lines, not overlapping intent. So:
 - **Handing a branch back** (Claude's job, `/hand-back`): merge the latest `main` into it, ruff and the tests, `/code-review` (the
   skill says how far; no PR while a bug it found is still open), and a ready PR whose body has `## What changed` (and why), `## Files`,
   `## Overlaps` (with `main` or other open branches), `## Review` (each finding and what was done) and `## Unverified on the arm`.
-  Then the queue merges it: `python scripts/merge_pr.py --auto N` (README, "The merge queue"). It refuses rather than asks: an unfinished description, a missing
-  review for `REVIEW_FILES`, a name added on both sides, a merged tree that fails the tests or the sim runs. A sent-back PR has the
+  Then the queue merges it: `python scripts/merge_pr.py --auto N` (README, "The merge queue").
+  It refuses rather than asks: an unfinished description, a missing review for `REVIEW_FILES`, a name added on both sides, a merged tree that fails the tests or the sim runs. A sent-back PR has the
   output as a comment; fix and requeue. A decision (`HOLD_FILES`, weights, the default policy) gets `needs-owner` and waits.
 - **Merging by hand** (the person, for held PRs): `python scripts/merge_pr.py N` from the main checkout, one PR at a time. It shows
   the description, what `main` and the branch both changed since they split (and any function, constant or
