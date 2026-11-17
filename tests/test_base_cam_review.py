@@ -79,7 +79,7 @@ def test_tile_counts_have_every_tile_with_its_light_and_how_much_is_reviewed(tmp
     first = base_cam.review_photos([session])[0]
     photo_review.record([first["key"]], "ok", None, base_cam.REVIEW)
     counts = base_cam_collect.tile_counts(tmp_path)
-    assert counts["3B"] == {"holds": {"upright": 3, "turned": 0}, "photos": 12, "reviewed": 2, "sessions": 2,
+    assert counts["3B"] == {"holds": {"upright": 3, "turned": 0}, "play_holds": 0, "waiting": 0, "photos": 12, "reviewed": 2, "sessions": 2,
                             "daylight": {"bright": 2, "none": 1}}
     assert counts["9D"]["holds"] == {"upright": 0, "turned": 0} and counts["9D"]["photos"] == 0
 
@@ -127,3 +127,63 @@ def test_a_cell_shows_the_tile_box_crop_the_reader_sees(tmp_path, monkeypatch):
     reviewer = base_cam_review.Reviewer([photo], {}, ["3B"], boxes={"base_view_1": [100, 0, 300, 200]})
     image = reviewer.image_of(photo)
     assert image.shape[:2] == (reviewer.THUMB_H, reviewer.THUMB_W)
+
+
+# --- holds saved in face-down play wait for a person's review (play_face_down.py, the owner's rule of 2026-11-17) ---
+
+def write_play_session(root, tiles, filed_by="reader"):
+    """A play_fd session: one hold per tile at both poses, filed `review_first` under the given names."""
+    folder = root / "20261118_100000_play_fd"
+    folder.mkdir(parents=True)
+    lines = [{"type": "session_start", "sim": False}, {"type": "holdup_conditions", "conditions": {"daylight": "dim"}, "order": "play"}]
+    for shot, tile in enumerate(tiles, 1):
+        files = []
+        for i, pose in enumerate(POSES):
+            photo = folder / "photos" / tile / f"unknown_h{shot}_{i}.jpg"
+            photo.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(photo), np.full((480, 640, 3), 100, np.uint8))
+            files.append(str(photo.relative_to(folder)))
+        lines.append({"type": "holdup_shot", **base_cam_collect.shot_event(tile, base_cam.UNKNOWN_KIND, shot, files, list(POSES), shot=shot,
+                                                                          spot="zone", review_first=True, filed_by=filed_by)})
+    (folder / "events.jsonl").write_text("\n".join(json.dumps(line) for line in lines) + "\n")
+    return folder
+
+
+def test_a_hold_from_play_is_in_no_row_until_a_person_reviews_it(tmp_path):
+    session = write_play_session(tmp_path, ["5C", "9C"])
+    assert base_cam.rows(session) == []
+    assert base_cam.waiting_for_review(session) == {1: "5C", 2: "9C"}
+    photos = base_cam.review_photos([session])
+    assert {p["filed_by"] for p in photos} == {"reader"} and all(p["review_first"] for p in photos)
+    five = [p["key"] for p in photos if p["name"] == "5C"]
+    nine = [p["key"] for p in photos if p["name"] == "9C"]
+    photo_review.record(five, "ok", None, base_cam.REVIEW)
+    photo_review.record(nine[:1], "wrong", "7C", base_cam.REVIEW)         # the reader read a 7C as 9C
+    photo_review.record(nine[1:], "wrong", None, base_cam.REVIEW)         # and one pose showed no tile
+    assert sorted((r["truth"], r["pose"]) for r in base_cam.rows(session)) == [("5C", POSES[0]), ("5C", POSES[1]), ("7C", POSES[0])]
+    assert base_cam.waiting_for_review(session) == {}
+
+
+def test_play_sessions_count_and_their_unreviewed_holds_show_as_waiting(tmp_path, monkeypatch, capsys):
+    import base_cam_review
+    write_play_session(tmp_path, ["5C", "5C", "9C"])
+    counted, _ = base_cam_collect.counted_sessions(tmp_path)
+    assert [s.name for s in counted] == ["20261118_100000_play_fd"]
+    counts = base_cam_collect.tile_counts(tmp_path)
+    assert counts["5C"]["waiting"] == 2 and counts["9C"]["waiting"] == 1
+    assert counts["5C"]["holds"] == {"upright": 0, "turned": 0} and counts["5C"]["play_holds"] == 0
+    photo_review.record([p["key"] for p in base_cam.review_photos(counted) if p["name"] == "9C"], "ok", None, base_cam.REVIEW)
+    counts = base_cam_collect.tile_counts(tmp_path)
+    assert counts["9C"]["play_holds"] == 1 and counts["9C"]["waiting"] == 0
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    base_cam_review.main(["--counts"])
+    assert "2 hold(s) from play wait for review: python scripts/base_cam_review.py --play" in capsys.readouterr().out
+
+
+def test_training_finds_play_sessions_but_only_their_reviewed_holds(tmp_path, monkeypatch):
+    import base_cam_train
+    session = write_play_session(tmp_path, ["5C"])
+    write_session(tmp_path / "20261112_100000_holdup", [{"S5": "3B"}])
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    assert [f.name for f in base_cam_train.find_sessions(None)] == ["20261112_100000_holdup", session.name]
+    assert base_cam.rows(session) == []

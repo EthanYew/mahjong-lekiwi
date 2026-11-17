@@ -79,7 +79,8 @@ def find_sessions(arg):
     if arg:
         folders = [Path(s) for s in arg.split(",")]
     else:
-        folders = sorted(config.SESSIONS.glob("*_holdup"))
+        # face-down play's holds too: base_cam.rows leaves out every one a person hasn't reviewed (base_cam_review.py --play)
+        folders = sorted([*config.SESSIONS.glob("*_holdup"), *config.SESSIONS.glob("*_play_fd")], key=lambda f: f.name)
     return [f for f in folders if f.is_dir() and not base_cam.is_sim(f)]
 
 
