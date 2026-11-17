@@ -55,10 +55,11 @@ def default_checks(sessions_dir=None, registry=None, quick=False, found=_UNSET):
 
 def face_up_round(sessions_dir=None, registry=None, quick=False, found=_UNSET):
     """A line if the default's latest face-up round on the standard setup since it became the default is missing or went
-    badly. A round is a play-ready attempt or a full iteration round against another policy, in either order on the bench;
-    it's good if it passed play-ready or didn't leave the default 3 pairs behind (Drop). The latest decides, so a later Drop
-    brings the line back. A face-down gain mustn't hide a face-up loss (docs/scorecard.md); v10, v11 and v13 were all chosen
-    face down, and only v10 had a valid face-up run (2026-11-17)."""
+    badly. A round is a full iteration round against another policy (in either order on the bench) or a play-ready run (its
+    PLAY_READY_ATTEMPTS). It's bad if another policy left the default 3 pairs behind (Drop), or if it was a play-ready run
+    alone that failed; a full round that didn't Drop is good even short of play-ready. The latest decides, so a later bad
+    round brings the line back. A face-down gain mustn't hide a face-up loss (docs/scorecard.md); v10, v11 and v13 were all
+    chosen face down, and only v10 had a valid face-up run (2026-11-17)."""
     if found is _UNSET:
         found = _counted_since_default(sessions_dir, registry or json.loads(config.POLICIES.read_text()), quick)
     if found is None:
@@ -67,11 +68,15 @@ def face_up_round(sessions_dir=None, registry=None, quick=False, found=_UNSET):
     latest = None                                                   # None: no face-up round; else whether the latest was good
     for s in summaries:                                             # in session order
         mine = s["gates"].get(default)
-        if mine and not s.get("face_down") and (mine["play_ready"] or mine["paired_with"]):
-            latest = mine["play_ready"] or not mine["dropped_against"]
+        if not mine or s.get("face_down"):
+            continue
+        if mine["paired_with"]:
+            latest = not mine["dropped_against"]
+        elif mine["attempts"] >= scorecard.PLAY_READY_ATTEMPTS:
+            latest = mine["play_ready"]
     if latest:
         return None
-    what = "had no face-up round" if latest is None else "dropped behind in its latest face-up round"
+    what = "had no face-up round" if latest is None else "fallen behind in its latest face-up round"
     return (f"the default, {default} (since {since or '?'}), has {what} on the standard setup since: "
             f"bench.py --policy <the face-up best>,{default} --layout {standard['layout']} --trials 1, face up (docs/scorecard.md)")
 

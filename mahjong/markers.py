@@ -26,7 +26,7 @@ from . import config
 from .hover_correction import setup_fingerprint
 from .layout import pixel_to_table
 from .return_correction import landings
-from .session import read_events, void_reason
+from .session import counted_real, read_events
 
 DRAWN_TILE_MARKER_ID = 3
 DICTIONARY = cv2.aruco.DICT_6X6_250
@@ -99,7 +99,7 @@ def benched_at(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     attempts = picked = returned = 0
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        if any(e["type"] == "session_start" and e.get("sim") for e in events) or void_reason(events_file.parent):
+        if not counted_real(events_file.parent):
             continue
         here =[e for e in events if e["type"] == "attempt" and e.get("spot_xy")
                 and math.dist(e["spot_xy"], xy) <= radius_m]
@@ -117,7 +117,7 @@ def carried_from(xy, sessions_dir=None, radius_m=ZONE_RADIUS_M):
     errors = []
     for events_file in sorted((sessions_dir or config.SESSIONS).glob("*_bench/events.jsonl")):
         events = read_events(events_file.parent)
-        if any(e["type"] == "session_start" and e.get("sim") for e in events) or void_reason(events_file.parent):
+        if not counted_real(events_file.parent):
             continue
         scored = {r["attempt_dir"]: r["error_m"] for r in landings(events)}
         for e in events:

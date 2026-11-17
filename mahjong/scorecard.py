@@ -27,7 +27,8 @@ PLAY_READY_MISSES = 2       # ...at most this many not clean (26/28)...
 PLAY_READY_SPOT_MISSES = 2  # ...and no spot not clean this many times
 HOVER_GRIPPER_SPREAD = 1.0  # openings further apart than this (%) aren't the same hover: .claude/rules/policy_data.md, "Datasets store..."
 STANDARD_SETUP = config.DATA / "standard_setup.json"
-SEES_BACKS = "found by the scans' back boxes"          # face_down_aim: the only face-down sessions that count
+SEES_BACKS = "found by the scans' back boxes"          # face_down_aim's wording. What counts is standard_setup.json's
+                                                       # face_down.sees_backs flag; its "aim" is the same rule in words
 
 
 def exact_ci(k, n, confidence=0.95):
@@ -140,8 +141,8 @@ def off_standard(events, standard=None, folder=None):
         + ([f"surface {surface or 'not recorded'}, not {standard['surface']}"] if surface != standard["surface"] else []) \
         + ([f"layout {name or 'none'}, not {standard['layout']}"] if name != standard["layout"] else []) \
         + (["carries between two spots, not a walk of the layout"] if setup.get("carry") else []) \
-        + ([f"hover {setup['hover_lower_mm']:g}mm lower than the policy's own (--hover-lower-mm): an experiment"]
-           if setup.get("hover_lower_mm") else []) \
+        + ([f"hover {abs(setup['hover_lower_mm']):g}mm {'lower' if setup['hover_lower_mm'] > 0 else 'higher'} than the "
+            "policy's own (--hover-lower-mm): an experiment"] if setup.get("hover_lower_mm") else []) \
         + ([f"face-down tiles, {face_down_aim(events)}"] if setup.get("face_down") and not face_down_counts else [])
 
 
@@ -240,10 +241,12 @@ def cached_summary(session_dir):
 
 
 def session_summary(session_dir):
-    """{"clean": policy -> clean attempts, "face_down": bool, "gates": policy -> {"play_ready", "ahead_of", "paired_with",
-    "dropped_against": [policies]}} for a session folder, saved beside its events: status.py reads every session, and deriving
-    them all takes minutes. paired_with: a full iteration round (ITERATION_PAIRS) with that policy as baseline. Redone if the
-    events grow (a keys_void) or NOT_CLEAN changes."""
+    """{"clean": policy -> clean attempts, "face_down": bool, "gates": policy -> {"play_ready", "attempts", "ahead_of",
+    "paired_with", "dropped_against": [policies]}} for a session folder, saved beside its events: status.py reads every
+    session, and deriving them all takes minutes. Each policy is scored as the candidate against each other one, whichever
+    order the bench ran them in (pairs() matches by spot, not by role): paired_with is a full iteration round
+    (ITERATION_PAIRS) with that policy, dropped_against one that left this policy 3 pairs behind. Redone if the events grow
+    (a keys_void) or NOT_CLEAN changes."""
     if (old := cached_summary(session_dir)):
         return old
     events = read_events(session_dir)
@@ -251,7 +254,8 @@ def session_summary(session_dir):
     clean = {policy: row["clean"] for policy, row in policy_rows(events, found).items() if policy}
     policies = sorted(clean)
     checks = {(q, p): iteration_check(events, q, p, found) for p in policies for q in policies if q != p}
-    gates = {p: {"play_ready": play_ready(events, p, found)["ok"],
+    ready = {p: play_ready(events, p, found) for p in policies}
+    gates = {p: {"play_ready": ready[p]["ok"], "attempts": ready[p]["attempts"],
                  "ahead_of": [q for q in policies if q != p and checks[(q, p)]["result"] == "ahead"],
                  "paired_with": [q for q in policies if q != p and checks[(q, p)]["pairs"] >= ITERATION_PAIRS],
                  "dropped_against": [q for q in policies if q != p and checks[(q, p)]["result"] == "drop"]}

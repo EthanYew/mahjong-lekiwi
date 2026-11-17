@@ -22,7 +22,7 @@ import numpy as np
 from mahjong import bump_report, config, interventions, name_ledger, scorecard, wrist_usb
 from mahjong.camera import TORN_STOP_FRAMES
 from mahjong.return_correction import landings
-from mahjong.session import conditions_text, read_events
+from mahjong.session import conditions_text, read_events, void_reason
 
 THUMB = (240, 180)
 CLOSE_LOW_MM, CLOSE_HIGH_MM = 10.0, 20.0     # close_height_report's bands
@@ -295,7 +295,7 @@ def all_sessions():
         clean = sum(scorecard.clean_flags(events, found).values())
         print(f"{folder.name:<24} {clean:>2}/{len(attempts):<3} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
               f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}"
-              + ("  VOIDED" if scorecard.void_reason(folder) else ""))
+              + ("  VOIDED" if void_reason(folder) else ""))
     hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play"))
              if (folder / "events.jsonl").exists()]
     hands = [(folder, events, next(e for e in events if e["type"] == "hand_end")) for folder, events in hands
@@ -321,7 +321,7 @@ def main():
     events = read_events(session_dir)
     start = next((e for e in events if e["type"] == "session_start"), {})
     print(f"{session_dir.name}: {start.get('kind')} at commit {start.get('commit')}")
-    if (void := scorecard.void_reason(session_dir)):
+    if (void := void_reason(session_dir)):
         print(f"  VOIDED (data/void_sessions.json): {void}. Nothing below counts towards a policy's totals or checks")
     if setup_text(start):
         print(f"  setup: {setup_text(start)}")
@@ -333,10 +333,11 @@ def main():
               "not a counted result")
     if bench_setup.get("face_down"):
         aim = scorecard.face_down_aim(events)
-        counted = not scorecard.off_standard(events, folder=session_dir)     # the gates' own test, so the two lines agree
+        away = scorecard.off_standard(events, folder=session_dir)           # the gates' own test, so the two lines agree
         print(f"  face-down tiles (bench --face-down): {aim}"
-              + ("; counted as the face-down setup, compared only with other face-down sessions" if counted
-                 else ("" if aim == scorecard.SEES_BACKS else ", landings unseen") + "; not a counted result"))
+              + ("; counted as the face-down setup, compared only with other face-down sessions" if not away
+                 else ("" if aim == scorecard.SEES_BACKS else ", landings unseen")
+                 + "; not a counted result (" + "; ".join(away) + ")"))
     if bench_setup.get("unattended"):
         c = bump_report.counts(events, bump_report.phases(events))
         print(f"  unattended: {c['flagged']} self-reported bump(s), {c['checked']} checked ({c['rejected']} didn't move). "
