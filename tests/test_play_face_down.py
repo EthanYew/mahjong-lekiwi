@@ -3,6 +3,8 @@ checked once, turns from a wall two high until the wall's empty, the end check; 
 every hold saved for the reader and kept out of training until reviewed; --report and --resume."""
 import json
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -254,6 +256,20 @@ def test_a_resume_after_a_quit_mid_turn_has_the_drawn_tile_put_back_first(monkey
     (left,) = events_of(second, "fd_resume_unfinished")
     assert left["turn"] == 1 and left["choice"] is None
     assert [c["turn"] for c in events_of(second, "crude_choice")] == [1, 2]
+
+
+def test_a_resumed_hand_s_checkpoint_keeps_its_turn_until_the_next_one_finishes(monkeypatch, tmp_path):
+    """The resume writes a checkpoint before its first turn: it said turn 0, so a stop in that turn sent the next --resume
+    back to turn 1 (code review of the post-merge fixes)."""
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D", "8B", "9B"])
+    first, _ = run(script, [], [*LIGHT, "", "", "", "q"])             # turn 1, then quit after it
+    second, _ = run(script, ["--resume"], [*LIGHT, "q"])              # quit at turn 2's read
+    assert json.loads((second / "checkpoint.json").read_text())["turn"] == 1
+    while (tmp_path / f"{datetime.now():%Y%m%d_%H%M%S}_{face_down_play.PLAY_KIND}").exists():
+        time.sleep(0.05)            # a session folder is named to the second: three runs can share one
+    third, prompts = run(script, ["--resume", second.name], [*LIGHT, "", "", "end", ""])
+    assert any("Turn 2 stopped before its discard" in p for p in prompts)
+    assert [c["turn"] for c in events_of(third, "crude_choice")] == [2]
 
 
 def test_an_unfinished_turn_is_found_from_the_log_and_a_chosen_discard_is_kept():

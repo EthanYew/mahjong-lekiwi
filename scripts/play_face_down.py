@@ -413,6 +413,7 @@ class Player(crude_run.Run):
                 else:
                     self.fed_already = left["turn"]
             print(f"Resuming {folder.name} at turn {start}: {crude_run.hand_text(self.slots, self.hand)}")
+            self.turn_no = start - 1        # the checkpoint's turn is the last one finished: a stop in the next resumes from here
             self.checkpoint()
         for plan in face_down_play.turn_plan(start):
             result = self.turn(plan)
