@@ -304,3 +304,9 @@ def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):
     assert end["silent_errors"] == 1 and end["grade"] == "silent error"
     (error,) = [i for i in events_of(folder, "intervention") if i["kind"] == "silent_error"]
     assert (error["slot"], error["robot"], error["table"]) == ("ZONE", "5D", "6D")
+
+
+def test_the_end_check_s_retry_hint_names_the_zone_after_a_win(monkeypatch, tmp_path, capsys):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    run(script, ["--unattended"], [*LIGHT, "", "ZONE 6D", ""])
+    assert "or ZONE=NAME" in capsys.readouterr().out

@@ -444,7 +444,7 @@ class Player(crude_run.Run):
             if wrong is not None and not face_down_play.bad_names(wrong):
                 checked = True
                 break
-            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}")
+            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if self.won_on else ""))
         wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
         for slot, name in wrong.items():
             self.rig.session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
