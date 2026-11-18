@@ -242,11 +242,18 @@ def append_jsonl(path, records, default=None):
             clean = f.read(1) == b"\n"
         if not clean:
             whole, tail = _tail(path.read_bytes())
+            kept = tail.rstrip(b"\0")
+            try:
+                json.loads(kept.decode())       # a record whole but for its newline, which read_jsonl reads: keep it
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                kept = b""
             with open(path.with_name(path.name + ".cut"), "ab") as f:
-                f.write(tail)
+                f.write(tail[len(kept):])
             with open(path, "r+b") as f:
                 f.truncate(len(whole))
-            print(f"WARNING: {path}: {len(tail)} bytes after its last whole line (a write cut short) moved to "
+                f.seek(len(whole))
+                f.write(kept + b"\n" if kept else b"")
+            print(f"WARNING: {path}: {len(tail) - len(kept)} bytes after its last whole line (a write cut short) moved to "
                   f"{path.name}.cut before appending", file=sys.stderr)
     with open(path, "a") as f:
         for record in records:

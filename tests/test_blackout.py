@@ -65,6 +65,13 @@ def test_the_next_append_after_a_cut_starts_clean_and_keeps_the_cut_bytes(tmp_pa
     assert "moved to episode_log.jsonl.cut" in capsys.readouterr().err
 
 
+def test_a_record_cut_just_before_its_newline_survives_the_next_append(tmp_path):
+    path = log(tmp_path / "events.jsonl", b'{"type": "episode_saved"}' + b"\0" * 6)
+    append_jsonl(path, [{"type": "next"}])
+    assert read_jsonl(path) == ROWS + [{"type": "episode_saved"}, {"type": "next"}]
+    assert (tmp_path / "events.jsonl.cut").read_bytes() == b"\0" * 6
+
+
 def test_appending_to_a_whole_or_new_log_touches_nothing_else(tmp_path, capsys):
     path = tmp_path / "events.jsonl"
     append_jsonl(path, ROWS[:1])
