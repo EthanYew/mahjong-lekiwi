@@ -65,7 +65,11 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   **A face-down tile has no face to see**, so the face disc read ~0 over every back (36 of 36 looks on 2026-11-16 said
   "not there" with the back between the jaws). A back is found by its shape (`wrist_check.back_blob`: a compact tile-sized
   patch of its green), never its colour alone: the standard mat's olive stripe has the back's green in a dim room.
-  Unconfirmed on the arm. Evidence: `docs/invariant_notes.md`.
+  **The shape misses partly hidden backs**: 859 of 1,092 face-down first frames at the hover (79%) to 2026-11-18, and 4 of 5
+  looks on `20261118_221723_bench` asked a person (the jaw tips and their shadow cut the patch under `BACK_AREA_PX`'s floor).
+  So a trained back check (`mahjong/back_check.py`) is asked first once installed, and acts only when every frame agrees
+  confidently; its "empty" photos must come from bare spots (`wrist_capture.py --empty`), never a guess, since the arm
+  otherwise only hovers where a tile is. Evidence: `docs/invariant_notes.md`.
 - **Whether a tile is there and which tile it is are separate questions.** The detector boxes tiles it can't name (3C at a
   median 0.18, so it looked gone in 45 of 46 scans), so a box down to `config.DETECTION_PRESENCE_CONFIDENCE` proves a tile
   is there (`perception.faint_tiles`, `tile_faint` events), and only a name over `DETECTION_CONFIDENCE` is acted on as one.

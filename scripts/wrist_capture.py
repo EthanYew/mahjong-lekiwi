@@ -19,6 +19,16 @@ Saved to sessions/<time>_wrist/wrist/<NAME>/<set>_<tile>_v<view>_f<k>.jpg (one f
 image-classification layout), with a `wrist_view` event per view (name, detector read, hover, jitter,
 height, roll). After each set it prints how many views every name has over all wrist sessions, and
 which still have fewer than --target.
+
+    python scripts/wrist_capture.py --empty even-hand14   # the same hovers over a layout's bare spots
+
+--empty LAYOUT takes photos of nothing between the jaws, which the wrist camera's back check (mahjong/back_check.py)
+needs as much as backs, and the arm otherwise only hovers where a tile is. Lay face-down tiles on some of the layout's
+spots and leave the rest bare: the scan lists the spots with no tile within EMPTY_CLEAR_M (a back too, with weights that
+see backs; check the list by eye with older ones), and the arm hovers over each bare spot as over a tile, so its
+neighbours show at the edge of the view as they do at a real look. Saved to
+sessions/<time>_wrist/wrist_empty/empty/<set>_<spot>_v<view>_f<k>.jpg, kept out of wrist/ so the name check never
+reads them. Tiles are never touched.
 """
 import argparse
 import math
@@ -35,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, detector, hardware, wrist_photos
+from mahjong import back_check, config, detector, hardware, layout, perception, wrist_photos
 from mahjong.arm import ADJUST_TIME_S, SETTLE_S
 from mahjong.camera import grab_frames
 from mahjong.hover_correction import HoverCorrection
@@ -45,6 +55,9 @@ from mahjong.session import Session, read_jsonl
 WINDOW = "wrist capture"
 ROLL_MARGIN_DEG = 5.0        # a rolled view stays this far inside the roll's command limits
 RETRIES = 3                  # fresh jitter draws for a view whose hover is out of reach
+# --empty: a spot is bare with no detection this close (centres). Layout neighbours are 50-51mm apart, so a tile on the
+# next spot doesn't make one look taken, and one knocked half-way does.
+EMPTY_CLEAR_M = 0.035
 
 
 def parse_args(argv=None):
@@ -62,6 +75,8 @@ def parse_args(argv=None):
     p.add_argument("--sets", type=int, default=None, help="stop after this many sets of tiles (default: until q)")
     p.add_argument("--seed", type=int, default=None, help="random seed for the jitter and roll")
     p.add_argument("--no-view", action="store_true", help="no RealSense / wrist windows")
+    p.add_argument("--empty", metavar="LAYOUT", default=None,
+                   help="hover over this layout's bare spots instead of over tiles, for the back check's empty photos")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera and mat")
     return p.parse_args(argv)
 
@@ -145,6 +160,53 @@ def confirm_names(realsense, ask, show):
                 return [t for t in tiles if not t.get("skip")]
 
 
+def empty_spots(tiles, spots, clear_m=EMPTY_CLEAR_M):
+    """The layout's spots with no scanned tile within clear_m: [{"tile_name": "empty", "id", "xy", ...}], in layout order."""
+    return [{"tile_name": back_check.EMPTY, "id": s["id"], "xy": list(s["xy"]), "detected_as": None, "confidence": None}
+            for s in spots if not any(math.dist(t["xy"], s["xy"]) <= clear_m for t in tiles)]
+
+
+def key_of(tile):
+    """What a capture is filed and counted under: a bare spot's id, else the tile's name."""
+    return tile.get("id") or tile["tile_name"]
+
+
+def confirm_empty(realsense, spots, ask, show, sim=False):
+    """Scan, list the bare spots, and let the person leave some out. Returns the spots to capture, or None to quit.
+    Weights that see no backs would list a spot with a back on it as bare, and its photos would train the back check that a
+    back is empty, so on the arm that stops it (the sim's mat has no backs to see)."""
+    if not perception.sees_backs(realsense):
+        if not sim:
+            raise SystemExit("The detector's weights see no backs, so a spot with a back on it would look bare: install "
+                             "weights with the back class (README 'Teaching the detector tile backs') first.")
+        print("The detector's weights see no backs: a spot with a back on it is listed as bare.")
+    while True:
+        tiles = list(realsense.detect_tiles()) + list(getattr(realsense, "faint", None) or [])
+        bare = empty_spots(tiles, spots)
+        while True:
+            print(f"\n{len(bare)} bare spots of {len(spots)}: "
+                  + " ".join(s["id"] + (" (left out)" if s.get("skip") else "") for s in bare))
+            if show:
+                ids = {s["id"] for s in bare if not s.get("skip")}
+                cv2.imshow(WINDOW, layout.draw(realsense.snapshot(), [s for s in spots if s["id"] in ids],
+                                               realsense.intrinsics, realsense.T_cam_to_base))
+                cv2.waitKey(1)
+            action, result = parse_answer(ask("Bare spots right? Enter to start, -S3 leave one out, r rescan, q quit: "),
+                                          bare)
+            if action == "edit" and any(s.get("renamed_from") for s in result):
+                action, result = "error", "a bare spot has no name to change: -S3 leaves one out"
+            if action == "error":
+                print(result)
+            elif action == "edit":
+                bare = result
+            elif action == "rescan":
+                break
+            elif action == "quit":
+                return None
+            else:
+                return [s for s in bare if not s.get("skip")]
+
+
 def roll_to(arm, offset_deg):
     """Turn the wrist by offset_deg from the hover's roll, kept ROLL_MARGIN_DEG inside its limits. Returns
     the offset applied."""
@@ -159,9 +221,10 @@ def roll_to(arm, offset_deg):
 
 
 def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n_frames, show, rng, jitter_m,
-                 roll_deg):
-    """Every planned view of one tile; returns (views saved, the camera: reopened if it was lost)."""
-    folder = session.dir / "wrist" / tile["tile_name"]
+                 roll_deg, root="wrist"):
+    """Every planned view of one tile (or bare spot, under root wrist_empty/); returns (views saved, the camera: reopened
+    if it was lost)."""
+    folder = session.dir / root / tile["tile_name"]
     folder.mkdir(parents=True, exist_ok=True)
     x, y = tile["xy"]
     hx, hy = correction.apply(x, y) if correction else (x, y)
@@ -189,7 +252,7 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
             frames = grab_frames(camera, n_frames)
         files = []
         for k, frame in enumerate(frames):
-            name = f"{set_n:02d}_{tile_n:02d}_v{v:02d}_f{k}.jpg"
+            name = f"{set_n:02d}_{tile.get('id') or f'{tile_n:02d}'}_v{v:02d}_f{k}.jpg"
             cv2.imwrite(str(folder / name), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
             files.append(name)
             if show:
@@ -205,7 +268,7 @@ def capture_tile(arm, camera, session, correction, tile, views, set_n, tile_n, n
                       confidence=tile["confidence"], set=set_n, tile_n=tile_n, view=v, detection_xy=[x, y],
                       hover_xy=result["hover_xy"], hover_jitter_xy=[dx, dy], clearance_m=result["clearance_m"],
                       target_clearance_m=clearance, roll_offset_deg=applied, wrist_roll=arm.commanded()["wrist_roll"],
-                      files=[f"wrist/{tile['tile_name']}/{f}" for f in files])
+                      spot=tile.get("id"), files=[f"{root}/{tile['tile_name']}/{f}" for f in files])
     return saved, camera
 
 
@@ -257,6 +320,7 @@ def main(argv=None, ask=None):
     ask = ask or input
     clearances = [float(c) / 1000 for c in args.clearances_mm.split(",")]
     rng = random.Random(args.seed)
+    spots = layout.load(args.empty)["spots"] if args.empty else None      # an unknown layout stops before the arm moves
     if args.sim:
         from mahjong import sim
         devices = sim.connect()
@@ -265,7 +329,7 @@ def main(argv=None, ask=None):
     arm, camera, realsense = devices["arm"], devices["wrist_camera"], devices["realsense"]
     session = Session("wrist", ask_setup=not args.sim, sim=args.sim)
     session.event("wrist_capture_start", views=args.views, jitter_mm=args.jitter_mm, clearances_m=clearances,
-                  roll_deg=args.roll_deg, frames=args.frames, seed=args.seed)
+                  roll_deg=args.roll_deg, frames=args.frames, seed=args.seed, empty_layout=args.empty)
     if arm.at_connect:
         session.event("connect", **arm.at_connect)
     correction = HoverCorrection.load()
@@ -277,28 +341,35 @@ def main(argv=None, ask=None):
     try:
         while args.sets is None or set_n < args.sets:
             arm.rest()
-            tiles = confirm_names(realsense, ask, show)
+            tiles = confirm_empty(realsense, spots, ask, show, sim=args.sim) if args.empty else confirm_names(realsense, ask, show)
             if tiles is None:
                 break
             if not tiles:
-                print("No tiles to capture.")
+                print("No bare spots to capture." if args.empty else "No tiles to capture.")
                 continue
             set_n += 1
             session.event("wrist_set", set=set_n, tiles=[{k: t.get(k) for k in ("tile_name", "detected_as", "xy",
-                                                                                  "confidence")} for t in tiles])
+                                                                                  "confidence", "id")} for t in tiles])
             done = Counter()
             for i, tile in enumerate(tiles, 1):
-                print(f"  tile {i}/{len(tiles)}: {tile['tile_name']}")
+                key = key_of(tile)
+                print(f"  {'spot' if args.empty else 'tile'} {i}/{len(tiles)}: {key}")
                 views = plan_views(args.views, args.jitter_mm / 1000, clearances, args.roll_deg, rng)
                 saved, camera = capture_tile(arm, camera, session, correction, tile, views, set_n, i, args.frames,
-                                             show, rng, args.jitter_mm / 1000, args.roll_deg)
-                done[tile["tile_name"]] += saved
+                                             show, rng, args.jitter_mm / 1000, args.roll_deg,
+                                             root=back_check.EMPTY_FOLDER if args.empty else "wrist")
+                done[key] += saved
             arm.rest()
-            short_of = [t["tile_name"] for t in tiles if done[t["tile_name"]] < args.views]
-            report(views_per_name(session.dir.parent) if not args.sim else {"this set": done}, args.target)
-            notify(f"Set {set_n} done: {sum(done.values())} views of {len(tiles)} tiles"
+            short_of = [key_of(t) for t in tiles if done[key_of(t)] < args.views]
+            if args.empty:
+                print("Back check photos over all sessions: "
+                      + back_check.summary([] if args.sim else back_check.photos(session.dir.parent)))
+            else:
+                report(views_per_name(session.dir.parent) if not args.sim else {"this set": done}, args.target)
+            notify(f"Set {set_n} done: {sum(done.values())} views of {len(tiles)} {'spots' if args.empty else 'tiles'}"
                    + (f" (fewer than {args.views} for {', '.join(sorted(set(short_of)))})" if short_of else "")
-                   + ". Put the next set of tiles down.", sim=args.sim)
+                   + (". Move the tiles so other spots are bare." if args.empty else ". Put the next set of tiles down."),
+                   sim=args.sim)
             session.event("wrist_set_done", set=set_n, views=dict(done), short_of=short_of)
             if (args.sets is None or set_n < args.sets) and \
                     ask("Swap in the next set of tiles, then Enter to scan (q to finish): ").strip().lower() == "q":

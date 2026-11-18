@@ -913,7 +913,7 @@ def test_a_pale_surface_asks_once_a_place_and_then_goes_by_the_view(tmp_path, mo
     frame = np.full((480, 640, 3), 200, np.uint8)
     templates = []
 
-    def pale(arm, camera, x, y, hover, template=None, back=False):
+    def pale(arm, camera, x, y, hover, template=None, back=False, reader=None):
         templates.append(template)
         if template is None:
             return {"present": None, "fill": 0.7, "pale": True, "why": "pale", "hover_xy": [x, y], "frame": frame}

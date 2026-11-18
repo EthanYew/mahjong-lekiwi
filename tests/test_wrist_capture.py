@@ -32,6 +32,48 @@ def test_sim_set_saves_every_view_under_the_confirmed_names(tmp_path, monkeypatc
     assert not wrist_capture.views_per_name(tmp_path, tmp_path)["wrist_capture"]     # a sim session never counts
 
 
+def test_empty_hovers_over_the_layouts_bare_spots_only_and_keeps_them_from_the_name_check(tmp_path, monkeypatch):
+    import wrist_capture
+    from mahjong import layout, sim, wrist_photos
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    spots = layout.load("even-hand14")["spots"]
+    near = {s["id"] for s in spots if any(((s["xy"][0] - x) ** 2 + (s["xy"][1] - y) ** 2) ** 0.5 <= 0.035
+                                          for _, x, y in sim.SIM_TILES)}
+    bare = [s["id"] for s in spots if s["id"] not in near]
+    answers = iter([f"-{bare[1]}", ""])                       # one bare spot left out by hand
+    wrist_capture.main(["--sim", "--sets", "1", "--views", "2", "--frames", "2", "--seed", "1", "--empty", "even-hand14"],
+                       ask=lambda prompt: next(answers))
+    session = next(tmp_path.glob("*_wrist"))
+    assert not (session / "wrist").exists()                   # nothing the name check reads
+    views = [e for e in read_events(session) if e["type"] == "wrist_view"]
+    looked = {v["spot"] for v in views}
+    assert looked and looked <= set(bare) - {bare[1]} and not looked & near
+    assert {v["tile"] for v in views} == {"empty"} and all(f.startswith("wrist_empty/empty/") for v in views
+                                                           for f in v["files"])
+    assert len(list((session / "wrist_empty" / "empty").glob("*.jpg"))) == 2 * len(views)
+    assert not wrist_photos.photos(tmp_path)
+
+
+def test_on_the_arm_empty_refuses_weights_that_cant_see_backs():
+    wc = wrist_capture_module()
+
+    class Blind:
+        names = ["1B", "2B"]
+
+        def detect_tiles(self):
+            raise AssertionError("refused before scanning")
+    with pytest.raises(SystemExit, match="see no backs"):
+        wc.confirm_empty(Blind(), [], ask=lambda p: "", show=False, sim=False)
+
+
+def test_a_bare_spot_is_one_with_no_tile_near_it():
+    wc = wrist_capture_module()
+    spots = [{"id": "S1", "xy": [0.19, 0.14]}, {"id": "S2", "xy": [0.14, 0.14]}, {"id": "S3", "xy": [0.09, 0.14]}]
+    tiles = [{"xy": (0.19, 0.14)}, {"xy": (0.14 - 0.03, 0.14)}]           # on S1; knocked 30mm off S2, toward S3
+    assert [s["id"] for s in wc.empty_spots(tiles, spots)] == []          # S2 and S3 both have it within 35mm
+    assert [s["id"] for s in wc.empty_spots(tiles[:1], spots)] == ["S2", "S3"]
+
+
 def test_plan_views_stay_inside_the_jitter_and_roll():
     views = wrist_capture_module().plan_views(20, 0.008, [0.04, 0.055], 15.0, random.Random(0))
     assert views[0] == (0.0, 0.0, 0.04, 0.0)

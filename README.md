@@ -86,6 +86,8 @@ not a worktree, or the sessions go when the worktree does.
 | Check the wrist photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/wrist_review.py` |
 | Check labelled detector frames by eye: one picture per tile name | `python scripts/label_sheets.py data/detector/<folder>` |
 | Train or score the wrist-camera name check | `python scripts/train_name_check.py`, `python scripts/name_check_eval.py` |
+| Photograph a layout's bare spots with the wrist camera (the back check's "empty") | `python scripts/wrist_capture.py --empty even-hand14` |
+| Train or score the wrist-camera back check (is a face-down tile still there) | `python scripts/train_back_check.py` |
 | See how many base camera photos each tile has, fewest first (no arm) | `python scripts/base_cam_review.py --counts` |
 | Check the base camera photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/base_cam_review.py` |
 | Teach the base camera's reader more tiles (the arm holds each up; then train, score and install) | `python scripts/base_cam_collect.py`, then `python scripts/base_cam_train.py --test-session <newest>_holdup`, then `--save-reader` |
@@ -945,6 +947,27 @@ weights that trained on an exam session, and scores go in `data/name_check_eval/
 the two agree on a wrong name, so nothing catches it. To install new weights, copy them to `assets/name_check.pt` and commit them
 with the score.
 
+## The wrist-camera back check
+
+When a scan loses a face-down tile, the bench hovers there and looks with the wrist camera. A back has no face to see, so the
+look went by the back's shape (a tile-sized patch of its green), which found the back in 79% of face-down first frames at the
+hover and asked a person in 4 of 5 looks on 2026-11-18. The back check is a small classifier for that question: is there a
+back between the jaw tips, or nothing (`mahjong/back_check.py`). Backs come from every face-down pickup's first frame and the
+looks a person answered; empty spots from `wrist_capture.py --empty LAYOUT` (lay backs on some spots, leave the rest bare). Its
+exam is whole sessions in `data/back_check_exam.json`, which never train it; the gate is no empty spot read as a back (over at
+least 100 empty photos) and at least 97% of backs read as backs.
+
+```
+python scripts/train_back_check.py --dry-run --sessions-dir ~/Projects/mahjong-lekiwi/sessions   # the photos, from a worktree
+python scripts/train_back_check.py                    # weights in outputs/back_check/back_check.pt, then scored on the exam
+python scripts/train_back_check.py --score outputs/back_check/back_check.pt                     # score only
+```
+
+`train_back_check.py`: `--out PATH`, `--seed N` (default 0), `--epochs N`, `--sessions-dir DIR`, `--score WEIGHTS`, `--dry-run`.
+Scores go in `data/back_check_eval/`. To install, copy the weights to `assets/back_check.pt` (the owner's call, with the score):
+the bench's look at a back then asks it first, acts when all 3 frames agree at 0.9 or more (`by` "back model" in the
+`wrist_check` event), and otherwise goes by the back's shape and then you, as before. Without the file nothing changes.
+
 ## Reading a held tile with the base camera (face-down plan)
 
 Three cameras, three readers. A *detector* finds every tile in a picture and names each one (boxes); a *classifier* is
@@ -954,6 +977,7 @@ shown one tile and names it.
 |---|---|---|---|---|---|
 | RealSense, above the mat | tile detector | detector | `assets/tile_detector.pt` | where every face-up tile on the mat is, and its name | Roboflow labels, `train_detector.py` |
 | Wrist camera | name check | classifier | `assets/name_check.pt` | a second read of the tile under the jaws at the hover | `wrist_capture.py`, `train_name_check.py` |
+| Wrist camera | back check | classifier | `assets/back_check.pt` | is a face-down tile still under the jaws at the hover | face-down pickups, `wrist_capture.py --empty`, `train_back_check.py` |
 | Base camera, the LeKiwi's front | holdup reader | classifier | `assets/holdup_reader.pt` | the name of a face-down tile the arm holds up after drawing it | `base_cam_collect.py`, `base_cam_train.py` |
 
 Neither of the first two reads the base camera's view (~0%, test 1), and the detector can't see a tile's back, so the base
@@ -1370,7 +1394,9 @@ python scripts/wrist_capture.py --sim --sets 1       # no hardware
 ```
 
 Also `--frames N` (wrist frames saved per view, default 2), `--seed N` (the jitter and roll), `--no-view`
-(no RealSense / wrist windows).
+(no RealSense / wrist windows), `--empty LAYOUT` (the same hovers over the layout's bare spots, for the back check: lay
+face-down tiles on some spots and leave the rest bare; the scan lists spots with no tile within 35mm, `-S3` leaves one out,
+and the photos go in `wrist_empty/`, never in the name check's `wrist/`).
 
 At the names prompt: Enter starts, `3=2C` renames tile 3, `-3` leaves it out, `r` scans again, `q`
 quits. Photos land in `sessions/<time>_wrist/wrist/<NAME>/` (one folder per name), with a `wrist_view`
