@@ -240,3 +240,19 @@ def test_a_correction_after_a_turn_cant_make_a_fifth_copy(monkeypatch, tmp_path,
     assert "That would be more than 4 of 5C" in capsys.readouterr().out
     assert json.loads((folder / "checkpoint.json").read_text())["hand"]["S1"] == "5C"      # the one fix that fit was taken
     assert [e["fixes"] for e in events_of(folder, "fd_hand_fixed")] == [{"S1": "5C"}]
+
+
+WINS_ON_5D = ["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "5D"]
+
+
+def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):
+    """The winning tile lies on the drop zone, not a slot: unattended, a misread there is a false win, and the end check has
+    to be able to say so (post-merge review of #125: it only took slots, and graded such a hand clean)."""
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder, prompts = run(script, ["--unattended"], [*LIGHT, "", "ZONE=6D"])
+    assert any("drop zone" in p for p in prompts if "Turn the" in p)
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "win" and end["won_on"] == "5D"
+    assert end["silent_errors"] == 1 and end["grade"] == "silent error"
+    (error,) = [i for i in events_of(folder, "intervention") if i["kind"] == "silent_error"]
+    assert (error["slot"], error["robot"], error["table"]) == ("ZONE", "5D", "6D")

@@ -45,6 +45,7 @@ from mahjong.perception import drain_stdin
 from mahjong.session import read_events
 
 LAY_WINDOW = "lay the hand and the wall (RealSense view)"
+ZONE = "ZONE"           # the end check's name for the drop zone: a win's drawn tile lies there
 
 
 def parse_args(argv=None):
@@ -103,6 +104,7 @@ class Player(crude_run.Run):
         super().__init__(rig, args, ask, slots, {}, station, zone_spot, reader, boxes)
         self.unattended, self.window = args.unattended, window
         self.shots, self.holds, self.corrected, self.registered = 0, {}, 0, 0
+        self.won_on = None          # a win's drawn tile: it lies on the drop zone, and the end check covers it too
         self.phase = "register"
 
     # --- what a person did, for the grade ---
@@ -365,6 +367,7 @@ class Player(crude_run.Run):
             return "quit"
         self.done += 1
         if outcome == "win":
+            self.won_on = name
             self.checkpoint("won")
             return "win"
         self.checkpoint()
@@ -398,11 +401,14 @@ class Player(crude_run.Run):
         """The end check: a person turns the 13 over and says which the robot had wrong (silent errors). Returns (grade, checked, wrong)."""
         if not self.hand:
             return None, False, {}
-        print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots))
-        ids = {s.upper(): s for s in self.slots}
+        believed = {**self.hand, **({ZONE: self.won_on} if self.won_on else {})}
+        print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots)
+              + (f"\n  and {self.won_on} on the drop zone, the tile it won on ({ZONE})" if self.won_on else ""))
+        ids = {s.upper(): s for s in believed}
+        what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if self.won_on else f"the {len(self.slots)}"
         drain_stdin()
         while True:
-            answer = self.ask("Turn the 13 over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
+            answer = self.ask(f"Turn {what} over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
             if answer.lower() == "s":
                 checked, wrong = False, {}
                 break
@@ -411,10 +417,10 @@ class Player(crude_run.Run):
                 checked = True
                 break
             print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}")
-        wrong = {slot: name for slot, name in wrong.items() if name != self.hand[slot]}
+        wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
         for slot, name in wrong.items():
-            self.rig.session.intervention("silent_error", slot=slot, robot=self.hand[slot], table=name)
-        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand))
+            self.rig.session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
+        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand), won_on=self.won_on)
         found = [i for i in interventions.derive(read_events(self.rig.session.dir)) if i["kind"] != "killed"]
         grade = interventions.hand_grade(found)
         return grade, checked, wrong
@@ -499,8 +505,8 @@ def main(argv=None, ask=input):
                                        player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(wrong), checked, waiting)
             print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(player.breaks)))
             (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": player.breaks, "hand": player.hand,
-                                                                     "discards": player.discards}, indent=2) + "\n")
-            rig.session.event("hand_end", **s, hand=player.hand, discards=player.discards)
+                                                                     "won_on": player.won_on, "discards": player.discards}, indent=2) + "\n")
+            rig.session.event("hand_end", **s, hand=player.hand, won_on=player.won_on, discards=player.discards)
         if rig.session:
             rig.session.close()
     return folder
