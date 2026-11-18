@@ -143,7 +143,7 @@ def test_views_count_bench_attempts_and_recorded_episodes_too(tmp_path):
     import wrist_capture
     sessions, recordings = tmp_path / "sessions", tmp_path / "hf"
     (sessions / "20261028_102732_bench" / "013_103524_6C").mkdir(parents=True)
-    (sessions / "20261028_102732_bench" / "013_103524_6C" / "wrist_0000.jpg").write_bytes(b"")
+    (sessions / "20261028_102732_bench" / "013_103524_6C" / "wrist_0000.jpg").write_bytes(b"jpg")   # 0 bytes: a power cut's
     (sessions / "20261028_102732_bench" / "014_103600_6C").mkdir()          # no hover frame: not counted
     (recordings / "Yewy" / "mat").mkdir(parents=True)
     (recordings / "Yewy" / "mat" / "episode_log.jsonl").write_text('{"tile_name": "8D"}\n{"tile_name": "8D"}\n')

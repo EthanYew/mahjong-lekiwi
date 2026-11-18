@@ -194,10 +194,36 @@ def _jsonable(value):
     return str(value)
 
 
+_DAMAGE_REPORTED = set()
+
+
 def read_jsonl(path):
-    """The records of a .jsonl file (events, traces, sample logs, episode logs), or [] if there's none."""
+    """The records of a .jsonl file (events, traces, sample logs, episode logs), or [] if there's none.
+
+    A power cut mid-write damages only the end of a file: on 2026-11-18 one left 566 zero bytes after an events.jsonl's last
+    line (the filesystem had reserved the space, the data never came), and every script that lists sessions stopped on it.
+    So zero bytes are dropped and a last line that doesn't parse is skipped, each said once per file on stderr. A bad line
+    anywhere else isn't a power cut, and still raises."""
     path = Path(path)
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    if not path.exists():
+        return []
+    raw = path.read_bytes()
+    lines = [line for line in raw.replace(b"\0", b"").decode("utf-8", errors="replace").splitlines() if line.strip()]
+    rows, damage, zeros = [], [], raw.count(b"\0")
+    if zeros:
+        damage.append(f"{zeros} zero bytes dropped")
+    for i, line in enumerate(lines):
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            if i < len(lines) - 1:
+                raise
+            damage.append("its cut-off last line skipped")
+    if damage and str(path) not in _DAMAGE_REPORTED:
+        _DAMAGE_REPORTED.add(str(path))
+        print(f"WARNING: {path}: {', '.join(damage)} (a write cut short, e.g. a power cut); the rest is read",
+              file=sys.stderr)
+    return rows
 
 
 def read_events(session_dir):

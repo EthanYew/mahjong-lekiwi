@@ -193,10 +193,8 @@ def policy_view(run):
 
 
 def episode_log_rows(root):
-    path = Path(root) / EPISODE_LOG
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    from .session import read_jsonl         # appended to while recording, so a power cut can cut it short too
+    return read_jsonl(Path(root) / EPISODE_LOG)
 
 
 def devices(repo_id):
