@@ -33,21 +33,27 @@ def turn_plan(start=1):
 
 def unfinished_turn(events, done):
     """The turn after `done` (the checkpoint's) if it began moving tiles and stopped before its checkpoint: a quit at its
-    read, at a step done by hand, or Ctrl-C. {turn, layer, choice (its crude_choice, or None before one)}, or None if it
-    never started or only reached the feed (nothing moved). A resume can't redo it as it stands: its drawn tile has left
-    the wall, and from the choice on the discard may be half done."""
+    read, at a step done by hand, or Ctrl-C. {turn, layer, choice (its crude_choice, or None before one), drawn (the tile
+    left the wall: a draw that held it, or a read, which only follows a tile on the zone)}, or None if it never started or
+    only reached the feed. A resume can't redo it as it stands once the tile has left the wall, and from the choice on the
+    discard may be half done. A draw that only missed left the tile where it was: the turn is redone, the feed not asked again."""
     turn = done + 1
     if not any(e["type"] == "fd_turn_start" and e.get("turn") == turn for e in events):
         return None
-    if not any(e["type"] in ("crude_pick", "crude_break") and e.get("turn") == turn for e in events):
+    of_turn = [e for e in events if e.get("turn") == turn]
+    if not any(e["type"] in ("crude_pick", "crude_break") for e in of_turn):
         return None
-    choice = next((e for e in reversed(events) if e["type"] == "crude_choice" and e.get("turn") == turn), None)
-    return {"turn": turn, "layer": wall_test.cycle_plan(turn)[-1]["layer"], "choice": choice}
+    choice = next((e for e in reversed(of_turn) if e["type"] == "crude_choice"), None)
+    drawn = any((e["type"] == "crude_pick" and e.get("step") == "draw" and e.get("held")) or e["type"] == "crude_read"
+                for e in of_turn)
+    return {"turn": turn, "layer": wall_test.cycle_plan(turn)[-1]["layer"], "choice": choice, "drawn": drawn}
 
 
 def unfinished_lines(left, station_id):
     """What a person does before a resume carries on from an unfinished turn (unfinished_turn)."""
     c = left["choice"]
+    if c is None and not left["drawn"]:     # the draw only missed: nothing to put right
+        return []
     if c is None:           # the feed before it, if any, was done: the resume doesn't ask for it again
         where = f"on top of the stack on station {station_id}" if left["layer"] == "top" else f"on station {station_id}"
         return [f"Turn {left['turn']} stopped before its discard. Put the tile it drew back on the wall, {where}, "

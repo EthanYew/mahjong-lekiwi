@@ -274,18 +274,23 @@ def test_a_resumed_hand_s_checkpoint_keeps_its_turn_until_the_next_one_finishes(
 
 def test_an_unfinished_turn_is_found_from_the_log_and_a_chosen_discard_is_kept():
     start = {"type": "fd_turn_start", "turn": 3}
-    pick = {"type": "crude_pick", "turn": 3, "step": "draw"}
+    pick = {"type": "crude_pick", "turn": 3, "step": "draw", "held": True}
     choice = {"type": "crude_choice", "turn": 3, "drawn": "4D", "discard": "9C", "slot": "S8"}
     assert face_down_play.unfinished_turn([start], 2) is None                   # quit at the feed: nothing moved
     assert face_down_play.unfinished_turn([start, pick], 3) is None             # that turn finished
-    assert face_down_play.unfinished_turn([start, pick], 2) == {"turn": 3, "layer": "top", "choice": None}
+    missed = {"type": "crude_pick", "turn": 3, "step": "draw", "held": False}
+    assert face_down_play.unfinished_turn([start, missed], 2) == {"turn": 3, "layer": "top", "choice": None, "drawn": False}
+    assert face_down_play.unfinished_lines({"turn": 3, "layer": "top", "choice": None, "drawn": False}, "L2") == []
+    assert face_down_play.unfinished_turn([start, missed, pick], 2) == {"turn": 3, "layer": "top", "choice": None, "drawn": True}
+    by_hand = {"type": "crude_read", "turn": 3, "name": "4D"}           # the draw done by hand: the tile reached the zone
+    assert face_down_play.unfinished_turn([start, missed, by_hand], 2)["drawn"]
     left = face_down_play.unfinished_turn([start, pick, choice], 2)
     assert left["choice"] is choice
     (line,) = face_down_play.unfinished_lines(left, "L2")
     assert "9C (from S8) in the discard container, the drawn 4D on S8" in line
 
 
-WINS_ON_5D =["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "5D"]
+WINS_ON_5D = ["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "5D"]
 
 
 def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):

@@ -318,9 +318,12 @@ class Player(crude_run.Run):
     def tidy_unfinished(self, left):
         """Before a resume goes on from a turn that stopped part-way (face_down_play.unfinished_turn): a person puts the table
         right, and a chosen discard is taken into the hand. False if they quit."""
-        self.rig.session.event("fd_resume_unfinished", turn=left["turn"], layer=left["layer"], choice=left["choice"])
-        drain_stdin()
+        self.rig.session.event("fd_resume_unfinished", turn=left["turn"], layer=left["layer"], choice=left["choice"], drawn=left["drawn"])
         lines = face_down_play.unfinished_lines(left, self.station["id"])
+        if not lines:           # its draw only missed: the tile is still on the wall
+            print(f"Turn {left['turn']} stopped at a missed draw: it's drawn again")
+            return True
+        drain_stdin()
         if self.ask("\n".join(lines) + "\nEnter when done (q = quit): ").strip().lower() == "q":
             return False
         c = left["choice"]
