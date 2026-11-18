@@ -4,14 +4,13 @@ The arm goes to one saved spot, a station; a person feeds the next stack onto it
 Nothing here can see a face-down tile, so "clean" is a person's word, given per attempt (OUTCOMES). The jaws' reading can't
 replace it: two tiles lifted together are as wide as one.
 """
-import json
 import math
 import statistics
 from datetime import datetime
 from pathlib import Path
 
 from . import config
-from .session import read_events
+from .session import append_jsonl, read_events
 
 LAYOUT = "wall-stations"
 PUSH_LIMIT_MM = 3.0         # half the jaws' ~6mm tolerance (a judgement, not a measurement): what a push may stray from where it usually lands
@@ -176,8 +175,8 @@ def excluded(session_dir):
 
 def exclude(session_dir, why):
     """Leave a session out of the scores: a run that wasn't the test it was logged as (a different wall, say). Its files stay."""
-    with open(Path(session_dir) / "events.jsonl", "a") as f:
-        f.write(json.dumps({"time": datetime.now().isoformat(timespec="seconds"), "type": "wall_excluded", "why": why}) + "\n")
+    append_jsonl(Path(session_dir) / "events.jsonl",
+                 [{"time": datetime.now().isoformat(timespec="seconds"), "type": "wall_excluded", "why": why}])
 
 
 def attempts(session_dir):

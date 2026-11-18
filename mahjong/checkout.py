@@ -6,7 +6,6 @@ warn when it's behind origin/main (as of the last fetch: no network here), has u
 worktree. scripts/merge_pr.py and scripts/status.py use the rest: which branches are merged and which
 worktrees are left to close.
 """
-import json
 import os
 import re
 import subprocess
@@ -82,7 +81,8 @@ def last_reviewed(repo=None, base=BASE):
     path = Path(repo or config.REPO) / REVIEW_LOG
     if not path.exists():
         return None
-    reviewed = [json.loads(line)["reviewed_to"] for line in path.read_text().splitlines() if line.strip()]
+    from .session import read_jsonl        # session imports this module
+    reviewed = [row["reviewed_to"] for row in read_jsonl(path)]
     on_base = [sha for sha in reviewed if git("rev-list", "--count", f"{base}..{sha}", repo=repo) == "0"]
     return min(on_base, key=lambda sha: int(git("rev-list", "--count", f"{sha}..{base}", repo=repo)), default=None)
 

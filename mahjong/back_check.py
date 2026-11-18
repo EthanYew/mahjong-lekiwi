@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config, name_check
+from .wrist_photos import whole_jpeg, written
 from .session import read_jsonl
 
 BACK, EMPTY = config.BACK, "empty"
@@ -65,7 +66,7 @@ def _look_photos(folder, sessions_dir, face_down):
         if event.get("type") != "wrist_check" or not event.get("image") or event.get("present") is None:
             continue
         path = folder / event["image"]
-        if not path.exists():
+        if not whole_jpeg(path):
             continue
         at_back = face_down or event.get("tile") == BACK
         if event.get("by") == "person":
@@ -87,16 +88,16 @@ def photos(sessions_dir=None):
         if not folder.is_dir() or is_sim(folder):
             continue
         if folder.name.endswith(FACE_DOWN_KINDS):
-            out += [_photo(p, BACK, "pickup", folder, sessions_dir) for p in sorted(folder.glob("*/wrist_0000.jpg"))]
+            out += [_photo(p, BACK, "pickup", folder, sessions_dir) for p in written(folder.glob("*/wrist_0000.jpg"))]
         elif folder.name.endswith("_bench"):
             face_down = _face_down_bench(folder)
             if face_down:
                 out += [_photo(p, BACK, "pickup", folder, sessions_dir)
-                        for p in sorted(folder.glob(f"*_{BACK}/wrist_0000.jpg"))]
+                        for p in written(folder.glob(f"*_{BACK}/wrist_0000.jpg"))]
             out += _look_photos(folder, sessions_dir, face_down)
         elif folder.name.endswith("_wrist"):
             out += [_photo(p, EMPTY, "empty_capture", folder, sessions_dir)
-                    for p in sorted((folder / EMPTY_FOLDER / EMPTY).glob("*.jpg"))]
+                    for p in written((folder / EMPTY_FOLDER / EMPTY).glob("*.jpg"))]
     return out
 
 

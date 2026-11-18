@@ -25,6 +25,25 @@ REVIEW = config.DATA / "wrist_review.jsonl"
 SOURCES = ("wrist_capture", "bench")
 
 
+def whole_jpeg(path):
+    """Whether a photo was written to its end: a power cut leaves the last few as 0-byte files (20261118_230033_wrist: 9),
+    and could leave one cut short or zero-padded; a whole JPEG ends in its end-of-image marker. False if it's gone."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            if f.tell() < 2:
+                return False
+            f.seek(-2, 2)
+            return f.read(2) == b"\xff\xd9"
+    except OSError:
+        return False
+
+
+def written(paths):
+    """The photos among `paths` that were written whole (whole_jpeg), sorted."""
+    return [p for p in sorted(paths) if whole_jpeg(p)]
+
+
 def photos(sessions_dir=None):
     """Every wrist photo under sessions_dir, simulated sessions left out: [{"key" (path relative to
     sessions_dir), "path", "name" (as taken), "source", "session", "group" (one physical tile),
@@ -36,13 +55,13 @@ def photos(sessions_dir=None):
         if not folder.is_dir() or is_sim(folder):
             continue
         if folder.name.endswith("_wrist"):
-            for first in sorted((folder / "wrist").glob("*/*_f0.jpg")):
+            for first in written((folder / "wrist").glob("*/*_f0.jpg")):
                 set_tile = "_".join(first.stem.split("_")[:2])
                 out.append({"key": str(first.relative_to(sessions_dir)), "path": first, "name": first.parent.name,
                             "source": "wrist_capture", "session": folder.name, "group": f"{folder.name}/{set_tile}",
-                            "frames": sorted(first.parent.glob(first.name.replace("_f0.jpg", "_f*.jpg")))})
+                            "frames": written(first.parent.glob(first.name.replace("_f0.jpg", "_f*.jpg")))})
         elif folder.name.endswith(("_bench", "_play")):
-            for first in sorted(folder.glob("*/wrist_0000.jpg")):
+            for first in written(folder.glob("*/wrist_0000.jpg")):
                 out.append({"key": str(first.relative_to(sessions_dir)), "path": first,
                             "name": first.parent.name.rsplit("_", 1)[-1], "source": "bench", "session": folder.name,
                             "group": f"{folder.name}/{first.parent.name}", "frames": [first]})
