@@ -1,0 +1,13 @@
+{
+  "sessions": {
+    "20261118_221723_bench": {
+      "added": "2026-11-18",
+      "note": "Listed before any back check was trained on or scored against it. The face-down bench whose wrist looks prompted this: 4 of 5 found no back's shape and a person said the back was there each time. 17 first frames at the hover plus the 5 looks."
+    },
+    "20261113_110111_holdup": {
+      "added": "2026-11-18",
+      "note": "Listed before any back check was trained on or scored against it. A base camera collection run where the back's shape was found in only 60% of first frames (30 of 50): a hard session for backs, held out whole."
+    }
+  },
+  "to_add": "One of the two wrist_capture.py --empty sessions, once taken, so the exam has empty spots: without them the gate can't pass."
+}

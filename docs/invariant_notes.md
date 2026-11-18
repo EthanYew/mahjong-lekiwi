@@ -207,6 +207,16 @@ the expected point. On the standard mat's bench frames, 2026-11-12 to 11-16: 36 
 frames at the hover (misses mostly `20261112_202418_bench`, no daylight and no lamp, the arm's shadow across the tile; 41 of
 48 in bright daylight with the ceiling light, `20261116_200001_bench`); 1 false back in 38,024 places on the face-up frames.
 
+On the arm, 2026-11-18 (`20261118_221723_bench`, face down, standard mat): 5 looks, 1 found by shape, 4 with no back's shape in
+any of 3 frames and 86-100% of the disc in the back's green, so each asked a person, who said "there" every time. Re-measured
+on the saved frames: in 3 the back between the jaws is a patch of 4,775-6,245px, just under or on the 6,000px floor (the jaw
+tips and their shadow cover part of it); in 1 (`scan006_007`) there's no patch near the jaws at all, the shadow taking it out
+of the colour range. Over every face-down session to that day (holdup, wall, crude, play_fd and face-down benches' `_back`
+attempts), the shape found the back in 859 of 1,092 first frames at the hover (79%): wall 0-60% a session, crude 0-80%,
+`20261117_200555_play_fd` 55%, holdup 60-100%. Thresholds tuned on one week's light don't carry over, hence the trained back
+check (`mahjong/back_check.py`). Its gap is "empty" photos: the arm hovers only where a tile is, so to 2026-11-18 there were 2
+(looks a person answered "gone") against 1,162 backs.
+
 ## Moved from CLAUDE.md on 2026-11-02, verbatim
 
 The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep what loads small.

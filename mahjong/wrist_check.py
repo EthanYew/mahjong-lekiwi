@@ -65,6 +65,7 @@ BACK_UNSURE_DISC = 0.3
 # 2026-10-30 (20261030_115706_bench) a miss at S4 knocked 3D to 20mm from 1B's spot and pushed 1B 36mm away; the
 # look at 1B's spot saw 3D's face and called 1B's absence a detection glitch.
 CROWDED_M = 0.03
+BACK_NAME = config.BACK     # the back check's class for a back (back_check.BACK)
 
 
 class PlaceViews:
@@ -166,21 +167,37 @@ def look(arm, camera, x, y, hover, n=FRAMES):
     return grab_frames(camera, n), result
 
 
-def check(arm, camera, x, y, hover, template=None, back=False):
+def model_says(reader, frames):
+    """The back check's verdict on a look's frames (mahjong/back_check.py): ("back" / "empty" or None, the reads)."""
+    from .back_check import decide
+    reads = reader.read_many(frames)
+    return decide(reads), reads
+
+
+def check(arm, camera, x, y, hover, template=None, back=False, reader=None):
     """Look at the tile expected at hover target (x, y): {"present": True / False, or None if it couldn't look (out
     of reach, camera lost) or can't tell (a pale surface: "pale" True), "fill": the median face share, "hover_xy"}, and
     "frame" (the last one) to save. `template`: what an earlier look saw here, which is all a pale surface can go on.
     back: the tile lies green side up, so it's looked for by its shape (back_blob) on any surface: "by" "back shape",
     "backs_seen" of "frames" showed one, and no face share. A back in some frames but not most, or a surface of the back's
-    green, can't tell (present None, "why")."""
+    green, can't tell (present None, "why").
+    reader: the installed back check (back_check.load_reader), asked first for a back: every frame back or every frame
+    empty, confidently, decides it ("by" "back model", "reads"); anything else goes on to the back's shape."""
     frames, result = look(arm, camera, x, y, hover)
     if not frames:
         return {"present": None, "fill": None, "why": "out of reach" if result is None else "no wrist frames",
                 "frame": None}
     if back:
+        model = {}
+        if reader is not None:
+            verdict, reads = model_says(reader, frames)
+            if verdict is not None:
+                return {"fill": None, "by": "back model", "reads": reads, "frames": len(frames),
+                        "hover_xy": result["hover_xy"], "frame": frames[-1], "present": verdict == BACK_NAME}
+            model = {"model_reads": reads}      # unsure: logged, and the back's shape decides
         seen = sum(back_blob(f) is not None for f in frames)
         found = {"fill": None, "by": "back shape", "backs_seen": seen, "frames": len(frames), "hover_xy": result["hover_xy"],
-                 "frame": frames[-1]}
+                 "frame": frames[-1], **model}
         if float(np.median([back_green_share(f) for f in frames])) > BACK_MAX_GREEN_SHARE:
             return {**found, "present": None, "why": "the surface is a tile back's green"}
         if 0 < seen * 2 <= len(frames):     # some frames saw it: a shadow or a glint, not a gone tile

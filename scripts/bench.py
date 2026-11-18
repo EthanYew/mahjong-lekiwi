@@ -99,7 +99,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import bump_report, config, detector, interventions, layout, perception, placements, takeover, wrist_check
+from mahjong import (back_check, bump_report, config, detector, interventions, layout, perception, placements, takeover,
+                     wrist_check)
 from mahjong.camera import RERUNS as CAMERA_RERUNS, grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
@@ -234,6 +235,7 @@ class Bench:
         self.unlooked = []          # (scan number, tile) a scan said went while the arm held a tile: looked at next
         self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
         self.views = wrist_check.PlaceViews()       # what the wrist camera saw where lost tiles turned out to be
+        self.back_reader = False    # the wrist's back check (back_check.load_reader), loaded at the first look at a back
         self.names = {}             # {spot id or tile name: the tile last picked up there}
         self.placements = placements.Placements(self.session)   # what's on the mat, for the name report
         self.ask_names = None if args.sim else input            # a simulated mat's reads stand as what's there
@@ -569,10 +571,14 @@ class Bench:
         hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
         template = self.views.template((x, y))
         back = self.args.face_down or perception.is_back(tile)    # face down: a back, whatever a scan named it
-        result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
+        if back and self.back_reader is False:      # without installed weights, None: the back's shape decides, as before
+            self.back_reader = back_check.load_reader()
+            print(f"  Back check: {self.back_reader.path if self.back_reader else 'not installed (the back shape decides)'}")
+        reader = self.back_reader if back else None
+        result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back, reader=reader)
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:
             self.reopen_camera()
-            result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back)
+            result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back, reader=reader)
         if result["present"] is None and (result.get("pale") or back and result.get("frames")) and not self.args.unattended:
             self.arm.lift()
             result = {**result, "present": self.ask_still_there(name, x, y), "by": "person"}
@@ -581,7 +587,7 @@ class Bench:
         if result["present"]:
             # a place's picture is taken once a person has seen it, or on a surface the look can judge; a same-view look
             # keeps it, so it can't drift off the tile a little at a time
-            if result.get("by") not in ("same view", "back shape") and frame is not None:
+            if result.get("by") not in ("same view", "back shape", "back model") and frame is not None:
                 self.views.keep((x, y), wrist_check.view_template(frame))
         elif result["present"] is False:
             self.views.forget((x, y))
@@ -597,7 +603,8 @@ class Bench:
                    None: f"couldn't look ({result.get('why')})"}[result["present"]]
         print(f"  {name}: {verdict}" + (f", face fills {result['fill']:.0%} of the spot" if result["fill"] is not None else
                                         f", a back in {result['backs_seen']} of {result['frames']} frames" if "backs_seen" in result
-                                        else ""))
+                                        else f", the back check sure on all {result['frames']} frames"
+                                        if result.get("by") == "back model" else ""))
         self.session.event("wrist_check", tile=name, xy=[x, y], scan=scan_n, at_scan=self.scan_n, image=image,
                            policy=self.policy.id, **result)
         return result
