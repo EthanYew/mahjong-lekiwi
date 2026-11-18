@@ -105,6 +105,7 @@ class Player(crude_run.Run):
         self.unattended, self.window = args.unattended, window
         self.shots, self.holds, self.corrected, self.registered = 0, {}, 0, 0
         self.won_on = None          # a win's drawn tile: it lies on the drop zone, and the end check covers it too
+        self.fed_already = None     # a resumed turn whose feed was done before the stop: not asked again
         self.phase = "register"
 
     # --- what a person did, for the grade ---
@@ -314,6 +315,21 @@ class Player(crude_run.Run):
         path.with_suffix(".tmp").write_text(json.dumps(state, indent=2) + "\n")
         path.with_suffix(".tmp").replace(path)
 
+    def tidy_unfinished(self, left):
+        """Before a resume goes on from a turn that stopped part-way (face_down_play.unfinished_turn): a person puts the table
+        right, and a chosen discard is taken into the hand. False if they quit."""
+        self.rig.session.event("fd_resume_unfinished", turn=left["turn"], layer=left["layer"], choice=left["choice"])
+        drain_stdin()
+        lines = face_down_play.unfinished_lines(left, self.station["id"])
+        if self.ask("\n".join(lines) + "\nEnter when done (q = quit): ").strip().lower() == "q":
+            return False
+        c = left["choice"]
+        if c is not None:
+            if c["slot"]:
+                self.hand[c["slot"]] = c["drawn"]
+            self.discards.append(c["discard"])
+        return True
+
     def feed_wall(self):
         """The wall's next stack onto the station. Returns "" (fed), "e" (the wall's empty) or "q"."""
         answer = face_down_rig.prompt(self.rig, self.station, face_down_play.feed_step(self.station["id"]), self.ask, keys=face_down_play.END_KEY)
@@ -352,7 +368,7 @@ class Player(crude_run.Run):
         self.turn_no = plan["turn"]
         print(f"\n=== Turn {self.turn_no}: {crude_run.hand_text(self.slots, self.hand)}")
         self.rig.session.event("fd_turn_start", turn=self.turn_no, slots=self.slots, hand=dict(self.hand), discards=list(self.discards))
-        if plan["feed_before"]:
+        if plan["feed_before"] and self.turn_no != self.fed_already:
             answer = self.feed_wall()
             if answer:
                 return {"e": "end", "q": "quit"}[answer]
@@ -388,6 +404,14 @@ class Player(crude_run.Run):
             self.hand, self.discards = dict(state["hand"]), list(state["discards"])
             start = state["turn"] + 1
             self.rig.session.event("fd_resumed", from_session=folder.name, turn=state["turn"], hand=self.hand)
+            left = face_down_play.unfinished_turn(read_events(folder), state["turn"])
+            if left is not None:
+                if not self.tidy_unfinished(left):
+                    return "quit"
+                if left["choice"] is not None:      # the table now matches the choice: on to the next turn
+                    start += 1
+                else:
+                    self.fed_already = left["turn"]
             print(f"Resuming {folder.name} at turn {start}: {crude_run.hand_text(self.slots, self.hand)}")
             self.checkpoint()
         for plan in face_down_play.turn_plan(start):

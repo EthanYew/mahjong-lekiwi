@@ -31,6 +31,32 @@ def turn_plan(start=1):
         turn += 1
 
 
+def unfinished_turn(events, done):
+    """The turn after `done` (the checkpoint's) if it began moving tiles and stopped before its checkpoint: a quit at its
+    read, at a step done by hand, or Ctrl-C. {turn, layer, choice (its crude_choice, or None before one)}, or None if it
+    never started or only reached the feed (nothing moved). A resume can't redo it as it stands: its drawn tile has left
+    the wall, and from the choice on the discard may be half done."""
+    turn = done + 1
+    if not any(e["type"] == "fd_turn_start" and e.get("turn") == turn for e in events):
+        return None
+    if not any(e["type"] in ("crude_pick", "crude_break") and e.get("turn") == turn for e in events):
+        return None
+    choice = next((e for e in reversed(events) if e["type"] == "crude_choice" and e.get("turn") == turn), None)
+    return {"turn": turn, "layer": wall_test.cycle_plan(turn)[-1]["layer"], "choice": choice}
+
+
+def unfinished_lines(left, station_id):
+    """What a person does before a resume carries on from an unfinished turn (unfinished_turn)."""
+    c = left["choice"]
+    if c is None:           # the feed before it, if any, was done: the resume doesn't ask for it again
+        where = f"on top of the stack on station {station_id}" if left["layer"] == "top" else f"on station {station_id}"
+        return [f"Turn {left['turn']} stopped before its discard. Put the tile it drew back on the wall, {where}, "
+                "face down as it was, and clear the drop zone. The turn is drawn again"]
+    from_where = f"from {c['slot']}" if c["slot"] else "the drawn tile, from the drop zone"
+    return [f"Turn {left['turn']} stopped after choosing its discard. Make the table match it: {c['discard']} ({from_where}) "
+            "in the discard container" + (f", the drawn {c['drawn']} on {c['slot']}" if c["slot"] else "") + ", the drop zone clear"]
+
+
 def lay_lines(station_id, stacks, slots):
     return [f"Lay {len(slots)} tiles GREEN side up, one on each green outline ({slots[0]}-{slots[-1]})",
             f"The wall: {stacks} stacks of 2 from WALL ({station_id}, blue), running away from the robot",
