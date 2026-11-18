@@ -35,12 +35,13 @@ def sessions(tmp_path):
         {"type": "wrist_check", "tile": "back", "image": "wrist_checks/d.jpg", "by": "back shape", "present": False},
         {"type": "wrist_check", "tile": "back", "image": "wrist_checks/e.jpg", "present": False},    # the face disc's misread
         {"type": "wrist_check", "tile": "back", "image": "wrist_checks/f.jpg", "by": "person", "present": None},
+        {"type": "wrist_check", "tile": "3D", "image": "wrist_checks/h.jpg", "by": "person", "present": True},  # misnamed back
     ]
     down = tmp_path / "20261118_221723_bench"
     write_session(down, [{"type": "bench_start", "face_down": True}, *looks])
     jpg(down / "001_221906_back" / "wrist_0000.jpg")
     jpg(down / "002_222009_8D" / "wrist_0000.jpg")          # not a back attempt
-    for name in "abcdef":
+    for name in "abcdefh":
         jpg(down / "wrist_checks" / f"{name}.jpg")
     up = tmp_path / "20261117_135608_bench"
     write_session(up, [{"type": "bench_start", "face_down": False},
@@ -67,6 +68,7 @@ def test_backs_are_face_down_pickups_and_confirmed_looks_and_empties_are_bare_sp
         "20261118_221723_bench/wrist_checks/a.jpg": "back",      # a person said there
         "20261118_221723_bench/wrist_checks/b.jpg": "back",      # the back's shape found one
         "20261118_221723_bench/wrist_checks/c.jpg": "empty",     # a person said gone
+        "20261118_221723_bench/wrist_checks/h.jpg": "back",      # face down: a back, whatever the scan named it
         "20261117_135608_bench/wrist_checks/g.jpg": "empty",     # a face-up spot a person said was empty
         "20261119_100000_wrist/wrist_empty/empty/01_S3_v00_f0.jpg": "empty",
         "20261119_100000_wrist/wrist_empty/empty/01_S3_v00_f1.jpg": "empty",

@@ -166,10 +166,20 @@ def empty_spots(tiles, spots, clear_m=EMPTY_CLEAR_M):
             for s in spots if not any(math.dist(t["xy"], s["xy"]) <= clear_m for t in tiles)]
 
 
-def confirm_empty(realsense, spots, ask, show):
-    """Scan, list the bare spots, and let the person leave some out. Returns the spots to capture, or None to quit."""
+def key_of(tile):
+    """What a capture is filed and counted under: a bare spot's id, else the tile's name."""
+    return tile.get("id") or tile["tile_name"]
+
+
+def confirm_empty(realsense, spots, ask, show, sim=False):
+    """Scan, list the bare spots, and let the person leave some out. Returns the spots to capture, or None to quit.
+    Weights that see no backs would list a spot with a back on it as bare, and its photos would train the back check that a
+    back is empty, so on the arm that stops it (the sim's mat has no backs to see)."""
     if not perception.sees_backs(realsense):
-        print("The detector's weights see no backs: a spot with a back on it is listed as bare. Check the list by eye.")
+        if not sim:
+            raise SystemExit("The detector's weights see no backs, so a spot with a back on it would look bare: install "
+                             "weights with the back class (README 'Teaching the detector tile backs') first.")
+        print("The detector's weights see no backs: a spot with a back on it is listed as bare.")
     while True:
         tiles = list(realsense.detect_tiles()) + list(getattr(realsense, "faint", None) or [])
         bare = empty_spots(tiles, spots)
@@ -331,7 +341,7 @@ def main(argv=None, ask=None):
     try:
         while args.sets is None or set_n < args.sets:
             arm.rest()
-            tiles = confirm_empty(realsense, spots, ask, show) if args.empty else confirm_names(realsense, ask, show)
+            tiles = confirm_empty(realsense, spots, ask, show, sim=args.sim) if args.empty else confirm_names(realsense, ask, show)
             if tiles is None:
                 break
             if not tiles:
@@ -342,7 +352,7 @@ def main(argv=None, ask=None):
                                                                                   "confidence", "id")} for t in tiles])
             done = Counter()
             for i, tile in enumerate(tiles, 1):
-                key = tile.get("id") or tile["tile_name"]
+                key = key_of(tile)
                 print(f"  {'spot' if args.empty else 'tile'} {i}/{len(tiles)}: {key}")
                 views = plan_views(args.views, args.jitter_mm / 1000, clearances, args.roll_deg, rng)
                 saved, camera = capture_tile(arm, camera, session, correction, tile, views, set_n, i, args.frames,
@@ -350,7 +360,7 @@ def main(argv=None, ask=None):
                                              root=back_check.EMPTY_FOLDER if args.empty else "wrist")
                 done[key] += saved
             arm.rest()
-            short_of = [t.get("id") or t["tile_name"] for t in tiles if done[t.get("id") or t["tile_name"]] < args.views]
+            short_of = [key_of(t) for t in tiles if done[key_of(t)] < args.views]
             if args.empty:
                 print("Back check photos over all sessions: "
                       + back_check.summary([] if args.sim else back_check.photos(session.dir.parent)))

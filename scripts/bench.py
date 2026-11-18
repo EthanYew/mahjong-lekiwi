@@ -235,7 +235,10 @@ class Bench:
         self.unlooked = []          # (scan number, tile) a scan said went while the arm held a tile: looked at next
         self.looked_empty = []      # (scan number, xy) the wrist camera saw no tile at
         self.views = wrist_check.PlaceViews()       # what the wrist camera saw where lost tiles turned out to be
-        self.back_reader = False    # the wrist's back check (back_check.load_reader), loaded at the first look at a back
+        # the wrist's back check, asked first at a look at a back: loaded here so a bad file stops the bench before the arm
+        # moves; None without assets/back_check.pt (the back's shape decides, as before)
+        self.back_reader = back_check.load_reader()
+        print(f"Back check: {self.back_reader.path if self.back_reader else 'not installed (a back is found by its shape)'}")
         self.names = {}             # {spot id or tile name: the tile last picked up there}
         self.placements = placements.Placements(self.session)   # what's on the mat, for the name report
         self.ask_names = None if args.sim else input            # a simulated mat's reads stand as what's there
@@ -571,9 +574,6 @@ class Bench:
         hx, hy = (x, y) if self.args.sim else self.correction.apply(x, y, log=lambda *a: None)
         template = self.views.template((x, y))
         back = self.args.face_down or perception.is_back(tile)    # face down: a back, whatever a scan named it
-        if back and self.back_reader is False:      # without installed weights, None: the back's shape decides, as before
-            self.back_reader = back_check.load_reader()
-            print(f"  Back check: {self.back_reader.path if self.back_reader else 'not installed (the back shape decides)'}")
         reader = self.back_reader if back else None
         result = wrist_check.check(self.arm, self.camera, hx, hy, self.policy.hover, template, back=back, reader=reader)
         if result["present"] is None and result["why"] == "no wrist frames" and not self.args.sim:

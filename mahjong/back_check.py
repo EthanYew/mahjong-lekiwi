@@ -57,8 +57,9 @@ def _photo(path, name, source, folder, sessions_dir):
             "session": folder.name}
 
 
-def _look_photos(folder, sessions_dir):
-    """A bench's wrist looks with a verdict worth training on: a person's either way, or the back's shape finding one."""
+def _look_photos(folder, sessions_dir, face_down):
+    """A bench's wrist looks with a verdict worth training on: a person's either way, or the back's shape finding one. On a
+    face-down bench every look is at a back, whatever a scan named the tile (bench.wrist_look)."""
     out = []
     for event in read_jsonl(folder / "events.jsonl") if (folder / "events.jsonl").exists() else ():
         if event.get("type") != "wrist_check" or not event.get("image") or event.get("present") is None:
@@ -66,8 +67,9 @@ def _look_photos(folder, sessions_dir):
         path = folder / event["image"]
         if not path.exists():
             continue
+        at_back = face_down or event.get("tile") == BACK
         if event.get("by") == "person":
-            name = BACK if event["present"] and event.get("tile") == BACK else EMPTY if not event["present"] else None
+            name = BACK if event["present"] and at_back else EMPTY if not event["present"] else None
         else:
             name = BACK if event.get("by") == "back shape" and event["present"] else None
         if name:
@@ -87,10 +89,11 @@ def photos(sessions_dir=None):
         if folder.name.endswith(FACE_DOWN_KINDS):
             out += [_photo(p, BACK, "pickup", folder, sessions_dir) for p in sorted(folder.glob("*/wrist_0000.jpg"))]
         elif folder.name.endswith("_bench"):
-            if _face_down_bench(folder):
+            face_down = _face_down_bench(folder)
+            if face_down:
                 out += [_photo(p, BACK, "pickup", folder, sessions_dir)
                         for p in sorted(folder.glob(f"*_{BACK}/wrist_0000.jpg"))]
-            out += _look_photos(folder, sessions_dir)
+            out += _look_photos(folder, sessions_dir, face_down)
         elif folder.name.endswith("_wrist"):
             out += [_photo(p, EMPTY, "empty_capture", folder, sessions_dir)
                     for p in sorted((folder / EMPTY_FOLDER / EMPTY).glob("*.jpg"))]
