@@ -34,7 +34,7 @@ from datetime import datetime
 import numpy as np
 
 from . import config
-from .session import read_jsonl
+from .session import append_jsonl, read_jsonl
 
 MIN_POINTS_AFFINE = 6
 AFFINE_MIN_GAIN = 0.10
@@ -110,8 +110,7 @@ def append_record(record, path=None):
     path = path or config.HOVER_CORRECTIONS
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {"timestamp": datetime.now().isoformat(timespec="seconds"), **setup_fingerprint(), **record}
-    with open(path, "a") as f:
-        f.write(json.dumps(record) + "\n")
+    append_jsonl(path, [record])
     return record
 
 

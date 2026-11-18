@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config, name_check
-from .wrist_photos import written
+from .wrist_photos import whole_jpeg, written
 from .session import read_jsonl
 
 BACK, EMPTY = config.BACK, "empty"
@@ -66,7 +66,7 @@ def _look_photos(folder, sessions_dir, face_down):
         if event.get("type") != "wrist_check" or not event.get("image") or event.get("present") is None:
             continue
         path = folder / event["image"]
-        if not path.exists() or not path.stat().st_size:
+        if not whole_jpeg(path):
             continue
         at_back = face_down or event.get("tile") == BACK
         if event.get("by") == "person":

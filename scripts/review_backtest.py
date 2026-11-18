@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import checkout, config
+from mahjong.session import append_jsonl, read_jsonl
 
 import review_brief
 
@@ -139,12 +140,11 @@ def save_run(name, output, seconds, work):
 
 
 def append_result(row):
-    with RESULTS.open("a") as f:
-        f.write(json.dumps(row) + "\n")
+    append_jsonl(RESULTS, [row])
 
 
 def read_results():
-    return [json.loads(line) for line in RESULTS.read_text().splitlines()] if RESULTS.exists() else []
+    return read_jsonl(RESULTS)
 
 
 def _main_checkout_sessions():

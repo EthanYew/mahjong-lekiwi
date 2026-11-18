@@ -12,12 +12,10 @@ camera, one tile laid on one spot for the base camera). Click a photo to mark it
 row. Right-click renames (asked in the terminal). Shift+click opens a photo at full size. Space marks the page's unmarked
 photos ok and moves on; p goes back; ] and [ change name; q quits.
 """
-import json
 from datetime import datetime
-from pathlib import Path
 
 from . import config
-from .session import read_jsonl
+from .session import append_jsonl, read_jsonl
 
 GREEN, RED, AMBER, WHITE, GREY = (0, 200, 0), (40, 40, 230), (0, 190, 255), (235, 235, 235), (150, 150, 150)
 HELP = ("click: wrong   click label: whole row   right-click: rename   shift-click: full size   space: ok + next   "
@@ -35,9 +33,7 @@ def record(keys, verdict, name, path):
     """Append a verdict ("ok" / "wrong", with the right name if known) for each photo key. Returns the records."""
     time = datetime.now().isoformat(timespec="seconds")
     records = [{"photo": key, "verdict": verdict, "name": name, "time": time} for key in keys]
-    with open(Path(path), "a") as f:
-        for r in records:
-            f.write(json.dumps(r) + "\n")
+    append_jsonl(path, records)
     return records
 
 

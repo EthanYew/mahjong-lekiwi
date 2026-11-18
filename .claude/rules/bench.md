@@ -41,8 +41,9 @@ Running and counting the bench, what a person did, what a session records.
   unplugged), then ask the setup questions, then create the session folder.
 - **A power cut damages only the end of a session**: on 2026-11-18 `20261118_230033_wrist`'s `events.jsonl` ended in 566 zero
   bytes and its last 9 photos were 0-byte files, and every script that lists sessions stopped on the log. So read logs with
-  `session.read_jsonl` (it drops a zero-filled or cut-off tail and says so, but raises on a bad line before the end) and photo
-  lists with `wrist_photos.written` (skips 0-byte files), never a hand-rolled `json.loads` loop.
+  `session.read_jsonl` (it leaves out a zero-filled or cut-off tail and says so, but raises on damage before the last whole
+  line), append with `session.append_jsonl` (it moves a damaged tail to `<name>.cut` first, or the next record merges with
+  the cut line and is lost), and list photos with `wrist_photos.written` (whole JPEGs only); never a hand-rolled loop.
 - **Counted bench results run on the standard setup** (`data/standard_setup.json`: one mat, one layout), with a passing
   `setup_check.py` and one hover opening within a comparison. Other surfaces are generalisation checks and never block.
   Which check answers which question: `docs/scorecard.md`. Don't change the setup to explain away a result.

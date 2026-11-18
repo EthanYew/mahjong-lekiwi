@@ -157,8 +157,7 @@ class Session:
 
     def event(self, type, **fields):
         record = {"time": datetime.now().isoformat(timespec="seconds"), "type": type, **fields}
-        with open(self.dir / "events.jsonl", "a") as f:
-            f.write(json.dumps(record, default=_jsonable) + "\n")
+        append_jsonl(self.dir / "events.jsonl", [record], default=_jsonable)
         return record
 
     def attempt_dir(self, label):
@@ -197,33 +196,61 @@ def _jsonable(value):
 _DAMAGE_REPORTED = set()
 
 
+def _tail(raw):
+    """(the whole lines of a .jsonl file's bytes, what follows them: a cut-off line and/or zero padding, b"" if none)."""
+    end = raw.rfind(b"\n") + 1
+    return raw[:end], raw[end:]
+
+
 def read_jsonl(path):
     """The records of a .jsonl file (events, traces, sample logs, episode logs), or [] if there's none.
 
     A power cut mid-write damages only the end of a file: on 2026-11-18 one left 566 zero bytes after an events.jsonl's last
     line (the filesystem had reserved the space, the data never came), and every script that lists sessions stopped on it.
-    So zero bytes are dropped and a last line that doesn't parse is skipped, each said once per file on stderr. A bad line
-    anywhere else isn't a power cut, and still raises."""
+    So what follows the last whole line, zero padding or a line cut short, is left out and said once per file on stderr (a
+    reader can also catch a line another process is still writing). A bad line before that, zero bytes in it included,
+    isn't a power cut, and still raises."""
     path = Path(path)
     if not path.exists():
         return []
-    raw = path.read_bytes()
-    lines = [line for line in raw.replace(b"\0", b"").decode("utf-8", errors="replace").splitlines() if line.strip()]
-    rows, damage, zeros = [], [], raw.count(b"\0")
-    if zeros:
-        damage.append(f"{zeros} zero bytes dropped")
-    for i, line in enumerate(lines):
+    whole, tail = _tail(path.read_bytes())
+    rows = [json.loads(line) for line in whole.decode().splitlines() if line.strip()]
+    fragment = tail.rstrip(b"\0")
+    if fragment.strip():
         try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            if i < len(lines) - 1:
-                raise
-            damage.append("its cut-off last line skipped")
+            rows.append(json.loads(fragment.decode()))      # whole but for its newline: the cut came just before it
+            fragment = b""
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+    damage = [f"{len(tail) - len(tail.rstrip(b'\0'))} zero bytes"] if tail.endswith(b"\0") else []
+    damage += ["a cut-off last line"] if fragment.strip() else []
     if damage and str(path) not in _DAMAGE_REPORTED:
         _DAMAGE_REPORTED.add(str(path))
-        print(f"WARNING: {path}: {', '.join(damage)} (a write cut short, e.g. a power cut); the rest is read",
-              file=sys.stderr)
+        print(f"WARNING: {path}: {' and '.join(damage)} after its last whole line left out (a write cut short, e.g. a "
+              "power cut, or one still being written); the rest is read", file=sys.stderr)
     return rows
+
+
+def append_jsonl(path, records, default=None):
+    """Append records to a .jsonl file, one a line. A file whose end a power cut damaged (read_jsonl) is first cut back to its
+    last whole line, the bytes after it kept in <name>.cut beside it: a new record written onto a cut-off line would merge
+    with it and be lost, and the next append would leave a bad line before the end, which read_jsonl refuses."""
+    path = Path(path)
+    if path.exists() and path.stat().st_size:
+        with open(path, "rb") as f:
+            f.seek(-1, 2)
+            clean = f.read(1) == b"\n"
+        if not clean:
+            whole, tail = _tail(path.read_bytes())
+            with open(path.with_name(path.name + ".cut"), "ab") as f:
+                f.write(tail)
+            with open(path, "r+b") as f:
+                f.truncate(len(whole))
+            print(f"WARNING: {path}: {len(tail)} bytes after its last whole line (a write cut short) moved to "
+                  f"{path.name}.cut before appending", file=sys.stderr)
+    with open(path, "a") as f:
+        for record in records:
+            f.write(json.dumps(record, default=default) + "\n")
 
 
 def read_events(session_dir):

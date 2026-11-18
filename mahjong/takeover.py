@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 
 from . import config
+from .session import append_jsonl, read_jsonl
 from .dataset import EPISODE_LOG
 
 JOINT_NAMES = [f"{j}.pos" for j in config.JOINTS]
@@ -164,8 +165,7 @@ class Takeover:
                   "frames": len(frames), "session": session.dir.name, "slice": "train", "conditions": session.conditions,
                   "policy": policy, "takeover_frame": taken, "takeover_end": run.get("takeover_end"),
                   "fps": fps, "source": session.dir.name.split("_", 2)[-1], **fields}
-        with open(Path(self.dataset.root) / EPISODE_LOG, "a") as f:
-            f.write(json.dumps(record) + "\n")
+        append_jsonl(Path(self.dataset.root) / EPISODE_LOG, [record])
         session.event("takeover_saved", dataset=self.repo_id, **record)
         self.log(f"  saved episode {episode} of {self.repo_id}: yours from {taken / config.FPS:.1f}s "
                  f"({len(frames) - taken} frames trained on; {time.time() - started:.0f}s to write)")
@@ -193,7 +193,6 @@ def policy_view(run):
 
 
 def episode_log_rows(root):
-    from .session import read_jsonl         # appended to while recording, so a power cut can cut it short too
     return read_jsonl(Path(root) / EPISODE_LOG)
 
 

@@ -25,9 +25,23 @@ REVIEW = config.DATA / "wrist_review.jsonl"
 SOURCES = ("wrist_capture", "bench")
 
 
+def whole_jpeg(path):
+    """Whether a photo was written to its end: a power cut leaves the last few as 0-byte files (20261118_230033_wrist: 9),
+    and could leave one cut short or zero-padded; a whole JPEG ends in its end-of-image marker. False if it's gone."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            if f.tell() < 2:
+                return False
+            f.seek(-2, 2)
+            return f.read(2) == b"\xff\xd9"
+    except OSError:
+        return False
+
+
 def written(paths):
-    """The photos with something in them: a power cut leaves the last few as 0-byte files (20261118_230033_wrist: 9)."""
-    return [p for p in sorted(paths) if p.stat().st_size > 0]
+    """The photos among `paths` that were written whole (whole_jpeg), sorted."""
+    return [p for p in sorted(paths) if whole_jpeg(p)]
 
 
 def photos(sessions_dir=None):

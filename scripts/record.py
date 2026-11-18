@@ -56,7 +56,6 @@ scan can't see a green back to check where a return landed. Lay the rest of the 
     python scripts/record.py --dataset Yewy/mahjong_facedown_eval_v1 --slice facedown --layout even-hand14 --face-down
 """
 import argparse
-import json
 import random
 import sys
 import time
@@ -76,7 +75,7 @@ from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_a
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
-from mahjong.session import Session, ask_one
+from mahjong.session import Session, append_jsonl, ask_one
 from mahjong.takeover import open_dataset
 
 DISCARD_REASONS = ["bad demo", "knocked a tile", "hover was wrong", "other"]    # asked after ←, Enter skips
@@ -451,8 +450,7 @@ def main(argv=None):
                       "left_stick_max_mm_s": args.left_stick_max_mm_s, "frames": frames, "torn_frames": torn_frames,
                       "session": session.dir.name, "slice": args.slice,
                       "conditions": session.conditions, **placement, **dagger, **roll.summary()}
-            with open(Path(dataset.root) / EPISODE_LOG, "a") as f:
-                f.write(json.dumps(record) + "\n")
+            append_jsonl(Path(dataset.root) / EPISODE_LOG, [record])
             session.event("episode_saved", **record)
             print(f"Saved episode {episode} ({frames / config.FPS:.1f}s"
                   + (")" if not policy else f", yours from {takeover / config.FPS:.1f}s)" if takeover is not None

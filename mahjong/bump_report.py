@@ -18,7 +18,7 @@ from statistics import median
 import cv2
 
 from . import config, interventions as iv
-from .session import read_events
+from .session import append_jsonl, read_events
 
 PAGE, FOLDER = "bump_report.html", "bump_report"
 FRAME = "f0.jpg"            # a scan's frames are near copies; the camera doesn't move between scans, so crops line up
@@ -337,7 +337,6 @@ def record_verdict(session_dir, found, item_id, verdict):
         raise ValueError(f"no row {item_id!r} in this session")
     record = {"time": datetime.now().isoformat(timespec="seconds"), "type": "scan_verdict", "scan": item["scan"],
               "category": item["category"], "change": item["change"], "verdict": verdict, "kind": item["kind_if_real"]}
-    with open(session_dir / "events.jsonl", "a") as f:
-        f.write(json.dumps(record) + "\n")
+    append_jsonl(session_dir / "events.jsonl", [record])
     item["verdict"] = verdict
     return record
