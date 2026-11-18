@@ -221,6 +221,16 @@ def test_a_face_down_hand_s_picks_turns_and_clips_are_in_its_video(tmp_path):
     assert [(c["tile"], c["success"]) for c in shown] == [("S1", True), ("F", False), ("F", True)]
 
 
+def test_a_mat_crop_with_no_tiles_seen_says_the_room_is_in(tmp_path, monkeypatch, capsys):
+    """A face-down hand has no scans, so no tile boxes to crop to: the whole frame stays, and it has to say so (the crop is
+    what leaves the room out of a published video)."""
+    monkeypatch.setattr(game_video.privacy, "blur_faces", lambda frame: (frame, 0))
+    desk = game_video.Desk(tmp_path, FACE_DOWN_EVENTS, crop=True)
+    desk.prepare(np.zeros((480, 640, 3), np.uint8), FACE_DOWN_EVENTS)
+    desk.prepare(np.zeros((480, 640, 3), np.uint8), FACE_DOWN_EVENTS)
+    assert capsys.readouterr().out.count("--crop mat") == 1
+
+
 def test_a_clip_starts_when_its_folder_was_made_even_past_midnight():
     folder = Path("20261104_235900_play")
     assert game_video.clip_start(folder, "001_235930_7B") == game_video.seconds("2026-11-04T23:59:30")

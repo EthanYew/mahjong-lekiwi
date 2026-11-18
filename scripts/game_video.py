@@ -280,7 +280,11 @@ class Desk:
     def prepare(self, frame, events):
         frame = privacy.blur_faces(frame)[0]
         if self.crop and self.box is None:
-            self.box = crop_box(events, frame.shape) or (0, 0, frame.shape[1], frame.shape[0])
+            self.box = crop_box(events, frame.shape)
+            if self.box is None:        # face-down play has no scans: nothing says where the tiles are
+                print("--crop mat: no scan saw a tile in this session, so the whole frame stays in, the room too. "
+                      "Watch for faces before posting it")
+                self.box = (0, 0, frame.shape[1], frame.shape[0])
         if self.box:
             x0, y0, x1, y1 = self.box
             frame = frame[y0:y1, x0:x1]
