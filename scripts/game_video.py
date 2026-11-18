@@ -92,13 +92,27 @@ def clip_start(session_dir, attempt_dir):
 def clips(session_dir, events):
     """[{time, path, tile, success}] for each pickup with a gripper video, in order."""
     out = []
-    for e in events:
-        if e["type"] == "attempt" and FOLDER_TIME.match(e.get("attempt_dir", "")):
+    for e in pickups(events):
+        if FOLDER_TIME.match(e.get("attempt_dir") or ""):
             path = session_dir / e["attempt_dir"] / "wrist.mp4"
             if path.exists():
                 out.append({"time": clip_start(session_dir, e["attempt_dir"]), "path": path, "tile": e.get("tile"),
                             "success": e.get("success")})
     return sorted(out, key=lambda c: c["time"])
+
+
+def pickups(events):
+    """Every pickup, as play.py's `attempt` events: face-down play (play_face_down.py, the crude run) logs `crude_pick`,
+    with the spot it picked from for a tile (a face-down tile's name isn't known when it's picked) and `held` for success."""
+    return [e if e["type"] == "attempt" else {**e, "tile": e.get("spot"), "success": e.get("held")}
+            for e in events if e["type"] in ("attempt", "crude_pick")]
+
+
+def checked_reads(events):
+    """Face-down play: the reader's names a person checked (the 13 in the hand check, each draw confirmed). Not questions in
+    the grade (pressing Enter on a read isn't one), but a person looked at every one."""
+    hand = sum(len(e.get("hand", {})) for e in events if e["type"] == "fd_hand_confirmed" and e.get("by") == "person")
+    return hand + sum(1 for e in events if e["type"] == "crude_read" and e.get("by") != "reader")
 
 
 def crop_box(events, shape, margin=CROP_MARGIN_PX):
@@ -127,8 +141,9 @@ class Story:
     def __init__(self, session_dir, events):
         self.name = session_dir.name
         self.found = interventions.derive(events)
-        self.attempts = [e for e in events if e["type"] == "attempt"]
-        self.turns = [e for e in events if e["type"] in ("discard_chosen", "turn_done")]
+        self.attempts = pickups(events)
+        self.turns = [e for e in events if e["type"] in ("discard_chosen", "turn_done", "crude_choice")]
+        self.checked = checked_reads(events)
         self.end = next((e for e in reversed(events) if e["type"] == "hand_end"), None)
         self.policy = next((e.get("policy") for e in events if e["type"] == "bench_setup"), None) \
             or next((e.get("policy") for e in events if e["type"] == "session_start"), None)
@@ -153,6 +168,8 @@ class Story:
         if not done:
             return "Reading the hand"
         e = done[-1]
+        if e["type"] == "crude_choice":         # face-down play
+            return f"Turn {e['turn']}: drew {e['drawn']}, discarding {e['discard']}"
         if e["type"] == "discard_chosen":
             drew = f"drew {e['drawn']}, " if e.get("drawn") else ""
             return f"Turn {e['turn']}: {drew}discarding {e['tile_name']}"
@@ -182,8 +199,10 @@ class Story:
         out += [f"{minutes:.0f} minutes, {c['picked']} of {c['attempts']} pickups held the tile",
                 f"A person answered {c['questions']} questions",
                 f"and stepped in by hand {plural(c['hands_on'], 'time')} ({plural(c['rescues'], 'rescue')}, "
-                f"{plural(c['resets'], 'reset')} of the mat)",
-                f"session {self.name}"]
+                f"{plural(c['resets'], 'reset')} of the mat)"]
+        if self.checked:
+            out.append(f"A person checked {self.checked} of the reader's names")
+        out.append(f"session {self.name}")
         return out
 
 
