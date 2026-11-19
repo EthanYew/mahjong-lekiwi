@@ -38,15 +38,27 @@ def test_an_unattended_hand_counts_once_its_holds_are_reviewed(monkeypatch):
     assert judge(hand(unattended=True), [read(), read(reviewed=False)])["status"] == "waiting for review"
 
 
-def test_a_hold_marked_wrong_with_no_name_is_still_waiting(monkeypatch):
+def test_a_hold_marked_wrong_with_no_name_is_still_waiting_and_says_to_name_it(monkeypatch):
     verified(monkeypatch)
-    assert judge(hand(), [read(truth=None)])["status"] == "waiting for review"
+    out = judge(hand(), [read(truth=None)])
+    assert out["status"] == "waiting for review" and "rename" in out["why"]
 
 
 def test_a_wrong_read_the_hand_used_is_a_silent_error_even_with_holds_still_waiting(monkeypatch):
     verified(monkeypatch)
     out = judge(hand(unattended=True), [read(filed="9C", truth="5C"), read(reviewed=False)])
     assert out["status"] == "silent error" and "9C" in out["why"] and "5C" in out["why"]
+
+
+def test_a_wrong_read_is_a_silent_error_even_in_a_hand_that_never_finished(monkeypatch):
+    verified(monkeypatch)
+    assert judge(hand(None), [read(filed="9C", truth="5C")])["status"] == "silent error"
+
+
+def test_a_hand_a_person_quit_is_a_failed_hand_even_with_an_end_check(monkeypatch):
+    verified(monkeypatch)
+    assert judge(hand({**END_OK, "result": "quit"}), [read()])["status"] == "unfinished"
+    assert judge(hand({**END_OK, "result": "end"}), [read()])["status"] == "clean"
 
 
 def test_the_end_checks_wrong_tile_is_a_silent_error(monkeypatch):
@@ -79,6 +91,8 @@ def test_the_target_needs_ten_hands_with_eight_clean_and_no_silent_error():
     assert not win(["clean"] * 9)["met"], "nine hands is not ten"
     assert not win(["clean"] * 9 + ["silent error"])["met"]
     assert win(["rescued", "rescued"] + ["clean"] * 10)["met"], "only the last ten count"
+    mixed = hand_tally.window([{"status": "clean", "setup": "a" if i < 6 else "b"} for i in range(10)])
+    assert not mixed["met"] and len(mixed["setups"]) == 2, "ten clean hands on two setups don't meet it"
 
 
 def test_the_tally_reads_session_folders_and_leaves_out_sim_and_voided_ones(tmp_path, monkeypatch):

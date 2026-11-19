@@ -7,7 +7,7 @@ A hand (a `*_play_fd` session, real and not voided) is one of:
   silent error                 the end check found a tile the robot had wrong, or a reviewed read the hand used was wrong
   waiting for review           a hold has no verdict (`base_cam_review.py --play`): the hand can't be judged yet, and no later
                                hand counts as consecutive until it is
-  unfinished                   it started turns but never reached its end check: counts as a failed hand, not skipped
+  unfinished                   it started turns but never reached its end check, or a person quit it: a failed hand, not skipped
   not verified                 a win no person vouched for (play_log.verdict)
 Only hands before the first one waiting are counted. The window is the last WINDOW of them."""
 from pathlib import Path
@@ -16,6 +16,7 @@ from mahjong import base_cam, config, face_down_play, play_log
 from mahjong.session import counted_real, read_events
 
 TARGET, WINDOW = 8, 10
+COMPLETE = ("win", "end")       # a win, or the wall ran out ("end"); a "quit" is a hand a person stopped
 CLEAN, SILENT, WAITING, UNFINISHED, NOT_VERIFIED = "clean", "silent error", "waiting for review", "unfinished", "not verified"
 
 
@@ -23,18 +24,23 @@ def judge(hand_log, reads, events):
     """{"status", "why"} for one hand (play_log.hand's dict, face_down_play.scored_reads' rows, the session's events), or None
     for a session that never started a turn and ended nothing (a quit at the laying window: not a hand)."""
     end = hand_log["end"]
-    if end is None or not end.get("end_check"):
-        if not any(e["type"] == "fd_turn_start" for e in events):
-            return None
-        return {"status": UNFINISHED, "why": "it never reached its end check" if end is None else "the end check was skipped"}
     wrong_reads = [r for r in reads if r["reviewed"] and r["truth"] is not None and r["filed"] != r["truth"]]
-    if end.get("silent_errors") or wrong_reads:
-        found = [f"end check: {end['silent_errors']} tile(s)"] * bool(end.get("silent_errors"))
+    started = any(e["type"] == "fd_turn_start" for e in events)
+    if wrong_reads or (end or {}).get("silent_errors"):      # a known wrong name the hand used is a silent error, finished or not
+        found = [f"end check: {end['silent_errors']} tile(s)"] if (end or {}).get("silent_errors") else []
         found += [f"{r['where']} read {r['filed']}, really {r['truth']}" for r in wrong_reads]
         return {"status": SILENT, "why": "; ".join(found)}
-    waiting = [r for r in reads if not r["reviewed"] or r["truth"] is None]
-    if waiting:
-        return {"status": WAITING, "why": f"{len(waiting)} of {len(reads)} hold(s) have no verdict (base_cam_review.py --play)"}
+    if end is None or not end.get("end_check") or end.get("result") not in COMPLETE:
+        if not started:
+            return None
+        why = ("it never reached its end check" if end is None else "the end check was skipped" if not end.get("end_check")
+               else f"a person ended it early ({end.get('result')})")
+        return {"status": UNFINISHED, "why": why}
+    unnamed = [r for r in reads if r["reviewed"] and r["truth"] is None]
+    waiting = [r for r in reads if not r["reviewed"]]
+    if waiting or unnamed:
+        return {"status": WAITING, "why": f"{len(waiting)} of {len(reads)} hold(s) have no verdict, {len(unnamed)} marked wrong "
+                                          "with no name (rename it in base_cam_review.py --play)"}
     check = play_log.verdict(hand_log, reads)
     if end.get("result") == "win" and (check or {}).get("status") != "verified":
         return {"status": NOT_VERIFIED, "why": "; ".join((check or {}).get("lines", [])) or "no person vouched for the win"}
@@ -57,8 +63,9 @@ def window(counted):
     last = counted[-WINDOW:]
     clean = sum(r["status"] == CLEAN for r in last)
     silent = sum(r["status"] == SILENT for r in last)
-    return {"hands": len(last), "clean": clean, "silent": silent, "met": len(last) == WINDOW and clean >= TARGET and silent == 0,
-            "setups": sorted({r["setup"] for r in last})}
+    setups = sorted({r["setup"] for r in last})
+    return {"hands": len(last), "clean": clean, "silent": silent, "setups": setups,
+            "met": len(last) == WINDOW and clean >= TARGET and silent == 0 and len(setups) == 1}
 
 
 def tally(sessions_dir=None, review=None):
@@ -85,12 +92,12 @@ def tally(sessions_dir=None, review=None):
 
 def lines(rows):
     """The tally as text for status.py."""
-    counted, behind = series(rows)
+    counted, _ = series(rows)
     out = [f"Face-down hands (target {TARGET} of {WINDOW} consecutive clean, 0 silent errors; unattended count once reviewed; mahjong/hand_tally.py)"]
     if not rows:
         return out + ["  no face-down hand played yet"]
-    for r in rows:
-        mark = "  (not consecutive yet: behind a hand waiting for review)" if r in behind and r["status"] != WAITING else ""
+    for i, r in enumerate(rows):
+        mark = "  (not consecutive yet: behind a hand waiting for review)" if i >= len(counted) and r["status"] != WAITING else ""
         out.append(f"  {r['name']:<26} {r['mode']:<10} {r['result']:<5} {r['turns'] or '-':>3} turns  {r['status']}"
                    + (f": {r['why']}" if r["why"] else "") + mark)
     w = window(counted)
@@ -99,5 +106,5 @@ def lines(rows):
     if any(r["status"] == SILENT for r in counted):
         out.append("  GATE: a silent error is in the record: it stops play until its cause is dealt with (.claude/rules/play.md)")
     if len(w["setups"]) > 1:
-        out.append("  WARNING: the window mixes setups, which the plan says never to pool: " + " | ".join(w["setups"]))
+        out.append("  WARNING: the window mixes setups, so the target can't be met on it (the plan never pools them): " + " | ".join(w["setups"]))
     return out

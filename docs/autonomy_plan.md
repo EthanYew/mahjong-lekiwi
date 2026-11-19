@@ -240,7 +240,7 @@ drawn tile can be aimed straight at the vacated slot (bug #7 fixed by reuse).
 |---|---|---|
 | Silent wrong tiles | **0, a gate** | audit, conservation check, exams |
 | Clean hands | ≥ 8/10 consecutive | session events |
-| Clean face-down hands (`play_face_down.py`, attended or unattended; see "Face-down hands" below) | ≥ 8/10 consecutive, 0 silent errors | session events + every hold reviewed + end check |
+| Clean face-down hands (`play_face_down.py`, attended or unattended; see "Face-down hands" above) | ≥ 8/10 consecutive, 0 silent errors | session events + every hold reviewed + end check |
 | Asks per hand | ≤ 1 on the way there | interventions |
 | Names auto-accepted (two reads agree) | ≥ 99.5 % (today ~97-98 % per read); agree-and-wrong 0 over ~1000 exam reads across lightings | `detector_eval.py` + drop-zone / wrist exams |
 | First-try pickup | ≥ 95 % per slot and in the zone | bench `--layout hand13` |
