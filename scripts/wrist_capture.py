@@ -178,7 +178,7 @@ def confirm_empty(realsense, spots, ask, show, sim=False):
     if not perception.sees_backs(realsense):
         if not sim:
             raise SystemExit("The detector's weights see no backs, so a spot with a back on it would look bare: install "
-                             "weights with the back class (README 'Teaching the detector tile backs') first.")
+                             "weights with the back class (docs/usage.md 'Teaching the detector tile backs') first.")
         print("The detector's weights see no backs: a spot with a back on it is listed as bare.")
     while True:
         tiles = list(realsense.detect_tiles()) + list(getattr(realsense, "faint", None) or [])

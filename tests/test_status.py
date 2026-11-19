@@ -55,14 +55,15 @@ def test_set_default_says_what_docs_still_name_the_old_one_and_warns_on_main(tmp
     status.main(["--set-default", "pickup_mat_cl_v3c", "--evidence", "x", "--since", "2026-11-05"])
     out = capsys.readouterr().out
     assert "WARNING: this is main" in out
-    assert "README.md: the policy list" in out           # v3c isn't the docs' default (ROADMAP's DAgger row names it)
+    assert "docs/usage.md: the policy list" in out           # v3c isn't the docs' default (ROADMAP's DAgger row names it)
     assert json.loads(policies.read_text())["default_note"]["since"] == "2026-11-05"
     current = json.loads((config.REPO / "data" / "policies.json").read_text())["default"]    # the repo's docs agree with its own
     assert status.stale_docs(current) == []
 
 
 def test_stale_docs_finds_an_old_dagger_example(tmp_path):
-    (tmp_path / "README.md").write_text("policies (default: `new`)\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "usage.md").write_text("policies (default: `new`)\n")
     (tmp_path / "CLAUDE.md").write_text("record.py --dataset Yewy/x --policy pickup_mat_cl_v7\n")
     (tmp_path / "ROADMAP.md").write_text("# R\n\n## Status\n\n| Default | new |\n")
     assert [s.split(":")[0] for s in status.stale_docs("new", tmp_path)] == ["CLAUDE.md"]

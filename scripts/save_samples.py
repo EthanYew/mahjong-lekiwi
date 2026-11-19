@@ -1,11 +1,11 @@
-"""Save a hardware session's logged samples to main, in one step (README, "Data files and merging").
+"""Save a hardware session's logged samples to main, in one step (docs/usage.md, "Data files and merging").
 
     python scripts/save_samples.py                 # the samples changed here, named after the latest real session; asks first
     python scripts/save_samples.py --dry-run       # what it would commit, without committing
     python scripts/save_samples.py --session 20261113_100710_bench
 
 The scripts append samples to files in data/ as they run (hover and return corrections, photo reviews). They go to main from
-the main checkout, committed and pushed together so a commit never sits here without being on GitHub. This does the README's
+the main checkout, committed and pushed together so a commit never sits here without being on GitHub. This does docs/usage.md's
 three commands. The files are the ones .gitattributes merges by union, less the review log, which only a review's PR writes.
 It never adds another file, and it stops if the pull or push fails, saying what to do.
 """

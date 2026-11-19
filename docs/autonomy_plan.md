@@ -335,7 +335,7 @@ cut how much reading has to be right.
     ~1000 tile reads in all. Note: it scores Roboflow's re-encoded frames, which undersell every
     detector (old weights: 69 % there vs 81 % on the robot's own frames). Comparisons hold, absolute
     numbers don't.
-11. **What already worked, keep doing it** (README, v6x3): current-scene frames repeated 3× in
+11. **What already worked, keep doing it** (docs/usage.md, v6x3): current-scene frames repeated 3× in
     training, splits by scene, one box per tile in pre-labels. The next round's frames should come
     from the play layout itself (`hand13` + the zone), since that's the scene play sees.
 

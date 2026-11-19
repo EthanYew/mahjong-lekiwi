@@ -11,7 +11,7 @@ Rebuilt 2026-10-23 from `~/Projects/MahjongBot` (archive; don't import from it).
   needs the GPU). A pre-commit hook runs the fast tests; turn it on once per clone with `git config core.hooksPath scripts/hooks`.
 - **Where things stand**: `python scripts/status.py`. It reads `data/`; trust it over any doc. The default changes only
   with `status.py --set-default ID --evidence ...`.
-- Commands and options: `README.md`. What each file is for: `docs/code_map.md`.
+- Commands and options: `docs/usage.md` (`README.md` is the public overview). What each file is for: `docs/code_map.md`.
 - Run hardware scripts from the main checkout: `sessions/` is per-checkout and gitignored. Read a session with
   `python scripts/session_report.py [folder]` before asking what happened.
 - A command that may run an arm script prompts for a person, in auto mode too (`.claude/hooks/arm_run_gate.py`); reads,
@@ -41,7 +41,7 @@ Learned something about the hardware? Add it to the rule it belongs to, with the
 
 - Before calling a change hardware-ready: fast tests pass (slow too if `policy.py`/`dataset.py` changed), and say what was
   checked offline vs what still needs the arm.
-- **`README.md` is the user's command reference.** Before merging, update it for any change to what a person runs: a script,
+- **`docs/usage.md` is the user's command reference.** Before merging, update it for any change to what a person runs: a script,
   an option, a default, menu commands or keys, new policy ids. `tests/test_docs.py` checks it.
 - **State lives in `data/`, not in the docs.** Don't write "the default is X" where a file decides it; point at `status.py`.
   ROADMAP.md's status table is the one place for what's done and next, each row with its evidence; update it in the branch
@@ -55,7 +55,7 @@ Learned something about the hardware? Add it to the rule it belongs to, with the
 Git catches overlapping lines, not overlapping intent. `merging.md` has the detail.
 
 - Parallel work: a helper, constant or option several tasks need lands on `main` first. Two branches shouldn't both change
-  `bench.py`, `record.py` or `config.py`; `.claude/hooks/overlap_warning.py` says so after the first edit to a file another open branch changes. In a branch, touch this file, ROADMAP.md and README.md only for that branch's items.
+  `bench.py`, `record.py` or `config.py`; `.claude/hooks/overlap_warning.py` says so after the first edit to a file another open branch changes. In a branch, touch this file, ROADMAP.md and docs/usage.md only for that branch's items.
 - **Handing a branch back is `/hand-back`**: merge `main` in, ruff and the tests (the motion watchdog checks every sim arm command),
   `/code-review` (`/hand-back` says how far), a ready PR with `## What changed`, `## Files`, `## Overlaps`, `## Review`, `## Unverified on the arm`,
   then the queue, `python scripts/merge_pr.py --auto N` from the main checkout, which merges it, pulls and closes the branch.

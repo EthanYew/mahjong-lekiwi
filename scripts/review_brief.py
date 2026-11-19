@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import checkout, code_health, config
 
-# What the sim runs need to reach the end with no one at the keyboard (README, "Testing on the arm")
+# What the sim runs need to reach the end with no one at the keyboard (docs/usage.md, "Testing on the arm")
 SIM_RUNS = {"bench": ["--sim", "--trials", "3", "--tile", "8D", "--unattended"],
             "play": ["--sim", "--layout", "even-hand13"]}
 SIM_TIMEOUT_S = 240

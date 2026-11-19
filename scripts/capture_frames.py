@@ -12,7 +12,7 @@ scan, and under it a count of every tile name scanned so far, as the detector re
 amber below --target, green there. Boxes: green at or above the detection cut, amber below it (where
 it hesitated). A scan whose tiles barely moved since the last one is flagged: the same scene twice
 teaches little, so move or swap 5-8 tiles first. Then `scripts/mine_frames.py` exports the frames for
-labelling in Roboflow (README, "The tile detector").
+labelling in Roboflow (docs/usage.md, "The tile detector").
 
 For the exam (data/detector_exam.json), capture one session per lighting you use (an exam session's
 lighting is its setup answers, so l is off there), with tile arrangements of their own, not a

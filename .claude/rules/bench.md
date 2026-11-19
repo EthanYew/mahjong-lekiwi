@@ -34,7 +34,7 @@ Running and counting the bench, what a person did, what a session records.
   `docs/invariant_notes.md`.
 - Unattended: `bench.py --unattended --layout NAME --trials N` asks nothing once the trials start. A neighbour the scans
   see move is a self-reported bump (settled by later scans; counts as a knock); a person checks them afterwards with
-  `python scripts/bump_report.py`, whose verdicts (`scan_verdict` events) `interventions.derive` applies. README has what
+  `python scripts/bump_report.py`, whose verdicts (`scan_verdict` events) `interventions.derive` applies. `docs/usage.md` has what
   replaces each question. A new question in the bench's trials path needs an unattended answer: `tests/test_bump_report.py`
   fails any `input()`.
 - Hardware scripts connect everything first (`mahjong/hardware.py`: retry / quit if something's
