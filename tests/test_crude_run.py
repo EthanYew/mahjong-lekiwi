@@ -174,9 +174,8 @@ def test_a_turn_goes_from_move_to_move_and_rests_only_to_ask(monkeypatch, tmp_pa
     assert direct_commands < 0.8 * via_commands, (direct_commands, via_commands)
 
 
-def test_the_swings_to_and_from_the_base_camera_pass_the_raised_rest(monkeypatch, tmp_path):
-    """The base camera's poses are by the LeKiwi base, which nothing models: with no trip to rest, a straight swing between the
-    mat and a pose could cut across it, so both ways pass RAISED_REST (2026-11-20)."""
+def track_places(monkeypatch):
+    """Where the arm is after each move, run-length encoded: "camera" (a base_view pose), "raised" (RAISED_REST), "rest" or "mat"."""
     from mahjong.arm import Arm
     real, where = Arm.move_to, []
 
@@ -191,11 +190,30 @@ def test_the_swings_to_and_from_the_base_camera_pass_the_raised_rest(monkeypatch
             where.append(label)
         return end
     monkeypatch.setattr(Arm, "move_to", move_to)
+    return where
+
+
+def test_the_swings_to_and_from_the_base_camera_pass_the_raised_rest(monkeypatch, tmp_path):
+    """The base camera's poses are by the LeKiwi base, which nothing models: with no trip to rest, a straight swing between the
+    mat and a pose could cut across it, so both ways pass RAISED_REST (2026-11-20)."""
+    where = track_places(monkeypatch)
     run(script_in(monkeypatch, tmp_path), ["--turns", "1"], [*LIGHT, "", "", "5C", ""])
     steps = list(zip(where, where[1:]))
     assert ("mat", "camera") not in steps and ("camera", "mat") not in steps, where
     assert ("mat", "raised") in steps and ("raised", "camera") in steps and ("camera", "raised") in steps
     assert ("raised", "rest") not in steps[:where.index("camera") + 2]     # past the base, not folded down to rest
+
+
+def test_a_hold_that_ends_early_still_leaves_by_the_raised_rest(monkeypatch, tmp_path):
+    """The base camera gives no frames at the first pose: the hold ends there, and the arm still goes out past the base
+    before it sets the tile down, not straight from the pose to the mat."""
+    from mahjong import face_down_rig
+    monkeypatch.setattr(face_down_rig, "grab_frames", lambda camera, n: [])
+    where = track_places(monkeypatch)
+    folder, _ = run(script_in(monkeypatch, tmp_path), ["--turns", "1"], [*LIGHT, "", "", "", "5C", ""])      # ... the name, typed from the tile
+    assert any("base camera gave no frames" in e["what"] for e in events_of(folder, "crude_break"))
+    steps = list(zip(where, where[1:]))
+    assert ("camera", "raised") in steps and ("camera", "mat") not in steps, where
 
 
 # The face-down sim (face_down_rig.Rig) applies the real hover correction, fitted on the RealSense-to-arm gap, to tiles laid where

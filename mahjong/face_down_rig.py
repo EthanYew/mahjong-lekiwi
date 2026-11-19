@@ -132,10 +132,9 @@ class Rig:
         if not self.direct:
             return self._show(rng, still_held)
         self.arm.to_raised_rest()
-        try:
-            return self._show(rng, still_held)
-        finally:
-            self.arm.to_raised_rest()       # every way out, the early ones too: "no frames" goes on to the set-down
+        shown = self._show(rng, still_held)
+        self.arm.to_raised_rest()       # every normal way out, the early ones too ("no frames" goes on to the set-down); an
+        return shown                    # exception or Ctrl-C moves nothing more: close() rests the arm
 
     def _show(self, rng, still_held):
         still_held = still_held or (lambda: self.arm.holding()[0])
