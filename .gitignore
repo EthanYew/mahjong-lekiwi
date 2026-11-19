@@ -19,3 +19,5 @@ data/detector/
 !.claude/hooks/
 !.claude/settings.json
 /yolo*.pt
+# retrospectives stay private: kept in the main checkout only, out of the public repo (2026-11-20)
+docs/retrospectives/

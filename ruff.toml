@@ -8,7 +8,7 @@
 # PLE:   errors pylint finds that pyflakes doesn't.
 # A false alarm gets `# noqa: <rule>` with the reason on that line.
 # Evidence scripts under docs/ are frozen records of an analysis, kept as they ran: not linted.
-exclude = ["docs/retrospectives/evidence"]
+exclude = ["docs/retrospectives/evidence"]     # gitignored since 2026-11-20, but still on disk in the main checkout
 
 [lint]
 select = ["F", "B006", "B018", "B023", "PLE"]

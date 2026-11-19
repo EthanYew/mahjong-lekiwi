@@ -85,7 +85,7 @@ Each hardware run writes a session folder under `sessions/` (not in git). `sessi
 | `data/` | Committed state: registered policies, layouts, corrections, evaluation results |
 | `assets/` | Trained weights for the detector and classifiers, and the camera calibration |
 | `tests/` | Fast tests (no hardware) and slow tests (load policies, need a GPU) |
-| `docs/` | Plans, retrospectives, the scorecard and the full usage guide |
+| `docs/` | Plans, the scorecard and the full usage guide |
 
 ## Documentation
 
@@ -94,7 +94,6 @@ Each hardware run writes a session folder under `sessions/` (not in git). `sessi
 - [ROADMAP.md](ROADMAP.md): what's done and what's next, each item with its evidence
 - [docs/scorecard.md](docs/scorecard.md): how a new policy is judged against the current one
 - [docs/policy_history.md](docs/policy_history.md): how each policy version was trained and what its data captured
-- [docs/retrospectives/](docs/retrospectives/): write-ups of what each run of work taught
 
 ## Results
 
