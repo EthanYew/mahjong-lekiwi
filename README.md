@@ -465,6 +465,12 @@ so far: pickups held, turns played, questions answered, and hands-on (rescues an
 opens with the session and policy and ends with the result, the winning hand split into its sets, the grade, the totals and
 whether the win is verified (as the session report says it), so every video traces back to one session.
 
+A face-down hand also shows what the base camera saw, so a viewer can check a read rather than trust it: after each draw's
+gripper clip and before the next clip, the drawn tile's hold-up photos for 2.5s with the name the hand went on (the reader's and
+its confidence, or a person's), and before the ending, the 13 and the winning draw (outlined) as the base camera saw them,
+grouped into the sets they win with. The photos are cut down to each pose's tile box, the square the reader reads, so the room
+stays out of them. `--style story` only; `--clip-every` doesn't thin them.
+
 ```
 python scripts/game_video.py                                              # the latest play session
 python scripts/game_video.py sessions/20261104_183142_play --crop mat     # a square of the tiles and the arm
