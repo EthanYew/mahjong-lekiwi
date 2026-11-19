@@ -1,4 +1,4 @@
 <figure{% if include.narrow %} class="narrow"{% endif %}>
-  <video src="{{ include.src | prepend: '/assets/video/' | append: '.mp4' | relative_url }}" poster="{{ include.src | prepend: '/assets/video/' | append: '.jpg' | relative_url }}" autoplay muted loop playsinline preload="metadata" aria-label="{{ include.caption | markdownify | strip_html | strip | escape }}"></video>
+  <video src="{{ include.src | prepend: '/assets/video/' | append: '.mp4' | relative_url }}" poster="{{ include.src | prepend: '/assets/video/' | append: '.jpg' | relative_url }}" autoplay muted loop playsinline preload="metadata" aria-label="{{ include.caption | markdownify | strip_html | strip | escape_once }}"></video>
   {% if include.caption %}<figcaption>{{ include.caption | markdownify | remove: '<p>' | remove: '</p>' | strip }}</figcaption>{% endif %}
 </figure>
