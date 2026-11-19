@@ -10,7 +10,7 @@ and nothing trains on them until a person has reviewed them (base_cam.not_yet_re
 import cv2
 import numpy as np
 
-from . import base_cam, base_cam_collect, game, layout, wall_test
+from . import base_cam, base_cam_collect, game, layout, play_log, wall_test
 from .session import read_events
 
 PLAY_KIND = base_cam_collect.PLAY_KIND
@@ -33,7 +33,7 @@ def turn_plan(start=1):
 
 def unfinished_turn(events, done):
     """The turn after `done` (the checkpoint's) if it began moving tiles and stopped before its checkpoint: a quit at its
-    read, at a step done by hand, or Ctrl-C. {turn, layer, choice (its crude_choice, or None before one), drawn (the tile
+    read, at a step done by hand, or Ctrl-C. {turn, layer, choice (its play_log.choice, or None before one), drawn (the tile
     left the wall: a draw that held it, or a read, which only follows a tile on the zone)}, or None if it never started or
     only reached the feed. A resume can't redo it as it stands once the tile has left the wall, and from the choice on the
     discard may be half done. A draw that only missed left the tile where it was: the turn is redone, the feed not asked again."""
@@ -43,7 +43,7 @@ def unfinished_turn(events, done):
     of_turn = [e for e in events if e.get("turn") == turn]
     if not any(e["type"] in ("crude_pick", "crude_break") for e in of_turn):
         return None
-    choice = next((e for e in reversed(of_turn) if e["type"] == "crude_choice"), None)
+    choice = next((play_log.choice(e) for e in reversed(of_turn) if e["type"] in play_log.CHOICES), None)
     drawn = any((e["type"] == "crude_pick" and e.get("step") == "draw" and e.get("held")) or e["type"] == "crude_read"
                 for e in of_turn)
     return {"turn": turn, "layer": wall_test.cycle_plan(turn)[-1]["layer"], "choice": choice, "drawn": drawn}
@@ -185,20 +185,20 @@ def _keys(folder, shot):
 def changed_choices(folder, reads):
     """The draws a wrong read changed the discard of: what the hand, as the robot had it, would have thrown with the
     tile's real name. [{turn, read, truth, discarded, would_discard}]."""
-    events = read_events(folder)
-    starts = {e["turn"]: e for e in events if e["type"] == "fd_turn_start"}
-    chose = {e["turn"]: e for e in events if e["type"] == "crude_choice"}
+    played = play_log.hand(read_events(folder))
+    turns = {t["turn"]: t for t in played["turns"]}
+    if played["win"]:           # the win's draw threw nothing: a wrong read there is a win that wasn't
+        last = played["turns"][-1]["discards"] if played["turns"] else []
+        turns[played["win"]["turn"]] = {"before": played["win"]["before"], "seen": last or [], "discard": None}
     out = []
     for r in reads:
-        if r["truth"] is None or r["filed"] == r["truth"] or not str(r["where"]).startswith("draw") or r["turn"] not in starts:
+        turn = turns.get(r["turn"])
+        if r["truth"] is None or r["filed"] == r["truth"] or not str(r["where"]).startswith("draw") or not turn or not turn["before"]:
             continue
-        start = starts[r["turn"]]
-        hand13 = [start["hand"][s] for s in start["slots"]]
-        _, candidates = game.choose_discard(hand13, r["truth"], start["discards"])
+        _, candidates = game.choose_discard(turn["before"], r["truth"], turn["seen"])
         would = candidates[0]["tile_name"]
-        did = chose.get(r["turn"], {}).get("discard")
-        if would != did:
-            out.append({"turn": r["turn"], "read": r["filed"], "truth": r["truth"], "discarded": did, "would_discard": would})
+        if would != turn["discard"]:
+            out.append({"turn": r["turn"], "read": r["filed"], "truth": r["truth"], "discarded": turn["discard"], "would_discard": would})
     return out
 
 

@@ -5,7 +5,7 @@ scripts/crude_run.py runs this on the arm.
 import cv2
 import numpy as np
 
-from . import base_cam, base_cam_collect, camera, config, face_down_rig, game, layout, privacy, takeover, wall_test
+from . import base_cam, base_cam_collect, camera, config, face_down_rig, game, layout, play_log, privacy, takeover, wall_test
 from .perception import drain_stdin
 
 SHALLOW_MIN_READING = 2.0   # jaws shut on nothing read 0.6-0.9. A held tile's reading fell from 9.5 to 3.0 over 2026-11-09, under holds_tile's margin (not a shallow grip, as first thought)
@@ -140,6 +140,7 @@ class Run:
         self.pose = config.discard_pose()
         self.spot_of = {s["id"]: s for s in layout.load(args.layout)["spots"]}
         self.turn_no, self.breaks, self.reads, self.discards, self.done = 0, [], [], [], 0
+        self.winning = None         # the drawn tile that completed the hand
 
     def broke(self, step, what, by_hand=False):
         entry = {"turn": self.turn_no, "step": step, "what": what, "by_hand": by_hand}
@@ -168,8 +169,10 @@ class Run:
             if answer in ("y", "n", "q"):       # q: treated as no, and the next prompt can quit
                 return answer == "y"
 
-    def pick(self, step, spot, label, raise_m=0.0, back_m=0.0):
-        """The pick at `spot`, tried twice unless a person says otherwise. Its result with the tile held at rest, else None."""
+    def pick(self, step, spot, label, raise_m=0.0, back_m=0.0, tile=None):
+        """The pick at `spot`, tried twice unless a person says otherwise. Its result with the tile held at rest, else None.
+        tile: its name where the hand knows it (None for a face-down tile not yet read). Each try is logged as an `attempt`, as
+        the bench's and face-up play's are (play_log.pickup_fields), and as a `crude_pick` with what's particular to it here."""
         tries, camera_reruns = 0, camera.RERUNS
         while tries < 2:
             pick = self.rig.pick(label, spot, raise_m=raise_m, back_m=back_m)
@@ -188,6 +191,11 @@ class Run:
             self.rig.session.event("crude_pick", turn=self.turn_no, step=step, spot=spot["id"], held=bool(pick["holding"] or shallow), shallow=shallow, jaw_reading=pick["gripper_measured"],
                                    stop_reason=pick["run"]["stop_reason"], grasp_clearance_m=takeover.policy_view(pick["run"]).get("grasp_clearance_m"),
                                    takeover_s=pick["run"].get("takeover_s"), hover_raise_m=raise_m, hover_back_m=back_m, attempt_dir=pick["attempt"].name)
+            self.rig.session.event("attempt", **play_log.pickup_fields(
+                policy=self.rig.policy.id, attempt_dir=pick["attempt"].name, tile=tile, hover=pick["hover"], offset_m=pick["offset_m"],
+                holding=pick["holding"], command=pick["gripper_command"], measured=pick["gripper_measured"], success=bool(pick["holding"] or shallow),
+                correction=self.rig.correction.name, layout=self.args.layout, spot=spot, squeezed_from=pick.get("squeezed_from")),
+                face_down=True, step=step, turn=self.turn_no, hover_raise_m=raise_m, hover_back_m=back_m, **takeover.policy_view(pick["run"]))
             if shallow:
                 self.shallow += 1
                 print("  A tile in the jaws, on a low reading: carrying on with it.")
@@ -295,25 +303,27 @@ class Run:
     def play_it(self, name):
         """game.py's choice, then the arm's moves. Returns "win", "ok" or "quit"."""
         hand13 = [self.hand[s] for s in self.slots]
+        read = self.read_of(name)
         if game.is_win(hand13 + [name]):
             print(f"Drew {name}: the hand is complete. Win!")
-            self.rig.session.event("crude_win", turn=self.turn_no, drawn=name)
+            self.winning = name
+            play_log.won(self.rig.session, self.turn_no, name, read)
             return "win"
         _, candidates = game.choose_discard(hand13, name, self.discards)
         best = choose_allowed(candidates, self.slots, self.empty)
         from_hand = best["index"] != game.HAND_SIZE
         slot = self.slots[best["index"]] if from_hand else None
         print(f"Drew {name}; discard {best['tile_name']}" + (f" from {slot}" if from_hand else " (the drawn tile)") + f". {best.get('shanten_after', '?')} away after it.")
-        self.rig.session.event("crude_choice", turn=self.turn_no, drawn=name, discard=best["tile_name"], slot=slot, shanten_after=best.get("shanten_after"))
+        play_log.discard_chosen(self.rig.session, self.turn_no, name, best, slot, read)
         if from_hand:
             spot = self.spot_of[slot]
-            pick = self.pick("pick_from_hand", spot, f"t{self.turn_no}_{slot}")
+            pick = self.pick("pick_from_hand", spot, f"t{self.turn_no}_{slot}", tile=best["tile_name"])
             if pick is None:
                 if not self.by_hand("pick_from_hand", f"{best['tile_name']} at {slot} wasn't picked", f"Put the tile on {slot} in the discard container yourself"):
                     return "quit"
             else:
                 self.to_container("discard", best["tile_name"])
-        pick = self.pick("pick_from_zone", self.zone_spot, f"t{self.turn_no}_zone")
+        pick = self.pick("pick_from_zone", self.zone_spot, f"t{self.turn_no}_zone", tile=name)
         if pick is None:
             what = f"the drawn {name} wasn't picked off the zone"
             done = self.by_hand("pick_from_zone", what, spot=self.spot_of[slot], where=slot) if from_hand \
@@ -329,7 +339,15 @@ class Run:
         if from_hand:
             self.hand[slot] = name
         self.discards.append(best["tile_name"])
+        play_log.turn_done(self.rig.session, self.turn_no, best["tile_name"], slot, self.slots, self.hand, self.discards)
         return "ok"
+
+    def read_of(self, name):
+        """The drawn tile's read as play_log logs it: {name, confidence (the reader's, when it said this name), by}."""
+        row = self.reads[-1] if self.reads and self.reads[-1]["turn"] == self.turn_no else {}
+        right = row.get("guess") == name
+        return {"name": name, "confidence": row.get("guess_confidence") if right else None,
+                "by": row.get("by", "person") if right else "person"}
 
     def wall_stacks(self, turns):
         """The stacks to lay at the start: --wall-stacks where a script has it (play has no turn count), else enough for the turns."""

@@ -107,8 +107,14 @@ def test_a_simulated_turn_draws_shows_reads_and_plays_the_discard(monkeypatch, t
     assert [e["step"] for e in events_of(folder, "crude_set_down")][0] == "set_on_zone"
     (read,) = events_of(folder, "crude_read")
     assert read["name"] == "5C" and read["guess"] is None
-    (choice,) = events_of(folder, "crude_choice")
-    assert choice["drawn"] == "5C" and choice["discard"]
+    (choice,) = events_of(folder, "discard_chosen")
+    assert choice["drawn"] == "5C" and choice["tile_name"]
+    assert choice["read"] == {"name": "5C", "confidence": None, "by": "person"}       # the sim has no reader: a person named it
+    (done,) = events_of(folder, "turn_done")
+    assert done["discarded"] == choice["tile_name"] and len(done["hand"]) == len(done["slots"]) == 13
+    attempts = events_of(folder, "attempt")                       # each pick logged as the bench's and face-up play's are
+    assert [a["attempt_dir"] for a in attempts] == [e["attempt_dir"] for e in events_of(folder, "crude_pick")]
+    assert attempts[0]["step"] == "draw" and attempts[0]["face_down"] and attempts[0]["success"] and attempts[0]["policy"]
     assert [e["step"] for e in events_of(folder, "crude_pick")][0] == "draw" and "pick_from_zone" in [e["step"] for e in events_of(folder, "crude_pick")]
     assert not events_of(folder, "crude_break")
     summary = json.loads((folder / "crude_summary.json").read_text())
@@ -125,9 +131,9 @@ def test_the_hand_remembers_a_kept_tile_in_the_slot_it_left(monkeypatch, tmp_pat
     script = script_in(monkeypatch, tmp_path)
     monkeypatch.setattr(game, "choose_discard", lambda hand, drawn, seen: (None, [{"index": 2, "tile_name": hand[2], "shanten_after": 1}]))
     folder, _ = run(script, ["--turns", "2"], [*LIGHT, "", "", "5C", "", "", "9C", ""])
-    choices = events_of(folder, "crude_choice")
-    assert choices[0]["slot"] == "S3" and choices[0]["discard"] == "3C"
-    assert choices[1]["discard"] == "5C"                         # S3 holds the tile drawn on turn 1
+    choices = events_of(folder, "discard_chosen")
+    assert choices[0]["slot"] == "S3" and choices[0]["tile_name"] == "3C"
+    assert choices[1]["tile_name"] == "5C"                         # S3 holds the tile drawn on turn 1
     steps = [e["step"] for e in events_of(folder, "crude_set_down")]
     assert steps.count("place_in_hand") == 2
 
@@ -251,7 +257,7 @@ def test_a_slot_left_empty_is_said_when_laying_the_hand_and_never_discarded(monk
     monkeypatch.setattr(game, "choose_discard", lambda hand, drawn, seen: (None, [{"index": 6, "tile_name": hand[6]}, {"index": 2, "tile_name": hand[2]}]))
     folder, prompts = run(script, ["--turns", "1", "--leave-empty", "S7"], [*LIGHT, "", "", "5C", ""])
     assert any("S7 7C (leave this slot EMPTY" in p for p in prompts)
-    (choice,) = events_of(folder, "crude_choice")
+    (choice,) = events_of(folder, "discard_chosen")
     assert choice["slot"] == "S3"
 
 

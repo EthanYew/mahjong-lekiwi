@@ -169,6 +169,45 @@ def is_win(names14):
     return len(names14) == HAND_SIZE + 1 and not too_many(names14) and shanten(counts(names14)) == -1
 
 
+def melds(names14):
+    """How a winning 14 splits, to show it: [[names], ...], the sets in order then the pair, or seven pairs, or the
+    thirteen orphans as one group. None if it isn't a win."""
+    if not is_win(names14):
+        return None
+    c = counts(names14)
+
+    def sets(c, start=0):
+        k = next((i for i in range(start, 34) if c[i]), None)
+        if k is None:
+            return []
+        if c[k] >= 3:
+            c[k] -= 3
+            rest = sets(c, k)
+            c[k] += 3
+            if rest is not None:
+                return [[NAMES[k]] * 3] + rest
+        if k < 27 and k % 9 <= 6 and c[k + 1] and c[k + 2]:
+            for i in (k, k + 1, k + 2):
+                c[i] -= 1
+            rest = sets(c, k)
+            for i in (k, k + 1, k + 2):
+                c[i] += 1
+            if rest is not None:
+                return [[NAMES[k], NAMES[k + 1], NAMES[k + 2]]] + rest
+        return None
+
+    for p in range(34):
+        if c[p] >= 2:
+            c[p] -= 2
+            found = sets(c)
+            c[p] += 2
+            if found is not None:
+                return found + [[NAMES[p]] * 2]
+    if all(v in (0, 2) for v in c):
+        return [[NAMES[k]] * 2 for k in range(34) if c[k]]
+    return [[NAMES[k] for k in TERMINALS for _ in range(c[k])]]
+
+
 def choose_discard(hand, drawn, visible=()):
     """Which of the 14 tiles (the 13 `hand` names in slot order, then `drawn`) to discard. Ranked by the
     shanten left, then the improving tiles still left (copies), then the improving kinds, then the drawn
