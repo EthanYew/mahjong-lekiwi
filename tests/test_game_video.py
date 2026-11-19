@@ -298,6 +298,8 @@ def test_every_read_s_base_camera_photos_come_after_its_gripper_clip_and_before_
     assert game_video.read_label(drawn[0]) == "base camera: the reader read 3C (90% sure)"
     assert game_video.read_label(drawn[1]) == "base camera: the reader read 5C (41% sure), a person named it 4C"
     assert game_video.read_label({**drawn[0], "truth": "8C"}).endswith("; reviewed since: 8C")
+    unsaid = {**drawn[1], "by": None}               # a log without filed_by: no person is credited
+    assert game_video.read_label(unsaid) == "base camera: the reader read 5C (41% sure), filed as 4C"
 
 
 def test_the_hand_s_photos_follow_each_slot_through_the_turns(tmp_path):

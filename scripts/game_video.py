@@ -134,9 +134,9 @@ def tile_crops(session_dir, shot, boxes, size=READ_CELL_PX):
         if pose in seen or pose not in boxes:
             continue
         image = cv2.imread(str(session_dir / f))
-        if image is not None:
+        if image is not None:       # blurred again on the whole frame: a person behind the held tile is inside its box
             seen.add(pose)
-            out.append(base_cam.tile_frame(image, boxes[pose], size=size))
+            out.append(base_cam.tile_frame(privacy.blur_faces(image)[0], boxes[pose], size=size))
     return out
 
 
@@ -160,7 +160,7 @@ def base_reads(session_dir, events, reads=None, boxes=None):
             when = read_at.pop(e.get("spot"), e["time"]) if e.get("turn") == 0 else e["time"]
             out.append({"time": seconds(when), "shot": e.get("shot"), "turn": e.get("turn"),
                         "where": str(e.get("spot") or ""), "name": e["tile"], "guess": e.get("guess"),
-                        "confidence": e.get("guess_confidence"), "by": e.get("filed_by", "person"),
+                        "confidence": e.get("guess_confidence"), "by": e.get("filed_by"),
                         "truth": truths.get(e.get("shot")), "crops": crops})
     return out
 
@@ -170,10 +170,13 @@ def is_draw(read):
 
 
 def read_label(r):
-    """What a read tile's photos show: the name the hand went on and who gave it, and a review's name where it differs."""
+    """What a read tile's photos show: the name the hand went on and who gave it, and a review's name where it differs. A
+    person is credited only where the log says one gave the name (`filed_by`), never by default."""
     sure = f" ({r['confidence']:.0%} sure)" if r.get("confidence") is not None else ""
-    if r["by"] == "reader":
-        said = f"base camera: the reader read {r['name']}{sure}"
+    if r["by"] != "person":
+        said = f"base camera: the reader read {r['guess'] or r['name']}{sure}"
+        if r["by"] is None and r["guess"] and r["guess"] != r["name"]:
+            said += f", filed as {r['name']}"
     elif r["guess"] == r["name"]:
         said = f"base camera: the reader read {r['name']}{sure}, a person confirmed it"
     elif r["guess"]:
@@ -476,7 +479,7 @@ def hand_card(size, tiles, won, session):
     top, bottom, margin = int(100 * scale), int(80 * scale), int(30 * scale)
 
     def layout(cell):
-        pad, gap = max(2, cell // 14), max(6, cell // 3)
+        pad, gap = max(10, cell // 14), max(16, cell // 3)       # room for the winning draw's outline
         rows, row, used = [], [], 0
         for g in groups:
             w = len(g) * cell + (len(g) - 1) * pad
@@ -718,7 +721,8 @@ def main(argv=None):
         raise SystemExit(f"{session_dir} is not a session folder (no events.jsonl)")
     privacy.require()
     result = build(session_dir, args.style, args.fps, args.crop == "mat", args.out, args.clip_speed, args.clip_every)
-    reads = f", {result['reads']} base-camera reads and the hand's {result['hand']} photos" if result["reads"] else ""
+    reads = f", {result['reads']} base-camera reads" if result["reads"] else ""
+    reads += f" and the hand's {result['hand']} photos" if result["hand"] else ""
     print(f"{result['path']}: {result['seconds']:.0f}s from {result['desk']} and {result['clips']} gripper clips{reads}")
     print("Faces are blurred where the model finds them: watch it through before posting.")
     return result
