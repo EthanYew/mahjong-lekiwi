@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, layout, markers, name_ledger, owed, scorecard
+from mahjong import checkout, config, hand_tally, layout, markers, name_ledger, owed, scorecard
 from mahjong.session import counted_real, read_events
 from mahjong.session import voided as session_voided
 
@@ -113,6 +113,8 @@ def report(sessions_dir=None):
               "gates read one session" for (label, pid), r in sorted(on_it.items())] or ["  no bench sessions on it yet"]
     if (voided := session_voided()):
         lines.append(f"  voided, left out of every count above (data/void_sessions.json): {', '.join(voided)}")
+
+    lines.append("\n" + "\n".join(hand_tally.lines(hand_tally.tally(sessions_dir))))
 
     split = json.loads((config.DATA / "eval_split.json").read_text())
     lines.append(f"\nEval sets (never trained on): {', '.join(split.get('eval_sets', [])) or 'none'}; "
