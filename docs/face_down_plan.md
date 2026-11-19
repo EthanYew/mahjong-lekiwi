@@ -131,7 +131,7 @@ F can't go much further: 10mm out leaves 5mm of reach (under `gamepad.REACH_WARN
 beyond the hover at F, and far spots sit 10-15mm lower than the FK says (CLAUDE.md), so F2's margin is thinner than F's on the arm too. Joint margins
 fall 3° (F2) and 4° (L2) from their stations'. L2 is further past the area the hover correction was measured in, so start each with `--hover-check`.
 
-The order, each step able to stop the next (`scripts/wall_test.py`, and README). Thresholds are the ones below:
+The order, each step able to stop the next (`scripts/wall_test.py`, and `docs/usage.md`). Thresholds are the ones below:
 
 1. `--hover-check`: does the hover centre on a face-up tile on each station? The correction was measured only inside the hand's area, and L is past it.
 2. `--push-check`, no arm: does a pushed row land in the same place? The limit is 3mm from where pushes usually land, half the jaws' tolerance of about 6mm (a judgement, not a measurement). Over it: try a low end stop, which bends the no-tray decision, so tape comes first.
@@ -277,7 +277,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
 
 - A capture script for test 1, needing no arm.
 - A test script for tests 4-5 and 7-7b: aims at a saved spot with a chosen hover offset, runs the policy, logs close
-  height, logs a person's word on bumps. It goes in `ARM_SCRIPTS`, with a `--sim` test and a README section.
+  height, logs a person's word on bumps. It goes in `ARM_SCRIPTS`, with a `--sim` test and a `docs/usage.md` section.
 - A saved camera pose, the way the discard pose is saved.
 - **Progress, 2026-11-05** (`docs/retrospectives/2026-11-05_arm_collects_base_camera_photos.md`): test 1b ran on hand-held photos
   (81-94% on 4 tiles, optimistic). The arm picked face-down tiles with v8 at S5 and S7, and held them at four taught poses; only
@@ -334,7 +334,7 @@ question, so `session_report.py`'s recovery log gets compared before and after. 
   another check.
 - **2026-11-13, that other check: a back class for the detector** (branch `worktree-face-down-backs`). This plan had "a detector for tile
   backs" out of scope for v1 unless test 7b called for one. It's brought in now because the owner wants face-down benches to run
-  unattended, which needs a scan to see a back move or land. The code is in place, checked in sim only (README "Teaching the detector
+  unattended, which needs a scan to see a back move or land. The code is in place, checked in sim only (docs/usage.md "Teaching the detector
   tile backs"); the weights wait on a capture and the gate there. A back is only where a tile is, never which one: names still come from
   the base camera and a person.
 - **Next** (the reasons: `docs/retrospectives/2026-11-09_face_down_progress.md`): the order in "The wall: one station", with `scripts/wall_test.py`; a held-out session in the demo room, adding backgrounds only if it fails. How much more capture depends on which tiles the demo's wall uses.

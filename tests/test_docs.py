@@ -1,5 +1,5 @@
 """The docs against the files that decide what they describe. On 2026-10-29 the default policy was switched to v4
-by hand while README.md still named v3c and ROADMAP.md still had v3 "not yet recorded": the docs restated facts
+by hand while README.md (then the command reference) still named v3c and ROADMAP.md still had v3 "not yet recorded": the docs restated facts
 that live in data/, and nothing compared them. Each test here is one such fact."""
 import json
 import re
@@ -8,7 +8,8 @@ from pathlib import Path
 from mahjong import config
 
 REPO = Path(__file__).resolve().parents[1]
-README, ROADMAP, CLAUDE, CODE_MAP = ((REPO / f).read_text() for f in ("README.md", "ROADMAP.md", "CLAUDE.md", "docs/code_map.md"))
+README, USAGE, ROADMAP, CLAUDE, CODE_MAP = ((REPO / f).read_text() for f in
+                                         ("README.md", "docs/usage.md", "ROADMAP.md", "CLAUDE.md", "docs/code_map.md"))
 RULE_FILES = sorted((REPO / ".claude" / "rules").glob("*.md"))
 SKILL_FILES = sorted((REPO / ".claude" / "skills").glob("*/SKILL.md"))
 RULES = "\n".join(f.read_text() for f in RULE_FILES)
@@ -37,15 +38,15 @@ def test_the_default_policy_carries_its_evidence():
     assert note.get("evidence")
 
 
-def test_the_readme_names_the_default_and_every_registered_policy():
-    assert f"(default: `{DEFAULT}`" in README, f"README.md's policy list should say (default: `{DEFAULT}`"
-    missing = [p for p in REGISTRY["policies"] if f"`{p}`" not in README]
-    assert not missing, f"README.md doesn't name {missing}"
+def test_the_usage_guide_names_the_default_and_every_registered_policy():
+    assert f"(default: `{DEFAULT}`" in USAGE, f"docs/usage.md's policy list should say (default: `{DEFAULT}`"
+    missing = [p for p in REGISTRY["policies"] if f"`{p}`" not in USAGE]
+    assert not missing, f"docs/usage.md doesn't name {missing}"
 
 
 def test_dagger_examples_correct_the_default_policy():
     """DAgger corrects the deployed policy (ROADMAP 9): an example driving with an older one is stale."""
-    for name, text in (("README.md", README), *FOR_CLAUDE):
+    for name, text in (("README.md", README), ("docs/usage.md", USAGE), *FOR_CLAUDE):
         for line in text.splitlines():
             if "record.py" in line and (m := re.search(r"--policy (pickup_mat_cl\w*)", line)):
                 assert m.group(1) == DEFAULT, f"{name}: DAgger example drives {m.group(1)}, the default is {DEFAULT}:\n{line}"
@@ -62,15 +63,15 @@ def test_every_layout_says_what_it_is_for():
     assert not [name for name, entry in layouts.items() if not entry.get("note")]
 
 
-def test_every_script_is_in_the_readme_and_the_code_map():
+def test_every_script_is_in_the_usage_guide_and_the_code_map():
     for script in sorted((REPO / "scripts").glob("*.py")):
-        assert script.name in README, f"README.md has no section or row for scripts/{script.name}"
+        assert script.name in USAGE, f"docs/usage.md has no section or row for scripts/{script.name}"
         assert script.stem in CODE_MAP, f"docs/code_map.md doesn't list {script.stem}"
 
 
 def test_every_option_the_docs_mention_exists():
     known = options_in_code() | OTHER_TOOLS
-    for name, text in (("README.md", README), *FOR_CLAUDE):
+    for name, text in (("README.md", README), ("docs/usage.md", USAGE), *FOR_CLAUDE):
         mentioned = set(re.findall(r"(?<![\w-])(--[a-z][\w-]*[a-z0-9])(?![\w-])", text))
         assert not mentioned - known, f"{name} mentions options no script defines: {sorted(mentioned - known)}"
 
@@ -109,11 +110,11 @@ def test_skills_name_real_scripts_and_no_machine():
 
 
 def test_the_make_policy_table_lists_every_option():
-    """README's make_policy.py options table, against the script's own options: --leave-out (2026-11-17) reached the script
+    """docs/usage.md's make_policy.py options table, against the script's own options: --leave-out (2026-11-17) reached the script
     and the text above the table, not the table, where a person looks up what a flag does."""
-    section = README.split("## Training a policy: `scripts/make_policy.py`")[1].split("\n## ")[0]
+    section = USAGE.split("## Training a policy: `scripts/make_policy.py`")[1].split("\n## ")[0]
     rows = "\n".join(line for line in section.splitlines() if line.startswith("| `--"))
     defined = re.findall(r"add_argument\(\"(--[\w-]+)\"", (REPO / "scripts" / "make_policy.py").read_text())
     assert "--leave-out" in defined, "the add_argument pattern no longer finds make_policy.py's options"
     missing = sorted(o for o in defined if not re.search(rf"`{re.escape(o)}[` ]", rows))     # `--add` isn't `--add-foo`
-    assert not missing, f"README.md's make_policy.py options table doesn't list {missing}"
+    assert not missing, f"docs/usage.md's make_policy.py options table doesn't list {missing}"

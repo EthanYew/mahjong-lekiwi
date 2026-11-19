@@ -18,7 +18,7 @@ Check whether a detached run has finished:
     python scripts/train_remote.py --status --version vN
 
 Sync results back after a detached run (updates data/policies.json and
-data/offline_eval/; prints what README.md still needs), then power both machines off:
+data/offline_eval/; prints what docs/usage.md still needs), then power both machines off:
 
     python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 
@@ -338,11 +338,10 @@ def cmd_sync(args, cfg):
     else:
         print("No offline eval files found on remote.")
 
-    # Print README reminder
-    readme_check = config.DATA.parent / "README.md"
-    readme = readme_check.read_text()
-    if f"`{policy_id}`" not in readme:
-        print(f"\nREADME.md does not yet name `{policy_id}`.")
+    # Print the usage guide reminder
+    usage = (config.DATA.parent / "docs" / "usage.md").read_text()
+    if f"`{policy_id}`" not in usage:
+        print(f"\ndocs/usage.md does not yet name `{policy_id}`.")
         entry = remote_reg["policies"][policy_id]
         datasets, (frames, steps) = entry.get("datasets"), recipe.scale_of(entry)
         if datasets is None:        # registered before the field: the notes' list, as written
@@ -356,10 +355,10 @@ def cmd_sync(args, cfg):
         if steps:
             hint.append(f"{steps} steps")
         hint.append(f"trained {time.strftime('%Y-%m-%d')}")
-        print("Add this to the policies list in README.md (then run the fast tests):")
+        print("Add this to the policies list in docs/usage.md (then run the fast tests):")
         print(f"  `{policy_id}` ({'; '.join(hint)}),")
     else:
-        print(f"README.md already names `{policy_id}`.")
+        print(f"docs/usage.md already names `{policy_id}`.")
 
     if args.shutdown_train:
         print("\nShutting down the training machine in 60 seconds.")

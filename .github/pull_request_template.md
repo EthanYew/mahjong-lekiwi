@@ -4,7 +4,7 @@
 
 ## Files
 
-<!-- the files touched; flag bench.py, record.py, config.py, CLAUDE.md, ROADMAP.md, README.md -->
+<!-- the files touched; flag bench.py, record.py, config.py, CLAUDE.md, ROADMAP.md, docs/usage.md -->
 
 ## Overlaps
 

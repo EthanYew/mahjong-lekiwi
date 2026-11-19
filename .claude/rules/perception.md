@@ -99,7 +99,7 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   during a bad session is this fault, not a second one to chase.
 - **The detector doesn't see tile backs, even at 1% confidence** (6 face-down tiles, 5 frames, no boxes; 34 on a face-up scan, 2026-11-09). A
   face-down tile goes by saved position, and scans can't confirm it. Evidence: `docs/retrospectives/2026-11-09_face_down_progress.md`.
-  The fix is a 39th class, `back` (`config.BACK`, README "Teaching the detector tile backs"), not colour (see the pale-mat invariant). A back box
+  The fix is a 39th class, `back` (`config.BACK`, docs/usage.md "Teaching the detector tile backs"), not colour (see the pale-mat invariant). A back box
   proves a tile and which way up, never its name: `identity.scan_votes` gives it no votes, and its hover and return samples are logged
   `excluded` until the live weights pass `detector.back_centres` (tiles flipped in place; `detector.centre_verdict` has the gates; `detector_eval.py` saves it, `detector.backs_checked` reads it). Back boxes under `config.BACK_MIN_HEIGHT_M` above the table
   are mat pattern (`perception.plausible`). The scripts ask `perception.sees_backs` and keep the saved-position path for weights without the

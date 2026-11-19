@@ -17,13 +17,13 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   lands on `main` first (a small commit), and the branches build on it. Two branches shouldn't both
   change `bench.py`, `record.py` or `config.py`: do those tasks one after the other, or merge the first
   before the second starts on the shared file.
-- **In a branch**: touch CLAUDE.md, ROADMAP.md and README.md only for that branch's own items; the merge
+- **In a branch**: touch CLAUDE.md, ROADMAP.md and docs/usage.md only for that branch's own items; the merge
   reconciles them (they took 14, 11 and 3 commits from separate branches that day and drifted). Run
   hardware from the main checkout (sessions are per-checkout).
 - **Handing a branch back** (Claude's job, `/hand-back`): merge the latest `main` into it, ruff and the tests, `/code-review` (`/hand-back`
   says how far; no ready PR while a bug it found is open), and a ready PR whose body has `## What changed` (and why), `## Files`,
   `## Overlaps` (with `main` or other open branches), `## Review` (each finding and what was done) and `## Unverified on the arm`.
-  Then the queue merges it: `python scripts/merge_pr.py --auto N` (README, "The merge queue").
+  Then the queue merges it: `python scripts/merge_pr.py --auto N` (docs/usage.md, "The merge queue").
   It refuses rather than asks: an unfinished description, a missing review for `REVIEW_FILES`, a name added on both sides, a
   merged tree that fails the tests or the sim runs. A sent-back PR has the output as a comment; fix and requeue. A decision
   (`HOLD_FILES`, weights, the default policy) gets `needs-owner` and waits.
@@ -35,7 +35,7 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   It refuses, before touching GitHub, if that pull would fail (`pull_blockers`): #65 merged on GitHub, then stopped at the pull
   because `main` here had a commit GitHub didn't, so nothing was pulled, tested or closed.
 - **Data the scripts log** (samples, reviews) goes straight to `main` from the main checkout, committed and pushed in one step
-  after a hardware session (README, "Data files and merging"); uncommitted until then is normal. A branch doesn't carry it. A decision
+  after a hardware session (docs/usage.md, "Data files and merging"); uncommitted until then is normal. A branch doesn't carry it. A decision
   (default policy, exam list, scores, weights) goes in a PR with its evidence. A Claude session doesn't push to `main` (samples go by `save_samples.py`, merges by the queue).
 - **Closing** (part of `merge_pr.py N`): the branch's worktree `sessions/` are moved into the main checkout's,
   then the worktree, local branch and GitHub branch are removed. `python scripts/merge_pr.py` lists anything

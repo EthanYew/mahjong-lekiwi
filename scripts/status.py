@@ -156,11 +156,11 @@ def stale_docs(policy_id, repo=None):
     refuse the commit until each is fixed (2026-11-06: a default changed alone on main could be neither committed nor merged)."""
     import re
     repo = Path(repo) if repo else Path(__file__).resolve().parents[1]
-    readme, claude, roadmap = ((repo / name).read_text() for name in ("README.md", "CLAUDE.md", "ROADMAP.md"))
+    usage, claude, roadmap = ((repo / name).read_text() for name in ("docs/usage.md", "CLAUDE.md", "ROADMAP.md"))
     out = []
-    if f"(default: `{policy_id}`" not in readme:
-        out.append(f"README.md: the policy list's \"(default: `...`\" names another policy; make it `{policy_id}`")
-    for name, text in (("README.md", readme), ("CLAUDE.md", claude)):
+    if f"(default: `{policy_id}`" not in usage:
+        out.append(f"docs/usage.md: the policy list's \"(default: `...`\" names another policy; make it `{policy_id}`")
+    for name, text in (("docs/usage.md", usage), ("CLAUDE.md", claude)):
         for line in text.splitlines():
             if "record.py" in line and (m := re.search(r"--policy (pickup_mat_cl\w*)", line)) and m.group(1) != policy_id:
                 out.append(f"{name}: a DAgger example drives {m.group(1)}: {line.strip()[:90]}")
@@ -181,7 +181,7 @@ def main(argv=None):
                   "(undo here with: git restore data/policies.json)")
         stale = stale_docs(args.set_default)
         print("Still to change before the commit passes the tests:\n  " + "\n  ".join(stale) if stale else
-              "README.md, CLAUDE.md and ROADMAP.md already name it.")
+              "docs/usage.md, CLAUDE.md and ROADMAP.md already name it.")
         print("Then commit data/policies.json with the docs, open a PR, and merge it with scripts/merge_pr.py.")
         return
     print(report())

@@ -506,7 +506,7 @@ def summary(tally):
     return out
 
 
-# --- the back class's gate (README "Teaching the detector tile backs") ---
+# --- the back class's gate (docs/usage.md "Teaching the detector tile backs") ---
 
 BACKS_FOUND_GATE = 0.95           # face down (exam A): at least this share of the labelled backs boxed and called back
 FALSE_BACKS_PER_FRAME_GATE = 0.2  # face up: at most 1 false back per 5 frames

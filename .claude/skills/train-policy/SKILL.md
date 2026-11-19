@@ -5,14 +5,14 @@ model: sonnet
 ---
 
 Training runs on the PC (Windows, WSL inside) through `scripts/train_remote.py`, which detaches the run so it outlives SSH and
-keeps Windows awake (README, "Training on a remote machine"). The machine's details are in `data/train_machine.json`, gitignored,
+keeps Windows awake (docs/usage.md, "Training on a remote machine"). The machine's details are in `data/train_machine.json`, gitignored,
 never in the repo, which may go public. No such file: copy `data/train_machine.example.json` and ask for the values (memory
 `train-machine` has them).
 
 Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a session polling a run that takes hours.
 
 1. **Settle the options here, starting from the default's recipe.** A new version is the default's datasets and options plus the
-   new recording, never a README example: v12 (2026-11-17) copied one and trained on 15k frames where v11 had 88k, so it couldn't
+   new recording, never a docs/usage.md example: v12 (2026-11-17) copied one and trained on 15k frames where v11 had 88k, so it couldn't
    be compared with v11 and the run was thrown away. The default's `notes` in `data/policies.json` start with its datasets
    (`make_policy.py from A + B + ...`; newer entries have `datasets`) and name its options (`mat swapped in 70%` is `--replace-mat 0.7`,
    `colour jitter` is `--augment`). Then `python scripts/train_remote.py --source A --add B ... --add <new> --version vN --dry-run`
@@ -39,7 +39,7 @@ Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a 
    checkout's `data/policies.json`, so a stale one would undo entries merged since; edit only there) and merge it through the queue (it isn't made the default). Copy `data/train_machine.json` into the worktree
    first: it's gitignored, and the sync reads it.
    - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`.
-   - Add the line it prints to README.md's policy list and a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
+   - Add the line it prints to docs/usage.md's policy list and a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
      a ready PR, and `merge_pr.py --auto N` merges it. Registering isn't the owner's decision (`merge_pr.py` holds
      `assets/*.pt` and changes to the default, which a registration doesn't touch); making it the default is (`status.py --set-default`, via `/should-ship`).
      Don't leave it as a draft: v13 (2026-11-17) sat unmerged in one, and the bench that decides it runs from `main`, which lacked it.

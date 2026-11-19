@@ -4,7 +4,7 @@ What each file is for. `tests/test_docs.py` fails on a script not listed here.
 
 | | |
 |---|---|
-| `.claude/rules/`, `.claude/skills/` | what must stay true of each part of the code, loaded with it; repeated jobs, listed in the README |
+| `.claude/rules/`, `.claude/skills/` | what must stay true of each part of the code, loaded with it; repeated jobs, listed in `docs/usage.md` |
 | `mahjong/config.py` | the one setup: ports, cameras, table plane, rest poses, defaults |
 | `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command`, `grasp_point` |
 | `mahjong/arm.py` | all motion (`hover`, `place`, `rest`, `go_to_pose`) |

@@ -318,7 +318,7 @@ gate, and the targets and guardrails. Decided: ArUco marker under the drawn tile
 if zone pickups fall below the mat's ~95% or the detector reads its edge), a 2-row hand, no calls,
 copies left tracked with ukeire.
 
-**Built (2026-10-28), checked in `--sim` only:** `scripts/play.py` (README, "Autonomous play") on the
+**Built (2026-10-28), checked in `--sim` only:** `scripts/play.py` (docs/usage.md, "Autonomous play") on the
 bench's pieces; `mahjong/game.py` (our own shanten, checked against the `mahjong` library, which this
 package's name shadows; the discard choice; the hand checks); `mahjong/identity.py` (name votes per slot
 over every scan, reset when a tile moves; reads the scans' per-frame `votes`);
@@ -359,7 +359,7 @@ the frames from then on are recorded with the operator's actions as labels. Cons
 - Log each takeover as a rescue (3), so the scorecard still counts it.
 - DAgger data never goes into the eval set; the golden set (2) judges v4 against v3.
 
-**Built (2026-10-28):** `record.py --policy ID` (README, DAgger). The policy drives until the first
+**Built (2026-10-28):** `record.py --policy ID` (docs/usage.md, DAgger). The policy drives until the first
 press of A (`GamepadTeleop.takeover_pressed`; any touch took over at t=0 from stick drift), then the gamepad starts from `Arm.commanded()`.
 Every frame is recorded, with `policy` / `takeover_frame` in the episode-log row and a `takeover`
 rescue in the session. `dataset.build` keeps the frames from the takeover on, anchored at the hover
@@ -381,7 +381,7 @@ keyboard, a person and the discard bin in view: a scene it has never trained on.
 in the 848×480 frame, so similar faces (2/3, 7/8 of a suit) are close calls. Inference already runs
 at 1280 px like training (no scale mismatch to fix).
 
-**Built (2026-10-27): photos → exam → mining → retraining** (README, "The tile detector"):
+**Built (2026-10-27): photos → exam → mining → retraining** (docs/usage.md, "The tile detector"):
 - Every bench scan saves its 5 frames, depth and every box down to 0.25 confidence
   (`sessions/*/scans/`); `scripts/capture_frames.py` takes scans without the arm.
 - The exam: whole `--exam` capture sessions listed in `data/detector_exam.json`, labelled in their own
@@ -392,7 +392,7 @@ at 1280 px like training (no scale mismatch to fix).
   fine-tunes from the live weights with their July recipe, and refuses exam frames.
 
 **Shipped 2026-10-28: v6x3** (`2fee0eb`): 97.1% right overall on the exam without flowers (the live
-detector was 68.6%), README "The tile detector".
+detector was 68.6%), docs/usage.md "The tile detector".
 
 **Baseline on the standard mat (2026-11-04):** two more exam sessions, 48 frames, took the exam to 103 frames (Roboflow
 v7). Without flowers the live detector got 80.9% of the mat's 587 tiles right: 93.2% found, and 72 of the 547 found named
