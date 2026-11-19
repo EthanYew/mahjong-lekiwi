@@ -99,8 +99,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import (back_check, bump_report, config, detector, interventions, layout, perception, placements, takeover,
-                     wrist_check)
+from mahjong import (back_check, bump_report, config, detector, interventions, layout, perception, placements, play_log,
+                     takeover, wrist_check)
 from mahjong.camera import RERUNS as CAMERA_RERUNS, grab_frames
 from mahjong.gamepad import warn_off_centre
 from mahjong.hover_correction import HoverCorrection, append_record, grasp_record, parse_offsets
@@ -863,16 +863,13 @@ class Bench:
             review = self.review(attempt.name, tile["tile_name"], run, keyed=bool(presses))
         name_source = "faint" if tile.get("faint") else "wrist_seen" if tile.get("wrist_seen") else \
             "saved_position" if tile.get("saved_position") else "read"
-        self.session.event("attempt", tile=tile["tile_name"], name_source=name_source, policy=self.policy.id,
-                           placement=self.placements.id_at(spot["id"]) if spot else None, detection_xy=tile["xy"],
-                           hover_xy=hover["hover_xy"], hover_offset_m=hover["offset_m"],
-                           hover_clearance_m=hover["clearance_m"], gripper_command=command, gripper_measured=measured,
-                           gripper_says_held=holding, success=success, attempt_dir=attempt.name,
-                           correction=self.correction.name, hover_perturb_xy=list(perturb),
-                           hover_sag_xyz_m=hover.get("sag_xyz_m"), hover_gripper=self.hover_of(self.policy)["gripper"],
-                           **({"gripper_squeezed_from": squeezed_from} if squeezed_from is not None else {}),
-                           **({"layout": self.args.layout, "spot": spot["id"], "spot_xy": spot["xy"]} if spot else {}),
-                           **takeover.policy_view(run), **review)
+        self.session.event("attempt", **play_log.pickup_fields(
+                               policy=self.policy.id, attempt_dir=attempt.name, tile=tile["tile_name"], hover=hover,
+                               offset_m=hover["offset_m"], holding=holding, command=command, measured=measured, success=success,
+                               correction=self.correction.name, layout=self.args.layout, spot=spot, squeezed_from=squeezed_from),
+                           name_source=name_source, placement=self.placements.id_at(spot["id"]) if spot else None,
+                           detection_xy=tile["xy"], hover_perturb_xy=list(perturb), hover_sag_xyz_m=hover.get("sag_xyz_m"),
+                           hover_gripper=self.hover_of(self.policy)["gripper"], **takeover.policy_view(run), **review)
         self.last_attempt = attempt.name
         # a lowered hover says nothing about the usual one; a saved position isn't a detection, which the correction is fitted from
         # ...and a person's grasp after a takeover isn't the policy's

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import bump_report, config, interventions, name_ledger, scorecard, wrist_usb
+from mahjong import bump_report, config, interventions, name_ledger, play_log, scorecard, wrist_usb
 from mahjong.camera import TORN_STOP_FRAMES
 from mahjong.return_correction import landings
 from mahjong.session import conditions_text, read_events, void_reason
@@ -296,18 +296,43 @@ def all_sessions():
         print(f"{folder.name:<24} {clean:>2}/{len(attempts):<3} {sum(a['success'] for a in attempts):>2}/{len(attempts):<3} {rescues:>9.1f} "
               f"{np.mean([act_seconds(a) for a in attempts]):>6.1f}  [{policies}] {setup_text(start)}"
               + ("  VOIDED" if void_reason(folder) else ""))
-    hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play"))
+    # both kinds of play, face up (*_play) and face down (*_play_fd), read the same way (mahjong/play_log.py)
+    hands = [(folder, read_events(folder)) for folder in sorted(config.SESSIONS.glob("*_play*"))
              if (folder / "events.jsonl").exists()]
-    hands = [(folder, events, next(e for e in events if e["type"] == "hand_end")) for folder, events in hands
-             if any(e["type"] == "hand_end" for e in events)]
+    hands = [(folder, events, play_log.hand(events)) for folder, events in hands]
+    hands = [(folder, events, h) for folder, events, h in hands if h["end"]]
     if hands:
-        grades = Counter(end["grade"] for _, _, end in hands)
-        print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7}  setup   "
+        grades = Counter(h["end"].get("grade") or "-" for _, _, h in hands)
+        print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7} {'win':<12}  setup   "
               f"({len(hands)} hands: " + ", ".join(f"{n} {g}" for g, n in grades.most_common()) + ")")
-        for folder, events, end in hands:
+        review = {}             # the review store, loaded once for every face-down hand
+        for folder, events, h in hands:
             start = next((e for e in events if e["type"] == "session_start"), {})
-            print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end['grade']:<12} {end['asks']:>4} "
-                  f"{end['rescues']:>7}  {setup_text(start)}")
+            end, asks, rescues = h["end"], *hand_asks_rescues(events, h["end"])
+            check = play_log.verdict(h, fd_reads(folder, h, review))
+            print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end.get('grade') or '-':<12} {asks:>4} "
+                  f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}")
+
+
+def hand_asks_rescues(events, end):
+    """(asks, rescues) of a hand: its hand_end's, or derived for a face-down hand from before play_log.hand_end wrote them."""
+    if "asks" in end:
+        return end["asks"], end["rescues"]
+    found = [i for i in interventions.derive(events) if i["kind"] != "killed"]
+    return sum(i["class"] == interventions.ASK for i in found), sum(i["class"] == interventions.RESCUE for i in found)
+
+
+def fd_reads(folder, h, cache=None):
+    """A face-down hand's holds scored against a person's review (face_down_play.scored_reads), for play_log.verdict.
+    cache: a dict that keeps the review store between calls (session_report --all)."""
+    if h["kind"] != "play_fd":
+        return None
+    from mahjong import base_cam, face_down_play
+    if cache is None:
+        return face_down_play.scored_reads(folder)
+    if "review" not in cache:
+        cache["review"] = base_cam.load_review()
+    return face_down_play.scored_reads(folder, cache["review"])
 
 
 def main():
@@ -410,40 +435,56 @@ def main():
             print(f"{kind}: {n}" + (f" ({len(shifts)} set down closer to fit the reach: "
                                     + ", ".join(f"{s:.0f}mm" for s in shifts) + ")" if shifts else ""))
     returns_report(events)
-    play_report(events, found)
+    play_report(events, found, session_dir)
     for line in name_ledger.session_lines(session_dir):
         print(line)
 
 
-def play_report(events, found):
-    """A played hand (scripts/play.py): how it ended, its grade (clean / attended / rescued / silent error,
-    docs/autonomy_plan.md section 3), what a person was asked, and how long turns took."""
-    turns = [e for e in events if e["type"] == "turn_done"]
-    end = next((e for e in events if e["type"] == "hand_end"), None)
-    if not turns and not end:
+def play_report(events, found, folder=None):
+    """A played hand, face up (scripts/play.py) or face down (scripts/play_face_down.py), read through play_log: how it
+    ended, its grade (clean / attended / rescued / silent error, docs/autonomy_plan.md section 3), the hand and the tile it
+    won on, whether the win is verified, what a person was asked, and how long turns took."""
+    h = play_log.hand(events)
+    end = h["end"]
+    if not h["turns"] and not end:
         return
-    print("\nhand: " + (f"{end['result']} after {end['turns']} turns, {end['grade']}" if end
-                        else f"{len(turns)} turns, not finished (--resume carries on)"))
+    print("\nhand: " + (f"{end['result']} after {end['turns']} turns, {end.get('grade') or 'not graded'}" if end
+                        else f"{len(h['turns'])} turns, not finished (--resume carries on)"))
     if end:
-        hand = end["hand"].values() if isinstance(end["hand"], dict) else end["hand"]     # play_face_down.py: {slot: name}
-        won_on = f", won on {end['won_on']}" if end.get("won_on") else ""
-        print(f"  hand {' '.join(hand)}{won_on}; discards {' '.join(end['discards']) or '-'}")
+        names = play_log.in_order(h["slots"] or list(end["hand"]), end["hand"])
+        winning = end.get("winning") or end.get("won_on") or (h["win"] or {}).get("drawn")
+        won = f", won on {winning}" if winning and end["result"] == "win" else ""
+        print(f"  hand {' '.join(names)}{won}; discards {' '.join(end['discards']) or '-'}")
+        if winning and end["result"] == "win" and h["win"] and h["win"].get("before"):
+            print(f"  winning hand: {play_log.melds_line(h['win']['before'] + [winning])}")
+        check = play_log.verdict(h, fd_reads(folder, h) if folder else None)
+        for line in check["lines"] if check else []:
+            print(f"  {line}")
     asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
     if asked:
         print("  asked: " + ", ".join(f"{kind} {n}" for kind, n in asked.most_common()))
-    if end and end["silent_errors"]:
+    if end and end.get("silent_errors"):
         print(f"  SILENT ERRORS: {end['silent_errors']} tile(s) the robot had wrong without asking")
-    # a turn: from the first scan of its drawn tile to its turn_done
-    starts, seconds = None, []
-    for e in events:
-        if e["type"] == "detections" and e.get("label") == "drawn" and starts is None:
-            starts = datetime.fromisoformat(e["time"])
-        elif e["type"] == "turn_done" and starts is not None:
-            seconds.append((datetime.fromisoformat(e["time"]) - starts).total_seconds())
-            starts = None
+    seconds, since = turn_seconds(events, h)
     if seconds:
-        print(f"  turn time: median {np.median(seconds):.0f}s, p90 {np.percentile(seconds, 90):.0f}s "
-              f"(from the drawn tile's first scan to the end of the turn)")
+        print(f"  turn time: median {np.median(seconds):.0f}s, p90 {np.percentile(seconds, 90):.0f}s ({since} to the end of the turn)")
+
+
+def turn_seconds(events, h):
+    """How long each finished turn took, and from when: face up from the drawn tile's first scan, face down from the turn's
+    start (its feed and draw)."""
+    starts = {e["turn"]: datetime.fromisoformat(e["time"]) for e in events if e["type"] == "fd_turn_start"}
+    if starts:
+        return [(datetime.fromisoformat(r["done"]) - starts[r["turn"]]).total_seconds()
+                for r in h["turns"] if r["done"] and r["turn"] in starts], "from the turn's start"
+    start, seconds = None, []
+    for e in events:
+        if e["type"] == "detections" and e.get("label") == "drawn" and start is None:
+            start = datetime.fromisoformat(e["time"])
+        elif e["type"] == "turn_done" and start is not None:
+            seconds.append((datetime.fromisoformat(e["time"]) - start).total_seconds())
+            start = None
+    return seconds, "from the drawn tile's first scan"
 
 
 def returns_report(events):

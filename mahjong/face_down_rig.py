@@ -116,7 +116,7 @@ class Rig:
                                face_down=True)
         holding, command, measured = self.arm.holding()
         return {"hover": hover, "run": run, "attempt": attempt, "holding": holding, "squeezed_from": squeezed,
-                "gripper_command": command, "gripper_measured": measured}
+                "gripper_command": command, "gripper_measured": measured, "offset_m": h["offset_m"]}
 
     def show(self, rng, still_held=None):
         """Visit every pose with the tile in the jaws; returns (frames, which pose each is from, "" or why it stopped).

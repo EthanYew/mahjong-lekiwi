@@ -21,6 +21,12 @@ Autonomous play: names, questions, the window and the drop zone. Evidence in `do
   error (`interventions.hand_grade`). Silent wrong tiles are a gate, not a target: one stops play. Bench the
   hand with `bench.py --layout even-hand14` (even-hand13 + the drop zone's spot): play won't start until the zone is.
   Face-down hands are `scripts/play_face_down.py`, with their own rules in face_down.md (its `--unattended` is the exception to this gate).
+- **Both kinds of play log a hand the same way, through `mahjong/play_log.py`**, and every report reads it there. Face-down play once
+  logged its own event names, so the game video showed "0 of 0 pickups" and no turns for a 15-turn win, its picks never reached the
+  grade (an Esc wasn't a rescue), and the session report printed slot ids for tiles (`20261119_142253_play_fd`). A pickup is an
+  `attempt` (`pickup_fields`); a turn `discard_chosen` then `turn_done`; a win `win`; the end `hand_end`, with what the end check
+  covered. A new play mode, or a new field one mode logs, goes there. A win counts as verified only when a person vouched for all 14
+  names (`play_log.verdict`).
 - **A stricter rule for a problem tile has to go on the name read, not the tile.** The robot never sees "8C", only the "7C"
   it reads, so real 7Cs pay too (`identity.ALWAYS_ASK_READS`, a stopgap in play). Confidence alone isn't enough: wrong EW and
   7C reads overlap real ones. Evidence: `docs/name_data.md`.

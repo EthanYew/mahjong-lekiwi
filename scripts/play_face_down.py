@@ -39,13 +39,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 
 from mahjong import (base_cam, base_cam_collect, config, crude_run, desk_video, face_down_play, face_down_rig, game, hand_view,
-                     interventions, layout, markers, privacy, takeover, wall_test)
+                     interventions, layout, markers, play_log, privacy, takeover, wall_test)
 from mahjong.identity import parse_fixes
 from mahjong.perception import drain_stdin
 from mahjong.session import read_events
 
 LAY_WINDOW = "lay the hand and the wall (RealSense view)"
-ZONE = "ZONE"           # the end check's name for the drop zone: a win's drawn tile lies there
+ZONE = play_log.ZONE.upper()     # what a person types for the drop zone in the end check: a win's drawn tile lies there
 
 
 def parse_args(argv=None):
@@ -104,7 +104,6 @@ class Player(crude_run.Run):
         super().__init__(rig, args, ask, slots, {}, station, zone_spot, reader, boxes)
         self.unattended, self.window = args.unattended, window
         self.shots, self.holds, self.corrected, self.registered = 0, {}, 0, 0
-        self.won_on = None          # a win's drawn tile: it lies on the drop zone, and the end check covers it too
         self.fed_already = None     # a resumed turn whose feed was done before the stop: not asked again
         self.phase = "register"
 
@@ -386,7 +385,6 @@ class Player(crude_run.Run):
             return "quit"
         self.done += 1
         if outcome == "win":
-            self.won_on = name
             self.checkpoint("won")
             return "win"
         self.checkpoint()
@@ -426,14 +424,16 @@ class Player(crude_run.Run):
                 return result
 
     def audit(self, result):
-        """The end check: a person turns the 13 over and says which the robot had wrong (silent errors). Returns (grade, checked, wrong)."""
+        """The end check: a person turns the 13 over, and after a win the drawn tile on the drop zone too (as play.py's audit
+        shows it: a win is only as good as all 14 names), and says which the robot had wrong (silent errors).
+        Returns {grade, checked, wrong, covers, found}."""
         if not self.hand:
-            return None, False, {}
-        believed = {**self.hand, **({ZONE: self.won_on} if self.won_on else {})}
+            return {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": []}
+        believed = {**self.hand, **({play_log.ZONE: self.winning} if self.winning else {})}
         print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots)
-              + (f"\n  and {self.won_on} on the drop zone, the tile it won on ({ZONE})" if self.won_on else ""))
+              + (f"\n  and {self.winning} on the drop zone, the tile it won on ({ZONE})" if self.winning else ""))
         ids = {s.upper(): s for s in believed}
-        what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if self.won_on else f"the {len(self.slots)}"
+        what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if self.winning else f"the {len(self.slots)}"
         drain_stdin()
         while True:
             answer = self.ask(f"Turn {what} over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
@@ -444,14 +444,14 @@ class Player(crude_run.Run):
             if wrong is not None and not face_down_play.bad_names(wrong):
                 checked = True
                 break
-            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if self.won_on else ""))
+            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if self.winning else ""))
         wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
         for slot, name in wrong.items():
             self.rig.session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
-        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand), won_on=self.won_on)
+        covers = list(believed) if checked else []
+        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand), won_on=self.winning, covers=covers)
         found = [i for i in interventions.derive(read_events(self.rig.session.dir)) if i["kind"] != "killed"]
-        grade = interventions.hand_grade(found)
-        return grade, checked, wrong
+        return {"grade": interventions.hand_grade(found), "checked": checked, "wrong": wrong, "covers": covers, "found": found}
 
 
 def report(arg):
@@ -527,14 +527,22 @@ def main(argv=None, ask=input):
             desk_video.stop(rig.session, rig.desk_camera, desk)     # before the camera closes
         rig.close()
         if rig.session and player:
-            grade, checked, wrong = player.audit(result) if result in ("win", "end") else (None, False, {})
+            if result in ("win", "end"):
+                check = player.audit(result)
+            else:                   # no end check, but what a person did still counts in the hand's asks and rescues
+                found = [i for i in interventions.derive(read_events(folder)) if i["kind"] != "killed"]
+                check = {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": found}
             waiting = len(base_cam.waiting_for_review(folder))
-            s = face_down_play.summary(player.done, result, grade, args.unattended, player.registered + len(player.reads),
-                                       player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(wrong), checked, waiting)
+            s = face_down_play.summary(player.done, result, check["grade"], args.unattended, player.registered + len(player.reads),
+                                       player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(check["wrong"]),
+                                       check["checked"], waiting)
             print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(player.breaks)))
             (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": player.breaks, "hand": player.hand,
-                                                                     "won_on": player.won_on, "discards": player.discards}, indent=2) + "\n")
-            rig.session.event("hand_end", **s, hand=player.hand, won_on=player.won_on, discards=player.discards)
+                                                                     "winning": player.winning, "discards": player.discards}, indent=2) + "\n")
+            play_log.hand_end(rig.session, result=result, turns=s["turns"], grade=s["grade"], found=check["found"],
+                              slots=player.slots, hand=player.hand, discards=player.discards, wrong=check["wrong"],
+                              checked=check["checked"], covers=check["covers"], winning=player.winning,
+                              **{k: v for k, v in s.items() if k not in ("result", "turns", "grade", "silent_errors")})
         if rig.session:
             rig.session.close()
     return folder

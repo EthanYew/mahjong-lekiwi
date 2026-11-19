@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from mahjong import config, desk_video, game, hand_view, interventions, layout, markers, name_check
+from mahjong import config, desk_video, game, hand_view, interventions, layout, markers, name_check, play_log
 from mahjong.camera import grab_frames
 from mahjong.identity import ALWAYS_ASK_READS, DRAWN_MIN_SHARE, Votes, parse_fixes
 from mahjong.perception import drain_stdin
@@ -737,14 +737,15 @@ class Player:
                 s["history"].append({"turn": s["turn"] + 1, "drawn": drawn, "win": True})
                 s["phase"] = "won"
                 self.save()
+                play_log.won(self.session, s["turn"] + 1, drawn)
                 return "win"
             best, candidates = game.choose_discard(hand13, drawn, s["discards"])
             slot = ZONE if best["index"] == game.HAND_SIZE else self.slots[best["index"]]["id"]
             kept = (hand13 + [drawn])[:best["index"]] + (hand13 + [drawn])[best["index"] + 1:]
             after = [*s["discards"], best["tile_name"]]
             print(f"Drew {drawn}; discard {best['tile_name']} from {slot}. {game.seeking(kept, after)}")
-            self.session.event("discard_chosen", turn=s["turn"] + 1, drawn=drawn, slot=slot, **best,
-                               candidates=candidates[:5], seeking=game.improving_tiles(kept, after))
+            play_log.discard_chosen(self.session, s["turn"] + 1, drawn, best, slot, candidates=candidates[:5],
+                                    seeking=game.improving_tiles(kept, after))
             s.update(phase="discard", discard_slot=slot, discard=best)
             self.save()
         if s["phase"] == "discard":
@@ -787,8 +788,7 @@ class Player:
         s["turn"] += 1
         s["history"].append({"turn": s["turn"], "discarded": discarded, "from": slot,
                              "shanten_after": s["discard"]["shanten_after"]})
-        self.session.event("turn_done", turn=s["turn"], discarded=discarded, slot=slot,
-                           hand=[s["hand"][x["id"]] for x in self.slots], discards=s["discards"])
+        play_log.turn_done(self.session, s["turn"], discarded, slot, [x["id"] for x in self.slots], s["hand"], s["discards"])
         s["phase"] = "draw"
         for key in ("discard_slot", "discard", "vacated"):
             s.pop(key, None)
@@ -827,10 +827,9 @@ class Player:
         # still running, so derive() sees no session_end and would count a "killed" rescue
         found = [i for i in interventions.derive(self.session_events()) if i["kind"] != "killed"]
         grade = interventions.hand_grade(found)
-        self.session.event("hand_end", result=result, turns=s["turn"], grade=grade, silent_errors=len(wrong),
-                           asks=sum(i["class"] == interventions.ASK for i in found),
-                           rescues=sum(i["class"] == interventions.RESCUE for i in found),
-                           hand=[s["hand"][x["id"]] for x in self.slots], discards=s["discards"])
+        play_log.hand_end(self.session, result=result, turns=s["turn"], grade=grade, found=found,
+                          slots=[x["id"] for x in self.slots], hand=s["hand"], discards=s["discards"], wrong=wrong, checked=True,
+                          covers=[slot for slot, name in believed.items() if name], winning=s["drawn"] if result == "win" else None)
         print(f"\nHand over ({result}) after {s['turn']} turns: {grade}")
         return grade
 

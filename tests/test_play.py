@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mahjong import config, markers
+from mahjong import config, markers, play_log
 from mahjong.session import read_events
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -52,6 +52,10 @@ def test_a_sim_hand_plays_to_a_clean_win(tmp_path, monkeypatch):
     assert p.state["hand"]["H12"] == "9B" and p.state["phase"] == "won"
     end = next(e for e in events if e["type"] == "hand_end")
     assert (end["result"], end["turns"], end["grade"], end["silent_errors"]) == ("win", 2, "clean", 0)
+    (win,) = [e for e in events if e["type"] == "win"]                  # logged as face-down play logs it (play_log)
+    assert end["winning"] == win["drawn"] and win["turn"] == 3 and len(end["hand"]) == len(end["slots"]) == 13
+    assert end["audit"]["checked"] and not end["audit"]["wrong"] and {*end["slots"], "zone", "D1", "D2"} == set(end["audit"]["covers"])
+    assert play_log.verdict(play_log.hand(events))["status"] == "verified"
     attempts = [e for e in events if e["type"] == "attempt"]
     assert [a["tile"] for a in attempts] == ["GD", "RD", "9B"] and all(a["success"] for a in attempts)
     landed = next(e for e in events if e["type"] == "return_landed")

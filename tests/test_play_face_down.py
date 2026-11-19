@@ -95,6 +95,16 @@ def test_the_hand_sheet_and_the_laying_window_draw():
     assert out.shape == (480, 848, 3)
 
 
+def test_a_hand_quit_before_its_end_check_still_counts_what_a_person_did(monkeypatch, tmp_path):
+    """No end check runs on a quit, but the hand's asks and rescues are still the session's (review of play_log: they were
+    taken from the end check's list, empty on a quit, and logged as 0)."""
+    reads = HAND[:2] + ["4C"] + HAND[3:] + ["4D"]
+    script = script_in(monkeypatch, tmp_path, reads)
+    folder, _ = run(script, [], [*LIGHT, "", "S3=3C", "", "", "q"])     # one correction, then quit after turn 1
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "quit" and end["grade"] is None and end["asks"] == 1
+
+
 def test_an_attended_hand_is_read_checked_once_played_and_checked_at_the_end(monkeypatch, tmp_path):
     reads = HAND[:2] + ["4C"] + HAND[3:] + ["4D", "8B"]       # S3 misread as 4C: the hand check says 3C
     script = script_in(monkeypatch, tmp_path, reads)
@@ -110,7 +120,7 @@ def test_an_attended_hand_is_read_checked_once_played_and_checked_at_the_end(mon
     assert confirmed["fixed"] == {"S3": "3C"} and confirmed["hand"]["S3"] == "3C"
     asked = [i for i in events_of(folder, "intervention") if i["kind"] == "name_corrected"]
     assert [(i["slot"], i["read"], i["name"]) for i in asked] == [("S3", "4C", "3C")]
-    assert [c["drawn"] for c in events_of(folder, "crude_choice")] == ["4D", "8B"]
+    assert [c["drawn"] for c in events_of(folder, "discard_chosen")] == ["4D", "8B"]
     shots = events_of(folder, "holdup_shot")
     assert len(shots) == 15 and all(s["review_first"] and s["filed_by"] == "person" for s in shots)
     assert next(s for s in shots if s["spot"] == "S3")["tile"] == "3C"     # filed under the checked name, the reader's beside it
@@ -187,7 +197,7 @@ def test_a_hand_carries_on_from_its_last_turn_with_resume(monkeypatch, tmp_path)
     assert not any("GREEN side up" in p for p in prompts)            # the tiles are where they were: nothing laid, nothing read
     (resumed,) = events_of(second, "fd_resumed")
     assert resumed["from_session"] == first.name and resumed["hand"] == state["hand"]
-    assert [c["turn"] for c in events_of(second, "crude_choice")] == [2]
+    assert [c["turn"] for c in events_of(second, "discard_chosen")] == [2]
     assert not events_of(second, "fd_register_read")
     with pytest.raises(SystemExit, match="is over"):
         script.main(["--sim", "--resume", second.name], ask=lambda prompt: "")
@@ -255,7 +265,7 @@ def test_a_resume_after_a_quit_mid_turn_has_the_drawn_tile_put_back_first(monkey
     assert asked and "back on the wall, on top of the stack on station F" in asked[0]
     (left,) = events_of(second, "fd_resume_unfinished")
     assert left["turn"] == 1 and left["choice"] is None
-    assert [c["turn"] for c in events_of(second, "crude_choice")] == [1, 2]
+    assert [c["turn"] for c in events_of(second, "discard_chosen")] == [1, 2]
 
 
 def test_a_resumed_hand_s_checkpoint_keeps_its_turn_until_the_next_one_finishes(monkeypatch, tmp_path):
@@ -269,7 +279,7 @@ def test_a_resumed_hand_s_checkpoint_keeps_its_turn_until_the_next_one_finishes(
         time.sleep(0.05)            # a session folder is named to the second: three runs can share one
     third, prompts = run(script, ["--resume", second.name], [*LIGHT, "", "", "end", ""])
     assert any("Turn 2 stopped before its discard" in p for p in prompts)
-    assert [c["turn"] for c in events_of(third, "crude_choice")] == [2]
+    assert [c["turn"] for c in events_of(third, "discard_chosen")] == [2]
 
 
 def test_an_unfinished_turn_is_found_from_the_log_and_a_chosen_discard_is_kept():
@@ -284,13 +294,36 @@ def test_an_unfinished_turn_is_found_from_the_log_and_a_chosen_discard_is_kept()
     assert face_down_play.unfinished_turn([start, missed, pick], 2) == {"turn": 3, "layer": "top", "choice": None, "drawn": True}
     by_hand = {"type": "crude_read", "turn": 3, "name": "4D"}           # the draw done by hand: the tile reached the zone
     assert face_down_play.unfinished_turn([start, missed, by_hand], 2)["drawn"]
-    left = face_down_play.unfinished_turn([start, pick, choice], 2)
-    assert left["choice"] is choice
+    left = face_down_play.unfinished_turn([start, pick, choice], 2)              # an older log's crude_choice
+    assert left["choice"] == {"turn": 3, "drawn": "4D", "discard": "9C", "slot": "S8"}
+    chosen = {"type": "discard_chosen", "turn": 3, "drawn": "4D", "tile_name": "9C", "slot": "S8"}
+    assert face_down_play.unfinished_turn([start, pick, chosen], 2)["choice"] == left["choice"]
     (line,) = face_down_play.unfinished_lines(left, "L2")
     assert "9C (from S8) in the discard container, the drawn 4D on S8" in line
 
 
 WINS_ON_5D = ["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "5D"]
+
+
+def test_a_pickup_stopped_with_esc_counts_against_the_hand_as_on_the_bench(monkeypatch, tmp_path):
+    """Face-down picks are logged as `attempt`s (play_log.pickup_fields), so interventions.derive sees an Esc as it does on
+    the bench and in face-up play. Before, they were only `crude_pick`s, and the hand graded clean."""
+    from mahjong import face_down_rig
+    real, calls = face_down_rig.Rig.pick, []
+
+    def pick(self, name, spot, raise_m=0.0, back_m=0.0):
+        out = real(self, name, spot, raise_m=raise_m, back_m=back_m)
+        calls.append(name)
+        if len(calls) == 2:             # the second tile of the hand: a person stopped the policy, and it held anyway
+            out["run"]["stop_reason"] = "aborted"
+        return out
+    monkeypatch.setattr(face_down_rig.Rig, "pick", pick)
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder, _ = run(script, ["--unattended"], [*LIGHT, "", ""])
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "win" and end["grade"] == "rescued" and end["rescues"] == 1
+    (aborted,) = [i for i in interventions.derive(read_events(folder)) if i["kind"] == "aborted"]
+    assert aborted["attempt_dir"] == events_of(folder, "attempt")[1]["attempt_dir"]
 
 
 def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):
@@ -300,10 +333,10 @@ def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):
     folder, prompts = run(script, ["--unattended"], [*LIGHT, "", "ZONE=6D"])
     assert any("drop zone" in p for p in prompts if "Turn the" in p)
     (end,) = events_of(folder, "hand_end")
-    assert end["result"] == "win" and end["won_on"] == "5D"
+    assert end["result"] == "win" and end["winning"] == "5D"
     assert end["silent_errors"] == 1 and end["grade"] == "silent error"
     (error,) = [i for i in events_of(folder, "intervention") if i["kind"] == "silent_error"]
-    assert (error["slot"], error["robot"], error["table"]) == ("ZONE", "5D", "6D")
+    assert (error["slot"], error["robot"], error["table"]) == ("zone", "5D", "6D")
 
 
 def test_the_end_check_s_retry_hint_names_the_zone_after_a_win(monkeypatch, tmp_path, capsys):
