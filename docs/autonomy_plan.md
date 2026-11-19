@@ -146,6 +146,32 @@ growing the training set**.
 lighting conditions. 10 hands is ~730 events: with zero silent errors, the rule of three bounds the
 silent-error rate below ~0.4 % per event (backed by the far larger offline exams in section 4).
 
+### Face-down hands (decided 2026-11-20, the owner)
+
+Face-down tiles are the format for play against people, so they get the same target: **≥ 8 of 10 consecutive hands clean, 0 silent
+errors** (`scripts/play_face_down.py`). What differs from the face-up hand above:
+
+- **Unattended hands count.** Wrong names can get in silently, so they are caught afterwards: every hold's photo gets a verdict
+  (`base_cam_review.py --play`), `play_face_down.py --report` scores every read against it, and the end check compares the 13
+  to the table. One wrong name found is a silent error: a gate, play stops. A hand not yet reviewed counts for nothing.
+- **Clean** = no rescue (a step done by hand), no reset, no ask (a correction of a name is an ask; pressing Enter on a read isn't,
+  as `interventions.hand_grade` grades it), end check all matched, review found no wrong read. `mahjong/hand_tally.py` counts
+  this, and `status.py` prints it: hands before the first one still waiting for review count, an unfinished hand counts as failed. The wall feed (a person pushing the next stack up) is part of the
+  format, not a rescue. Neighbours the arm knocks aren't seen in play (no scans), so only the end check can show them.
+- **Steps per hand, face down** (my count from the turn plan, not measured): registration is 13 × (pickup, read, set-down) = 39;
+  each turn adds a draw pickup, a read, a drop-zone set-down, a discard pickup and a discard set-down = 5. So N ≈ 39 + 5T
+  for T turns (= tiles drawn). T is not fixed: the logged hands ran 15, 19, 34 and 43 turns (`20261119_142253_play_fd`,
+  `20261104_231918_play`, `20261104_183142_play`, `20261117_200555_play_fd`), so the 14 draws above was an assumed typical hand,
+  not a derived number.
+- **The formula.** P(hand clean) ≈ p^N when each step succeeds without help with probability p. To get a hand clean 80 % of the
+  time, p must be 0.8^(1/N): ≈ 99.80 % at T = 14 (N = 109), 99.87 % at T = 26 (169), 99.91 % at T = 43 (254). Face-down pickups
+  on the default policy (v13) are ~94 % clean (79/84), which gives ≈ 24 % for 23 pickups: far short.
+- **The test itself.** A system whose real clean rate is 80 % a hand passes 8 of 10 about 68 % of the time; at 90 %, 93 %; at 70 %,
+  38 %. So a pass shows "good enough", a fail doesn't show "bad".
+- **Evidence so far: 2 won hands, 0 of the 10.** `20261117_200555_play_fd` (43 turns, reads confirmed) and `20261119_142253_play_fd`
+  (15 turns, unattended); both graded clean by `session_report.py`, which has no scans in play to see a knocked tile. Neither
+  counts yet: the 10 are consecutive hands on one setup, reviewed.
+
 ## 4. No silent wrong tiles: the identity guardrails
 
 A silent wrong tile can enter in three places. Each gets its own check:
@@ -214,6 +240,7 @@ drawn tile can be aimed straight at the vacated slot (bug #7 fixed by reuse).
 |---|---|---|
 | Silent wrong tiles | **0, a gate** | audit, conservation check, exams |
 | Clean hands | ≥ 8/10 consecutive | session events |
+| Clean face-down hands (`play_face_down.py`, attended or unattended; see "Face-down hands" below) | ≥ 8/10 consecutive, 0 silent errors | session events + every hold reviewed + end check |
 | Asks per hand | ≤ 1 on the way there | interventions |
 | Names auto-accepted (two reads agree) | ≥ 99.5 % (today ~97-98 % per read); agree-and-wrong 0 over ~1000 exam reads across lightings | `detector_eval.py` + drop-zone / wrist exams |
 | First-try pickup | ≥ 95 % per slot and in the zone | bench `--layout hand13` |

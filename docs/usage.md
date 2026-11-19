@@ -1082,7 +1082,9 @@ python scripts/play_face_down.py --sim                    # simulated arm and ca
 `--unattended` asks no names. A read under `--reshow-below` (0.6) gets a second hold at the poses, with both holds' votes added. The
 reader's name is taken, even when it makes a fifth copy (logged as `fd_conflict`). It still asks for the wall's feed and for a step
 the arm couldn't do (a pick missed twice, a tile lost), since only a person can put a tile right. It needs a reader. Wrong names
-can get in silently by design, so an unattended hand isn't a play-ready result: it measures the reader and the arm together.
+can get in silently by design, so they are caught after the hand: an unattended hand counts toward play-ready (target: 8 of 10
+consecutive hands clean, 0 silent errors; `docs/autonomy_plan.md`) once every hold is reviewed (`base_cam_review.py --play`, then
+`--report`) and the end check matched. A wrong name found there is a silent error and stops play.
 
 **Every hold is saved as the reader's training photos**, filed under the name the hand used (yours, or unattended the reader's),
 and kept out of training and the counts until you review them: `base_cam_review.py --play`, where the caption says who named
