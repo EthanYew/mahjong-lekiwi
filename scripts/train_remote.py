@@ -340,8 +340,10 @@ def cmd_sync(args, cfg):
 
     # Print the usage guide reminder
     usage_path = config.DATA.parent / "docs" / "usage.md"
-    usage = usage_path.read_text() if usage_path.exists() else ""     # advisory: never stop the sync or the shutdown
-    if f"`{policy_id}`" not in usage:
+    usage = usage_path.read_text() if usage_path.exists() else None     # advisory: never stop the sync or the shutdown
+    if usage is None:
+        pass
+    elif f"`{policy_id}`" not in usage:
         print(f"\ndocs/usage.md does not yet name `{policy_id}`.")
         entry = remote_reg["policies"][policy_id]
         datasets, (frames, steps) = entry.get("datasets"), recipe.scale_of(entry)

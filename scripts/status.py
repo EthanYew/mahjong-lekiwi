@@ -156,16 +156,16 @@ def stale_docs(policy_id, repo=None):
     refuse the commit until each is fixed (2026-11-06: a default changed alone on main could be neither committed nor merged)."""
     import re
     repo = Path(repo) if repo else Path(__file__).resolve().parents[1]
-    usage, claude, roadmap = ((repo / name).read_text() if (repo / name).exists() else ""     # a tree from before docs/usage.md
+    usage, claude, roadmap = ((repo / name).read_text() if (repo / name).exists() else None     # a tree from before docs/usage.md
                               for name in ("docs/usage.md", "CLAUDE.md", "ROADMAP.md"))
     out = []
-    if f"(default: `{policy_id}`" not in usage:
+    if usage is not None and f"(default: `{policy_id}`" not in usage:
         out.append(f"docs/usage.md: the policy list's \"(default: `...`\" names another policy; make it `{policy_id}`")
     for name, text in (("docs/usage.md", usage), ("CLAUDE.md", claude)):
-        for line in text.splitlines():
+        for line in (text or "").splitlines():
             if "record.py" in line and (m := re.search(r"--policy (pickup_mat_cl\w*)", line)) and m.group(1) != policy_id:
                 out.append(f"{name}: a DAgger example drives {m.group(1)}: {line.strip()[:90]}")
-    status = roadmap.split("\n## Status\n", 1)[-1].split("\n## ", 1)[0]
+    status = (roadmap or policy_id).split("\n## Status\n", 1)[-1].split("\n## ", 1)[0]
     if policy_id not in status:
         out.append(f"ROADMAP.md: the status table's Default policy row doesn't name {policy_id}")
     return out
