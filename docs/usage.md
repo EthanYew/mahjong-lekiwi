@@ -3,11 +3,6 @@
 The full command reference: every script, its options, and how each part of the pipeline is run. The project overview is
 in the [README](../README.md).
 
-An SO101 arm on a LeKiwi base that picks up mahjong tiles: a RealSense (the depth camera looking at
-the mat) finds the tile, a closed-loop IK hover (inverse kinematics: joint angles for a target point,
-plus a measured correction) puts the gripper over it, and an ACT policy (the learned model) grasps it
-from the wrist camera.
-
 ## Setup
 
 - `lerobot` conda env (`~/miniforge3/envs/lerobot/bin/python`), with `pytest`.
@@ -805,7 +800,7 @@ synced: use it there only when the sync can wait until it's switched on again.
 The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--leave-out`, `--trim-narrowing`,
 `--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
 
-After `--sync`, README.md still needs a manual line for the new policy (the fast tests will say if it's
+After `--sync`, this file still needs a manual line for the new policy (the fast tests will say if it's
 missing). The sync step prints the suggested line.
 
 `data/train_machine.example.json` documents the config keys (`ssh`, `wsl_distro`, `wsl_home`,
@@ -1459,8 +1454,8 @@ closed.
 
 **Changing the default policy**: on a branch, never on `main`, always with `--set-default ID --evidence ...` (and `--why`;
 `--since YYYY-MM-DD` for a decision made earlier). It writes a `default_note` next to the default in `data/policies.json`; a
-test fails if the default changes without one. It then lists what still names the old default: the README policy list's
-`(default: ...)`, `record.py --policy` DAgger examples in README.md and CLAUDE.md, and ROADMAP.md's status table. The
+test fails if the default changes without one. It then lists what still names the old default: this file's policy list's
+`(default: ...)`, `record.py --policy` DAgger examples in this file and CLAUDE.md, and ROADMAP.md's status table. The
 pre-commit tests fail until all agree, so change them in the same branch, commit them with `data/policies.json`, and merge
 the PR with `merge_pr.py`. Changed alone on `main` (2026-11-06), the default could be neither committed (the docs tests) nor
 pulled past (merge_pr.py stops on uncommitted changes to a file the PR also changes).
@@ -1608,7 +1603,7 @@ python -m pytest                      # everything; slow tests load policies and
 Git hooks run the fast tests on every commit and every merge (in parallel when pytest-xdist is installed:
 `pip install pytest-xdist` in the lerobot env), so a broken invariant, or two branches that break each
 other, can't be committed. Turn them on once per clone: `git config core.hooksPath scripts/hooks`.
-`tests/test_docs.py` checks this README, CLAUDE.md and `.claude/rules/` against `data/` and the scripts: every option they
+`tests/test_docs.py` checks this file, README.md, CLAUDE.md and `.claude/rules/` against `data/` and the scripts: every option they
 mention exists, every script has a section, the default policy and every registered one are named right.
 `tests/test_code_health.py` runs ruff (`pip install ruff` in the lerobot env; rules in `ruff.toml`) and looks for functions copied whole between files. A
 false alarm gets `# noqa: <rule>` with the reason on that line.

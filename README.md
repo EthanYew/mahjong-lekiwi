@@ -46,7 +46,9 @@ cd mahjong-lekiwi
 git config core.hooksPath scripts/hooks     # runs the fast tests before each commit
 ```
 
-Run every script from the repo root with the LeRobot env's Python. Every script takes `--help`.
+Run every script from the repo root with the LeRobot env's Python. Every script takes `--help`. The detector and
+classifier weights (`assets/`) and the committed state the scripts read (`data/`) come with the clone; the grasp
+policies download from the Hugging Face Hub, and some are private.
 
 ### Try it without the robot
 

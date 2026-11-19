@@ -156,7 +156,8 @@ def stale_docs(policy_id, repo=None):
     refuse the commit until each is fixed (2026-11-06: a default changed alone on main could be neither committed nor merged)."""
     import re
     repo = Path(repo) if repo else Path(__file__).resolve().parents[1]
-    usage, claude, roadmap = ((repo / name).read_text() for name in ("docs/usage.md", "CLAUDE.md", "ROADMAP.md"))
+    usage, claude, roadmap = ((repo / name).read_text() if (repo / name).exists() else ""     # a tree from before docs/usage.md
+                              for name in ("docs/usage.md", "CLAUDE.md", "ROADMAP.md"))
     out = []
     if f"(default: `{policy_id}`" not in usage:
         out.append(f"docs/usage.md: the policy list's \"(default: `...`\" names another policy; make it `{policy_id}`")

@@ -339,7 +339,8 @@ def cmd_sync(args, cfg):
         print("No offline eval files found on remote.")
 
     # Print the usage guide reminder
-    usage = (config.DATA.parent / "docs" / "usage.md").read_text()
+    usage_path = config.DATA.parent / "docs" / "usage.md"
+    usage = usage_path.read_text() if usage_path.exists() else ""     # advisory: never stop the sync or the shutdown
     if f"`{policy_id}`" not in usage:
         print(f"\ndocs/usage.md does not yet name `{policy_id}`.")
         entry = remote_reg["policies"][policy_id]

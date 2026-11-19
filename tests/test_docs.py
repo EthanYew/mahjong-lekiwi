@@ -1,5 +1,5 @@
 """The docs against the files that decide what they describe. On 2026-10-29 the default policy was switched to v4
-by hand while README.md (then the command reference) still named v3c and ROADMAP.md still had v3 "not yet recorded": the docs restated facts
+by hand while README.md still named v3c and ROADMAP.md still had v3 "not yet recorded": the docs restated facts
 that live in data/, and nothing compared them. Each test here is one such fact."""
 import json
 import re
