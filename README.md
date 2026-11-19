@@ -3,6 +3,10 @@
 A low-cost robot arm that picks up, reads and plays mahjong tiles. An SO101 arm on a LeKiwi mobile base finds a tile
 with a depth camera, moves its gripper over it, and grasps it with a learned policy driven by its wrist camera.
 
+The story of the project, for readers rather than operators: [the write-up](https://ethanyew.github.io/mahjong-lekiwi/)
+and [the build log](https://ethanyew.github.io/mahjong-lekiwi/build-log/). Their source is `site/`, published by
+`.github/workflows/pages.yml`.
+
 ## How it works
 
 ```

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% assign page_title = page.title | default: site.title %}
+  {% assign page_desc = page.description | default: site.description %}
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_desc }}">
+  <meta name="author" content="{{ site.author }}">
+  <link rel="canonical" href="{{ page.url | absolute_url }}">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ page_title }}">
+  <meta property="og:description" content="{{ page_desc }}">
+  <meta property="og:url" content="{{ page.url | absolute_url }}">
+  {% if page.image %}<meta property="og:image" content="{{ page.image | prepend: '/assets/img/' | absolute_url }}">{% endif %}
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
+</head>
+<body>
+  <header class="topbar">
+    <nav>
+      <a class="brand" href="{{ '/' | relative_url }}">MahjongBot</a>
+      <span class="links">
+        <a href="{{ '/' | relative_url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>Write-up</a>
+        <a href="{{ '/build-log/' | relative_url }}"{% if page.url == '/build-log/' %} aria-current="page"{% endif %}>Build log</a>
+        <a href="{{ site.repo }}">GitHub</a>
+      </span>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1>{{ page.title }}</h1>
+      {{ content }}
+      {% if page.next_url %}
+      <aside class="read-next">Read next: <a href="{{ page.next_url | relative_url }}">{{ page.next_title }}</a></aside>
+      {% endif %}
+    </article>
+  </main>
+  <footer>
+    <p>{{ site.author }} · <a href="{{ site.repo }}">Code on GitHub</a> · <a href="{{ site.linkedin }}">LinkedIn</a></p>
+  </footer>
+  <script>
+    // Looping clips stand in for GIFs; respect a reduced-motion setting by pausing them and showing controls.
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('video[loop]').forEach(function (v) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; });
+    }
+  </script>
+</body>
+</html>
