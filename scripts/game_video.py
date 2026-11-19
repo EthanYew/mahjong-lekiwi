@@ -1,7 +1,7 @@
 """Turn a played game's session folder into a video to show it: the desk from above as the hand goes, the gripper camera's
 clip of each pickup cut in where it happened, and on every frame what the robot was doing and how often a person stepped in.
-A face-down hand also shows, after each draw from the wall, the base camera's photos of the drawn tile with the name the reader
-gave it, and before the ending, the hand's 13 and the winning draw as the base camera saw them: a viewer can check each read
+A face-down hand also shows, after the gripper clip of every tile held up to the base camera (the 13 read registering the hand,
+then each draw from the wall), the base camera's photos of it with the name the reader gave it, and before the ending, the hand's 13 and the winning draw as the base camera saw them: a viewer can check each read
 instead of taking it on trust.
 
     python scripts/game_video.py                                   # the latest play session, as a story
@@ -47,7 +47,7 @@ CROP_MARGIN_PX = 60                 # around every tile the scans saw, in the ca
 TITLE_S, END_S = 3.0, 5.0
 END_S_PER_LINE = 0.7                # a long ending card stays up longer
 PIP_SHARE = 0.38                    # a gripper clip's width, as a share of the frame's
-READ_S = 2.5                        # a drawn tile's base-camera photos stay up this long after its gripper clip
+READ_S = 2.5                        # a read tile's base-camera photos stay up this long after its gripper clip
 HAND_S = 7.0                        # the hand's photos, before the ending
 READ_CELL_PX = 240                  # a tile photo's side in a read's inset
 DRAWN_COLOUR = (0, 215, 255)        # the winning draw's outline in the hand's photos (BGR: amber)
@@ -143,17 +143,22 @@ def tile_crops(session_dir, shot, boxes, size=READ_CELL_PX):
 def base_reads(session_dir, events, reads=None, boxes=None):
     """[{time, shot, turn, where, name, guess, confidence, by, truth, crops}] for every hold of a face-down hand with photos to
     show, in order. where: the slot read registering the hand, "draw t<N>" for a draw. name: what the hand used (the reader's,
-    or a person's); truth: the name a person's review gave the photos since (reads: face_down_play.scored_reads), or None."""
+    or a person's); truth: the name a person's review gave the photos since (reads: face_down_play.scored_reads), or None.
+    time: when the tile was read. The 13 read registering the hand are saved together once the hand is named, so each takes
+    its slot's `fd_register_read` instead: right after that slot's gripper clip."""
     boxes = base_cam.tile_boxes() if boxes is None else boxes
     truths = {r["shot"]: r["truth"] for r in reads or []}
     discarded = {e["shot"] for e in events if e["type"] == "holdup_shot_discarded"}
-    out = []
+    out, read_at = [], {}
     for e in events:
+        if e["type"] == "fd_register_read":
+            read_at[e["slot"]] = e["time"]
         if e["type"] != "holdup_shot" or e.get("shot") in discarded:
             continue
         crops = tile_crops(Path(session_dir), e, boxes)
         if crops:
-            out.append({"time": seconds(e["time"]), "shot": e.get("shot"), "turn": e.get("turn"),
+            when = read_at.pop(e.get("spot"), e["time"]) if e.get("turn") == 0 else e["time"]
+            out.append({"time": seconds(when), "shot": e.get("shot"), "turn": e.get("turn"),
                         "where": str(e.get("spot") or ""), "name": e["tile"], "guess": e.get("guess"),
                         "confidence": e.get("guess_confidence"), "by": e.get("filed_by", "person"),
                         "truth": truths.get(e.get("shot")), "crops": crops})
@@ -165,7 +170,7 @@ def is_draw(read):
 
 
 def read_label(r):
-    """What a drawn tile's photos show: the name the hand went on and who gave it, and a review's name where it differs."""
+    """What a read tile's photos show: the name the hand went on and who gave it, and a review's name where it differs."""
     sure = f" ({r['confidence']:.0%} sure)" if r.get("confidence") is not None else ""
     if r["by"] == "reader":
         said = f"base camera: the reader read {r['name']}{sure}"
@@ -180,10 +185,11 @@ def read_label(r):
     return said
 
 
-def cut_ins(shown, drawn):
-    """The gripper clips and the draws' base-camera photos in the order they go in: a draw's photos after its clip (the clip's
-    folder is made before the pickup, the photos after it) and before the next clip, the photos first on the same second."""
-    return sorted([{**c, "kind": "clip"} for c in shown] + [{**r, "kind": "read"} for r in drawn],
+def cut_ins(shown, reads):
+    """The gripper clips and the base camera's reads in the order they go in: a tile's photos after the clip that picked it up
+    (the clip's folder is made before the pickup, the read after it) and before the next clip, the photos first on the same
+    second."""
+    return sorted([{**c, "kind": "clip"} for c in shown] + [{**r, "kind": "read"} for r in reads],
                   key=lambda item: (item["time"], item["kind"] == "clip"))
 
 
@@ -351,7 +357,7 @@ class Story:
         return ["Robot arm playing a hand of mahjong" + (", tiles face down" if down else ""),
                 f"session {self.name}  ({day})", f"policy {self.policy}" if self.policy else "",
                 "desk camera from above, gripper camera inset",
-                "then the base camera's photos of each drawn tile, as the reader saw it" if base_camera else ""]
+                "then the base camera's photos of each tile it read, as the reader saw it" if base_camera else ""]
 
     def ending(self):
         c, minutes = self.counts(), (self.stop - self.start) / 60
@@ -632,10 +638,9 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
         first = desk.prepare(raw, events)
     size = desk.size or (MAX_SIZE[0], int(MAX_SIZE[0] * 480 / 848) // 2 * 2)
     writer = Writer(out, size)
-    drawn = [r for r in reads if is_draw(r)]
-    writer.write(card(size, story.title(bool(drawn))), int(TITLE_S * OUT_FPS))
+    writer.write(card(size, story.title(bool(reads))), int(TITLE_S * OUT_FPS))
     last = first if first is not None else np.zeros((size[1], size[0], 3), np.uint8)
-    queue = cut_ins(shown, drawn)
+    queue = cut_ins(shown, reads)
     read_frames = int(READ_S * OUT_FPS)
 
     def play_clips(until):
@@ -682,14 +687,14 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
     writer.close()
     return {"path": out, "frames": writer.frames, "seconds": writer.frames / OUT_FPS,
             "desk": "desk.mp4" if desk.desk else f"{len(desk.frames)} scans", "clips": len(shown), "card_frames": cards,
-            "reads": len(drawn), "read_frames": len(drawn) * read_frames, "hand": len(hand)}
+            "reads": len(reads), "read_frames": len(reads) * read_frames, "hand": len(hand)}
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("session", nargs="?", default="latest", help="a session folder (default: the latest play session)")
     p.add_argument("--style", choices=("story", "timelapse"), default="story",
-                   help="story: the desk with each pickup's gripper clip cut in (face down: and each draw's base-camera photos, "
+                   help="story: the desk with each pickup's gripper clip cut in (face down: and each read's base-camera photos, "
                         "the hand's at the end); timelapse: the desk only (default %(default)s)")
     p.add_argument("--fps", type=float, default=None,
                    help=f"desk frames per second of video (default {SCAN_FPS} from scans, {DESK_FPS} from desk.mp4)")

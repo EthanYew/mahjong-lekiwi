@@ -247,8 +247,10 @@ def shot(time, number, tile, spot, turn, guess=None, confidence=0.9, by="reader"
 READ_EVENTS = [
     event("00:00", "session_start", kind="play_fd", policy="v13", unattended=True),
     event("00:30", "crude_pick", turn=0, step="register", spot="S1", held=True, attempt_dir="001_180030_reg_S1"),
+    event("00:40", "fd_register_read", slot="S1", guess={"name": "1C", "confidence": 0.9}, photos=3),
     event("00:40", "crude_pick", turn=0, step="register", spot="S2", held=True, attempt_dir="002_180040_reg_S2"),
-    shot("00:50", 1, "1C", "S1", 0), shot("00:50", 2, "2C", "S2", 0),
+    event("00:45", "fd_register_read", slot="S2", guess={"name": "2C", "confidence": 0.9}, photos=3),
+    shot("00:50", 1, "1C", "S1", 0), shot("00:50", 2, "2C", "S2", 0),      # saved together once the hand is named
     event("00:50", "fd_hand_confirmed", hand={"S1": "1C", "S2": "2C"}, fixed={}, by="reader"),
     event("00:50", "fd_turn_start", turn=1, slots=["S1", "S2"], hand={"S1": "1C", "S2": "2C"}, discards=[]),
     event("01:00", "crude_pick", turn=1, step="draw", spot="F", held=True, attempt_dir="003_180100_t1_draw_top"),
@@ -282,16 +284,17 @@ def read_session(tmp_path):
     return folder
 
 
-def test_each_draw_s_base_camera_photos_come_after_its_gripper_clip_and_before_the_next(tmp_path):
-    """The owner's ask (2026-11-19): a viewer sees what the base camera saw of a drawn tile, not only the name the robot took."""
+def test_every_read_s_base_camera_photos_come_after_its_gripper_clip_and_before_the_next(tmp_path):
+    """The owner's ask (2026-11-19): a viewer sees what the base camera saw of every tile it read, the 13 registering the hand
+    and each draw, not only the name the robot took."""
     folder = read_session(tmp_path)
     reads = game_video.base_reads(folder, READ_EVENTS, boxes=BOXES)
     assert [r["where"] for r in reads] == ["S1", "S2", "draw t1", "draw t2"]
     assert all(len(r["crops"]) == 2 for r in reads)                # one per pose with a tile box: the room stays out
+    order = game_video.cut_ins(game_video.clips(folder, READ_EVENTS), reads)
+    assert [c.get("step") or c["where"] for c in order] == [        # the hand's photos at their own reads, not all at the end
+        "register", "S1", "register", "S2", "draw", "draw t1", "pick_from_hand", "draw", "draw t2"]   # photos first on a tie
     drawn = [r for r in reads if game_video.is_draw(r)]
-    order = game_video.cut_ins(game_video.clips(folder, READ_EVENTS), drawn)
-    assert [c.get("step") or c["where"] for c in order] == [
-        "register", "register", "draw", "draw t1", "pick_from_hand", "draw", "draw t2"]      # the photos first on a tie
     assert game_video.read_label(drawn[0]) == "base camera: the reader read 3C (90% sure)"
     assert game_video.read_label(drawn[1]) == "base camera: the reader read 5C (41% sure), a person named it 4C"
     assert game_video.read_label({**drawn[0], "truth": "8C"}).endswith("; reviewed since: 8C")
@@ -321,8 +324,8 @@ def test_a_face_down_story_shows_the_draws_reads_and_the_hand(tmp_path, monkeypa
     monkeypatch.setattr(game_video.base_cam, "tile_boxes", lambda: BOXES)
     monkeypatch.setattr(game_video.face_down_play, "scored_reads", lambda folder: [])
     result = game_video.build(folder, "story", clip_speed=2, out=tmp_path / "fd.mp4")
-    assert result["clips"] == 5 and result["reads"] == 2 and result["hand"] == 3
-    assert result["read_frames"] == 2 * int(game_video.READ_S * game_video.OUT_FPS)
+    assert result["clips"] == 5 and result["reads"] == 4 and result["hand"] == 3
+    assert result["read_frames"] == 4 * int(game_video.READ_S * game_video.OUT_FPS)
     assert result["frames"] == result["card_frames"] + result["read_frames"] + 5 * 2      # 4-frame clips at 2x
     assert result["card_frames"] > (game_video.TITLE_S + game_video.HAND_S + game_video.END_S) * game_video.OUT_FPS - 1
 
