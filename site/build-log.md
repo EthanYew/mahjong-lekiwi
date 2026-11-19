@@ -49,7 +49,7 @@ But during this phase, I wrote the **core mahjong game rules**, and the robot su
 
 {% include loop.html src="first-win-timelapse" narrow=true caption="Timelapse of Robotto’s first messy winning mahjong hand" %}
 
-{% include figure.html src="build-log/chicken-hand.jpg" caption="The final winning hand comprising of 2 pairs and 4 sets. This is called a **chicken hand** (雞糊 or *gai wu*) in Hong Kong/Cantonese Mahjong that is worth zero faan (points/multipliers). it’s the easiest hand to make, and not always accepted as a win in certain regional play styles. But my family accepts it, so we count this as a win." %}
+{% include figure.html src="build-log/chicken-hand.jpg" caption="The final winning hand comprising of 2 pairs and 4 sets. This is called a **chicken hand** (雞糊 or *gai wu*) in Hong Kong/Cantonese Mahjong that is worth zero faan (points/multipliers). It’s the easiest hand to make, and not always accepted as a win in certain regional play styles. But my family accepts it, so we count this as a win." %}
 
 ### Late August — Early September (Hover Fixes)
 

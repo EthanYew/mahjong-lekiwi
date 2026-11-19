@@ -9,13 +9,13 @@ next_title: "Build log: MahjongBot"
 
 ## The short version
 
-I‘m Ethan, a product manager based in Sydney. On a career break, I trained a low-cost, open-source robot arm (SO-101) to play mahjong (mostly) by itself. The goal is a robot my family can play mahjong with, including my grandparents when they’re back in Malaysia. This is the first of several personal projects to learn robotics by doing and pivot my career towards physical AI.
+I’m Ethan, a product manager based in Sydney. On a career break, I trained a low-cost, open-source robot arm (SO-101) to play mahjong (mostly) by itself. The goal is a robot my family can play mahjong with, including my grandparents when they’re back in Malaysia. This is the first of several personal projects to learn robotics by doing and pivot my career towards physical AI.
 
 **How it works, in brief:** The arm is steered by two kinds of software. A **vision model** looks through cameras to find and name tiles. A **policy**, a neural network trained on recorded examples of me doing the task, controls the arm’s movements to pick a tile up. Scripts handle the rest. Every new version of either one is a candidate I have to test before trusting it.
 
 **Where it stands, 19 November 2026:** **TODO** It hasn’t played with a person yet. That starts once **8 face-down hands in a row make no silent errors, and need no corrections**.
 
-{% include youtube.html id="2sP834I__1Y" anchor="hero-video" caption="Final result: the robot starting reaching a winning hand from start to finish" %}
+{% include youtube.html id="2sP834I__1Y" anchor="hero-video" caption="Final result: the robot reaching a winning hand from start to finish" %}
 
 ## Why mahjong
 
@@ -23,7 +23,7 @@ My family only has enough mahjong “kaki” (buddies) to play when my grandpare
 
 {% include figure.html src="writeup/grandparents.jpg" caption="Grandparents playing mahjong with my sister and I. I always get my butt kicked when they’re in town." %}
 
-In June 2026 they were in Sydney. I’d just built two SO-101 arms: a follower that does the work and a leader I move by hand to teach it. Before they flew home, I showed them a classic pick-and-place demo of putting a ball into a container demo and let them remote-control it by hand (teleoperation).
+In June 2026 they were in Sydney. I’d just built two SO-101 arms: a follower that does the work and a leader I move by hand to teach it. Before they flew home, I showed them a classic pick-and-place demo of putting a ball into a container and let them remote-control it by hand (teleoperation).
 
 I promised that one day “Robotto”, as they’d affectionately nicknamed it, would play mahjong with them. This write-up follows that promise. The first step, teaching Robotto how to play mahjong by itself, before it learns how to compete with other people.
 
