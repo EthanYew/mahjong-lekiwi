@@ -95,6 +95,16 @@ def test_the_hand_sheet_and_the_laying_window_draw():
     assert out.shape == (480, 848, 3)
 
 
+def test_a_hand_quit_before_its_end_check_still_counts_what_a_person_did(monkeypatch, tmp_path):
+    """No end check runs on a quit, but the hand's asks and rescues are still the session's (review of play_log: they were
+    taken from the end check's list, empty on a quit, and logged as 0)."""
+    reads = HAND[:2] + ["4C"] + HAND[3:] + ["4D"]
+    script = script_in(monkeypatch, tmp_path, reads)
+    folder, _ = run(script, [], [*LIGHT, "", "S3=3C", "", "", "q"])     # one correction, then quit after turn 1
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "quit" and end["grade"] is None and end["asks"] == 1
+
+
 def test_an_attended_hand_is_read_checked_once_played_and_checked_at_the_end(monkeypatch, tmp_path):
     reads = HAND[:2] + ["4C"] + HAND[3:] + ["4D", "8B"]       # S3 misread as 4C: the hand check says 3C
     script = script_in(monkeypatch, tmp_path, reads)

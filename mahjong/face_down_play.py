@@ -188,8 +188,8 @@ def changed_choices(folder, reads):
     played = play_log.hand(read_events(folder))
     turns = {t["turn"]: t for t in played["turns"]}
     if played["win"]:           # the win's draw threw nothing: a wrong read there is a win that wasn't
-        last = played["turns"][-1]["discards"] if played["turns"] else []
-        turns[played["win"]["turn"]] = {"before": played["win"]["before"], "seen": last or [], "discard": None}
+        win = played["win"]
+        turns[win["turn"]] = {"before": win["before"], "seen": win["seen"], "discard": None}
     out = []
     for r in reads:
         turn = turns.get(r["turn"])

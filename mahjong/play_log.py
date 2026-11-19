@@ -71,6 +71,11 @@ def _t(e):
     return e.get("time")
 
 
+def _slot(slot):
+    """A slot as logged: #129's face-down end check wrote the drop zone as "ZONE"; everything else as ZONE."""
+    return ZONE if slot == ZONE.upper() else slot
+
+
 CHOICES = ("discard_chosen", "crude_choice")
 
 
@@ -165,13 +170,14 @@ def hand(events):
         elif kind in ("win", "crude_win"):
             out["win"] = {"turn": e["turn"], "time": _t(e), "drawn": e["drawn"], "read": e.get("read") or reads.get(e["turn"]),
                           "before": list(current) if current else None, "seen": list(discards)}
-        elif kind == "fd_audit":                # older face-down logs: the 13 turned over
-            out["audit"] = {"checked": bool(e.get("checked")), "wrong": dict(e.get("wrong", {})),
-                            "covers": list(e.get("hand", {})) if e.get("checked") else []}
+        elif kind == "fd_audit":                # face-down logs before hand_end's audit: the 13, and from #129 the zone's tile as "ZONE"
+            covers = e.get("covers") or [*e.get("hand", {}), *([ZONE] if e.get("won_on") else [])]
+            out["audit"] = {"checked": bool(e.get("checked")), "wrong": {_slot(s): n for s, n in e.get("wrong", {}).items()},
+                            "covers": [_slot(s) for s in covers] if e.get("checked") else []}
         elif kind == "hand_audit":
             audited = True
         elif kind == "intervention" and e.get("kind") == "silent_error":
-            wrong_logged[e.get("slot")] = e.get("table")
+            wrong_logged[_slot(e.get("slot"))] = e.get("table")
         elif kind == "hand_end":
             out["end"] = e
             if e.get("audit"):
@@ -236,8 +242,11 @@ def verdict(hand_log, reads=None):
     if hand_log["unattended"]:
         lines.append("Unattended: the reader named every tile, no person confirmed a read during play")
     audit = hand_log["audit"]
-    slots = hand_log["slots"]
-    thirteen = list(win["before"]) if win and win.get("before") else None
+    if end.get("slots") and isinstance(end.get("hand"), list):     # hand_end's own: the hand in slot order, even with no turn_done
+        slots, thirteen = list(end["slots"]), list(end["hand"])
+    else:
+        slots = hand_log["slots"]
+        thirteen = list(win["before"]) if win and win.get("before") else None
     drawn = win["drawn"] if win else (end.get("winning") or end.get("won_on"))
     wrong = dict((audit or {}).get("wrong") or {})
     if not audit or not audit["checked"]:

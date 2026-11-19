@@ -126,6 +126,30 @@ def test_an_older_face_up_hand_whose_end_check_matched_every_tile_is_verified():
     assert play_log.verdict(play_log.hand(events))["status"] == "not verified"
 
 
+def test_the_drop_zone_written_as_ZONE_by_the_first_end_check_that_covered_it_reads_as_zone():
+    """#129's end check logged the winning tile's slot as "ZONE" and no `covers`; a misread there is a false win."""
+    events = old_face_down({"ZONE": "2D"})
+    events[-2] = {**events[-2], "won_on": "3D"}
+    events.insert(-2, event(12, "intervention", kind="silent_error", slot="ZONE", robot="3D", table="2D"))
+    h = play_log.hand(events)
+    assert h["audit"]["wrong"] == {"zone": "2D"} and "zone" in h["audit"]["covers"]
+    v = play_log.verdict(h)
+    assert v["status"] == "not a win" and "Winning 3D: a person checked it: it was 2D" in v["lines"]
+
+
+def test_a_face_up_win_on_the_first_draw_takes_the_end_checks_corrections():
+    """No turn_done before the win, so the slots come from hand_end (review of play_log: they were missing, and a tile a
+    person said was wrong never reached the win check)."""
+    slots = [f"H{i}" for i in range(1, 14)]
+    events = [event(0, "session_start", kind="play"),
+              event(1, "win", turn=1, drawn="3D"),
+              event(2, "hand_end", result="win", turns=0, grade="silent error", silent_errors=1, asks=0, rescues=0,
+                    slots=slots, hand=HAND, discards=[], winning="3D",
+                    audit={"checked": True, "wrong": {"H10": "9B"}, "covers": [*slots, "zone"]})]
+    v = play_log.verdict(play_log.hand(events))
+    assert v["status"] == "not a win" and "End check: a person checked the 13 in hand: H10 was 9B" in v["lines"]
+
+
 def test_a_hand_that_wasnt_won_has_no_verdict():
     events = old_face_down()
     events[-1] = {**events[-1], "result": "end"}

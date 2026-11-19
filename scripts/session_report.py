@@ -305,10 +305,11 @@ def all_sessions():
         grades = Counter(h["end"].get("grade") or "-" for _, _, h in hands)
         print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7} {'win':<12}  setup   "
               f"({len(hands)} hands: " + ", ".join(f"{n} {g}" for g, n in grades.most_common()) + ")")
+        review = {}             # the review store, loaded once for every face-down hand
         for folder, events, h in hands:
             start = next((e for e in events if e["type"] == "session_start"), {})
             end, asks, rescues = h["end"], *hand_asks_rescues(events, h["end"])
-            check = play_log.verdict(h, fd_reads(folder, h))
+            check = play_log.verdict(h, fd_reads(folder, h, review))
             print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end.get('grade') or '-':<12} {asks:>4} "
                   f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}")
 
@@ -321,12 +322,17 @@ def hand_asks_rescues(events, end):
     return sum(i["class"] == interventions.ASK for i in found), sum(i["class"] == interventions.RESCUE for i in found)
 
 
-def fd_reads(folder, h):
-    """A face-down hand's holds scored against a person's review (face_down_play.scored_reads), for play_log.verdict."""
+def fd_reads(folder, h, cache=None):
+    """A face-down hand's holds scored against a person's review (face_down_play.scored_reads), for play_log.verdict.
+    cache: a dict that keeps the review store between calls (session_report --all)."""
     if h["kind"] != "play_fd":
         return None
-    from mahjong import face_down_play
-    return face_down_play.scored_reads(folder)
+    from mahjong import base_cam, face_down_play
+    if cache is None:
+        return face_down_play.scored_reads(folder)
+    if "review" not in cache:
+        cache["review"] = base_cam.load_review()
+    return face_down_play.scored_reads(folder, cache["review"])
 
 
 def main():

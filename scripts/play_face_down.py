@@ -527,7 +527,11 @@ def main(argv=None, ask=input):
             desk_video.stop(rig.session, rig.desk_camera, desk)     # before the camera closes
         rig.close()
         if rig.session and player:
-            check = player.audit(result) if result in ("win", "end") else {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": []}
+            if result in ("win", "end"):
+                check = player.audit(result)
+            else:                   # no end check, but what a person did still counts in the hand's asks and rescues
+                found = [i for i in interventions.derive(read_events(folder)) if i["kind"] != "killed"]
+                check = {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": found}
             waiting = len(base_cam.waiting_for_review(folder))
             s = face_down_play.summary(player.done, result, check["grade"], args.unattended, player.registered + len(player.reads),
                                        player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(check["wrong"]),
