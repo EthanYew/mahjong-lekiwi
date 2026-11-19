@@ -237,6 +237,101 @@ def test_a_face_down_hand_s_picks_turns_and_clips_are_in_its_video(tmp_path):
     assert game_video.clip_label(shown[1], 4) == "gripper camera, 4x speed: drawing from the wall, missed"
 
 
+def shot(time, number, tile, spot, turn, guess=None, confidence=0.9, by="reader"):
+    files = [f"photos/{tile}/unknown_h{number}_{k}.jpg" for k in range(3)]
+    return event(time, "holdup_shot", tile=tile, kind="unknown", hold=number, files=files, shot=number, spot=spot, turn=turn,
+                 frame_poses=["base_view_1", "base_view_2", "base_view_9"], review_first=True, filed_by=by,
+                 guess=guess or tile, guess_confidence=confidence)
+
+
+READ_EVENTS = [
+    event("00:00", "session_start", kind="play_fd", policy="v13", unattended=True),
+    event("00:30", "crude_pick", turn=0, step="register", spot="S1", held=True, attempt_dir="001_180030_reg_S1"),
+    event("00:40", "fd_register_read", slot="S1", guess={"name": "1C", "confidence": 0.9}, photos=3),
+    event("00:40", "crude_pick", turn=0, step="register", spot="S2", held=True, attempt_dir="002_180040_reg_S2"),
+    event("00:45", "fd_register_read", slot="S2", guess={"name": "2C", "confidence": 0.9}, photos=3),
+    shot("00:50", 1, "1C", "S1", 0), shot("00:50", 2, "2C", "S2", 0),      # saved together once the hand is named
+    event("00:50", "fd_hand_confirmed", hand={"S1": "1C", "S2": "2C"}, fixed={}, by="reader"),
+    event("00:50", "fd_turn_start", turn=1, slots=["S1", "S2"], hand={"S1": "1C", "S2": "2C"}, discards=[]),
+    event("01:00", "crude_pick", turn=1, step="draw", spot="F", held=True, attempt_dir="003_180100_t1_draw_top"),
+    shot("01:30", 3, "3C", "draw t1", 1),
+    event("01:30", "crude_read", turn=1, guess="3C", name="3C", face_hidden=False, guess_confidence=0.9, by="reader"),
+    event("01:30", "crude_choice", turn=1, drawn="3C", discard="1C", slot="S1", shanten_after=1),
+    event("01:30", "crude_pick", turn=1, step="pick_from_hand", spot="S1", held=True, attempt_dir="004_180130_t1_S1"),
+    event("02:00", "fd_turn_start", turn=2, slots=["S1", "S2"], hand={"S1": "3C", "S2": "2C"}, discards=["1C"]),
+    event("02:00", "crude_pick", turn=2, step="draw", spot="F", held=True, attempt_dir="005_180200_t2_draw_top"),
+    shot("02:30", 4, "4C", "draw t2", 2, guess="5C", confidence=0.41, by="person"),
+    event("02:30", "crude_win", turn=2, drawn="4C"),
+    event("03:00", "hand_end", result="win", turns=2, grade="clean", hand={"S1": "3C", "S2": "2C"}, discards=["1C"]),
+    event("03:01", "session_end", reason="quit"),
+]
+BOXES = {"base_view_1": [10, 0, 50, 40], "base_view_2": [20, 0, 60, 40]}       # base_view_9 has none: its photo stays out
+
+
+def read_session(tmp_path):
+    folder = tmp_path / "20261104_180000_play_fd"
+    for e in READ_EVENTS:
+        if e.get("attempt_dir"):
+            (folder / e["attempt_dir"]).mkdir(parents=True)
+            video = cv2.VideoWriter(str(folder / e["attempt_dir"] / "wrist.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 30, (64, 48))
+            for _ in range(4):
+                video.write(np.full((48, 64, 3), 200, np.uint8))
+            video.release()
+        for k, f in enumerate(e.get("files", [])):
+            (folder / f).parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(folder / f), np.full((48, 64, 3), 40 * k, np.uint8))
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in READ_EVENTS))
+    return folder
+
+
+def test_every_read_s_base_camera_photos_come_after_its_gripper_clip_and_before_the_next(tmp_path):
+    """The owner's ask (2026-11-19): a viewer sees what the base camera saw of every tile it read, the 13 registering the hand
+    and each draw, not only the name the robot took."""
+    folder = read_session(tmp_path)
+    reads = game_video.base_reads(folder, READ_EVENTS, boxes=BOXES)
+    assert [r["where"] for r in reads] == ["S1", "S2", "draw t1", "draw t2"]
+    assert all(len(r["crops"]) == 2 for r in reads)                # one per pose with a tile box: the room stays out
+    order = game_video.cut_ins(game_video.clips(folder, READ_EVENTS), reads)
+    assert [c.get("step") or c["where"] for c in order] == [        # the hand's photos at their own reads, not all at the end
+        "register", "S1", "register", "S2", "draw", "draw t1", "pick_from_hand", "draw", "draw t2"]   # photos first on a tie
+    drawn = [r for r in reads if game_video.is_draw(r)]
+    assert game_video.read_label(drawn[0]) == "base camera: the reader read 3C (90% sure)"
+    assert game_video.read_label(drawn[1]) == "base camera: the reader read 5C (41% sure), a person named it 4C"
+    assert game_video.read_label({**drawn[0], "truth": "8C"}).endswith("; reviewed since: 8C")
+    unsaid = {**drawn[1], "by": None}               # a log without filed_by: no person is credited
+    assert game_video.read_label(unsaid) == "base camera: the reader read 5C (41% sure), filed as 4C"
+
+
+def test_the_hand_s_photos_follow_each_slot_through_the_turns(tmp_path):
+    folder = read_session(tmp_path)
+    reads = game_video.base_reads(folder, READ_EVENTS, boxes=BOXES)
+    hand = game_video.final_hand(READ_EVENTS, reads)
+    assert [(t["name"], t["read"]["where"], t["drawn"]) for t in hand] == [
+        ("3C", "draw t1", False), ("2C", "S2", False), ("4C", "draw t2", True)]     # S1's 1C was thrown on turn 1
+
+
+def test_a_winning_hand_s_photos_are_grouped_by_meld_with_the_draw_in_its_meld():
+    names = ["1C", "2C", "3C", "4D", "5D", "6D", "7B", "8B", "9B", "EW", "EW", "EW", "RD", "RD"]
+    tiles = [{"name": n, "read": None, "drawn": False} for n in names[:-1]] + [{"name": "6D", "read": None, "drawn": True}]
+    tiles[5]["name"] = "RD"         # the 13 held RD RD before the draw; 6D completes 4D 5D 6D
+    groups = game_video.hand_groups(tiles, won=True)
+    assert [[t["name"] for t in g] for g in groups] == [
+        ["1C", "2C", "3C"], ["4D", "5D", "6D"], ["7B", "8B", "9B"], ["EW", "EW", "EW"], ["RD", "RD"]]
+    assert groups[1][2]["drawn"]
+    assert len(game_video.hand_groups(tiles, won=False)) == 14
+
+
+def test_a_face_down_story_shows_the_draws_reads_and_the_hand(tmp_path, monkeypatch):
+    folder = read_session(tmp_path)
+    monkeypatch.setattr(game_video.base_cam, "tile_boxes", lambda: BOXES)
+    monkeypatch.setattr(game_video.face_down_play, "scored_reads", lambda folder: [])
+    result = game_video.build(folder, "story", clip_speed=2, out=tmp_path / "fd.mp4")
+    assert result["clips"] == 5 and result["reads"] == 4 and result["hand"] == 3
+    assert result["read_frames"] == 4 * int(game_video.READ_S * game_video.OUT_FPS)
+    assert result["frames"] == result["card_frames"] + result["read_frames"] + 5 * 2      # 4-frame clips at 2x
+    assert result["card_frames"] > (game_video.TITLE_S + game_video.HAND_S + game_video.END_S) * game_video.OUT_FPS - 1
+
+
 def test_a_mat_crop_with_no_tiles_seen_says_the_room_is_in(tmp_path, monkeypatch, capsys):
     """A face-down hand has no scans, so no tile boxes to crop to: the whole frame stays, and it has to say so (the crop is
     what leaves the room out of a published video)."""
