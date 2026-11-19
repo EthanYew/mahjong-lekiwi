@@ -3,7 +3,8 @@ name: write-retro
 description: Write up a run of work as a retrospective. Use when the user says document this for posterity, write this up, or asks for a retrospective.
 ---
 
-Write `docs/retrospectives/<date>_<topic>.md`, in a branch. Retrospectives feed the owner's public writeup, so a reader must be able to check every claim.
+Write `docs/retrospectives/<date>_<topic>.md` in the main checkout, not a worktree: the folder is gitignored and kept out of the
+public repo, so a retrospective written in a worktree is lost when the worktree goes, and none is committed. Retrospectives feed the owner's public writeup, so a reader must be able to check every claim.
 
 **Structure:** one paragraph saying what happened and what it means, then **What changed / What was learned / What's next**, with a timeline and the session folders and PRs it draws on. Define a term the first time you use it. `docs/retrospectives/2026-11-04_first_hands.md` is a good model.
 
