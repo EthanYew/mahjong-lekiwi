@@ -1,0 +1,68 @@
+{
+ "backs": 100,
+ "backs_seen": 1.0,
+ "backs_called_empty": 0,
+ "empties": 110,
+ "empties_seen": 0.6181818181818182,
+ "false_backs": 0,
+ "confident": 0.9,
+ "passes": true,
+ "weights": "/home/ethanYew/Projects/mahjong-lekiwi/outputs/back_check/back_check.pt",
+ "sessions": [
+  "20261113_110111_holdup",
+  "20261118_221723_bench",
+  "20261118_230033_wrist",
+  "20261119_001222_wrist"
+ ],
+ "scored": "2026-11-19T10:49:20",
+ "wrong": [
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v00_f0.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.6215
+  },
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v00_f1.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.5529
+  },
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v03_f0.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.6089
+  },
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v03_f1.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.5077
+  },
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v06_f0.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.8732
+  },
+  {
+   "key": "20261118_230033_wrist/wrist_empty/empty/01_S10_v06_f1.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.8764
+  },
+  {
+   "key": "20261119_001222_wrist/wrist_empty/empty/01_S7_v05_f0.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.8037
+  },
+  {
+   "key": "20261119_001222_wrist/wrist_empty/empty/01_S7_v05_f1.jpg",
+   "label": "empty",
+   "name": "back",
+   "confidence": 0.7607
+  }
+ ]
+}

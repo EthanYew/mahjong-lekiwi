@@ -7,7 +7,14 @@
     "20261113_110111_holdup": {
       "added": "2026-11-18",
       "note": "Listed before any back check was trained on or scored against it. A base camera collection run where the back's shape was found in only 60% of first frames (30 of 50): a hard session for backs, held out whole."
+    },
+    "20261118_230033_wrist": {
+      "added": "2026-11-18",
+      "note": "Listed before any back check was trained on or scored against it. The first wrist_capture.py --empty session (even-hand14), ended by a power cut: 47 views, 94 empty photos intact; 9 written as 0-byte files set aside in blackout_damaged/ (its blackout_repair event)."
+    },
+    "20261119_001222_wrist":{
+      "added": "2026-11-19",
+      "note": "Listed before any back check was trained on or scored against it. The second wrist_capture.py --empty session to reach minimum 100 empty photos for passing gate."
     }
-  },
-  "to_add": "One of the two wrist_capture.py --empty sessions, once taken, so the exam has empty spots: without them the gate can't pass."
+  }
 }
