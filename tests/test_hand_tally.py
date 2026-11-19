@@ -55,6 +55,11 @@ def test_a_wrong_read_is_a_silent_error_even_in_a_hand_that_never_finished(monke
     assert judge(hand(None), [read(filed="9C", truth="5C")])["status"] == "silent error"
 
 
+def test_a_session_quit_before_any_turn_is_not_a_hand_even_with_a_wrong_registration_read(monkeypatch):
+    verified(monkeypatch)
+    assert judge(hand(None), [read(filed="9C", truth="5C")], events=[]) is None
+
+
 def test_a_hand_a_person_quit_is_a_failed_hand_even_with_an_end_check(monkeypatch):
     verified(monkeypatch)
     assert judge(hand({**END_OK, "result": "quit"}), [read()])["status"] == "unfinished"

@@ -26,6 +26,8 @@ def judge(hand_log, reads, events):
     end = hand_log["end"]
     wrong_reads = [r for r in reads if r["reviewed"] and r["truth"] is not None and r["filed"] != r["truth"]]
     started = any(e["type"] == "fd_turn_start" for e in events)
+    if end is None and not started:         # a quit at the laying window: not a hand, whatever its registration holds said
+        return None
     if wrong_reads or (end or {}).get("silent_errors"):      # a known wrong name the hand used is a silent error, finished or not
         found = [f"end check: {end['silent_errors']} tile(s)"] if (end or {}).get("silent_errors") else []
         found += [f"{r['where']} read {r['filed']}, really {r['truth']}" for r in wrong_reads]
