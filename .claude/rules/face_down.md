@@ -26,7 +26,10 @@ Face-down tiles: drawing from the wall station, the base camera's reader, the cr
 - **Face-down play asks a person to confirm every read, unless `--unattended`** (`scripts/play_face_down.py`). The base camera's reader
   has passed no exam, and its two wrong reads in its first crude run came at 41% and 61% (`20261117_140038_crude`). So a person checks
   the 13 once and each drawn tile. `--unattended` takes the reader's names at the owner's request (2026-11-17): wrong names can get in
-  silently, against play.md's gate, so an unattended hand is no play-ready result, only a measure of the reader and the arm together.
+  silently, so the gate is checked after the hand instead: **an unattended hand counts toward play-ready** (the owner's decision,
+  2026-11-20) only once every hold's photo has a verdict (`base_cam_review.py --play`, then `play_face_down.py --report`) and the
+  end check matched. One wrong name found there is a silent error: it stops play, as play.md says. **The face-down target is 8 of 10
+  consecutive hands clean, 0 silent errors** (`docs/autonomy_plan.md`, "Face-down hands"). A hand not yet reviewed counts for nothing.
   A low read gets a second hold (`--reshow-below` 0.6, a guess from 6 reads). Unconfirmed on the arm.
 - **A face-down turn doesn't go to rest between moves**, only before a question, the RealSense window, after a miss and at the end
   (`Rig.direct`, `--via-rest` for the old way). motion.md has the detail.

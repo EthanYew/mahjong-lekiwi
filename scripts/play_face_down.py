@@ -20,8 +20,9 @@ runs out. Built on the crude run's turn (mahjong/crude_run.py), with every tile 
 --unattended: no name is asked. A read under --reshow-below gets a second hold at the poses, both holds' votes added, and
 the reader's name is taken. Play goes on with a read that makes a fifth copy (logged). What still asks: the wall's feed, and
 a step the arm couldn't do (a pick missed twice, a tile lost), which a person has to put right. It needs a reader. Silent
-wrong names are possible by design (the owner's choice, 2026-11-17), so an unattended hand is no play-ready result: it
-measures the reader and the arm together.
+wrong names are possible by design (the owner's choice, 2026-11-17), so they are caught after the hand: an unattended hand
+counts toward play-ready (2026-11-20) once every hold is reviewed (base_cam_review.py --play, then --report) and the end check
+matched. A wrong name found there is a silent error and stops play.
 
 Every hold's photos are saved as the reader's training photos, filed under the name the hand used, and wait out of training
 until you review them (python scripts/base_cam_review.py --play). --report then scores every read against your review,
