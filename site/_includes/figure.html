@@ -1,4 +1,4 @@
 <figure{% if include.narrow %} class="narrow"{% endif %}>
-  <img src="{{ include.src | prepend: '/assets/img/' | relative_url }}" alt="{{ include.alt | default: include.caption | strip_html | escape }}" loading="lazy">
+  <img src="{{ include.src | prepend: '/assets/img/' | relative_url }}" alt="{{ include.alt | default: include.caption | markdownify | strip_html | strip | escape }}" loading="lazy">
   {% if include.caption %}<figcaption>{{ include.caption | markdownify | remove: '<p>' | remove: '</p>' | strip }}</figcaption>{% endif %}
 </figure>

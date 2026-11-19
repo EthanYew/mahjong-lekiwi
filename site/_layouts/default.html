@@ -40,5 +40,11 @@
   <footer>
     <p>{{ site.author }} · <a href="{{ site.repo }}">Code on GitHub</a> · <a href="{{ site.linkedin }}">LinkedIn</a></p>
   </footer>
+  <script>
+    // Looping clips stand in for GIFs; respect a reduced-motion setting by pausing them and showing controls.
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('video[loop]').forEach(function (v) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; });
+    }
+  </script>
 </body>
 </html>

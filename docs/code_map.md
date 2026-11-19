@@ -4,6 +4,7 @@ What each file is for. `tests/test_docs.py` fails on a script not listed here.
 
 | | |
 |---|---|
+| `site/`, `.github/workflows/pages.yml` | the public write-up and build log (Jekyll, Markdown pages, media in `site/assets/`), published to GitHub Pages; nothing else in the repo is published |
 | `.claude/rules/`, `.claude/skills/` | what must stay true of each part of the code, loaded with it; repeated jobs, listed in `docs/usage.md` |
 | `mahjong/config.py` | the one setup: ports, cameras, table plane, rest poses, defaults |
 | `mahjong/kinematics.py` | closed-form FK/IK; `pincer_tip`, `hover_command`, `grasp_point` |
