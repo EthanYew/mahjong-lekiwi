@@ -425,7 +425,9 @@ def play_report(events, found):
     print("\nhand: " + (f"{end['result']} after {end['turns']} turns, {end['grade']}" if end
                         else f"{len(turns)} turns, not finished (--resume carries on)"))
     if end:
-        print(f"  hand {' '.join(end['hand'])}; discards {' '.join(end['discards']) or '-'}")
+        hand = end["hand"].values() if isinstance(end["hand"], dict) else end["hand"]     # play_face_down.py: {slot: name}
+        won_on = f", won on {end['won_on']}" if end.get("won_on") else ""
+        print(f"  hand {' '.join(hand)}{won_on}; discards {' '.join(end['discards']) or '-'}")
     asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
     if asked:
         print("  asked: " + ", ".join(f"{kind} {n}" for kind, n in asked.most_common()))

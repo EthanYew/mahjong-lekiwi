@@ -3,6 +3,8 @@ checked once, turns from a wall two high until the wall's empty, the end check; 
 every hold saved for the reader and kept out of training until reviewed; --report and --resume."""
 import json
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -240,3 +242,71 @@ def test_a_correction_after_a_turn_cant_make_a_fifth_copy(monkeypatch, tmp_path,
     assert "That would be more than 4 of 5C" in capsys.readouterr().out
     assert json.loads((folder / "checkpoint.json").read_text())["hand"]["S1"] == "5C"      # the one fix that fit was taken
     assert [e["fixes"] for e in events_of(folder, "fd_hand_fixed")] == [{"S1": "5C"}]
+
+
+def test_a_resume_after_a_quit_mid_turn_has_the_drawn_tile_put_back_first(monkeypatch, tmp_path):
+    """A quit at a draw's read leaves the drawn tile on the drop zone and the checkpoint at the turn before: the resume drew
+    that turn again from a wall missing it, onto a zone with a tile on it, and said nothing (post-merge review of #125)."""
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D", "4D", "8B"])
+    first, _ = run(script, [], [*LIGHT, "", "", "q"])                # quit at turn 1's read
+    assert json.loads((first / "checkpoint.json").read_text())["turn"] == 0
+    second, prompts = run(script, ["--resume"], [*LIGHT, "", "", "", "", "end", ""])
+    asked = [p for p in prompts if "Turn 1 stopped before its discard" in p]
+    assert asked and "back on the wall, on top of the stack on station F" in asked[0]
+    (left,) = events_of(second, "fd_resume_unfinished")
+    assert left["turn"] == 1 and left["choice"] is None
+    assert [c["turn"] for c in events_of(second, "crude_choice")] == [1, 2]
+
+
+def test_a_resumed_hand_s_checkpoint_keeps_its_turn_until_the_next_one_finishes(monkeypatch, tmp_path):
+    """The resume writes a checkpoint before its first turn: it said turn 0, so a stop in that turn sent the next --resume
+    back to turn 1 (code review of the post-merge fixes)."""
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D", "8B", "9B"])
+    first, _ = run(script, [], [*LIGHT, "", "", "", "q"])             # turn 1, then quit after it
+    second, _ = run(script, ["--resume"], [*LIGHT, "q"])              # quit at turn 2's read
+    assert json.loads((second / "checkpoint.json").read_text())["turn"] == 1
+    while (tmp_path / f"{datetime.now():%Y%m%d_%H%M%S}_{face_down_play.PLAY_KIND}").exists():
+        time.sleep(0.05)            # a session folder is named to the second: three runs can share one
+    third, prompts = run(script, ["--resume", second.name], [*LIGHT, "", "", "end", ""])
+    assert any("Turn 2 stopped before its discard" in p for p in prompts)
+    assert [c["turn"] for c in events_of(third, "crude_choice")] == [2]
+
+
+def test_an_unfinished_turn_is_found_from_the_log_and_a_chosen_discard_is_kept():
+    start = {"type": "fd_turn_start", "turn": 3}
+    pick = {"type": "crude_pick", "turn": 3, "step": "draw", "held": True}
+    choice = {"type": "crude_choice", "turn": 3, "drawn": "4D", "discard": "9C", "slot": "S8"}
+    assert face_down_play.unfinished_turn([start], 2) is None                   # quit at the feed: nothing moved
+    assert face_down_play.unfinished_turn([start, pick], 3) is None             # that turn finished
+    missed = {"type": "crude_pick", "turn": 3, "step": "draw", "held": False}
+    assert face_down_play.unfinished_turn([start, missed], 2) == {"turn": 3, "layer": "top", "choice": None, "drawn": False}
+    assert face_down_play.unfinished_lines({"turn": 3, "layer": "top", "choice": None, "drawn": False}, "L2") == []
+    assert face_down_play.unfinished_turn([start, missed, pick], 2) == {"turn": 3, "layer": "top", "choice": None, "drawn": True}
+    by_hand = {"type": "crude_read", "turn": 3, "name": "4D"}           # the draw done by hand: the tile reached the zone
+    assert face_down_play.unfinished_turn([start, missed, by_hand], 2)["drawn"]
+    left = face_down_play.unfinished_turn([start, pick, choice], 2)
+    assert left["choice"] is choice
+    (line,) = face_down_play.unfinished_lines(left, "L2")
+    assert "9C (from S8) in the discard container, the drawn 4D on S8" in line
+
+
+WINS_ON_5D = ["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "9C", "1B", "2B", "3B", "5D"]
+
+
+def test_a_win_s_drawn_tile_is_in_the_end_check(monkeypatch, tmp_path):
+    """The winning tile lies on the drop zone, not a slot: unattended, a misread there is a false win, and the end check has
+    to be able to say so (post-merge review of #125: it only took slots, and graded such a hand clean)."""
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder, prompts = run(script, ["--unattended"], [*LIGHT, "", "ZONE=6D"])
+    assert any("drop zone" in p for p in prompts if "Turn the" in p)
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "win" and end["won_on"] == "5D"
+    assert end["silent_errors"] == 1 and end["grade"] == "silent error"
+    (error,) = [i for i in events_of(folder, "intervention") if i["kind"] == "silent_error"]
+    assert (error["slot"], error["robot"], error["table"]) == ("ZONE", "5D", "6D")
+
+
+def test_the_end_check_s_retry_hint_names_the_zone_after_a_win(monkeypatch, tmp_path, capsys):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    run(script, ["--unattended"], [*LIGHT, "", "ZONE 6D", ""])
+    assert "or ZONE=NAME" in capsys.readouterr().out
