@@ -38,6 +38,7 @@ def parse_args(argv=None):
     p.add_argument("--top-back-mm", type=float, default=10.0, help="with --stacked: a top tile's hover starts this much nearer the robot (default %(default)s)")
     p.add_argument("--leave-empty", default="", metavar="SLOTS", help="hand slots with no tile on the mat, comma separated, e.g. S7 (its tile right behind the wall throws the draw off): still named in --hand, never chosen as a discard")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
+    p.add_argument("--via-rest", action="store_true", help=crude_run.VIA_REST_HELP)
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
     takeover.add_argument(p)
     p.set_defaults(empty=False, no_view=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0)       # what base_cam_collect's Rig reads
@@ -67,6 +68,7 @@ def main(argv=None, ask=input):
     reader = base_cam.load_reader()
     print(f"Reader: {base_cam.READER.name}, knows {', '.join(reader.classes)}" if reader else f"No reader ({base_cam.READER}): you'll name every tile. base_cam_train.py --save-reader trains one")
     rig = face_down_rig.Rig(args, all_spots, poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
+    rig.direct = not args.via_rest
     run = None
     try:
         conditions = base_cam.ask_lighting(ask)

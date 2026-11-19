@@ -35,6 +35,15 @@ What must stay true of anything that moves the arm. Each cost a debugging round 
   marked `released` for a discard (`interventions.handled_points`), so what it handled isn't taken for a person's doing. A miss or a key pressed goes to
   rest and scans at once. The return model was measured arriving from rest, so the move to a slot turns the pan past and comes back the same way
   (`TRAVEL_PAN_BACK_DEG`, reasoned from the height invariant, not measured). Unconfirmed on the arm.
+- **Face-down play goes from move to move and rests only to ask** (`Rig.direct`; `crude_run.py` and `play_face_down.py`, `--via-rest`
+  for the old way; `base_cam_collect` and `wall_test` always rest). Nothing scans the mat mid-turn, so the rests were only travel: 5 trips
+  a sim turn, now 2. It rests before every question (`crude_run.Run.resting`: a person may reach in, and an arm held out while they type
+  only heats the servos), before the RealSense guide window (`face_down_rig.prompt`), after a miss, an abort or a takeover, and at the
+  end. `hover(direct)`, `place(direct, rest_after=False)`, `discard(direct, rest_after=False)` and `go_to_pose(direct)` (which lifts
+  first) are the pieces. The swings to and from the base camera's poses (by the LeKiwi base, which the watchdog doesn't model) still
+  pass `RAISED_REST`, without folding down (`Arm.to_raised_rest`, in `Rig.show` on every way out; `tests/test_crude_run.py` checks no
+  move goes straight between the mat and a pose). The container's direct moves are the path face-up play has run since 2026-11-05,
+  coming back the same way. ~16s less moving a sim turn. Unconfirmed on the arm (2026-11-20).
 - **Every move off the table rises straight up first** (`Arm.lift`, called by `rest`, `hover` and `place`, so
   bench, record and every other script share it): 5mm steps keeping the jaws' tilt and roll
   (`kinematics.straight_up`), up to 80mm. The old lift was one joint-space move to the IK's pose, which curved

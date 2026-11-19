@@ -258,6 +258,17 @@ class Arm:
         if self.is_at_rest():
             self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
+    def to_raised_rest(self):
+        """RAISED_REST from wherever the arm is, without folding down to rest: the way past the LeKiwi base for a move with
+        no trip to rest (face-down play's swings to and from the base camera's poses). Lifts first, as rest() does, and is
+        timed by distance (travel_time). Gripper untouched."""
+        if self.is_at_rest():
+            self.raise_from_rest()
+            return
+        self.lift()
+        target = {j: config.RAISED_REST[j] for j in config.ARM_JOINTS}
+        self.move_to(target, self.travel_time(target))
+
     def lift(self):
         """If low out over the table, rise straight up to LIFT_CLEARANCE_M, RISE_STEP_M at a time, the jaws
         pointing as they are (kinematics.straight_up; wrist roll and gripper kept), so the next move doesn't
@@ -342,12 +353,13 @@ class Arm:
         self.move_to({j: config.RAISED_REST[j] for j in config.ARM_JOINTS}, MOVE_TIME_S)
         self.move_to({j: config.REST_POSE[j] for j in config.ARM_JOINTS}, RAISE_TIME_S)
 
-    def hover(self, x, y, offset_m, clearance_m, gripper, log=print):
+    def hover(self, x, y, offset_m, clearance_m, gripper, log=print, direct=False):
         """Hover the tool point over closed-loop target (x, y) and settle until the measured pincer tip
         is clearance_m above the grasp point. Goes SETTLE_FROM_ABOVE_M high first, measures the sag
         there, then comes down (an upward correction overshoots and comes back down), so the jaws never
         dip below the target while settling. Commanded offsets stay within
-        [offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M]. Returns a dict, or None if unreachable."""
+        [offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M]. `direct`: from wherever the arm is (over the
+        mat, a camera pose, the container) straight there (travel), not via rest. Returns a dict, or None if unreachable."""
         first = None
         for extra in (SETTLE_FROM_ABOVE_M, SETTLE_FROM_ABOVE_M / 2, 0.0):
             first, tilt = kinematics.hover_command(x, y, offset_m + extra, gripper)
@@ -356,8 +368,12 @@ class Arm:
         if first is None:
             return None
         self.lift()
-        self.raise_from_rest()
-        self.move_to(first, MOVE_TIME_S)
+        if direct and not self.is_at_rest():
+            log("  straight to the hover, not via rest")
+            self.travel(first)
+        else:
+            self.raise_from_rest()
+            self.move_to(first, MOVE_TIME_S)
         self.sleep(SETTLE_S)
         settled = self._settle(x, y, offset_m + extra, clearance_m, gripper,
                                offset_m - MAX_LOWER_M, offset_m + MAX_EXTRA_RAISE_M, log)
@@ -424,12 +440,13 @@ class Arm:
             adjusts.append({"offset_m": offset, "clearance_m": clearance})
         return {"offset_m": offset, "clearance_m": clearance, "adjusts": adjusts}
 
-    def place(self, x, y, approach_offset_m, log=print, grasp_clearance_m=None, direct=False):
+    def place(self, x, y, approach_offset_m, log=print, grasp_clearance_m=None, direct=False, rest_after=True):
         """Set a held tile down with the tool point over (x, y): approach from above (extra height for
         the swing), measure the sag, descend until the measured tip is at release_height(grasp_clearance_m)
         (just above where the jaws closed on this tile, kinematics.grasp_clearance), release, lift, rest.
         Beyond reach, (x, y) moves toward the shoulder (place_point). `direct`: from over the mat straight to the
-        approach (travel), not in MOVE_TIME_S. Returns {released_at_m (the measured
+        approach (travel), not in MOVE_TIME_S. `rest_after` False: stay over the tile at the swing height (the next move
+        starts from there; face-down play). Returns {released_at_m (the measured
         clearance at release), release_target_m, xy, shift_m, ...}, or None if out of reach even so (nothing
         moved)."""
         held = self.commanded()["gripper"]
@@ -474,7 +491,8 @@ class Arm:
             raised = self._settle(x, y, above_offset, SWING_CLEARANCE_M, self.commanded()["gripper"], above_offset,
                                   above_offset + MAX_EXTRA_RAISE_M, log)
             swing_from = raised["clearance_m"]
-        self.rest()
+        if rest_after:
+            self.rest()
         rise = {"up_m": float(after_rise[2] - at_release[2]),
                 "sideways_m": float(np.hypot(*(after_rise[:2] - at_release[:2]))), "swing_from_m": swing_from}
         return {"released_at_m": released_at, "release_target_m": target, "xy": [x, y], "shift_m": shift,
@@ -482,20 +500,23 @@ class Arm:
 
     def go_to_pose(self, pose, duration=MOVE_TIME_S, direct=False):
         """A taught arm pose (e.g. over the discard container), via the raised rest; gripper untouched. `direct`: a
-        move from over the mat is timed by its distance."""
+        move from over the mat rises straight up first (lift) and is timed by its distance."""
         if direct and not self.is_at_rest():
+            self.lift()
             duration = self.travel_time(pose)
         self.raise_from_rest()
         self.move_to({j: pose[j] for j in config.ARM_JOINTS}, duration)
 
-    def discard(self, pose, direct=False):
+    def discard(self, pose, direct=False, rest_after=True):
         """Let the held tile go over the discard container (`pose`: config.discard_pose()), then rest. Goes via rest
         first (go_to_pose doesn't lift from over the mat) unless `direct`, where the caller has lifted clear (play).
+        `rest_after` False: stay over the container, jaws open (face-down play's next move starts there).
         Returns whether the jaws still read as holding a tile on arrival. Bench, record, wall_test and crude_run share it."""
         if not direct:
             self.rest()
         self.go_to_pose(pose, direct=direct)
         held = self.holding()[0]
         self.set_gripper(config.GRIPPER_RELEASE)
-        self.rest()
+        if rest_after:
+            self.rest()
         return held

@@ -66,6 +66,7 @@ def parse_args(argv=None):
     p.add_argument("--no-view", action="store_true", help="no windows: the hand to lay and the hand check in the terminal only")
     p.add_argument("--record-desk", action="store_true",
                    help="keep a slow video of the desk from the RealSense (desk.mp4, 2 fps) for scripts/game_video.py")
+    p.add_argument("--via-rest", action="store_true", help=crude_run.VIA_REST_HELP)
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
     takeover.add_argument(p)
     p.set_defaults(empty=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0, stacked=True)     # what face_down_rig's Rig and crude_run's Run read
@@ -220,7 +221,8 @@ class Player(crude_run.Run):
         if pick is None:
             return ([], []) if self.by_hand("register", f"{slot} wasn't picked", f"Leave the tile on {slot}: you'll be asked its name") else None
         frames, from_pose = self.show_held(pick, "register_show")
-        self.rig.arm.rest()
+        if not self.rig.direct:
+            self.rig.arm.rest()
         if not self.jaws_have_tile():
             done = self.by_hand("register_show", f"{slot}'s tile came out of the jaws", spot=spot, where=slot)
         elif not self.set_down("register_return", pick, spot, spot):
@@ -499,6 +501,7 @@ def main(argv=None, ask=input):
     station = stations[args.station]
     print(f"Reader: {base_cam.READER.name}, knows {len(reader.classes)} names" if reader else f"No reader ({base_cam.READER}): you'll name every tile")
     rig = face_down_rig.Rig(args, [station, zone, *spots], poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
+    rig.direct = not args.via_rest
     player, window, result, desk = None, None, "quit", None
     try:
         conditions = base_cam.ask_lighting(ask)
