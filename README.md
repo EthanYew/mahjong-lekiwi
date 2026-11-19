@@ -1042,7 +1042,8 @@ own hand, so you don't name it, and it plays until a win or the wall runs out. E
 ```
 python scripts/play_face_down.py                          # even-hand13, the wall at L2: you check the hand once, then each drawn tile
 python scripts/play_face_down.py --unattended             # the reader's names are taken: you lay the hand and feed the wall, nothing else
-python scripts/play_face_down.py --resume                 # carry on the latest hand from its last finished turn
+python scripts/play_face_down.py --resume                 # carry on the latest hand from its last finished turn (one that stopped
+                                                          # part-way: you're told how to put the table right first)
 python scripts/base_cam_review.py --play                  # afterwards: check the photos it saved (nothing trains on them before)
 python scripts/play_face_down.py --report                 # then: every read against your review, and the discards a wrong read changed
 python scripts/play_face_down.py --sim                    # simulated arm and cameras
@@ -1061,7 +1062,8 @@ python scripts/play_face_down.py --sim                    # simulated arm and ca
    the container, or a hand tile to the container and the drawn tile into its slot. After each turn: Enter, a correction (`S3=5C`),
    `end` (the wall's empty), `q`, or a note of anything that went wrong (a bump, a bad landing).
 5. **The end check.** Turn the 13 over and say which the robot had wrong (`S3=5C`), or Enter if none, or `s` to skip it. A tile it
-   had wrong without anyone noticing is a silent error. The hand is graded as play's are (`session_report.py`): pressing Enter on
+   had wrong without anyone noticing is a silent error. After a win, the tile it won on is on the drop zone: say it as `ZONE=5C`
+   if it's wrong. The hand is graded as play's are (`session_report.py`): pressing Enter on
    a read isn't a question, a correction is (`name_corrected`), a step done by hand is a rescue (`fd_by_hand`).
 
 `--unattended` asks no names. A read under `--reshow-below` (0.6) gets a second hold at the poses, with both holds' votes added. The

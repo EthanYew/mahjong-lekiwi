@@ -190,6 +190,47 @@ def test_the_captions_say_what_the_robot_was_doing_and_count_what_a_person_did(t
     assert "policy v6" in story.title()
 
 
+FACE_DOWN_EVENTS = [
+    event("00:00", "session_start", kind="play_fd", policy="v13", unattended=False),
+    event("00:30", "crude_pick", turn=0, step="register", spot="S1", held=True, attempt_dir="001_180030_reg_S1"),
+    event("00:50", "fd_hand_confirmed", hand={"S1": "1C", "S2": "2C"}, fixed={}, by="person"),
+    event("01:00", "crude_pick", turn=1, step="draw", spot="F", held=False, attempt_dir="002_180100_t1_draw_top"),
+    event("01:20", "crude_pick", turn=1, step="draw", spot="F", held=True, attempt_dir="003_180120_t1_draw_top"),
+    event("01:30", "crude_read", turn=1, guess="4D", name="4D", face_hidden=False, guess_confidence=0.9),
+    event("01:40", "crude_choice", turn=1, drawn="4D", discard="4D", slot=None, shanten_after=2),
+    event("03:00", "hand_end", result="end", turns=1, grade="clean", hand={"S1": "1C", "S2": "2C"}, discards=["4D"]),
+    event("03:01", "session_end", reason="done"),
+]
+
+
+def test_a_face_down_hand_s_picks_turns_and_clips_are_in_its_video(tmp_path):
+    """play_face_down.py logs crude_pick and crude_choice, not play.py's attempt and discard_chosen (post-merge review of
+    #127: a 135-minute face-down hand's video said 'Reading the hand' throughout, '0 of 0 pickups', no gripper clips)."""
+    folder = tmp_path / "20261104_180000_play_fd"
+    for e in FACE_DOWN_EVENTS:
+        if e.get("attempt_dir"):
+            (folder / e["attempt_dir"]).mkdir(parents=True)
+            (folder / e["attempt_dir"] / "wrist.mp4").write_bytes(b"")
+    story = game_video.Story(folder, FACE_DOWN_EVENTS)
+    t = game_video.seconds
+    assert story.doing(t("2026-11-04T18:00:40")) == "Reading the hand"
+    assert story.doing(t("2026-11-04T18:02:00")) == "Turn 1: drew 4D, discarding 4D"
+    assert story.counts()["picked"] == 2 and story.counts()["attempts"] == 3
+    assert "A person checked 3 of the reader's names" in story.ending()
+    shown = game_video.clips(folder, FACE_DOWN_EVENTS)
+    assert [(c["tile"], c["success"]) for c in shown] == [("S1", True), ("F", False), ("F", True)]
+
+
+def test_a_mat_crop_with_no_tiles_seen_says_the_room_is_in(tmp_path, monkeypatch, capsys):
+    """A face-down hand has no scans, so no tile boxes to crop to: the whole frame stays, and it has to say so (the crop is
+    what leaves the room out of a published video)."""
+    monkeypatch.setattr(game_video.privacy, "blur_faces", lambda frame: (frame, 0))
+    desk = game_video.Desk(tmp_path, FACE_DOWN_EVENTS, crop=True)
+    desk.prepare(np.zeros((480, 640, 3), np.uint8), FACE_DOWN_EVENTS)
+    desk.prepare(np.zeros((480, 640, 3), np.uint8), FACE_DOWN_EVENTS)
+    assert capsys.readouterr().out.count("--crop mat") == 1
+
+
 def test_a_clip_starts_when_its_folder_was_made_even_past_midnight():
     folder = Path("20261104_235900_play")
     assert game_video.clip_start(folder, "001_235930_7B") == game_video.seconds("2026-11-04T23:59:30")

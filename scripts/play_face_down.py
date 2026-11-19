@@ -45,6 +45,7 @@ from mahjong.perception import drain_stdin
 from mahjong.session import read_events
 
 LAY_WINDOW = "lay the hand and the wall (RealSense view)"
+ZONE = "ZONE"           # the end check's name for the drop zone: a win's drawn tile lies there
 
 
 def parse_args(argv=None):
@@ -103,6 +104,8 @@ class Player(crude_run.Run):
         super().__init__(rig, args, ask, slots, {}, station, zone_spot, reader, boxes)
         self.unattended, self.window = args.unattended, window
         self.shots, self.holds, self.corrected, self.registered = 0, {}, 0, 0
+        self.won_on = None          # a win's drawn tile: it lies on the drop zone, and the end check covers it too
+        self.fed_already = None     # a resumed turn whose feed was done before the stop: not asked again
         self.phase = "register"
 
     # --- what a person did, for the grade ---
@@ -312,6 +315,24 @@ class Player(crude_run.Run):
         path.with_suffix(".tmp").write_text(json.dumps(state, indent=2) + "\n")
         path.with_suffix(".tmp").replace(path)
 
+    def tidy_unfinished(self, left):
+        """Before a resume goes on from a turn that stopped part-way (face_down_play.unfinished_turn): a person puts the table
+        right, and a chosen discard is taken into the hand. False if they quit."""
+        self.rig.session.event("fd_resume_unfinished", turn=left["turn"], layer=left["layer"], choice=left["choice"], drawn=left["drawn"])
+        lines = face_down_play.unfinished_lines(left, self.station["id"])
+        if not lines:           # its draw only missed: the tile is still on the wall
+            print(f"Turn {left['turn']} stopped at a missed draw: it's drawn again")
+            return True
+        drain_stdin()
+        if self.ask("\n".join(lines) + "\nEnter when done (q = quit): ").strip().lower() == "q":
+            return False
+        c = left["choice"]
+        if c is not None:
+            if c["slot"]:
+                self.hand[c["slot"]] = c["drawn"]
+            self.discards.append(c["discard"])
+        return True
+
     def feed_wall(self):
         """The wall's next stack onto the station. Returns "" (fed), "e" (the wall's empty) or "q"."""
         answer = face_down_rig.prompt(self.rig, self.station, face_down_play.feed_step(self.station["id"]), self.ask, keys=face_down_play.END_KEY)
@@ -350,7 +371,7 @@ class Player(crude_run.Run):
         self.turn_no = plan["turn"]
         print(f"\n=== Turn {self.turn_no}: {crude_run.hand_text(self.slots, self.hand)}")
         self.rig.session.event("fd_turn_start", turn=self.turn_no, slots=self.slots, hand=dict(self.hand), discards=list(self.discards))
-        if plan["feed_before"]:
+        if plan["feed_before"] and self.turn_no != self.fed_already:
             answer = self.feed_wall()
             if answer:
                 return {"e": "end", "q": "quit"}[answer]
@@ -365,6 +386,7 @@ class Player(crude_run.Run):
             return "quit"
         self.done += 1
         if outcome == "win":
+            self.won_on = name
             self.checkpoint("won")
             return "win"
         self.checkpoint()
@@ -385,7 +407,16 @@ class Player(crude_run.Run):
             self.hand, self.discards = dict(state["hand"]), list(state["discards"])
             start = state["turn"] + 1
             self.rig.session.event("fd_resumed", from_session=folder.name, turn=state["turn"], hand=self.hand)
+            left = face_down_play.unfinished_turn(read_events(folder), state["turn"])
+            if left is not None:
+                if not self.tidy_unfinished(left):
+                    return "quit"
+                if left["choice"] is not None:      # the table now matches the choice: on to the next turn
+                    start += 1
+                else:
+                    self.fed_already = left["turn"]
             print(f"Resuming {folder.name} at turn {start}: {crude_run.hand_text(self.slots, self.hand)}")
+            self.turn_no = start - 1        # the checkpoint's turn is the last one finished: a stop in the next resumes from here
             self.checkpoint()
         for plan in face_down_play.turn_plan(start):
             result = self.turn(plan)
@@ -398,11 +429,14 @@ class Player(crude_run.Run):
         """The end check: a person turns the 13 over and says which the robot had wrong (silent errors). Returns (grade, checked, wrong)."""
         if not self.hand:
             return None, False, {}
-        print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots))
-        ids = {s.upper(): s for s in self.slots}
+        believed = {**self.hand, **({ZONE: self.won_on} if self.won_on else {})}
+        print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots)
+              + (f"\n  and {self.won_on} on the drop zone, the tile it won on ({ZONE})" if self.won_on else ""))
+        ids = {s.upper(): s for s in believed}
+        what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if self.won_on else f"the {len(self.slots)}"
         drain_stdin()
         while True:
-            answer = self.ask("Turn the 13 over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
+            answer = self.ask(f"Turn {what} over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
             if answer.lower() == "s":
                 checked, wrong = False, {}
                 break
@@ -410,11 +444,11 @@ class Player(crude_run.Run):
             if wrong is not None and not face_down_play.bad_names(wrong):
                 checked = True
                 break
-            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}")
-        wrong = {slot: name for slot, name in wrong.items() if name != self.hand[slot]}
+            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if self.won_on else ""))
+        wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
         for slot, name in wrong.items():
-            self.rig.session.intervention("silent_error", slot=slot, robot=self.hand[slot], table=name)
-        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand))
+            self.rig.session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
+        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand), won_on=self.won_on)
         found = [i for i in interventions.derive(read_events(self.rig.session.dir)) if i["kind"] != "killed"]
         grade = interventions.hand_grade(found)
         return grade, checked, wrong
@@ -499,8 +533,8 @@ def main(argv=None, ask=input):
                                        player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(wrong), checked, waiting)
             print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(player.breaks)))
             (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": player.breaks, "hand": player.hand,
-                                                                     "discards": player.discards}, indent=2) + "\n")
-            rig.session.event("hand_end", **s, hand=player.hand, discards=player.discards)
+                                                                     "won_on": player.won_on, "discards": player.discards}, indent=2) + "\n")
+            rig.session.event("hand_end", **s, hand=player.hand, won_on=player.won_on, discards=player.discards)
         if rig.session:
             rig.session.close()
     return folder

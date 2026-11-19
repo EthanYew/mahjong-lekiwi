@@ -8,6 +8,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import session_report  # noqa: E402
 
 
+def test_a_face_down_hand_lists_its_tiles_not_its_slots(capsys):
+    """play_face_down.py's hand_end keeps the hand as {slot: name} and the tile it won on apart; play.py's as a list.
+    (Post-merge review of #125: the report printed 'hand S1 S2 S3 ...'.)"""
+    end = {"type": "hand_end", "result": "win", "turns": 3, "grade": "clean", "silent_errors": 0,
+           "hand": {"S1": "1C", "S2": "2C", "S14": "5D"}, "won_on": "5D", "discards": ["4D"]}
+    session_report.play_report([end], [])
+    out = capsys.readouterr().out
+    assert "hand 1C 2C 5D, won on 5D; discards 4D" in out and "S1" not in out
+
+
 def attempts(follows):
     """Attempts at offsets 0 / +-6mm in x and +6mm in y; the grasp moves `follows` x the offset."""
     out = []
