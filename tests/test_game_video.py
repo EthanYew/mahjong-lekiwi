@@ -130,7 +130,7 @@ def test_a_sim_game_with_record_desk_keeps_a_desk_video_and_makes_a_game_video(t
         video.release()
     result = game_video.build(folder, "story", clip_speed=2)
     assert len(attempts) == 3 and result["desk"] == "desk.mp4" and result["clips"] == 3     # GD, RD and 9B were picked up
-    cards = int(game_video.TITLE_S * game_video.OUT_FPS) + int(game_video.END_S * game_video.OUT_FPS)
+    cards = result["card_frames"]
     assert result["frames"] == cards + len(times) + 3 * 5           # every desk frame once at 30 a second; clips at 2x
     assert result["path"] == folder / "video" / "game_story.mp4"
     assert frames_in(result["path"]) == result["frames"] > (game_video.TITLE_S + game_video.END_S) * game_video.OUT_FPS
@@ -142,7 +142,7 @@ def test_without_record_desk_the_video_is_made_from_the_scans(tmp_path, monkeypa
     scans = game_video.scan_frames(folder, read_events(folder))
     result = game_video.build(folder, "timelapse", fps=10, out=tmp_path / "t.mp4")
     assert result["desk"] == f"{len(scans)} scans" and result["clips"] == 0
-    cards = int(game_video.TITLE_S * game_video.OUT_FPS) + int(game_video.END_S * game_video.OUT_FPS)
+    cards = result["card_frames"]
     assert result["frames"] == cards + len(scans) * 3          # each scan held 3 frames at 10 a second
     assert frames_in(tmp_path / "t.mp4") == result["frames"]
 
@@ -151,8 +151,21 @@ def test_face_down_play_records_the_desk_too(tmp_path, monkeypatch, fast_desk):
     from test_play_face_down import HAND, LIGHT, run, script_in
     script = script_in(monkeypatch, tmp_path, HAND + ["4D", "8B"])
     folder, _ = run(script, ["--record-desk"], [*LIGHT, "", "", "", "", "", "end", ""])
-    end = next(e for e in read_events(folder) if e["type"] == "desk_video_end")
+    events = read_events(folder)
+    end = next(e for e in events if e["type"] == "desk_video_end")
     assert end["frames"] > 0 and (folder / desk_video.VIDEO).exists()
+    # and its video counts the hand's pickups and turns, and cuts its gripper clips in (2026-11-19: '0 of 0 pickups', no clips)
+    attempts = [e["attempt_dir"] for e in events if e["type"] == "attempt"]
+    for attempt in attempts:                    # the sim's policy saves no gripper video
+        video = cv2.VideoWriter(str(folder / attempt / "wrist.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 30, (64, 48))
+        for _ in range(4):
+            video.write(np.full((48, 64, 3), 200, np.uint8))
+        video.release()
+    result = game_video.build(folder, "story", clip_speed=2, out=tmp_path / "fd.mp4")
+    assert result["clips"] == len(attempts) == 13 + 2 * 2       # the 13 read, then each turn's draw and its pick off the zone
+    story = game_video.Story(folder, events)
+    assert story.counts()["picked"] == story.counts()["attempts"] == len(attempts) and story.counts()["turns"] == 2
+    assert story.hand_lines(game_video.seconds(events[-1]["time"]))[-1].startswith("Discards: ")
 
 
 def event(time, type, **fields):
@@ -179,9 +192,9 @@ def test_the_captions_say_what_the_robot_was_doing_and_count_what_a_person_did(t
     assert story.doing(t("2026-11-04T18:00:30")) == "Reading the hand"
     assert story.doing(t("2026-11-04T18:01:10")) == "Turn 1: drew 1B, discarding 7B"
     assert story.doing(t("2026-11-04T18:01:55")) == "Turn 1: discarded 7B"
-    assert story.counts(t("2026-11-04T18:01:35")) == {"picked": 1, "attempts": 1, "questions": 1, "rescues": 0,
+    assert story.counts(t("2026-11-04T18:01:35")) == {"picked": 1, "attempts": 1, "turns": 1, "questions": 1, "rescues": 0,
                                                      "resets": 0, "hands_on": 0}
-    assert story.counts() == {"picked": 1, "attempts": 2, "questions": 1, "rescues": 1, "resets": 0, "hands_on": 1}
+    assert story.counts() == {"picked": 1, "attempts": 2, "turns": 1, "questions": 1, "rescues": 1, "resets": 0, "hands_on": 1}
     ending = story.ending()
     assert ending[0] == "Result: win in 1 turns" and "Graded: rescued" in ending
     assert "1 of 2 pickups held the tile" in ending[2]
@@ -214,11 +227,14 @@ def test_a_face_down_hand_s_picks_turns_and_clips_are_in_its_video(tmp_path):
     story = game_video.Story(folder, FACE_DOWN_EVENTS)
     t = game_video.seconds
     assert story.doing(t("2026-11-04T18:00:40")) == "Reading the hand"
-    assert story.doing(t("2026-11-04T18:02:00")) == "Turn 1: drew 4D, discarding 4D"
-    assert story.counts()["picked"] == 2 and story.counts()["attempts"] == 3
+    assert story.doing(t("2026-11-04T18:02:00")) == "Turn 1: drew 4D (checked), discarding 4D"      # a person confirmed it
+    assert story.hand_lines(t("2026-11-04T18:02:00")) == ["Hand: 1C 2C"]
+    assert story.counts()["picked"] == 2 and story.counts()["attempts"] == 3 and story.counts()["turns"] == 1
     assert "A person checked 3 of the reader's names" in story.ending()
     shown = game_video.clips(folder, FACE_DOWN_EVENTS)
-    assert [(c["tile"], c["success"]) for c in shown] == [("S1", True), ("F", False), ("F", True)]
+    assert [(c["step"], c["spot"], c["success"]) for c in shown] == [("register", "S1", True), ("draw", "F", False), ("draw", "F", True)]
+    assert game_video.clip_label(shown[0], 4) == "gripper camera, 4x speed: reading S1, held"
+    assert game_video.clip_label(shown[1], 4) == "gripper camera, 4x speed: drawing from the wall, missed"
 
 
 def test_a_mat_crop_with_no_tiles_seen_says_the_room_is_in(tmp_path, monkeypatch, capsys):

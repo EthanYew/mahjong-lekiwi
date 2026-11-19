@@ -12,8 +12,10 @@ where tiles were seen, which leaves most of the room out. The blur lowers the ch
 video before posting it.
 
 The counts on screen are the session report's (mahjong/interventions.py): "questions" a person answered without touching
-anything, "hands-on" a person touching a tile, the arm or the mat. A video says which session it is from, so every claim made
-with it traces back to one. Never connects to the arm.
+anything, "hands-on" a person touching a tile, the arm or the mat. The hand, its turns and pickups are read through
+mahjong/play_log.py, the same for face-up and face-down play, and the ending says whether the win is verified as the session
+report does (play_log.verdict). A video says which session it is from, so every claim made with it traces back to one. Never
+connects to the arm.
 """
 import argparse
 import json
@@ -29,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import config, desk_video, interventions, privacy
+from mahjong import config, desk_video, face_down_play, interventions, play_log, privacy
 from mahjong.session import read_events
 
 OUT_FPS = 30
@@ -38,6 +40,7 @@ CLIP_SPEED = 4                      # a gripper clip plays this much faster than
 MAX_SIZE = (1280, 1080)             # the video fits in this, keeping the desk's shape (a square crop: 1080x1080)
 CROP_MARGIN_PX = 60                 # around every tile the scans saw, in the camera's pixels
 TITLE_S, END_S = 3.0, 5.0
+END_S_PER_LINE = 0.7                # a long ending card stays up longer
 PIP_SHARE = 0.38                    # a gripper clip's width, as a share of the frame's
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FOLDER_TIME = re.compile(r"^\d+_(\d{6})_")
@@ -90,29 +93,32 @@ def clip_start(session_dir, attempt_dir):
 
 
 def clips(session_dir, events):
-    """[{time, path, tile, success}] for each pickup with a gripper video, in order."""
+    """[{time, path, tile, success, step, spot}] for each pickup with a gripper video, in order (play_log.pickups: face up
+    and face down alike)."""
     out = []
-    for e in pickups(events):
-        if FOLDER_TIME.match(e.get("attempt_dir") or ""):
-            path = session_dir / e["attempt_dir"] / "wrist.mp4"
+    for p in play_log.pickups(events):
+        if FOLDER_TIME.match(p.get("attempt_dir") or ""):
+            path = session_dir / p["attempt_dir"] / "wrist.mp4"
             if path.exists():
-                out.append({"time": clip_start(session_dir, e["attempt_dir"]), "path": path, "tile": e.get("tile"),
-                            "success": e.get("success")})
+                out.append({"time": clip_start(session_dir, p["attempt_dir"]), "path": path, "tile": p["tile"],
+                            "success": p["held"], "step": p["step"], "spot": p["spot"]})
     return sorted(out, key=lambda c: c["time"])
 
 
-def pickups(events):
-    """Every pickup, as play.py's `attempt` events: face-down play (play_face_down.py, the crude run) logs `crude_pick`,
-    with the spot it picked from for a tile (a face-down tile's name isn't known when it's picked) and `held` for success."""
-    return [e if e["type"] == "attempt" else {**e, "tile": e.get("spot"), "success": e.get("held")}
-            for e in events if e["type"] in ("attempt", "crude_pick")]
+def clip_label(c, speed):
+    """What a gripper clip shows: the step of a face-down turn where it has one, the tile where it's known."""
+    tile, spot = c.get("tile"), c.get("spot")
+    what = {"register": f"reading {spot}", "draw": "drawing from the wall",
+            "pick_from_hand": f"taking {tile or 'the discard'} out of {spot}",
+            "pick_from_zone": f"{tile or 'the drawn tile'} off the drop zone"}.get(c.get("step"), tile or spot or "a tile")
+    return f"gripper camera, {speed}x speed: {what}, " + ("held" if c["success"] else "missed")
 
 
 def checked_reads(events):
     """Face-down play: the reader's names a person checked (the 13 in the hand check, each draw confirmed). Not questions in
     the grade (pressing Enter on a read isn't one), but a person looked at every one."""
     hand = sum(len(e.get("hand", {})) for e in events if e["type"] == "fd_hand_confirmed" and e.get("by") == "person")
-    return hand + sum(1 for e in events if e["type"] == "crude_read" and e.get("by") != "reader")
+    return hand + sum(1 for e in events if e["type"] == "crude_read" and e.get("turn") and e.get("by") != "reader")
 
 
 def crop_box(events, shape, margin=CROP_MARGIN_PX):
@@ -136,62 +142,105 @@ def crop_box(events, shape, margin=CROP_MARGIN_PX):
 
 
 class Story:
-    """What to write on a frame at a given time: the turn, and the counts so far."""
+    """What to write on a frame at a given time: the turn, the hand, and the counts so far (play_log.hand: face up and face
+    down alike). The ending says whether the win stands (play_log.verdict)."""
 
-    def __init__(self, session_dir, events):
+    def __init__(self, session_dir, events, reads=None):
         self.name = session_dir.name
         self.found = interventions.derive(events)
-        self.attempts = pickups(events)
-        self.turns = [e for e in events if e["type"] in ("discard_chosen", "turn_done", "crude_choice")]
+        self.attempts = play_log.pickups(events)
+        self.hand = play_log.hand(events)
         self.checked = checked_reads(events)
-        self.end = next((e for e in reversed(events) if e["type"] == "hand_end"), None)
+        self.end = self.hand["end"]
+        if reads is None and self.hand["kind"] == face_down_play.PLAY_KIND:
+            reads = face_down_play.scored_reads(session_dir)        # whether a person has reviewed the reader's names since
+        self.verdict = play_log.verdict(self.hand, reads)
         self.policy = next((e.get("policy") for e in events if e["type"] == "bench_setup"), None) \
             or next((e.get("policy") for e in events if e["type"] == "session_start"), None)
         times = [seconds(e["time"]) for e in events if e.get("time")]
         self.start, self.stop = (min(times), max(times)) if times else (0, 0)
 
     def counts(self, t=None):
-        """{picked, attempts, questions, rescues, resets, hands_on} up to time t (the whole game without one): the session
-        report's classes (a reset is tiles put back, a rescue a person fixing what went wrong)."""
-        def by(e):
-            return t is None or seconds(e["time"]) <= t
-        found = [i for i in self.found if i.get("time") and by(i)]
+        """{picked, attempts, turns, questions, rescues, resets, hands_on} up to time t (the whole game without one): turns
+        whose draw was named and played, the win's included; the session report's classes (a reset is tiles put back, a
+        rescue a person fixing what went wrong)."""
+        def by(time):
+            return t is None or (time is not None and seconds(time) <= t)
+        found = [i for i in self.found if i.get("time") and by(i["time"])]
         rescues = sum(i["class"] == interventions.RESCUE for i in found)
         resets = sum(i["class"] == interventions.RESET for i in found)
-        return {"picked": sum(bool(a.get("success")) for a in self.attempts if by(a)),
-                "attempts": sum(1 for a in self.attempts if by(a)),
+        win = self.hand["win"]
+        return {"picked": sum(a["held"] for a in self.attempts if by(a["time"])),
+                "attempts": sum(1 for a in self.attempts if by(a["time"])),
+                "turns": sum(1 for r in self.hand["turns"] if by(r["time"])) + bool(win and by(win["time"])),
                 "questions": sum(i["class"] == interventions.ASK for i in found),
                 "rescues": rescues, "resets": resets, "hands_on": rescues + resets}
 
+    def _turn_at(self, t):
+        """The latest turn (or the win) whose draw was named by time t, and whether its hand has changed yet."""
+        rows = [r for r in self.hand["turns"] if r["time"] and seconds(r["time"]) <= t]
+        win = self.hand["win"]
+        if win and seconds(win["time"]) <= t:
+            return {**win, "win": True}, True
+        if not rows:
+            return None, False
+        done = rows[-1]["done"]
+        return rows[-1], done is not None and seconds(done) <= t
+
     def doing(self, t):
-        done = [e for e in self.turns if seconds(e["time"]) <= t]
-        if not done:
+        row, done = self._turn_at(t)
+        if row is None:
+            read = [r for r in self.hand["register"] if seconds(r["time"]) <= t]
+            if read and len(read) < len(self.hand["slots"] or read):
+                return f"Reading the hand: {len(read)} of {len(self.hand['slots'] or read)} tiles"
             return "Reading the hand"
-        e = done[-1]
-        if e["type"] == "crude_choice":         # face-down play
-            return f"Turn {e['turn']}: drew {e['drawn']}, discarding {e['discard']}"
-        if e["type"] == "discard_chosen":
-            drew = f"drew {e['drawn']}, " if e.get("drawn") else ""
-            return f"Turn {e['turn']}: {drew}discarding {e['tile_name']}"
-        return f"Turn {e['turn']}: discarded {e['discarded']}"
+        drew = f"drew {row['drawn']}{read_text(row.get('read'))}" if row.get("drawn") else ""
+        if row.get("win"):
+            return f"Turn {row['turn']}: {drew}: the hand is complete"
+        if done:
+            return f"Turn {row['turn']}: discarded {row['discard']}"
+        where = f" from {row['slot']}" if row.get("slot") else ""
+        return f"Turn {row['turn']}: " + (f"{drew}, " if drew else "") + f"discarding {row['discard']}{where}"
+
+    def hand_lines(self, t):
+        """['Hand: ...', 'Discards: ...'] as they stood at time t: the hand as read, then after each turn."""
+        row, done = self._turn_at(t)
+        if row is None:
+            read = [r["name"] for r in self.hand["register"] if seconds(r["time"]) <= t and r["name"]]
+            start = self.hand["start"]
+            names = start["hand"] if start and seconds(start["time"]) <= t else read
+            return [f"Hand: {play_log.hand_line(names)}"] if names else []
+        after = done and not row.get("win")
+        names = row.get("after") if after else row.get("before")
+        discards = (row.get("discards") if after else row.get("seen")) or []
+        out =[f"Hand: {play_log.hand_line(names)}" + (f"  + {row['drawn']}" if row.get("win") else "")] if names else []
+        return out + ([f"Discards: {' '.join(discards)}"] if discards else [])
 
     def lines(self, t):
         c = self.counts(t)
         clock = datetime.fromtimestamp(t).strftime("%H:%M:%S")
-        return (f"{self.name}   {clock}", self.doing(t),
-                f"picked {c['picked']}   person: {c['questions']} questions answered, {c['hands_on']} hands-on")
+        total = (self.end or {}).get("turns")
+        turns = f"turn {c['turns']}" + (f" of {total}" if total else "")
+        return (f"{self.name}   {clock}", self.doing(t), *self.hand_lines(t),
+                f"picked {c['picked']} of {c['attempts']}   {turns}   person: {c['questions']} questions answered, "
+                f"{c['hands_on']} hands-on")
 
     def title(self):
         day = datetime.fromtimestamp(self.start).strftime("%Y-%m-%d")
-        return ["Robot arm playing a hand of mahjong", f"session {self.name}  ({day})",
-                f"policy {self.policy}" if self.policy else "", "desk camera from above, gripper camera inset"]
+        down = self.hand["kind"] == face_down_play.PLAY_KIND
+        return ["Robot arm playing a hand of mahjong" + (", tiles face down" if down else ""),
+                f"session {self.name}  ({day})", f"policy {self.policy}" if self.policy else "",
+                "desk camera from above, gripper camera inset"]
 
     def ending(self):
         c, minutes = self.counts(), (self.stop - self.start) / 60
         out = []
+        win = self.hand["win"]
         if self.end:
             result = self.end.get("result", "?")
             out.append(f"Result: {result}" + (f" in {self.end['turns']} turns" if self.end.get("turns") is not None else ""))
+            if win and win.get("before"):
+                out.append(f"Winning hand: {play_log.melds_line(win['before'] + [win['drawn']])}  (drew {win['drawn']})")
             if self.end.get("grade"):
                 out.append(f"Graded: {self.end['grade']}")
         else:
@@ -202,8 +251,19 @@ class Story:
                 f"{plural(c['resets'], 'reset')} of the mat)"]
         if self.checked:
             out.append(f"A person checked {self.checked} of the reader's names")
+        if self.verdict:
+            out += self.verdict["lines"]
         out.append(f"session {self.name}")
         return out
+
+
+def read_text(read):
+    """' (reader 95%)' for a name the reader gave unchecked, ' (checked)' for one a person confirmed or gave."""
+    if not read:
+        return ""
+    if read.get("by") == "reader":
+        return f" (reader {read['confidence']:.0%})" if read.get("confidence") is not None else " (reader)"
+    return " (checked)"
 
 
 # --- drawing ---
@@ -218,19 +278,27 @@ def text_band(frame, lines, top):
     frame[y0:y0 + band] = (frame[y0:y0 + band] * 0.35).astype(np.uint8)
     for k, s in enumerate(lines):
         y = y0 + int(10 * scale) + line_h * (k + 1) - int(8 * scale)
-        cv2.putText(frame, s, (int(16 * scale), y), FONT, 0.85 * scale, (255, 255, 255), max(1, int(2 * scale)), cv2.LINE_AA)
+        size = fitted(s, 0.85 * scale, frame.shape[1] - int(32 * scale))
+        cv2.putText(frame, s, (int(16 * scale), y), FONT, size, (255, 255, 255), max(1, int(2 * scale)), cv2.LINE_AA)
+
+
+def fitted(text, scale, width):
+    """The font scale, at most `scale`, at which `text` fits in `width` pixels (a long hand or discard row on a square crop)."""
+    (w, _), _ = cv2.getTextSize(text, FONT, scale, 2)
+    return scale * min(1.0, width / max(w, 1))
 
 
 def card(size, lines):
     frame = np.zeros((size[1], size[0], 3), np.uint8)
     scale = size[0] / 1280
     lines = [s for s in lines if s]
-    y = size[1] // 2 - int(28 * scale) * len(lines)
+    step = min(int(56 * scale), (size[1] - int(40 * scale)) // max(len(lines), 1))      # a long ending still fits the height
+    y = (size[1] - step * (len(lines) - 1)) // 2
     for k, s in enumerate(lines):
-        big = 1.3 if k == 0 else 0.9
-        (w, _), _ = cv2.getTextSize(s, FONT, big * scale, 2)
-        cv2.putText(frame, s, ((size[0] - w) // 2, y), FONT, big * scale, (255, 255, 255), 2, cv2.LINE_AA)
-        y += int(56 * scale)
+        big = fitted(s, (1.3 if k == 0 else 0.9) * scale * min(1.0, step / (56 * scale)), size[0] - int(40 * scale))
+        (w, _), _ = cv2.getTextSize(s, FONT, big, 2)
+        cv2.putText(frame, s, ((size[0] - w) // 2, y), FONT, big, (255, 255, 255), 2, cv2.LINE_AA)
+        y += step
     return frame
 
 
@@ -374,7 +442,7 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
     def play_clips(until):
         while queue and queue[0]["time"] <= until:
             c = queue.pop(0)
-            label = f"gripper camera, {clip_speed}x speed: {c['tile']} " + ("picked up" if c["success"] else "missed")
+            label = clip_label(c, clip_speed)
             for k, frame in clip_frames(c["path"], clip_speed):
                 t = c["time"] + k / config.FPS
                 shot = inset(last, privacy.blur_faces(frame)[0], label)     # the gripper camera can see the room too
@@ -397,10 +465,13 @@ def build(session_dir, style="story", fps=None, crop=False, out=None, clip_speed
         text_band(shot, bottom, top=False)
         writer.write(shot, hold)
     play_clips(float("inf"))
-    writer.write(card(size, story.ending()), int(END_S * OUT_FPS))
+    ending = story.ending()
+    end_frames = int(max(END_S, END_S_PER_LINE * len(ending)) * OUT_FPS)        # a long ending stays up long enough to read
+    writer.write(card(size, ending), end_frames)
+    cards = int(TITLE_S * OUT_FPS) + end_frames
     writer.close()
     return {"path": out, "frames": writer.frames, "seconds": writer.frames / OUT_FPS,
-            "desk": "desk.mp4" if desk.desk else f"{len(desk.frames)} scans", "clips": len(shown)}
+            "desk": "desk.mp4" if desk.desk else f"{len(desk.frames)} scans", "clips": len(shown), "card_frames": cards}
 
 
 def parse_args(argv=None):

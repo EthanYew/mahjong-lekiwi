@@ -447,15 +447,23 @@ Layout sessions also get **where to record more**: per spot, the misses, the key
 high, shallow) and knocks the scans found, closes 20mm or more up, and the wrist camera there (attempts it voided and
 reran, or a pickup it stopped). Then a list of the spots with trouble, most first, each saying whether the camera
 played a part, which is where to point the next demonstrations or DAgger takeovers.
-For a played hand (`play.py`) it adds the result, the grade, what you were asked and the turn times;
-`--all` ends with one line per hand.
+For a played hand, face up (`play.py`) or face down (`play_face_down.py`), it adds the result, the grade, the hand and the tile
+it won on, whether the win is verified (below), what you were asked and the turn times; `--all` ends with one line per hand,
+both kinds.
+
+A win is **verified** when a person vouched for all 14 tiles: the end check covers the hand, and after a win the drawn tile on
+the drop zone (`ZONE=NAME`); a face-down hand that won before the end check covered the drop zone needs that tile's photos
+reviewed (`python scripts/base_cam_review.py --play`). **Not verified yet** names what's missing; **not a win** means the
+names a person gave don't make one.
 
 ## A game's video: `scripts/game_video.py`
 
-A video of a played hand, to show it (no arm). The desk from above as the hand goes, each pickup's gripper clip (`wrist.mp4`) cut in
-where it happened, and on every frame the session, the clock, the turn and what a person did so far: questions answered, and
-hands-on (rescues and resets, the session report's classes). It opens with the session and policy and ends with the result, the
-grade and the totals, so every video traces back to one session.
+A video of a played hand, face up or face down, to show it (no arm). The desk from above as the hand goes, each pickup's gripper
+clip (`wrist.mp4`) cut in where it happened, and on every frame the session and the clock; the turn (what was drawn, with the
+reader's confidence when no person checked it, and what it's discarding); the hand and the discards as they stand; and the counts
+so far: pickups held, turns played, questions answered, and hands-on (rescues and resets, the session report's classes). It
+opens with the session and policy and ends with the result, the winning hand split into its sets, the grade, the totals and
+whether the win is verified (as the session report says it), so every video traces back to one session.
 
 ```
 python scripts/game_video.py                                              # the latest play session

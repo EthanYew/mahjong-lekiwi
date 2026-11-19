@@ -18,6 +18,22 @@ def test_a_face_down_hand_lists_its_tiles_not_its_slots(capsys):
     assert "hand 1C 2C 5D, won on 5D; discards 4D" in out and "S1" not in out
 
 
+def test_a_face_down_sim_win_reports_its_pickups_hand_and_verdict(monkeypatch, tmp_path, capsys):
+    """A face-down hand logs as face-up play does (mahjong/play_log.py): its picks fill the pickup table, and the hand says
+    whether the win is verified. Its end check covers the tile it won on, so a clean check verifies it."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_play_face_down import LIGHT, WINS_ON_5D, run, script_in
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder, _ = run(script, ["--unattended"], [*LIGHT, "", ""])
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["session_report.py", str(folder)])
+    session_report.main()
+    out = capsys.readouterr().out
+    assert "14 pickup attempt(s), 14 picked up" in out          # the 13 read, then the draw it won on
+    assert ", won on 5D;" in out and "Win verified: a person vouched for all 14 tiles" in out
+    assert "Unattended: the reader named every tile" in out and "Winning 5D: a person checked it" in out
+
+
 def attempts(follows):
     """Attempts at offsets 0 / +-6mm in x and +6mm in y; the grasp moves `follows` x the offset."""
     out = []
