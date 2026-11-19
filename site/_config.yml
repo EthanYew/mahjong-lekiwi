@@ -1,0 +1,13 @@
+title: MahjongBot
+description: Teaching a low-cost robot arm to play mahjong with my family.
+author: Ethan Yew
+url: https://ethanyew.github.io
+baseurl: /mahjong-lekiwi
+repo: https://github.com/EthanYew/mahjong-lekiwi
+linkedin: https://www.linkedin.com/in/ethan-yew/
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+permalink: pretty
+exclude: [README.md, Gemfile, Gemfile.lock, vendor]

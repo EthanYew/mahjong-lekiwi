@@ -1,0 +1,4 @@
+<figure class="video"{% if include.anchor %} id="{{ include.anchor }}"{% endif %}>
+  <div class="embed"><iframe src="https://www.youtube-nocookie.com/embed/{{ include.id }}" title="{{ include.caption | default: 'YouTube video' | strip_html | escape }}" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+  {% if include.caption %}<figcaption>{{ include.caption | markdownify | remove: '<p>' | remove: '</p>' | strip }}</figcaption>{% endif %}
+</figure>
