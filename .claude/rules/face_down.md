@@ -28,6 +28,8 @@ Face-down tiles: drawing from the wall station, the base camera's reader, the cr
   the 13 once and each drawn tile. `--unattended` takes the reader's names at the owner's request (2026-11-17): wrong names can get in
   silently, against play.md's gate, so an unattended hand is no play-ready result, only a measure of the reader and the arm together.
   A low read gets a second hold (`--reshow-below` 0.6, a guess from 6 reads). Unconfirmed on the arm.
+- **A face-down turn doesn't go to rest between moves**, only before a question, the RealSense window, after a miss and at the end
+  (`Rig.direct`, `--via-rest` for the old way). motion.md has the detail.
 - **A hold saved in play trains nothing until a person has reviewed it** (the owner's rule, 2026-11-17). Unattended, its name is the
   reader's own, and training on that teaches the reader its mistakes. Every hold is `review_first`, and `base_cam.rows` is the one check,
   so training, `base_cam_collect`'s counts and `--counts` all leave it out until `data/holdup_review.jsonl` has a verdict

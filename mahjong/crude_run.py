@@ -11,6 +11,8 @@ from .perception import drain_stdin
 SHALLOW_MIN_READING = 2.0   # jaws shut on nothing read 0.6-0.9. A held tile's reading fell from 9.5 to 3.0 over 2026-11-09, under holds_tile's margin (not a shallow grip, as first thought)
 FLOW = ("Each turn: you feed the wall, the arm draws a tile, shows it to the base camera and sets it on the drop zone, you confirm its name, then the arm plays the discard.\n"
         "A line starting 'Noted' goes on the end-of-run list. It doesn't stop anything: the next prompt says what to do.")
+VIA_REST_HELP = ("go to rest between every move, as before. Default: straight from one move to the next (pick, the base camera's "
+                 "poses, set down, container), resting only before a question, the RealSense window, after a miss, and at the end")
 STEPS = ("draw", "show", "set_on_zone", "read", "pick_from_hand", "discard", "pick_from_zone", "place_in_hand", "person")
 
 
@@ -133,7 +135,8 @@ class Run:
     """One crude run: the hand by memory, the wall's station, the drop zone, and everything that went wrong."""
 
     def __init__(self, rig, args, ask, slots, hand, station, zone_spot, reader, boxes, empty=()):
-        self.rig, self.args, self.ask, self.slots, self.hand = rig, args, ask, slots, hand
+        self.rig, self.args, self.slots, self.hand = rig, args, slots, hand
+        self.ask = self.resting(ask)
         self.station, self.zone_spot, self.reader, self.boxes, self.empty = station, zone_spot, reader, boxes, empty
         self.shallow = 0
         self.rng = base_cam_collect.rng_for(0)
@@ -141,6 +144,14 @@ class Run:
         self.spot_of = {s["id"]: s for s in layout.load(args.layout)["spots"]}
         self.turn_no, self.breaks, self.reads, self.discards, self.done = 0, [], [], [], 0
         self.winning = None         # the drawn tile that completed the hand
+
+    def resting(self, ask):
+        """`ask`, with the arm at rest first. With the rig's `direct` the arm goes from move to move without resting, so a
+        question is where it rests: a person may reach in, and an arm held out while they type only heats the servos."""
+        def asked(question):
+            self.rig.arm.rest()
+            return ask(question)
+        return asked
 
     def broke(self, step, what, by_hand=False):
         entry = {"turn": self.turn_no, "step": step, "what": what, "by_hand": by_hand}
@@ -220,7 +231,7 @@ class Run:
     def to_container(self, step, what):
         """The held tile into the discard container."""
         if self.jaws_have_tile():
-            self.rig.arm.discard(self.pose)
+            self.rig.arm.discard(self.pose, direct=self.rig.direct, rest_after=not self.rig.direct)
         else:
             self.broke(step, f"lost {what} before the container")
 
@@ -250,7 +261,8 @@ class Run:
         if pick is None:
             return ([], []) if self.by_hand("draw", "the wall's tile wasn't drawn", spot=self.zone_spot, where="the drop zone") else None
         frames, from_pose = self.show_held(pick, "show")
-        self.rig.arm.rest()
+        if not self.rig.direct:
+            self.rig.arm.rest()
         if not self.jaws_have_tile():
             return (frames, from_pose) if self.by_hand("show", "the tile came out of the jaws", spot=self.zone_spot, where="the drop zone") else None
         if not self.set_down("set_on_zone", pick, self.station, self.zone_spot, layer):
@@ -272,6 +284,7 @@ class Run:
         hidden = False
         while True:
             if frames and self.rig.realsense is not None:      # a real run: the photos, in a window. The tile itself is lying face down by now
+                self.rig.arm.rest()             # a question, as self.ask's are
                 typed = type_in_window(frames, guess)
                 face_down_rig.close_windows()
                 if typed is None:

@@ -123,6 +123,81 @@ def test_a_simulated_turn_draws_shows_reads_and_plays_the_discard(monkeypatch, t
     assert len(list(draw_dir.glob("base_*.jpg"))) == 2           # one photo per saved pose
 
 
+def watch_rests(monkeypatch):
+    """Patches the arm and the rig: {"trips": [the step each trip back to rest came before], "asked_out": [questions asked with
+    the arm out of rest], "rig": [the rig]}."""
+    from mahjong import face_down_rig
+    from mahjong.arm import Arm
+    seen = {"trips": [], "asked_out": [], "rig": []}
+    real_rest, real_init, real_resting = Arm.rest, face_down_rig.Rig.__init__, crude_run.Run.resting
+
+    def rest(self):
+        if not self.is_at_rest():
+            seen["trips"].append(len(self.robot.sent))
+        return real_rest(self)
+
+    def init(self, *a, **kw):
+        real_init(self, *a, **kw)
+        seen["rig"].append(self)
+
+    def resting(self, ask):
+        asked = real_resting(self, ask)
+
+        def checked(question):
+            answer = asked(question)
+            if not self.rig.arm.is_at_rest():
+                seen["asked_out"].append(question)
+            return answer
+        return checked
+    monkeypatch.setattr(Arm, "rest", rest)
+    monkeypatch.setattr(face_down_rig.Rig, "__init__", init)
+    monkeypatch.setattr(crude_run.Run, "resting", resting)
+    return seen
+
+
+def test_a_turn_goes_from_move_to_move_and_rests_only_to_ask(monkeypatch, tmp_path):
+    """Draw, the base camera's poses, the zone, the container: straight from one to the next. A question still finds the arm
+    at rest, and --via-rest goes back to rest between every move, as before."""
+    answers = [*LIGHT, "", "", "5C", ""]
+    seen = watch_rests(monkeypatch)
+    run(script_in(monkeypatch, tmp_path / "direct"), ["--turns", "1"], answers)
+    direct_trips, direct_commands = len(seen["trips"]), len(seen["rig"][-1].arm.robot.sent)
+    assert seen["asked_out"] == []
+    seen["trips"].clear()
+    run(script_in(monkeypatch, tmp_path / "via"), ["--turns", "1", "--via-rest"], answers)
+    via_trips, via_commands = len(seen["trips"]), len(seen["rig"][-1].arm.robot.sent)
+    assert seen["asked_out"] == []
+    # direct: before the name is asked and the end-of-turn question (2026-11-20: 2 trips, against 5 via rest)
+    assert direct_trips == 2 and via_trips - direct_trips >= 3, (direct_trips, via_trips)
+    # commands go at 50 a second, so this is the time moving: 2414 against 3228 (48s against 65s) on 2026-11-20, the swings
+    # to and from the base camera passing the raised rest (2082 without)
+    assert direct_commands < 0.8 * via_commands, (direct_commands, via_commands)
+
+
+def test_the_swings_to_and_from_the_base_camera_pass_the_raised_rest(monkeypatch, tmp_path):
+    """The base camera's poses are by the LeKiwi base, which nothing models: with no trip to rest, a straight swing between the
+    mat and a pose could cut across it, so both ways pass RAISED_REST (2026-11-20)."""
+    from mahjong.arm import Arm
+    real, where = Arm.move_to, []
+
+    def near(command, pose):
+        return max(abs(command[j] - pose[j]) for j in config.ARM_JOINTS) < 1.0
+
+    def move_to(self, target, duration):
+        end = real(self, target, duration)
+        label = ("camera" if near(end, POSE) else "raised" if near(end, config.RAISED_REST) else
+                 "rest" if self.is_at_rest() else "mat")
+        if not where or where[-1] != label:
+            where.append(label)
+        return end
+    monkeypatch.setattr(Arm, "move_to", move_to)
+    run(script_in(monkeypatch, tmp_path), ["--turns", "1"], [*LIGHT, "", "", "5C", ""])
+    steps = list(zip(where, where[1:]))
+    assert ("mat", "camera") not in steps and ("camera", "mat") not in steps, where
+    assert ("mat", "raised") in steps and ("raised", "camera") in steps and ("camera", "raised") in steps
+    assert ("raised", "rest") not in steps[:where.index("camera") + 2]     # past the base, not folded down to rest
+
+
 # The face-down sim (face_down_rig.Rig) applies the real hover correction, fitted on the RealSense-to-arm gap, to tiles laid where
 # they're detected, so its picks and set-downs land between spots, and this one sets a kept tile down 11mm from an occupied slot.
 # Taking the correction out of the rig's sim (as bench.py's is) changes these tests' outcomes, so it's its own fix, not this test's.

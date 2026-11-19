@@ -55,6 +55,9 @@ class Rig:
         self.correction = HoverCorrection.load()
         self.returns = None
         self.session = None
+        # face-down play: from one move straight to the next, resting only before a person is asked something (crude_run.Run's
+        # ask), the RealSense guide window (prompt), a miss and the end. Off (always via rest) for the collection and wall_test.
+        self.direct = False
         self.view_map = None            # {laying: upright / turned}, learned from the person's answer on the session's first photo
 
     def open_session(self, kind, **setup):
@@ -86,7 +89,8 @@ class Rig:
     def pick(self, name, spot, raise_m=0.0, back_m=0.0):
         """Hover over the spot (the layout's xy stands for a detection: the detector can't see a back) and run the policy.
         raise_m: a hover this much higher, for a tile on top of another; back_m: this much nearer the robot along x (wall_test.py).
-        Returns {"hover", "run", "attempt", "holding", ...} or {"unreachable": True}. The arm is left holding at rest."""
+        Returns {"hover", "run", "attempt", "holding", ...} or {"unreachable": True}. The arm is left holding at rest, or with
+        `direct` lifted clear over the spot (a miss, an abort or a takeover still rests: a person is asked next)."""
         x, y = spot["xy"]
         hx, hy = self.correction.apply(x, y)
         hx -= back_m
@@ -97,7 +101,7 @@ class Rig:
         attempt = self.session.attempt_dir(name)
         self.terminal.start()
         try:
-            hover = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"])
+            hover = self.arm.hover(hx, hy, h["offset_m"], h["clearance_m"], h["gripper"], direct=self.direct)
             if hover is None:
                 return {"unreachable": True, "attempt": attempt}
             self.abort.clear()
@@ -106,7 +110,9 @@ class Rig:
             squeezed = self.arm.squeeze()
         finally:
             self.terminal.stop()
-        self.arm.rest()
+        if not (self.direct and not run.get("aborted") and run.get("takeover_step") is None and self.arm.holding()[0]
+                and self.arm.lift_clear()):
+            self.arm.rest()
         if self.takeover:       # a recovery a person showed: saved, and logged as a rescue, before anything else is asked
             self.takeover.save(run, self.session, self.policy.id, tile_name=name, detection_xy=[float(v) for v in spot["xy"]],
                                hover=dict(self.policy.hover), hover_xy=hover["hover_xy"], hover_offset_m=h["offset_m"],
@@ -120,14 +126,25 @@ class Rig:
 
     def show(self, rng, still_held=None):
         """Visit every pose with the tile in the jaws; returns (frames, which pose each is from, "" or why it stopped).
-        Between poses the arm is checked: a tile that slipped ends the hold. still_held: that check, for a grip Arm.holding can't see."""
+        Between poses the arm is checked: a tile that slipped ends the hold. still_held: that check, for a grip Arm.holding can't see.
+        With `direct`, the swing in from the mat and the swing back out both pass RAISED_REST (without folding down to rest):
+        the poses are by the base camera, on the LeKiwi base, and a straight swing could cut across it (nothing models the base)."""
+        if not self.direct:
+            return self._show(rng, still_held)
+        self.arm.to_raised_rest()
+        try:
+            return self._show(rng, still_held)
+        finally:
+            self.arm.to_raised_rest()       # every way out, the early ones too: "no frames" goes on to the set-down
+
+    def _show(self, rng, still_held):
         still_held = still_held or (lambda: self.arm.holding()[0])
         frames, from_pose = [], []
         limits = self.arm.joint_limits()
         for name in self.pose_list:
             pose = base_cam_collect.jitter(camera_poses.get(name)["pose"], rng, self.args.jitter_deg)
             pose = {j: min(max(v, limits[j][0]), limits[j][1]) for j, v in pose.items()}     # a nudge never passes a joint's limit
-            self.arm.go_to_pose(pose)
+            self.arm.go_to_pose(pose, direct=self.direct)
             self.arm.sleep(self.args.settle_s)
             if not still_held():
                 return frames, from_pose, f"the tile was lost at {name}"
@@ -149,9 +166,11 @@ class Rig:
         to = to or picked_from
         grasp = pick["run"]["grasp_xy"] or pick["hover"]["hover_xy"]
         x, y = self.returns.target([float(v) for v in to["xy"]], [float(v) for v in picked_from["xy"]], grasp)
-        self.arm.rest()
+        if not self.direct:
+            self.arm.rest()
         placed = self.arm.place(x, y, pick["hover"]["offset_m"] - wall_test.HOVER_RAISE_M[layer],
-                                grasp_clearance_m=wall_test.above_own_level_m(pick["run"].get("grasp_clearance_m"), layer))
+                                grasp_clearance_m=wall_test.above_own_level_m(pick["run"].get("grasp_clearance_m"), layer),
+                                direct=self.direct, rest_after=not self.direct)
         return placed, (x, y)
 
 
@@ -207,6 +226,7 @@ def draw_picture(frame, rows):
 def prompt(rig, station, step, ask, keys=""):
     """Show what to lay, on the live RealSense window (or the terminal). Returns "", "s" or "q", or one of `keys` (guide)."""
     text = wall_test.step_text(step)
+    rig.arm.rest()          # a person reaches in, and the RealSense window shows the mat: the arm out of both
     if rig.realsense is None:
         return ask(f"{text}\nEnter when done (s = skip, q = quit): ").strip().lower()
     print(f"{text}\n  (in the RealSense window: Space/Enter when done, s skip, q quit)")

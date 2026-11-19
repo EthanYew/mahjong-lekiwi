@@ -84,6 +84,41 @@ def test_return_sets_down_at_grasp_height(tile):
     assert arm.is_at_rest()
 
 
+def off_raised_rest_deg(command):
+    return max(abs(command[j] - config.RAISED_REST[j]) for j in config.ARM_JOINTS)
+
+
+@pytest.mark.parametrize("pick, put, nxt", [("8D row 1 right", "3B row 1 centre", "9D row 1 left"),
+                                            ("3B row 1 centre", "9B row 2 right", "8D row 2 left")])
+def test_face_down_play_sets_down_and_hovers_again_without_going_to_rest(pick, put, nxt):
+    """place(direct, rest_after=False) then hover(direct): from a pickup over one tile to a set-down on another, then on to
+    the next hover, with no trip to rest or the raised rest. The set-down still rises to the swing height before leaving."""
+    from mahjong import arm as arm_module
+    start = grasp_pose(*TILES[pick])
+    arm, robot = make_arm(start=start, holding=True)
+    assert arm.lift_clear()
+    placed = arm.place(*TILES[put], approach_offset_m=config.HOVER_OFFSET_M, log=lambda *a: None, direct=True, rest_after=False)
+    assert placed is not None and not arm.is_at_rest()
+    assert placed["rise"]["swing_from_m"] >= arm_module.SWING_CLEARANCE_M - CLEARANCE_TOLERANCE_M
+    assert arm.commanded()["gripper"] == pytest.approx(placed["release_gripper"])      # let go, and not closed again
+    set_down = len(robot.sent)
+    hover = arm.hover(*TILES[nxt], config.HOVER_OFFSET_M, config.HOVER_CLEARANCE_M, gripper=90.0, log=lambda *a: None, direct=True)
+    assert hover is not None and abs(hover["clearance_m"] - config.HOVER_CLEARANCE_M) <= CLEARANCE_TOLERANCE_M
+    assert_no_jumps(robot, start)
+    assert min(off_raised_rest_deg(c) for c in robot.sent) > 10       # never folded in: not even near the raised rest
+    assert len(robot.sent) - set_down < int(1.5 * 50) + int(3.0 * 50)   # quicker than the raise from rest and the 3s move
+
+
+def test_a_discard_can_stay_over_the_container():
+    pose = {**config.RAISED_REST, "shoulder_pan": 40.0, "shoulder_lift": -20.0, "elbow_flex": 20.0}
+    start = {**config.REST_POSE, "gripper": 0.0}
+    arm, robot = make_arm(start=start, holding=True)
+    arm.discard(pose, rest_after=False)
+    assert arm.commanded()["shoulder_pan"] == pytest.approx(40.0) and arm.commanded()["gripper"] == config.GRIPPER_RELEASE
+    arm.discard(pose)
+    assert arm.is_at_rest()
+
+
 @pytest.mark.parametrize("grasp_xy", [(0.249, 0.196), (0.253, 0.200)])
 def test_a_grasp_beyond_reach_is_returned_a_little_closer(grasp_xy):
     """2026-10-23: the policy closed on 4D at these points, past the IK's reach; both returns refused."""
