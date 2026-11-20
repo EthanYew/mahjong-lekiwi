@@ -1,0 +1,52 @@
+<section class="ig wide reveal" id="game-loop" aria-labelledby="gl-h">
+  <h3 id="gl-h">How a hand of mahjong works</h3>
+  <p class="ig-sub">Hong Kong rules, in the solo version Robotto plays. Collect sets until your hand is complete.</p>
+  <div class="gl-grid">
+    <div>
+      <h4>1 · The tiles: four copies of each</h4>
+      <div class="gl-kinds">
+        <figure><span class="mt dots" role="img" aria-label="3 of dots"><b>3</b><i>dots</i></span><figcaption><b>Dots</b>1 to 9</figcaption></figure>
+        <figure><span class="mt bam" role="img" aria-label="5 of bamboo"><b>5</b><i>bam</i></span><figcaption><b>Bamboo</b>1 to 9</figcaption></figure>
+        <figure><span class="mt char" role="img" aria-label="7 of characters"><b>7</b><i>char</i></span><figcaption><b>Characters</b>1 to 9</figcaption></figure>
+        <figure><span class="mt wind" role="img" aria-label="East wind"><b class="g">東</b><i>east</i></span><figcaption><b>Winds</b>E, S, W, N</figcaption></figure>
+        <figure><span class="mt drag" role="img" aria-label="Red dragon"><b class="g">中</b><i>red</i></span><figcaption><b>Dragons</b>red, green, white</figcaption></figure>
+      </div>
+
+      <h4 style="margin-top:2rem">2 · The goal: four sets and a pair (14 tiles)</h4>
+      <div class="gl-goal" role="img" aria-label="A winning hand: a run 2 3 4 of bamboo, a triplet of 7 dots, a run 5 6 7 of characters, a triplet of East wind, and a pair of red dragons.">
+        <div class="gl-set"><div class="tiles"><span class="mt bam"><b>2</b><i>bam</i></span><span class="mt bam"><b>3</b><i>bam</i></span><span class="mt bam"><b>4</b><i>bam</i></span></div><span class="l"><b>Run</b>3 in a row, one suit</span></div>
+        <div class="gl-set"><div class="tiles"><span class="mt dots"><b>7</b><i>dots</i></span><span class="mt dots"><b>7</b><i>dots</i></span><span class="mt dots"><b>7</b><i>dots</i></span></div><span class="l"><b>Triplet</b>3 the same</span></div>
+        <div class="gl-set"><div class="tiles"><span class="mt char"><b>5</b><i>char</i></span><span class="mt char"><b>6</b><i>char</i></span><span class="mt char"><b>7</b><i>char</i></span></div><span class="l"><b>Run</b>3 in a row, one suit</span></div>
+        <div class="gl-set"><div class="tiles"><span class="mt wind"><b class="g">東</b><i>east</i></span><span class="mt wind"><b class="g">東</b><i>east</i></span><span class="mt wind"><b class="g">東</b><i>east</i></span></div><span class="l"><b>Triplet</b>3 the same</span></div>
+        <div class="gl-set"><div class="tiles"><span class="mt drag"><b class="g">中</b><i>red</i></span><span class="mt drag"><b class="g">中</b><i>red</i></span></div><span class="l"><b>Pair</b>2 the same</span></div>
+      </div>
+    </div>
+
+    <div>
+      <h4>3 · Every turn</h4>
+      <div class="turnflow" data-turnflow>
+        <div class="tf-loop" aria-hidden="true"><span>next turn</span></div>
+        <div class="tf-node" data-step="draw"><b>Draw a tile</b><small>the hand now has 14</small></div>
+        <div class="tf-down" aria-hidden="true"></div>
+        <div class="tf-mid">
+          <div class="tf-diamond" data-step="check"><span>Is it a winning hand?</span></div>
+          <span class="tf-yes" aria-hidden="true">yes →</span>
+          <div class="tf-win" data-step="win">Win!</div>
+        </div>
+        <div class="tf-down" aria-hidden="true"><span>no</span></div>
+        <div class="tf-node" data-step="discard"><b>Discard one tile</b><small>back to 13</small></div>
+      </div>
+      <div class="play" hidden>
+        <button type="button" class="play-btn" data-turn-next>Play a turn</button>
+        <p class="play-status" aria-live="polite">Step through a short game, one move at a time.</p>
+      </div>
+    </div>
+  </div>
+
+  <h4 style="margin-top:2rem">How Robotto’s version differs</h4>
+  <div class="gl-diff" style="margin-top:0">
+    <div class="node"><b>Plays alone</b><p>Mahjong solitaire: it draws from the wall every turn, with no opponents yet.</p></div>
+    <div class="node"><b>Reads face-down tiles</b><p>Every drawn tile is lifted to a camera and named before the robot decides.</p></div>
+    <div class="node"><b>Not yet</b><p>Claiming other players’ discards, scoring, and playing against people.</p></div>
+  </div>
+</section>

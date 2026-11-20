@@ -1,0 +1,135 @@
+/* Components from the MahjongBot design system (bundle.css), scaled for the web. */
+
+/* Pill: the word always carries the meaning, colour is the code. */
+.mj-pill { display: inline-block; font: 700 .78rem/1.4 var(--font-sans); letter-spacing: .1em; text-transform: uppercase;
+  padding: .2em .85em; border-radius: var(--radius-pill); white-space: nowrap; }
+.mj-pill--learned { background: var(--red); color: var(--ivory); }
+.mj-pill--geometry { background: var(--felt); color: var(--ivory); }
+.mj-pill--rules { background: var(--gold); color: var(--ink); }
+.mj-pill--outline { border: 2px solid var(--gold); color: var(--gold); background: transparent; }
+/* Geometry pills vanish on felt grounds, so they invert there. */
+.felt-panel .mj-pill--geometry { background: var(--ivory); color: var(--felt); }
+@media (prefers-color-scheme: dark) { .mj-pill--geometry { background: var(--ivory); color: var(--felt); } }
+
+/* Card: no borders, no shadow. */
+.mj-card { background: var(--surface-raised); color: var(--text); border-radius: var(--radius-card);
+  padding: 1.5rem; display: flex; flex-direction: column; gap: .6rem; }
+.mj-card h3 { font: 600 1.35rem/1.15 var(--font-display); margin: 0; }
+.mj-card p { margin: 0; }
+.mj-card .mj-note { font-size: .92rem; color: var(--text-muted); }
+
+/* Felt panel: a piece of the table set into the page. */
+.felt-panel { background: var(--surface-inverse); color: var(--on-felt); border-radius: var(--radius-card);
+  padding: clamp(1.25rem, 4vw, 2.5rem); }
+.felt-panel .mj-card { background: var(--felt-2); color: var(--on-felt); }
+.felt-panel .mj-card .mj-note, .felt-panel .mj-label, .felt-panel .mj-stat .mj-label { color: var(--on-felt-muted); }
+.felt-panel .mj-eyebrow { color: var(--gold); }
+.felt-panel h2, .felt-panel h3 { color: var(--on-felt); }
+@media (prefers-color-scheme: dark) { .felt-panel { background: var(--felt-2); } .felt-panel .mj-card { background: var(--felt); } }
+
+.mj-eyebrow { font: 700 .8rem/1.4 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; color: var(--eyebrow); margin: 0 0 .6rem; }
+
+/* Stat */
+.mj-stat .mj-num { font: 600 clamp(2.4rem, 7vw, 3.6rem)/1 var(--font-display); color: var(--highlight); }
+.felt-panel .mj-stat .mj-num { color: var(--gold); }
+.mj-stat .mj-label { font-size: 1.02rem; color: var(--text-muted); }
+.mj-stat .mj-note { font-size: .86rem; }
+
+/* Tile. --tw sets the width; everything else follows. */
+.mj-tile { --tw: 120px; width: var(--tw); height: calc(var(--tw) * 1.35); flex: none;
+  background: var(--ivory); border-radius: calc(var(--tw) * .12);
+  box-shadow: 0 calc(var(--tw) * .07) 0 var(--tile-lip), 0 calc(var(--tw) * .14) calc(var(--tw) * .24) rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center; }
+.mj-tile span { font: 700 calc(var(--tw) * .7)/1 "Tile Glyphs", "Fraunces", "Songti SC", "Noto Serif CJK SC", serif; }
+.mj-tile .mj-red { color: var(--red); } .mj-tile .mj-jade { color: var(--jade); }
+.mj-tile .mj-blank { width: 60%; height: 63%; border: calc(var(--tw) * .04) solid var(--tile-blue);
+  border-radius: calc(var(--tw) * .06); }
+.mj-tile--back { background: var(--jade); }
+.mj-tile--back::after { content: ""; width: 62%; height: 70%; border-radius: calc(var(--tw) * .07);
+  border: calc(var(--tw) * .025) solid rgba(245, 239, 226, .45); }
+.mj-tilt-l { transform: rotate(-6deg); } .mj-tilt-r { transform: rotate(5deg); }
+.mj-tile--sm { --tw: 22px; }
+
+/* Entrance: rise 24px over 600ms, 120ms apart. Plays once. */
+@keyframes mj-rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.mj-in { animation: mj-rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 120ms); }
+.tile-deal .mj-tile { animation: mj-deal 700ms cubic-bezier(.2, .8, .3, 1) both; animation-delay: calc(var(--i, 0) * 140ms + 150ms); }
+@keyframes mj-deal { from { opacity: 0; transform: translateY(-40px) rotate(var(--r, 0deg)) scale(.9); }
+  to { opacity: 1; transform: rotate(var(--r, 0deg)); } }
+.tile-deal .mj-tilt-l { --r: -6deg; transform: rotate(-6deg); } .tile-deal .mj-tilt-r { --r: 5deg; transform: rotate(5deg); }
+
+/* Reveal on scroll (JS adds .js to <html>; without it everything is simply visible) */
+.js .reveal { opacity: 0; transform: translateY(24px); transition: opacity 600ms ease-out, transform 600ms ease-out;
+  transition-delay: calc(var(--i, 0) * 120ms); }
+.js .reveal.is-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mj-in, .tile-deal .mj-tile { animation: none; }
+  .js .reveal { opacity: 1; transform: none; transition: none; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* ---- Set-piece: one turn, six steps ---- */
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 1.25rem; }
+.chip { font: 700 .8rem/1 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+  padding: .65em 1.1em; border-radius: var(--radius-pill); border: 2px solid var(--gold); background: transparent; color: var(--gold); }
+.chip[aria-pressed="true"] { background: var(--gold); color: var(--ink); }
+.chip:focus-visible, .tile-btn:focus-visible { outline: 3px solid var(--ivory); outline-offset: 3px; }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); counter-reset: step; }
+.steps > li { margin: 0; counter-increment: step; transition: opacity 250ms, transform 250ms; }
+.steps .mj-card { height: 100%; }
+.steps .step-n { font: 600 .9rem var(--font-sans); color: var(--on-felt-muted); letter-spacing: .1em; }
+.steps .pills { display: flex; flex-wrap: wrap; gap: .4rem; }
+.steps li.is-dim { opacity: .28; transform: scale(.98); }
+
+/* ---- Set-piece: evidence stats ---- */
+.stat-row { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); margin-top: 1.25rem; }
+.stat-group { margin-top: 1.75rem; }
+.stat-group:first-of-type { margin-top: 1rem; }
+.stat-group h3 { margin: 0; font: 700 .8rem/1.4 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.stat-caveat { font-size: .92rem; color: var(--on-felt-muted); margin: .75rem 0 0; }
+
+/* paired bars */
+.bars { display: grid; gap: .9rem; margin-top: 1.25rem; }
+.bar-pair h3 { font: 700 .82rem/1.4 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .4rem; color: var(--text-muted); }
+.bar { display: grid; grid-template-columns: 7.5rem 1fr 3.6rem; align-items: center; gap: .75rem; font-size: .95rem; margin-bottom: .35rem; }
+.bar-track { height: 1.4rem; background: var(--surface-raised); border-radius: var(--radius-bar); overflow: hidden; }
+.bar-fill { display: block; height: 100%; width: 0; border-radius: var(--radius-bar); background: var(--felt); transition: width 900ms cubic-bezier(.2, .8, .3, 1); }
+.bar-fill.worse { background: var(--red); }
+@media (prefers-color-scheme: dark) { .bar-fill { background: var(--gold); } .bar-fill.worse { background: var(--red); } }
+.bar b { font-variant-numeric: tabular-nums; text-align: right; }
+.no-js-bars .bar-fill, html:not(.js) .bar-fill { width: var(--w); }
+.bars.is-in .bar-fill { width: var(--w); }
+
+/* ---- Set-piece: tile-wall timeline ---- */
+.wall-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.wall-list li { margin: 0; }
+.wall-list .when { font: 700 .8rem/1.4 var(--font-sans); letter-spacing: .12em; text-transform: uppercase; color: var(--on-felt-muted); }
+.wall { display: none; }
+.js .wall { display: grid; grid-template-columns: repeat(5, 1fr); gap: clamp(.6rem, 2vw, 1.4rem) clamp(.5rem, 1.6vw, 1.1rem); justify-items: center; padding: .5rem 0 1.5rem; }
+.js .wall-list { display: none; }
+.tile-btn { appearance: none; border: 0; background: none; padding: 0; cursor: pointer; perspective: 600px;
+  width: clamp(52px, 13vw, 96px); height: calc(clamp(52px, 13vw, 96px) * 1.35); color: inherit; font: inherit; }
+.tile-btn .flip { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 500ms cubic-bezier(.3, .7, .3, 1); }
+.tile-btn[aria-pressed="true"] .flip { transform: rotateY(180deg); }
+.tile-btn .face, .tile-btn .back { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: .25rem;
+  border-radius: calc(clamp(52px, 13vw, 96px) * .12);
+  box-shadow: 0 calc(clamp(52px, 13vw, 96px) * .07) 0 var(--tile-lip), 0 8px 18px rgba(0,0,0,.35); }
+.tile-btn .back { background: var(--jade); color: var(--ivory); font: 700 clamp(.6rem, 1.8vw, .8rem)/1.2 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; box-shadow: 0 calc(clamp(52px, 13vw, 96px) * .07) 0 #14492f, 0 8px 18px rgba(0,0,0,.35); }
+.tile-btn .face { background: var(--ivory); color: var(--ink); transform: rotateY(180deg); font: 600 clamp(.7rem, 2vw, .95rem)/1.15 var(--font-display); }
+.tile-btn .face i { display: block; width: 1.1rem; height: .3rem; border-radius: 99px; margin-top: .4rem; background: var(--red); }
+.tile-btn .face i.k-geometry { background: var(--felt); } .tile-btn .face i.k-rules { background: var(--gold); }
+.tile-btn[aria-pressed="false"]:hover .flip { transform: rotateY(-14deg) translateY(-4px); }
+.wall-detail { background: var(--felt-2); border-radius: var(--radius-card); padding: 1.25rem 1.5rem; min-height: 8.5rem; }
+.wall-detail .when { margin: 0 0 .4rem; }
+.wall-detail h3 { font: 600 1.35rem/1.2 var(--font-display); margin: 0 0 .5rem; color: var(--ivory); }
+.wall-detail p { margin: 0 0 .6rem; }
+.wall-detail a { color: var(--gold); text-decoration-color: var(--gold); }
+@media (prefers-color-scheme: dark) { .wall-detail { background: var(--felt); } }
+@media (prefers-reduced-motion: reduce) { .tile-btn .flip, .bar-fill { transition: none; } }
+.bar-track { display: block; }
+.bars-caption { font-size: .92rem; line-height: 1.45; color: var(--text-muted); margin: .25rem 0 0; }
+@media (max-width: 520px) { .bar { grid-template-columns: 5.2rem 1fr 3.2rem; gap: .5rem; font-size: .85rem; } }
+.felt-panel a { color: var(--gold); text-decoration-color: var(--gold); }
+.felt-panel .mj-card a { font-size: .95rem; }

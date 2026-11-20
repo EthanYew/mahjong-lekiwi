@@ -1,0 +1,39 @@
+<section class="ig wide reveal" id="interventions" aria-labelledby="iv-h">
+  <h3 id="iv-h">What counts against the 3</h3>
+  <p class="ig-sub">A clean hand allows a person no more than 3 interventions, and the audit at the end must find zero mismatches.</p>
+  <div class="iv-cols">
+    <div class="iv-col yes">
+      <h4>Counts as an intervention</h4>
+      <div class="node"><b>Assist</b><p>I correct a misread tile label, or physically reposition a tile, so the game can continue.</p></div>
+      <div class="node"><b>Safety stop</b><p>I press Esc to halt the arm and prevent physical damage.</p></div>
+      <div class="node"><b>Reset</b><p>I reset the arm after a tile lands more than 25 mm from where it should.</p></div>
+    </div>
+    <div class="iv-col">
+      <h4>Doesn’t count</h4>
+      <div class="node"><b>Designed step</b><p>Something I am meant to do, such as setting up the wall each turn.</p></div>
+      <div class="node"><b>Confirmation ask</b><p>I approve a tile read without changing it. Not an intervention, but I count them, because each one is a person watching and waiting.</p></div>
+      <div class="node"><b>Recovery</b><p>The robot notices its own failure and retries.</p></div>
+    </div>
+  </div>
+  <div class="iv-audit"><span class="big">0</span><span><b>mismatches at the audit.</b> After the hand I check the robot’s hand and discards against the table for any misidentified tile.</span></div>
+
+  <div class="sim" data-sim>
+    <h4>Try it: log what happens in a hand</h4>
+    <div class="sim-btns" role="group" aria-label="Add an event to the hand">
+      <button type="button" class="sim-btn" data-counts="yes" data-name="Assist">+ Assist</button>
+      <button type="button" class="sim-btn" data-counts="yes" data-name="Safety stop">+ Safety stop</button>
+      <button type="button" class="sim-btn" data-counts="yes" data-name="Reset">+ Reset</button>
+      <button type="button" class="sim-btn" data-counts="ask" data-name="Confirmation ask">+ Confirmation ask</button>
+      <button type="button" class="sim-btn" data-counts="no" data-name="Recovery">+ Recovery</button>
+      <button type="button" class="sim-btn" data-counts="audit" data-name="Audit mismatch">Audit finds a mismatch</button>
+      <button type="button" class="sim-btn" data-counts="reset">Start over</button>
+    </div>
+    <div class="sim-board">
+      <span class="lbl">Interventions</span>
+      <span class="budget" data-budget><span class="mt sm"></span><span class="mt sm"></span><span class="mt sm"></span></span>
+      <span class="lbl">Asks counted</span>
+      <span class="asks" data-asks>0</span>
+      <p class="sim-verdict" data-verdict aria-live="polite">Clean so far.</p>
+    </div>
+  </div>
+</section>

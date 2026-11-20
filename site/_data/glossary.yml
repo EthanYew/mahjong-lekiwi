@@ -1,0 +1,51 @@
+# Glossary popovers. The first use of each term on a page (in body text, outside the
+# infographics) gets a dotted underline and a short definition. `match` lists the spellings
+# to look for, longest first; matching is case sensitive unless `nocase: true`.
+- term: kaki
+  match: ["kaki"]
+  def: "Malaysian slang for buddies. Here, the people you need to make up a mahjong table of four."
+- term: Teleoperation
+  match: ["teleoperation", "teleoperating", "teleoperate"]
+  def: "Controlling the robot by hand in real time. I move a leader arm or a game controller and the robot copies it. This is how demonstrations are recorded."
+- term: Wall
+  match: ["wall"]
+  def: "The stack of face-down tiles that players draw from. Robotto’s wall is two tiles high."
+- term: Policy
+  match: ["policy"]
+  def: "A neural network that decides the arm’s next movements from what its cameras see. It learns from recorded demonstrations."
+- term: ACT policy
+  match: ["ACT policy", "ACT policies"]
+  def: "Action Chunking with Transformers: a kind of policy that predicts a short chunk of arm motion at a time. It’s what picks up each tile here."
+- term: Inverse kinematics (IK)
+  match: ["Inverse kinematics", "inverse kinematics", "IK"]
+  def: "The maths that works out how much each motor must turn to put the gripper at a given point in space."
+- term: YOLO
+  match: ["YOLO"]
+  def: "“You Only Look Once”: a fast family of object-detection models. Here it finds each tile in the overhead camera’s image and names it."
+- term: DAgger
+  match: ["DAgger"]
+  def: "Dataset Aggregation. I take over when the robot goes wrong, and those corrections are added to its training data, so it learns how to recover."
+- term: SO-101
+  match: ["SO-101"]
+  def: "A low-cost, open-source robot arm with six motors, 3D printed and assembled at home."
+- term: LeKiwi
+  match: ["LeKiwi"]
+  def: "An open-source wheeled base. The arm is mounted on it, and its front camera is the one that reads face-down tiles."
+- term: RealSense
+  match: ["RealSense"]
+  def: "An Intel depth camera. Mounted overhead, it measures how far away each pixel is, which turns a tile in the image into a 3D position."
+- term: Silent error
+  match: ["silent error", "silent errors"]
+  def: "A wrong tile played with nobody noticing. The one failure treated as unacceptable."
+- term: Face down
+  match: ["face-down", "face down"]
+  def: "Tiles drawn with their faces hidden, as in a real game. The robot has to lift each one to a camera to read it."
+- term: ArUco marker
+  match: ["ArUco marker"]
+  def: "A printed black-and-white square that a camera can locate precisely. Used to line up camera pixels with the arm’s position."
+- term: mAP50
+  match: ["mAP50"]
+  def: "A standard accuracy score for object detectors, from 0 to 1. Higher means it finds and names more tiles correctly."
+- term: MuJoCo
+  match: ["MuJoCo"]
+  def: "A physics simulator. Scripted moves can be tried on a virtual arm before the real one."

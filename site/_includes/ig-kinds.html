@@ -1,0 +1,27 @@
+<section class="ig wide reveal" aria-labelledby="kinds-h">
+  <h3 id="kinds-h">Three kinds of work</h3>
+  <p class="ig-sub">Each step in a turn is done by one of these.</p>
+  <div class="kinds">
+    <div class="node">
+      <span class="mj-pill mj-pill--geometry" style="justify-self:start">Geometry</span>
+      <h4>Inverse kinematics</h4>
+      <p>The maths that works out how each motor needs to turn to place the gripper (robot claw) at a specific spot in space.</p>
+      <div class="traits"><span class="trait">Same answer every time</span></div>
+      <p class="eg">Like working out how to move your shoulder and elbow to reach a point with your fingers.</p>
+    </div>
+    <div class="node">
+      <span class="mj-pill mj-pill--rules" style="justify-self:start">Rules</span>
+      <h4>Ordinary scripted code</h4>
+      <p>Deterministic and predictable output.</p>
+      <div class="traits"><span class="trait">Predictable</span><span class="trait">Cheap to build</span><span class="trait">Rigid</span></div>
+      <p class="eg"><b>A tile tilted at an odd angle:</b> a scripted pickup is more likely to struggle.</p>
+    </div>
+    <div class="node">
+      <span class="mj-pill mj-pill--learned" style="justify-self:start">Learned</span>
+      <h4>A neural network trained on examples</h4>
+      <p>Needs lots of time and effort to collect enough data and train the policy itself.</p>
+      <div class="traits"><span class="trait">Adaptable</span><span class="trait">Not deterministic</span><span class="trait">Expensive</span></div>
+      <p class="eg"><b>A tile tilted at an odd angle:</b> handled better, if it was trained on similar examples.</p>
+    </div>
+  </div>
+</section>

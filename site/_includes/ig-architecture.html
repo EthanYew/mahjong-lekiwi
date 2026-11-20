@@ -1,0 +1,45 @@
+<section class="ig wide reveal" id="architecture" aria-labelledby="arch-h">
+  <h3 id="arch-h">What I built: eyes, brain and hands</h3>
+  <p class="ig-sub">Three trained models and some plain code, joined by Python scripts on a PC. Each part is tagged with the kind of work it does.</p>
+  <div class="arch-legend">
+    <span><span class="mj-pill mj-pill--learned">Learned</span> trained on my examples</span>
+    <span><span class="mj-pill mj-pill--geometry">Geometry</span> maths, same answer every time</span>
+    <span><span class="mj-pill mj-pill--rules">Rules</span> ordinary code</span>
+    <span><span class="mj-pill mj-pill--hardware">Hardware</span> the physical kit</span>
+  </div>
+  <div class="chips" role="group" aria-label="Highlight a kind of work" data-filter-chips="arch" hidden>
+    <button class="chip" type="button" data-kind="all" aria-pressed="true">All</button>
+    <button class="chip" type="button" data-kind="learned" aria-pressed="false">Learned</button>
+    <button class="chip" type="button" data-kind="geometry" aria-pressed="false">Geometry</button>
+    <button class="chip" type="button" data-kind="rules" aria-pressed="false">Rules</button>
+    <button class="chip" type="button" data-kind="hardware" aria-pressed="false">Hardware</button>
+  </div>
+  <div class="arch" data-filter-target="arch">
+    <div class="bk eyes" aria-hidden="true"></div><div class="bk brain" aria-hidden="true"></div><div class="bk hands" aria-hidden="true"></div>
+
+    <p class="col-h eyes">Eyes · see the table</p>
+    <div class="node e1 down" data-kinds="hardware"><span class="mj-pill mj-pill--hardware">Hardware</span><b>Base camera (LeKiwi)</b><p>Faces forward from the wheeled base</p></div>
+    <div class="node e2" data-kinds="learned"><span class="mj-pill mj-pill--learned">Learned</span><b>Tile reader (image classifier)</b><p>Names a drawn tile when the arm holds it up to the camera</p></div>
+    <div class="node e3 down" data-kinds="hardware"><span class="mj-pill mj-pill--hardware">Hardware</span><b>Overhead depth camera</b><p>RealSense D435, looking down at the table</p></div>
+    <div class="node e4" data-kinds="learned"><span class="mj-pill mj-pill--learned">Learned</span><b>Tile detector (YOLO)</b><p>Finds each face-up tile; depth turns its pixels into a 3D spot</p></div>
+    <div class="link l1">name of the drawn tile</div>
+    <div class="link l2">each tile + its 3D spot</div>
+
+    <p class="col-h brain">Brain · decide</p>
+    <div class="node b1" data-kinds="rules"><span class="mj-pill mj-pill--rules">Rules</span><b>Turn script</b><p>Runs each step in order; asks me when a read is unsure</p></div>
+    <div class="node b2" data-kinds="rules"><span class="mj-pill mj-pill--rules">Rules</span><b>Game logic</b><p>Picks the discard that brings the hand closest to a win</p></div>
+    <div class="vlink bv">my hand and the table</div>
+    <div class="node b4" data-kinds="rules"><span class="mj-pill mj-pill--rules">Rules</span><b>Tile map</b><p>Where every tile sits; the face-down hand is kept as saved slots</p></div>
+    <div class="link l3">move this tile to that spot</div>
+
+    <p class="col-h hands">Hands · act</p>
+    <div class="node h1" data-kinds="rules"><span class="mj-pill mj-pill--rules">Rules</span><b>Safety limits</b><p>Rise straight up first, capped lift speed, floor limit</p></div>
+    <div class="node h2 down" data-kinds="geometry learned"><span class="mj-pill mj-pill--geometry">Geometry</span> <span class="mj-pill mj-pill--learned">Learned</span><b>Reach (inverse kinematics)</b><p>Motor angles to hover 5 cm above a tile, plus a small learned correction</p></div>
+    <div class="node h3 down" data-kinds="learned"><span class="mj-pill mj-pill--learned">Learned</span><b>Grasp (ACT policy)</b><p>Watches the wrist camera to lower, grip and lift the tile</p></div>
+    <div class="node h4" data-kinds="hardware"><span class="mj-pill mj-pill--hardware">Hardware</span><b>SO-101 arm on LeKiwi base</b><p>Six motors carry out the joint commands; a wrist camera gives a close look</p></div>
+  </div>
+  <div class="arch-foot">
+    <div class="node" data-kinds="me"><span class="mj-pill mj-pill--me">Me</span><b>Me, beside the arm</b><p>I set up the hand and wall, push the wall forward every 2 turns, confirm unsure reads, and can stop the arm with Esc.</p></div>
+    <div class="node" data-kinds="learned"><span class="mj-pill mj-pill--learned">Learned</span><b>How the learned parts were taught</b><p>Grasp: ~1,650 demos, ~490 of them my corrections (DAgger). Detector: ~830 photos of my tiles. Reader: 9,800+ held-up photos.</p></div>
+  </div>
+</section>

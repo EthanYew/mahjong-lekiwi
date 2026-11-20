@@ -1,0 +1,24 @@
+<section class="ig reveal" id="empty-seat" aria-labelledby="seat-h">
+  <h3 id="seat-h">Four seats, one table</h3>
+  <p class="ig-sub">Mahjong needs four players. Ours only fills when my grandparents visit.</p>
+  <div class="seg" role="group" aria-label="Show the table" hidden>
+    <button type="button" data-seat="visit" aria-pressed="true">When they visit</button>
+    <button type="button" data-seat="year" aria-pressed="false">The rest of the year</button>
+    <button type="button" data-seat="remote" aria-pressed="false">Goal: steered from Malaysia</button>
+    <button type="button" data-seat="auto" aria-pressed="false">Goal: an extra player</button>
+  </div>
+  <div class="seat-wrap">
+    <div class="table-top" aria-hidden="true">
+      <div class="felt"><div class="tiles">{% include tile.html glyph="red" %}{% include tile.html glyph="jade" %}</div></div>
+      <div class="seat s1" data-who="gm"><span class="dot">G</span><span class="nm">Grandma</span></div>
+      <div class="seat s2" data-who="dad"><span class="dot">D</span><span>Dad</span></div>
+      <div class="seat s3" data-who="gp"><span class="dot">G</span><span class="nm">Grandpa</span></div>
+      <div class="seat s4" data-who="sis"><span class="dot">S</span><span>My sister</span></div>
+    </div>
+    <div class="seat-copy" aria-live="polite">
+      <h4 data-seat-label>Once a year</h4>
+      <p class="verdict" data-seat-verdict>Four players. Game on.</p>
+      <p class="muted" data-seat-note>My grandparents are in town from Malaysia, so we have enough kaki to play.</p>
+    </div>
+  </div>
+</section>
