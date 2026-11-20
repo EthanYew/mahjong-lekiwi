@@ -82,7 +82,8 @@ article > .ig.wide { max-width: 60rem; }
 .play-btn:focus-visible, .seg button:focus-visible, .sim-btn:focus-visible, .gloss:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
 @media (prefers-color-scheme: dark) { .play-btn { background: var(--gold); color: var(--ink); } .play-btn:focus-visible, .seg button:focus-visible, .sim-btn:focus-visible, .gloss:focus-visible { outline-color: var(--gold); } }
 .play-status { font-size: .9rem; color: var(--text-muted); min-height: 2.6em; margin: 0; max-width: 18rem; }
-@media (max-width: 1000px) { .gl-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .gl-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 420px) { .turnflow { --nw: 8.4rem; padding-left: 2.2rem; } .turnflow .tf-mid { flex-wrap: wrap; row-gap: .4rem; max-width: 100%; } .turnflow .tf-win { padding: .6rem; } .turnflow .tf-diamond { padding: 0 1.6rem; font-size: .82rem; } }
 
 /* ---------- segmented toggle (shared) ---------- */
 .seg { display: inline-flex; flex-wrap: wrap; gap: .3rem; background: var(--surface); padding: .3rem; border-radius: var(--radius-pill); margin-bottom: 1.2rem; }

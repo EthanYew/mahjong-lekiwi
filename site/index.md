@@ -8,6 +8,7 @@ next_title: "Build log: MahjongBot"
 hero: true
 eyebrow: "A robot arm · a family table · 2026"
 pills: ["Autonomy: supervised", "Stage: internal test"]
+hand: article_toc  # the contents strip down the left of the page: _data/article_toc.yml
 ---
 
 ## The short version
