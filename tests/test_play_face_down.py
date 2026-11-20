@@ -17,7 +17,7 @@ from mahjong.session import read_events
 
 POSE = {j: 0.0 for j in config.ARM_JOINTS}
 HAND = ["1C", "2C", "3C", "5C", "5C", "7C", "7C", "9C", "9C", "1B", "1B", "2C", "3C"]
-SLOTS = [f"S{i}" for i in (*range(1, 13), 14)]         # even-hand13: even-hand14's ids without S13, the drop zone's spot
+SLOTS = [f"S{i}" for i in (*range(1, 7), *range(8, 15))]   # even-hand13: even-hand14's ids without S7, the drop zone's spot
 LIGHT = ["", "", ""]
 
 
@@ -91,7 +91,7 @@ def test_the_hand_sheet_and_the_laying_window_draw():
     T = np.eye(4)
     T[:3, 3] = [0.0, 0.0, 0.6]
     out = face_down_play.lay_hand_frame(np.zeros((480, 848, 3), np.uint8), spots, {"id": "L2", "xy": [0.2, 0.15]},
-                                        {"id": "zone", "xy": [0.2, -0.17]}, intrinsics, T, face_down_play.lay_lines("L2", 4, slots))
+                                        {"id": "zone", "xy": [0.192, -0.012]}, intrinsics, T, face_down_play.lay_lines("L2", 4, slots))
     assert out.shape == (480, 848, 3)
 
 

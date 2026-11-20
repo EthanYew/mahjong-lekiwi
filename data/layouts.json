@@ -872,15 +872,6 @@
         "label": "2D"
       },
       {
-        "id": "S7",
-        "xy": [
-          0.192,
-          -0.012
-        ],
-        "yaw_deg": 0.0,
-        "label": "NW"
-      },
-      {
         "id": "S8",
         "xy": [
           0.142,
@@ -926,6 +917,15 @@
         "label": "7D"
       },
       {
+        "id": "S13",
+        "xy": [
+          0.192,
+          -0.165
+        ],
+        "yaw_deg": 0.0,
+        "label": "WW"
+      },
+      {
         "id": "S14",
         "xy": [
           0.142,
@@ -936,7 +936,7 @@
       }
     ],
     "created": "2026-11-03T00:00:00",
-    "note": "autonomous play: even-hand14's 13 hand slots (play.py --layout even-hand13), without S13 (WW), where the drawn tile's drop zone goes; spots keep even-hand14's ids; bench them with even-hand14",
+    "note": "autonomous play: even-hand14's 13 hand slots (play.py --layout even-hand13), without S7 (NW), where the drawn tile's drop zone goes (moved from S13 on 2026-11-20: the middle of the far row is where the arm picks most reliably, and draws and discards are most of a hand's picks); spots keep even-hand14's ids; bench them with even-hand14",
     "ghost": null
   },
   "wall-stations": {

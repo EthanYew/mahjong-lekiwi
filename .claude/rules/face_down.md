@@ -29,7 +29,7 @@ Face-down tiles: drawing from the wall station, the base camera's reader, the cr
   silently, so the gate is checked after the hand instead: **an unattended hand counts toward play-ready** (the owner's decision,
   2026-11-20) only once every hold's photo has a verdict (`base_cam_review.py --play`, then `play_face_down.py --report`) and the
   end check matched. One wrong name found there is a silent error: it stops play, as play.md says. **The face-down target is 8 of 10
-  consecutive hands clean, 0 silent errors** (`docs/autonomy_plan.md`, "Face-down hands"). A hand not yet reviewed counts for nothing.
+  consecutive hands clean, 0 silent errors** (clean allows up to 3 fixes since 2026-11-20; the tally doesn't count that yet) (`docs/autonomy_plan.md`, "Face-down hands"). A hand not yet reviewed counts for nothing.
   A low read gets a second hold (`--reshow-below` 0.6, a guess from 6 reads). Unconfirmed on the arm.
 - **A face-down turn doesn't go to rest between moves**, only before a question, the RealSense window, after a miss and at the end
   (`Rig.direct`, `--via-rest` for the old way). motion.md has the detail.

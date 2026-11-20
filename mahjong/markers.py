@@ -164,7 +164,7 @@ def zone_test(zone_xy, play_spots, test_spots, sessions_dir=None, play_layout=PL
                         + (f", {unseen} not seen near home by the scan after" if unseen else "")
                         + (f", median {median_mm:.0f}mm from home" if landed and not math.isinf(median_mm) else "")
                         + f" (needs {CARRY_MIN_LANDINGS}+, median {config.RETURN_DRIFT_WARN_M * 1000:.0f}mm or less)")
-        from_id = (spot or closest or {"id": "S13"})["id"]
+        from_id = (spot or closest or {"id": "S7"})["id"]
         fix.append(f"python scripts/bench.py --layout {test_layout} --trials 2 --carry {from_id},{play_spots[0]['id']}"
                    f"   # a tile on {from_id}, {play_spots[0]['id']} empty")
     return {"ok": not problems, "spot": spot["id"] if spot else None, "attempts": attempts, "picked": picked,

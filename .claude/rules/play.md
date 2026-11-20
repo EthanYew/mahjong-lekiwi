@@ -53,6 +53,5 @@ Autonomous play: names, questions, the window and the drop zone. Evidence in `do
   the marker itself was moved 6mm (it had read 0.4-2.1mm off in 37 checks), and a marker can't tell that from a moved camera. So a moved
   camera or base no longer stops a hand: that's `setup_check.py`, before it. A turn goes on only once a scan sees a tile on the zone,
   a faint box included, and a box proves a tile, never its name. Unconfirmed on the arm.
-- **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand, at the far end of
-  the rows (WW). `even-hand14` is `even-hand13` + that spot (S13); `play.py` refuses to start until a
+- **The drop zone is benched before play.** Play reaches the drawn tile's spot only mid-hand. `even-hand14` is `even-hand13` + that spot (S7, NW: moved there from S13 (WW) on 2026-11-20, mid-row picks being the reliable ones and draws and discards most of a hand's picks); `play.py` refuses to start until a
   bench session has picked up and returned a tile within 25mm of the taught zone (`markers.zone_test`).

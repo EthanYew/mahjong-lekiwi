@@ -55,7 +55,7 @@ not a worktree, or the sessions go when the worktree does.
 | See how the arm sagged / drifted while lining up corrections | `python scripts/handoff_report.py` |
 | See how well returns land tiles back where they were | `python -m mahjong.return_correction` |
 | Compare all bench sessions | `python scripts/session_report.py --all` |
-| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot), then `--carry S13,S1` added (a tile on S13, S1 empty) |
+| Check the hand's slots and the drop zone on the bench before playing | `python scripts/bench.py --layout even-hand14 --trials 2` (a tile on every spot), then `--carry S7,S1` added (a tile on S7, S1 empty) |
 | Check a new policy iteration against the default (`docs/scorecard.md`) | `python scripts/bench.py --policy BASELINE,CANDIDATE --layout even-hand14 --trials 1`, then `session_report.py` |
 | Check a policy is ready for scored hands | `python scripts/bench.py --policy ID --layout even-hand14 --trials 2`, then `session_report.py` (add `--face-down` for the face-down setup: counted on its own, `docs/scorecard.md`) |
 | A face-down candidate's face-up round | `python scripts/bench.py --policy FACE_UP_BEST,CANDIDATE --layout even-hand14 --trials 1`, face up: anything but Drop (`status.py` says when it's owed) |
@@ -252,7 +252,7 @@ python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated 
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
-python scripts/bench.py --layout even-hand14 --trials 2 --carry S13,S1   # carry a tile from the drop zone to a slot and back, as a hand does
+python scripts/bench.py --layout even-hand14 --trials 2 --carry S7,S1   # carry a tile from the drop zone to a slot and back, as a hand does
 python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up (found by the scan once the detector sees backs)
 python scripts/bench.py --unattended --layout even-hand14 --trials 3 --face-down   # face down, no one watching: needs weights with the back class
 python scripts/bench.py --layout even-hand14 --trials 2 --dagger-dataset Yewy/mahjong_bench_dagger_v10   # A on the gamepad takes over a pickup going wrong
@@ -498,8 +498,8 @@ python scripts/play.py --sim                           # no hardware: a fixed ha
 Before the first hand:
 1. **The hand slots**: `even-hand13`, 13 spots in two rows (13 in one row don't fit the reach), part of the standard
    setup (`data/standard_setup.json`).
-2. **The test layout** `even-hand14`: the same 13 slots plus one spot where the drawn tile will go (S13, WW at
-   (0.192, −0.165)). Check it with `bench.py --layout even-hand14 --trials 2`, a tile on
+2. **The test layout** `even-hand14`: the same 13 slots plus one spot where the drawn tile will go (S7, NW at
+   (0.192, −0.012), the middle of the far row, where picks are most reliable). Check it with `bench.py --layout even-hand14 --trials 2`, a tile on
    every spot: pickups and returns at every slot *and* at the drop zone.
 3. **The drop zone**: lay ArUco marker 3 (DICT_6X6_250, as in MahjongBot) flat on the mat, uncovered, on
    even-hand14's extra spot. The first run finds it and saves its position (`data/drop_zone.json`, tied to the
@@ -511,8 +511,8 @@ Before the first hand:
 Play reaches the drop zone only once a hand is under way, so it won't start a hand (on the arm) until it's
 checked: even-hand14 must still hold all of even-hand13's slots, have a spot within 25mm of the taught zone, and bench
 sessions must have picked up and returned a tile there, and carried at least 2 from there to a slot
-(`bench.py --layout even-hand14 --trials 2 --carry S13,S1`) landing a median of 12mm or less from home. If not, it prints the commands that fix it
-(e.g. `layout.py --name even-hand14 --remove S13` then `--add S13 X Y` at the zone, then the bench walk) and
+(`bench.py --layout even-hand14 --trials 2 --carry S7,S1`) landing a median of 12mm or less from home. If not, it prints the commands that fix it
+(e.g. `layout.py --name even-hand14 --remove S7` then `--add S7 X Y` at the zone, then the bench walk) and
 stops. `--skip-zone-test` plays anyway, logged. `status.py` shows the same check.
 
 Each turn waits for a tile on the drop zone: after you press Enter, a scan has to see one within 25mm of the zone, or it asks again
@@ -650,7 +650,7 @@ tile still held afterwards goes in the discard container, which needs a discard 
 **Face-down spots (`--layout NAME --face-down`)**: any spot of a layout with the tiles green side up, e.g. the hand's right end with `--layout even-hand14 --face-down --start-spot S11 --repeats 3`. The detector can't see a green back, so each episode names the spot, waits for Enter (`s` skips the spot, `q` quits) and aims at the spot's saved position; `--hover-jitter-mm` stands in for where a real tile sits. Lay the layout's other tiles green side up as they'd be. A held tile goes in the discard container afterwards: a scan can't check where a returned green back landed. Each log row has `face_down`.
 
 **The drop zone (`--wall-station zone --wall-layers flat`)**: the same, aimed at the drop zone, for the tile `crude_run.py` sets there and picks up
-again. Lay the crude run's hand green side up first (S13 stays empty: the zone is there), then one green-back tile on the zone each episode; the
+again. Lay the crude run's hand green side up first (S7 stays empty: the zone is there), then one green-back tile on the zone each episode; the
 hover jitter stands in for where the arm's own set-down leaves it.
 
 | Option | What it does |
@@ -1084,7 +1084,7 @@ python scripts/play_face_down.py --sim                    # simulated arm and ca
 reader's name is taken, even when it makes a fifth copy (logged as `fd_conflict`). It still asks for the wall's feed and for a step
 the arm couldn't do (a pick missed twice, a tile lost), since only a person can put a tile right. It needs a reader. Wrong names
 can get in silently by design, so they are caught after the hand: an unattended hand counts toward play-ready (target: 8 of 10
-consecutive hands clean, 0 silent errors; `docs/autonomy_plan.md`) once every hold is reviewed (`base_cam_review.py --play`, then
+consecutive hands clean, 0 silent errors; clean allows up to 3 fixes by hand, which `status.py` doesn't count yet; `docs/autonomy_plan.md`) once every hold is reviewed (`base_cam_review.py --play`, then
 `--report`) and the end check matched. A wrong name found there is a silent error and stops play.
 
 **Every hold is saved as the reader's training photos**, filed under the name the hand used (yours, or unattended the reader's),

@@ -150,10 +150,10 @@ def test_the_standard_layouts_are_a_hand_plus_the_zone(tmp_path):
     assert scorecard.standard_setup()["layout"] == markers.ZONE_TEST_LAYOUT
     hand, test = layout.load(markers.PLAY_LAYOUT)["spots"], layout.load(markers.ZONE_TEST_LAYOUT)["spots"]
     assert len(hand) == 13 and len(test) == 14
-    zone = next(s for s in test if s["id"] == "S13")["xy"]
+    zone = next(s for s in test if s["id"] == "S7")["xy"]
     bench_session(tmp_path, "20261103_100000", zone)
     result = markers.zone_test(zone, hand, test, sessions_dir=tmp_path)
-    assert result["ok"] and result["spot"] == "S13"
+    assert result["ok"] and result["spot"] == "S7"
 
 
 def test_a_test_layout_off_the_zone_or_missing_a_slot_is_reported_with_the_commands_to_fix_it(tmp_path):

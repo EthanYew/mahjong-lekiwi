@@ -348,8 +348,8 @@ def test_a_missed_draw_says_the_camera_never_saw_it_and_outlines_the_zone(monkey
 def test_a_slot_left_empty_is_said_when_laying_the_hand_and_never_discarded(monkeypatch, tmp_path):
     script = script_in(monkeypatch, tmp_path)
     monkeypatch.setattr(game, "choose_discard", lambda hand, drawn, seen: (None, [{"index": 6, "tile_name": hand[6]}, {"index": 2, "tile_name": hand[2]}]))
-    folder, prompts = run(script, ["--turns", "1", "--leave-empty", "S7"], [*LIGHT, "", "", "5C", ""])
-    assert any("S7 7C (leave this slot EMPTY" in p for p in prompts)
+    folder, prompts = run(script, ["--turns", "1", "--leave-empty", "S8"], [*LIGHT, "", "", "5C", ""])
+    assert any("S8 7C (leave this slot EMPTY" in p for p in prompts)
     (choice,) = events_of(folder, "discard_chosen")
     assert choice["slot"] == "S3"
 

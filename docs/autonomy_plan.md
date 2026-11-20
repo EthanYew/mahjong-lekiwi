@@ -154,18 +154,34 @@ errors** (`scripts/play_face_down.py`). What differs from the face-up hand above
 - **Unattended hands count.** Wrong names can get in silently, so they are caught afterwards: every hold's photo gets a verdict
   (`base_cam_review.py --play`), `play_face_down.py --report` scores every read against it, and the end check compares the 13
   to the table. One wrong name found is a silent error: a gate, play stops. A hand not yet reviewed counts for nothing.
-- **Clean** = no rescue (a step done by hand), no reset, no ask (a correction of a name is an ask; pressing Enter on a read isn't,
-  as `interventions.hand_grade` grades it), end check all matched, review found no wrong read. `mahjong/hand_tally.py` counts
-  this, and `status.py` prints it: hands before the first one still waiting for review count, an unfinished hand counts as failed. The wall feed (a person pushing the next stack up) is part of the
-  format, not a rescue. Neighbours the arm knocks aren't seen in play (no scans), so only the end check can show them.
+- **Clean, home definition (decided 2026-11-20, the owner; the code doesn't grade it yet, see below).** A hand at a family table
+  can take a nudge, so a clean hand now has a **fix budget: at most 3 fixes** (a fix is a rescue, a step a person did by hand such
+  as putting a tile back or redoing a pickup, or a reset), plus: no ask (a correction of a name is an ask; pressing Enter on a read
+  isn't, as `interventions.hand_grade` grades it), end check all matched, review found no wrong read. Reads stay strict on purpose:
+  a wrong name is the one failure that spoils the game unseen. The wall feed (a person pushing the next stack up) is part of the
+  format, not a fix. Neighbours the arm knocks aren't seen in play (no scans), so only the end check can show them.
+  **Why 3:** a fix is cheap at home, where a person can reach the table, and the 8-of-10 asked for a hand nobody could touch,
+  which is the standard for a product with no one to help. 3 is a judgment, not a measurement: the number to defend is what it
+  asks of the arm (next bullet but one). The old no-touch hand is kept as a stricter grade, **spotless** (0 fixes), reported
+  beside it, so both numbers exist and the writeup can say which one it claims.
+- **What the budget asks of the arm** (my arithmetic, binomial, each pickup and set-down failing independently): for 80 % of hands
+  to need 3 fixes or fewer, a pickup or set-down must work without help about 97.2 % of the time at 14 turns (82 of them a hand),
+  97.8 % at 20 (106), **98.8 % at 40 (186)**, 99.0 % at 50 (226). With no fixes allowed it is 99.9 %. At the 94 % clean the default
+  policy shows on face-down pickups (79 of 84), a 40-turn hand would need about 11 fixes, so the budget is still out of reach
+  today, by a factor of about 4 in the failure rate (6 % to 1.2 %). Reads aren't in this figure: they are held to no wrong name
+  unseen (10 hands is about 530 reads at 40 turns, and none wrong bounds the rate below about 0.6 %), and an ask still isn't clean.
 - **Steps per hand, face down** (my count from the turn plan, not measured): registration is 13 × (pickup, read, set-down) = 39;
   each turn adds a draw pickup, a read, a drop-zone set-down, a discard pickup and a discard set-down = 5. So N ≈ 39 + 5T
   for T turns (= tiles drawn). T is not fixed: the logged hands ran 15, 19, 34 and 43 turns (`20261119_142253_play_fd`,
   `20261104_231918_play`, `20261104_183142_play`, `20261117_200555_play_fd`), so the 14 draws above was an assumed typical hand,
   not a derived number.
-- **The formula.** P(hand clean) ≈ p^N when each step succeeds without help with probability p. To get a hand clean 80 % of the
+- **The formula, for a spotless hand (0 fixes).** P(hand clean) ≈ p^N when each step succeeds without help with probability p. To get a hand clean 80 % of the
   time, p must be 0.8^(1/N): ≈ 99.80 % at T = 14 (N = 109), 99.87 % at T = 26 (169), 99.91 % at T = 43 (254). Face-down pickups
   on the default policy (v13) are ~94 % clean (79/84), which gives ≈ 24 % for 23 pickups: far short.
+- **Not built yet.** `interventions.hand_grade`, `mahjong/hand_tally.py` and `status.py` still grade the old way: any rescue or
+  reset makes a hand "rescued", not clean. Until they count fixes, their "clean" is the spotless grade, and a hand with 1-3 fixes
+  shows as rescued. The code change is small (count the rescue and reset interventions, a budget constant beside `TARGET`) and
+  waits on the owner's go-ahead.
 - **The test itself.** A system whose real clean rate is 80 % a hand passes 8 of 10 about 68 % of the time; at 90 %, 93 %; at 70 %,
   38 %. So a pass shows "good enough", a fail doesn't show "bad".
 - **Evidence so far: 2 won hands, 0 of the 10.** `20261117_200555_play_fd` (43 turns, reads confirmed) and `20261119_142253_play_fd`
