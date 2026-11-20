@@ -107,7 +107,7 @@ article > .ig.wide { max-width: 60rem; }
 .seat-copy p { margin: 0 0 .6rem; }
 .seat-copy .verdict { font: 600 1.25rem/1.25 var(--font-display); color: var(--text); }
 #empty-seat .seg { flex-wrap: nowrap; }
-@media (max-width: 760px) { #empty-seat .seg { display: grid; grid-template-columns: 1fr 1fr; border-radius: 1.4rem; } #empty-seat .seg button { line-height: 1.2; } }
+@media (max-width: 860px) { #empty-seat .seg { display: grid; grid-template-columns: 1fr 1fr; border-radius: 1.4rem; } #empty-seat .seg button { line-height: 1.2; } }
 @media (max-width: 640px) { .seat-wrap { grid-template-columns: 1fr; justify-items: center; } .seat-copy { justify-self: stretch; } }
 
 /* ---------- 3. Interventions ---------- */
