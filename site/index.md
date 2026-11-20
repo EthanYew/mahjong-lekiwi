@@ -11,12 +11,8 @@ pills: ["Autonomy: supervised", "Stage: internal test"]
 ---
 
 ## The short version
+I’m Ethan, a product manager in Sydney. In five months, on a career break, I took a low-cost, open-source robot arm (SO-101) from nothing to winning full hands of mahjong unattended, and wrote the acceptance criteria that decide when it is safe to play with people. I'm building this with my family in mind. My grandparents, who play mahjong with us once a year when they visit from Malaysia. The goal is that a robot player can fill the empty seat the other 300+ days they're not physically with us. This is the first of several projects to learn robotics by doing and move my career into physical AI.
 
-I’m Ethan, a product manager based in Sydney. On a career break, I trained a low-cost, open-source robot arm (SO-101) to play mahjong (mostly) by itself. My grandparents nicknamed it “Robotto”, and the goal is a robot my family can play mahjong with, including my grandparents when they’re back in Malaysia. This is the first of several personal projects to learn robotics by doing and pivot my career towards physical AI.
-
-<!-- DRAFT (from review, section 2): replace the paragraph above with an outcome-first opener if you like:
-I’m Ethan, a product manager in Sydney. In five months, on a career break, I took a low-cost, open-source robot arm (SO-101) from nothing to winning full hands of mahjong unattended, and wrote the acceptance criteria that decide when it is safe to play with people. [Add the BOM cost here, e.g. "built for about $X".] The end user is my grandparents, who play mahjong with us once a year when they visit from Malaysia. The goal is that a robot player can fill the empty seat the other 364 days. This is the first of several projects to learn robotics by doing and move my career into physical AI.
--->
 
 <!-- DRAFT (from review, section 2): optional short section to add right after "Why mahjong", about who it is for and what failure costs them:
 ## Who it’s for, and what failure costs them
@@ -145,11 +141,7 @@ Unlike SaaS, bugs executed on a robot can physically harm you (and there were ce
 
 ### Lesson 1: Working with AI coding agents as a PM
 
-I’m not an engineer. Since rebuilding the project in late October, AI coding agents wrote the code (600+ commits, 1,300 automated tests). I set direction and owned the decisions: which policy ships, which data counts as an exam, what “clean” means, and the rules that are checked before anything moves the arm.
-
-<!-- DRAFT (from review, section 2): reframe the paragraph above, replacing "I’m not an engineer" with:
 I didn’t write the code. AI coding agents did (600+ commits, 1,300 automated tests since the late-October rebuild). My job was the PM’s job: specify what "done" means, set acceptance criteria and guardrails, and own the decisions, including which policy ships, which data counts as an exam, what "clean" means, and the rules checked before anything moves the arm.
--->
 
 What made it work: every hardware lesson written down as a rule the agents read before touching that code, tests that run in a simulator (software test that runs commands without the physical arm) before anything reaches the arm, and a merge queue that holds decisions for me.
 
@@ -179,9 +171,8 @@ At time of writing, Robotto has demonstrated it can achieve clean hands, just no
 
 {% include ig-next.html %}
 
-<!-- DRAFT (from review, section 2): add a user test plan under the bullets above:
-**How I’ll test it with them.** [N] hands with my grandparents, one in person and one remote. I’ll measure how often I have to step in, how long they wait for the robot’s turn, and whether they’d choose to play another hand. The robot’s speed and its manner matter as much as accuracy to the people at the table, and I haven’t measured either yet.
--->
+**How I’ll test it with them.** [N=TBD] hands with my grandparents, one in person and one remote. I’ll measure how often I have to step in, how long they wait for the robot’s turn, and whether they’d choose to play another hand. The robot’s speed and its manner matter as much as accuracy to the people at the table, and I haven’t measured either yet.
+
 
 ---
 
