@@ -1,0 +1,21 @@
+<aside class="stage" aria-label="Your hand: one tile per section">
+  <div class="stage-felt">
+    <p class="stage-act"><span data-stage-count>The deal</span><b data-stage-act>Scroll to draw your first tile</b></p>
+    <div class="stage-wall" aria-hidden="true">{% for i in (1..14) %}<span class="mt sm back"></span>{% endfor %}</div>
+    <nav class="rack" aria-label="Sections, one tile each" data-rack>
+      {%- assign acts = site.data.story | group_by: "act" -%}
+      {%- for a in acts -%}
+      <div class="set" data-set="{{ forloop.index }}">
+        <div class="set-tiles">
+          {%- for d in a.items -%}
+          <a class="slot" href="#draw-{{ d.n }}" data-n="{{ d.n }}" aria-label="Draw {{ d.n }}: {{ d.title }}"><span class="mt {{ d.suit }}" aria-hidden="true"><b{% if d.glyph %} class="g"{% endif %}>{{ d.face }}</b><i>{{ d.label }}</i></span></a>
+          {%- endfor -%}
+        </div>
+        <span class="set-name">{{ a.name }}</span>
+      </div>
+      {%- endfor -%}
+    </nav>
+    <p class="stage-win" data-stage-win hidden><b>Win!</b> Four sets and a pair.</p>
+    <p class="sr-only" aria-live="polite" data-stage-live></p>
+  </div>
+</aside>
