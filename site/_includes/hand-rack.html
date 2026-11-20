@@ -2,8 +2,16 @@
 <aside class="stage" aria-label="Your hand: one tile per section">
   <script>try { if (localStorage.getItem('mj-story-hand') === 'off') document.documentElement.classList.add('stage-off'); } catch (e) {}</script>
   <div class="stage-felt" id="stage-panel">
-    <p class="stage-act" data-stage-head><span data-stage-count>The deal</span><b data-stage-act>Scroll to draw your first tile</b></p>
-    <div class="stage-wall" aria-hidden="true">{% for i in (1..14) %}<span class="mt sm back"></span>{% endfor %}</div>
+    {%- comment -%} Invisible copies of every label share a grid cell with the live one, so the box is already as tall as
+    its longest label and doesn't jump when a hover or a scroll swaps the text. {%- endcomment %}
+    <p class="stage-act" data-stage-head>
+      <span class="stage-eyebrow"><span data-stage-count>The deal</span>{% for d in site.data.story %}<span class="sizer" aria-hidden="true">Draw {{ d.n }} of 14 · {{ d.act }}</span><span class="sizer" aria-hidden="true">Go to draw {{ d.n }} · {{ d.act }}</span>{% endfor %}</span>
+      <span class="stage-title"><b data-stage-act>Scroll to draw your first tile</b>{% for d in site.data.story %}<b class="sizer" aria-hidden="true">{{ d.title }}</b>{% endfor %}</span>
+    </p>
+    <div class="stage-pile">
+      <div class="stage-wall" aria-hidden="true">{% for i in (1..14) %}<span class="mt sm back"></span>{% endfor %}</div>
+      <p class="stage-win" data-stage-win hidden><b>Win!</b> Four sets and a pair.</p>
+    </div>
     <nav class="rack" aria-label="Sections, one tile each" data-rack>
       {%- for a in acts -%}
       <div class="set" data-set="{{ forloop.index }}">
@@ -16,7 +24,6 @@
       </div>
       {%- endfor -%}
     </nav>
-    <p class="stage-win" data-stage-win hidden><b>Win!</b> Four sets and a pair.</p>
     <div class="stage-tools">
       <button type="button" class="stage-btn" data-toc-open aria-haspopup="dialog">Contents</button>
       <button type="button" class="stage-btn" data-stage-hide aria-controls="stage-panel" aria-expanded="true">Hide</button>
