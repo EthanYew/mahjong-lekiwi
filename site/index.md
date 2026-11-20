@@ -171,9 +171,6 @@ At time of writing, Robotto has demonstrated it can achieve clean hands, just no
 
 {% include ig-next.html %}
 
-**How I’ll test it with them.** [N=TBD] hands with my grandparents, one in person and one remote. I’ll measure how often I have to step in, how long they wait for the robot’s turn, and whether they’d choose to play another hand. The robot’s speed and its manner matter as much as accuracy to the people at the table, and I haven’t measured either yet.
-
-
 ---
 
 ## Closing thoughts and links
