@@ -35,6 +35,8 @@ The users are my grandparents, in their [age/80s?], who are not going to debug a
 
 My family only has enough mahjong “kaki” (buddies) to play when my grandparents are in town from Malaysia. That happens once a year.
 
+{% include ig-empty-seat.html %}
+
 {% include figure.html src="writeup/grandparents.jpg" caption="Grandparents playing mahjong with my sister and me. I always get beaten when they’re in town." %}
 
 In June 2026 they were in Sydney. I’d just built two SO-101 arms: a follower that does the work and a leader I move by hand to teach it. Before they flew home, I wowed them with a classic pick-and-place demo of putting a ball into a container and let them remote-control it by hand (teleoperation).
@@ -45,7 +47,7 @@ I promised that one day “Robotto”, as they’d affectionately nicknamed it, 
 
 > Mahjong is a game typically played with four people. Each player holds **13 tiles**. On each **turn** you **draw a tile** from the **wall** and **throw one away**, aiming to be the first to turn your 14 tiles into a winning set of groups (aka **hand**).
 
-{% include figure.html src="writeup/game-loop.png" alt="How a hand of mahjong works. The tiles: dots, bamboo and characters numbered 1 to 9, plus winds and dragons, four copies of each. The goal: four sets and a pair, 14 tiles, where a set is a run of three in a row in one suit or a triplet of the same tile. Every turn: draw a tile so the hand has 14; if it is a winning hand, win; if not, discard one tile back to 13 and take the next turn. Robotto’s version plays alone, reads face-down tiles by lifting each drawn tile to a camera, and does not yet claim other players’ discards, score, or play against people." %}
+{% include ig-game-loop.html %}
 
 Non-goals: no specific regional rule set, no opponents yet, simply chasing a winning hand.
 
@@ -62,17 +64,7 @@ Before Robotto is trusted to play against people, it must first play mahjong by 
 
 **Definition.** A clean hand runs from the start of the game, registering the 13 starting tiles, to a win (or the wall running out). In it, **a person performs no more than 3 interventions to help the robot recover from failure**.
 
-Interventions include:
-- **Assist**: I correct a misread tile label, or physically reposition a tile, so the game can continue.
-- **Safety stop**: I press Esc to halt the arm and prevent physical damage.
-- **Reset**: I reset the arm after a tile lands more than 25 mm from where it should.
-
-What’s not included:
-- **Designed step**: something I am meant to do, such as setting up the wall each turn. Not an intervention.
-- **Confirmation asks**: I approve a tile read without changing it. Not an intervention, but I count them, because each one is a person watching and waiting.
-- **Recovery**: the robot notices its own failure and retries. Not an intervention.
-
-At the end of the hand I run a post-game **audit**: I check the robot’s hand and discards against the table for any misidentified tile. It needs **zero mismatches**.
+{% include ig-interventions.html %}
 
 In an ideal world, the robot plays a hand and a person’s only job is to feed it new tiles to draw from (via the wall). Robotto doesn’t need to be *fully* autonomous, but it shouldn’t need me to stop it or keep rescuing it either.
 
@@ -89,11 +81,7 @@ Robotto must complete six key steps every turn in the game to reach a winning ha
 
 {% include turn-steps.html %}
 
-Each step in a turn is done by one of three kinds of work:
-
-- **Geometry:** Inverse kinematics (IK) is the math that works out how each motor needs to turn to place the gripper (robot claw) at a specific spot in space — like figuring out how to move your shoulder and elbow to reach a target point with your fingers.
-- **Rules:** ordinary scripted code. Deterministic, predictable output. Cheap to implement, but rigid. A scripted tile pickup motion is more likely to struggle handling tiles tilted at unpredictable orientations.
-- **Learned**: A neural network trained on examples. Implementing this is often expensive, requiring lots of time and effort to both collect a sufficient dataset and train the policy itself. Their output is non-deterministic, but adaptable. Would handle the tilted tile pickup better if trained on similar examples.
+{% include ig-kinds.html %}
 
 > The pattern I took from this is to use fixed rules where the world is predictable, and learning where it is not. Finding that boundary took a few attempts.
 
@@ -103,13 +91,9 @@ Each step in a turn is done by one of three kinds of work:
 
 ## System architecture (how it works)
 
-{% include figure.html src="writeup/architecture.png" caption="What I built, at a glance" %}
-
 So how does Robotto actually figure out which steps to perform and how to execute them? To play the game, some hardware is required:
 
-- **Brain:** a PC running scripts and AI policies. This includes a vision model (YOLO) to find and name tiles, and an ACT policy that learns from recorded demonstrations how to move the arm and pick up tiles guided by footage from the wrist camera. Scripts stitch these together, using IK to hover the arm over a tile, and decide which tile to discard.
-- **Eyes:** an overhead depth camera (RealSense) finds tiles; a wrist camera gives a close look for precise tile pickup. The base camera identifies tiles that are picked up and shown to it.
-- **Hands:** the SO-101 follower robot arm that picks and places tiles.
+{% include ig-architecture.html %}
 
 {% include figure.html src="writeup/workspace.jpg" narrow=true caption="The workspace setup where I toiled my days and nights" %}
 
@@ -137,6 +121,8 @@ When collecting data, I made sure to capture images across a wide range of surfa
 
 I would still get surprised at how it would fail even after doing all the above. It took several learned policy iterations to surface an issue with the arm being able to pick up a tile all on its lonesome, because it’d only ever seen me pick up tiles with many other tiles around it in its dataset.
 
+{% include ig-lone-tile.html %}
+
 {% include figure.html src="writeup/upside-down-pickup.jpg" caption="Example of what a bamboozled robot arm can look like, inventing a new upside down tile pickup style" %}
 
 ### Challenge 2: Simulation vs. real life
@@ -151,9 +137,7 @@ In fact, two policy versions tied on every offline test (scoring the policy agai
 
 Unlike SaaS, bugs executed on a robot can physically harm you (and there were certainly some close calls during this project). Safeguards were put in place to protect against erratic, sudden movements of the robot arm. Especially when controlled by a learned model that produces non-deterministic outputs.
 
-- **Permission first:** any command my AI coding agents run that would move the arm stops and asks me. I sit beside the arm and can stop it any time.
-- **Always approach from above, always rise first:** joint speed and movement range are capped. I added this after the arm once shot straight to its zero position because its starting pose in training differed from where I ran the policy.
-- **Hard limits and fail-safes:** any step that would put the robot gripper tips more than 5 mm below the table is scaled back. Impossible detections are discarded. A camera fault stops the pickup. When I’m watching, the robot asks me about tile names it’s unsure of rather than guessing.
+{% include ig-guardrails.html %}
 
 ---
 
@@ -169,23 +153,21 @@ I didn’t write the code. AI coding agents did (600+ commits, 1,300 automated t
 
 What made it work: every hardware lesson written down as a rule the agents read before touching that code, tests that run in a simulator (software test that runs commands without the physical arm) before anything reaches the arm, and a merge queue that holds decisions for me.
 
-{% include figure.html src="writeup/merge-process.png" caption="This process is the product of me merging seven branches in one evening with no conflicts. Bugs still got through." %}
+{% include ig-merge-flow.html caption="This process is the product of me merging seven branches in one evening with no conflicts. Bugs still got through." %}
 
 ### Lesson 2: Play found what practice couldn’t
 
 Early play tests revealed systemic flaws that isolated practice of individual capabilities missed. It sounds straightforward, but I caught myself putting off these tests thinking it wasn’t ready for an end-to-end test yet. Instead, I would record more and more demonstrations for the ACT policy, or annotate more and more photos for the vision model.
 
-Hundreds of practice runs made setting tiles down look solved, because each tile went back to the spot it was picked up from, and the camera-to-arm error cancelled itself out on the way there and back. But in real games, tiles travelled further, exposing a 4 to 31 mm mismatch between where the camera and the arm thought things were. Carried tiles landed 15–19 mm off target, always in the same direction. Testing the complete workflow early is crucial — component tests miss what only the full system reveals.
+{% include ig-there-and-back.html %}
+
+Testing the complete workflow early is crucial — component tests miss what only the full system reveals.
 
 ### Lesson 3: How I decided what “good enough” meant
 
 When you’re in the thick of it, constantly recording new demonstrations and retraining models can feel like you’re constantly going in circles. Each fix reveals fresh edge cases that demand more training. Setting clear benchmark tests was crucial for measuring real progress and preventing old capabilities from breaking when adding new ones.
 
-Three checks decide what happens to a new policy:
-
-- **Iteration check (14 pairs):** more clean wins than losses against the current default, with the failure I set out to fix visibly improved.
-- **Play-ready check:** at least 26 of 28 clean in one session, no spot missed twice, and no silent wrong tile name.
-- **Strict paired test:** reserved for claiming “X is better”.
+{% include ig-checks.html %}
 
 The one failure I treat as unacceptable is a **silent error**: a wrong tile played with nobody noticing. An assist costs a minute. A silent error means the game I thought it won, it didn’t.
 
@@ -195,10 +177,7 @@ The one failure I treat as unacceptable is a **silent error**: a wrong tile play
 
 At time of writing, Robotto has demonstrated it can achieve clean hands, just not consistently enough to hit the 8 clean out of 10 goal. Below I list what I'm doing to close the gap, and also hint at future scope to tackle beyond the interim goal.
 
-- **Prove it’s repeatable.** The goal is 8 clean hands in 10, with no wrong tile ever played unnoticed. Telling close versions apart takes more trials than I expected: at 28 paired attempts, a real gain from 90% to 95% clean shows up as a clear win only 1 time in 25.
-- **Improve accuracy** on the row closest to the robot, where the hand still closes about 10 mm higher on face-down tiles than face up (6 of 15 picked at one spot, against 24 of 29 face up).
-- **Automate error reviews** by having a vision model flag failed grabs from wrist camera footage, which I currently inspect by hand.
-- **Make it a player, not just a machine**: A screen that helps people follow the game, a voice and personality for the robot player, and a way for my grandparents to join in remotely, commanding the moves from Malaysia while the arm plays here. Success looks like my grandparents finishing a hand with Robotto without needing me to step in.
+{% include ig-next.html %}
 
 <!-- DRAFT (from review, section 2): add a user test plan under the bullets above:
 **How I’ll test it with them.** [N] hands with my grandparents, one in person and one remote. I’ll measure how often I have to step in, how long they wait for the robot’s turn, and whether they’d choose to play another hand. The robot’s speed and its manner matter as much as accuracy to the people at the table, and I haven’t measured either yet.

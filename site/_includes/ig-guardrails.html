@@ -1,0 +1,17 @@
+<section class="ig reveal" aria-labelledby="guard-h">
+  <h3 id="guard-h">Three safeguards between a bug and the arm</h3>
+  <p class="ig-sub">Against erratic, sudden movements, especially from a learned model.</p>
+  <div class="guards">
+    <p class="guard-ends">A command or a policy output</p>
+    <div class="guard"><span class="n">1</span><div class="node"><b>Permission first</b><p>Any command my AI coding agents run that would move the arm stops and asks me. I sit beside the arm and can stop it any time.</p></div></div>
+    <div class="guard"><span class="n">2</span><div class="node"><b>Always approach from above, always rise first</b><p>Joint speed and movement range are capped. I added this after the arm once shot straight to its zero position, because its starting pose in training differed from where I ran the policy.</p></div></div>
+    <div class="guard"><span class="n">3</span><div class="node"><b>Hard limits and fail-safes</b>
+      <ul>
+        <li>Any step that would put the gripper tips more than 5 mm below the table is scaled back.</li>
+        <li>Impossible detections are discarded.</li>
+        <li>A camera fault stops the pickup.</li>
+        <li>When I’m watching, the robot asks me about tile names it’s unsure of rather than guessing.</li>
+      </ul></div></div>
+    <p class="guard-ends">The arm moves</p>
+  </div>
+</section>

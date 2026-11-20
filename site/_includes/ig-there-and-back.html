@@ -1,0 +1,33 @@
+<section class="ig reveal" aria-labelledby="tb-h">
+  <h3 id="tb-h">Why practice hid the error</h3>
+  <p class="ig-sub">The camera and the arm disagreed about where things were by 4 to 31 mm, depending on where on the table.</p>
+  <div class="tb">
+    <div class="node">
+      <h4 style="margin:0">Practice: back to the same spot</h4>
+      <svg viewBox="0 0 280 160" role="img" aria-label="A tile picked up from spot A and put back on spot A lands on target, because the same error applies on the way out and back.">
+        <rect class="spot" x="122" y="104" width="36" height="26" rx="5"/>
+        <path class="path" d="M134,104 C 70,10 210,10 146,100"/>
+        <polygon class="ah" points="139,92 151,93 145,103"/>
+        <rect class="tile" x="124" y="106" width="32" height="22" rx="4"/>
+        <text class="lbl" x="140" y="150" text-anchor="middle">picked up and put back at A</text>
+        <text class="ok" x="196" y="122">✓ on target</text>
+      </svg>
+      <p class="muted" style="margin:0">The error was the same on the way out and back, so it cancelled itself out. Setting tiles down looked solved.</p>
+    </div>
+    <div class="node">
+      <h4 style="margin:0">A real game: to a different spot</h4>
+      <svg viewBox="0 0 280 160" role="img" aria-label="A tile carried from spot A to spot B lands 15 to 19 millimetres off target, always in the same direction.">
+        <rect class="spot" x="22" y="104" width="36" height="26" rx="5"/>
+        <text class="lbl" x="40" y="150" text-anchor="middle">A</text>
+        <rect class="spot" x="196" y="104" width="36" height="26" rx="5"/>
+        <text class="lbl" x="214" y="150" text-anchor="middle">B (target)</text>
+        <path class="path" d="M40,104 Q 130,0 222,96"/>
+        <polygon class="ah" points="214,90 226,88 225,100"/>
+        <rect class="tile off" x="214" y="94" width="32" height="22" rx="4"/>
+        <line class="err" x1="214" y1="117" x2="230" y2="105"/>
+        <text class="lbl" x="132" y="122" text-anchor="middle">landed 15–19 mm off</text>
+      </svg>
+      <p class="muted" style="margin:0">Tiles travelled further, the errors at A and B no longer matched, and carried tiles landed 15–19 mm off target, always in the same direction.</p>
+    </div>
+  </div>
+</section>

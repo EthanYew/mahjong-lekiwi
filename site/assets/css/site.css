@@ -78,3 +78,6 @@ code { font-size: .88em; background: var(--surface-raised); padding: .1em .35em;
 
 @media (max-width: 600px) { body { font-size: 1.05rem; } .links a { margin-left: .8rem; } }
 @media (max-width: 520px) { .brand .mark { display: none; } .topbar nav { padding: .7rem .8rem; } .links a { margin-left: .7rem; font-size: .9rem; white-space: nowrap; } }
+[hidden] { display: none !important; }
+h2, h3, figure, .ig, .felt-panel { scroll-margin-top: 84px; }
+@media (prefers-color-scheme: dark) { .hero, .topbar, footer { background: color-mix(in srgb, var(--felt) 72%, black); } }

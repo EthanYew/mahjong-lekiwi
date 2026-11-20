@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="{{ '/assets/css/tokens.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/components.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/infographics.css' | relative_url }}">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -36,6 +37,7 @@
         <a href="{{ site.repo }}">GitHub</a>
       </span>
     </nav>
+    <div class="progress-hand" aria-hidden="true" data-progress>{% for i in (1..14) %}<i></i>{% endfor %}</div>
   </header>
 
   {% if page.hero %}
@@ -67,6 +69,8 @@
     <div class="mark" aria-hidden="true">{% include tile.html glyph="red" size="sm" %}{% include tile.html glyph="jade" size="sm" %}{% include tile.html glyph="blank" size="sm" %}</div>
     <p>{{ site.author }} · <a href="{{ site.repo }}">Code on GitHub</a> · <a href="{{ site.linkedin }}">LinkedIn</a></p>
   </footer>
+  <div class="gloss-pop" id="gloss-pop" role="tooltip" hidden></div>
+  <script type="application/json" id="glossary-data">{{ site.data.glossary | jsonify }}</script>
   <script src="{{ '/assets/js/site.js' | relative_url }}" defer></script>
 </body>
 </html>

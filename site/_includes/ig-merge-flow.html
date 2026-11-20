@@ -1,0 +1,31 @@
+<section class="ig wide reveal" id="merge-flow" aria-labelledby="mf-h">
+  <h3 id="mf-h">How work gets from a task into the main codebase</h3>
+  <div class="mf-legend">
+    <span><span class="swatch"></span>the AI agent does it</span>
+    <span><span class="swatch me"></span>waits for me (the PM)</span>
+  </div>
+  <div class="seg" role="group" aria-label="Does the change touch one of my decisions?" data-mf-toggle hidden>
+    <button type="button" data-path="no" aria-pressed="true">A change that touches none of my decisions</button>
+    <button type="button" data-path="yes" aria-pressed="false">A change to one of my decisions</button>
+  </div>
+  <div class="mf" data-mf>
+    <div class="node task me r" data-on="both"><b>I set a task</b><p>what to build and how we’ll know it works</p></div>
+    <div class="node agent r" data-on="both"><b>Agent builds it</b><p>in its own copy of the code (a git worktree)</p></div>
+    <div class="node check r" data-on="both"><b>Hand-back checklist</b><p>latest code merged in, style, tests, AI code review, pull request, incl. “Unverified on the arm”</p></div>
+    <div class="node queue d" data-on="both"><b>Merge queue</b><p>does it change one of my decisions?</p></div>
+    <div class="branch">
+      <div class="node" data-on="no"><b>No</b><p>merges itself</p></div>
+      <div class="node me" data-on="yes"><b>Yes</b><p>I merge it: default, tests, setup</p></div>
+    </div>
+    <div class="node main l" data-on="both"><b>Main codebase</b><p>what runs on the robot</p></div>
+    <div class="node status l" data-on="both"><b>Status report</b><p>every session starts with “what’s owed and overdue”</p></div>
+    <div class="loop">informs the next task</div>
+  </div>
+  <div class="mf-guard">
+    <h4>Guardrails around every step</h4>
+    <div class="node"><b>Rule files</b><p>One per area, in plain English, loaded automatically. Each records a lesson the hardware taught (9 files).</p></div>
+    <div class="node"><b>Simulated robot + motion watchdog</b><p>Every test runs on a fake arm; any command that breaks a motion rule fails the test.</p></div>
+    <div class="node"><b>Arm gate</b><p>Any command that would move the real arm asks a person first, even when the agent works on its own.</p></div>
+  </div>
+  {% if include.caption %}<p class="ig-note">{{ include.caption }}</p>{% endif %}
+</section>
