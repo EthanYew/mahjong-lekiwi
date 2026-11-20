@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="{{ '/assets/css/components.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/infographics.css' | relative_url }}">
+  {% if page.story or page.hand %}<link rel="stylesheet" href="{{ '/assets/css/hand.css' | relative_url }}">{% endif %}
   {% if page.story %}<link rel="stylesheet" href="{{ '/assets/css/story.css' | relative_url }}">{% endif %}
   <script>document.documentElement.classList.add('js');</script>
 </head>
@@ -59,8 +60,8 @@
   </section>
   {% endif %}
 
-  <main{% if page.story %} class="story"{% endif %}>
-    {% if page.story %}{% include hand-rack.html %}{% endif %}
+  <main{% if page.story %} class="story"{% elsif page.hand %} class="has-strip"{% endif %}>
+    {% if page.story %}{% include hand-rack.html toc=site.data.story unit="Draw" mode="rail" %}{% elsif page.hand %}{% assign hand_toc = site.data[page.hand] %}{% include hand-rack.html toc=hand_toc unit="Section" mode="strip" %}{% endif %}
     <article>
       {% unless page.hero %}<div class="page-title"><h1>{{ page.title }}</h1></div>{% endunless %}
       {{ content }}
@@ -76,6 +77,7 @@
   <div class="gloss-pop" id="gloss-pop" role="tooltip" hidden></div>
   <script type="application/json" id="glossary-data">{{ site.data.glossary | jsonify }}</script>
   <script src="{{ '/assets/js/site.js' | relative_url }}" defer></script>
+  {% if page.story or page.hand %}<script src="{{ '/assets/js/hand.js' | relative_url }}" defer></script>{% endif %}
   {% if page.story %}<script src="{{ '/assets/js/story.js' | relative_url }}" defer></script>{% endif %}
 </body>
 </html>

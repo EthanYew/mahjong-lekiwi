@@ -1,0 +1,18 @@
+# The article's contents as a hand of 14 tiles (the strip down the left of /). Each entry links to a heading
+# id in index.md; kramdown makes the id from the heading text, so renaming a heading means updating its
+# anchor here (tests/test_site_hand.py checks every anchor exists). Each act is one set of the hand, so acts
+# run 3, 3, 3, 3 and 2 entries long. "Closing thoughts" comes after the last tile: reaching it wins the hand.
+- {n: 1,  act: "Why",             title: "The short version",        anchor: "the-short-version"}
+- {n: 2,  act: "Why",             title: "Where it stands",          anchor: "stats-h"}
+- {n: 3,  act: "Why",             title: "Why mahjong",              anchor: "why-mahjong"}
+- {n: 4,  act: "The bar",         title: "The mahjong game loop",    anchor: "the-mahjong-game-loop"}
+- {n: 5,  act: "The bar",         title: "What success looks like",  anchor: "defining-what-success-looks-like"}
+- {n: 6,  act: "The bar",         title: "A clean full hand",        anchor: "a-clean-full-hand-spelled-out"}
+- {n: 7,  act: "How it works",    title: "A turn, step by step",     anchor: "dissecting-a-turn-step-by-step"}
+- {n: 8,  act: "How it works",    title: "System architecture",      anchor: "system-architecture-how-it-works"}
+- {n: 9,  act: "How it works",    title: "The build, June to November", anchor: "the-build--technical-challenges"}
+- {n: 10, act: "What went wrong", title: "Learning can be brittle",  anchor: "challenge-1-deep-learning-can-be-brittle"}
+- {n: 11, act: "What went wrong", title: "Simulation vs real life",  anchor: "challenge-2-simulation-vs-real-life"}
+- {n: 12, act: "What went wrong", title: "Safety guardrails",        anchor: "challenge-3-safety-guardrails"}
+- {n: 13, act: "What I learned",  title: "Three lessons",            anchor: "key-takeaways"}
+- {n: 14, act: "What I learned",  title: "What’s next",              anchor: "whats-next"}

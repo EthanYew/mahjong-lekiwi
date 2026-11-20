@@ -1,0 +1,18 @@
+# The 14 tiles of the reading hand, shared by / and /story/. Tiles 1 to 9 show their own number, so a tile is
+# also its section's place in the list. Together they are a winning hand: three runs (1-2-3 bamboo, 4-5-6 dots,
+# 7-8-9 characters), a triplet of East and a pair of Red dragons. Each set is one act; the titles live in
+# story.yml (for /story/) and article_toc.yml (for /).
+- {n: 1,  suit: bam,  face: "1", label: bam}
+- {n: 2,  suit: bam,  face: "2", label: bam}
+- {n: 3,  suit: bam,  face: "3", label: bam}
+- {n: 4,  suit: dots, face: "4", label: dots}
+- {n: 5,  suit: dots, face: "5", label: dots}
+- {n: 6,  suit: dots, face: "6", label: dots}
+- {n: 7,  suit: char, face: "7", label: char}
+- {n: 8,  suit: char, face: "8", label: char}
+- {n: 9,  suit: char, face: "9", label: char}
+- {n: 10, suit: wind, face: "東", label: east, glyph: true}
+- {n: 11, suit: wind, face: "東", label: east, glyph: true}
+- {n: 12, suit: wind, face: "東", label: east, glyph: true}
+- {n: 13, suit: drag, face: "中", label: red, glyph: true}
+- {n: 14, suit: drag, face: "中", label: red, glyph: true}

@@ -1,12 +1,27 @@
-{%- assign acts = site.data.story | group_by: "act" -%}
-<aside class="stage" aria-label="Your hand: one tile per section">
+{%- comment -%}
+The reading hand: 14 tiles, one per section, that fill as you read. Used by both pages.
+  toc:  the entries (n, act, title, and anchor; without an anchor an entry links to #draw-N)
+  unit: what a tile is called in the labels, "Draw" or "Section"
+  mode: "rail" (/story/: always open beside the story, Hide leaves a Show button)
+        "strip" (/: a thin column of tiles down the left that opens into the rail on hover or click)
+Tile faces come from _data/hand.yml.
+{%- endcomment -%}
+{%- assign toc = include.toc -%}
+{%- assign unit = include.unit | default: "Draw" -%}
+{%- assign acts = toc | group_by: "act" -%}
+<aside class="stage stage--{{ include.mode | default: 'rail' }}" aria-label="Contents: one tile per section" data-unit="{{ unit }}">
+  {%- if include.mode == "strip" %}
+  <script>try { if (localStorage.getItem('mj-hand-open') === 'pinned') { document.documentElement.classList.add('hand-pinned'); document.currentScript.parentNode.classList.add('is-open'); } } catch (e) {}</script>
+  <button type="button" class="stage-pin" data-stage-pin aria-controls="stage-panel" aria-expanded="false" title="Contents"><span class="sr-only">Show the contents</span><i></i><i></i><i></i></button>
+  {%- else %}
   <script>try { if (localStorage.getItem('mj-story-hand') === 'off') document.documentElement.classList.add('stage-off'); } catch (e) {}</script>
+  {%- endif %}
   <div class="stage-felt" id="stage-panel">
     {%- comment -%} Invisible copies of every label share a grid cell with the live one, so the box is already as tall as
     its longest label and doesn't jump when a hover or a scroll swaps the text. {%- endcomment %}
     <p class="stage-act" data-stage-head>
-      <span class="stage-eyebrow"><span data-stage-count>The deal</span>{% for d in site.data.story %}<span class="sizer" aria-hidden="true">Draw {{ d.n }} of 14 · {{ d.act }}</span><span class="sizer" aria-hidden="true">Go to draw {{ d.n }} · {{ d.act }}</span>{% endfor %}</span>
-      <span class="stage-title"><b data-stage-act>Scroll to draw your first tile</b>{% for d in site.data.story %}<b class="sizer" aria-hidden="true">{{ d.title }}</b>{% endfor %}</span>
+      <span class="stage-eyebrow"><span data-stage-count>{% if include.mode == "strip" %}Contents{% else %}The deal{% endif %}</span>{% for d in toc %}<span class="sizer" aria-hidden="true">{{ unit }} {{ d.n }} of 14 · {{ d.act }}</span><span class="sizer" aria-hidden="true">Go to {{ unit | downcase }} {{ d.n }} · {{ d.act }}</span>{% endfor %}</span>
+      <span class="stage-title"><b data-stage-act>{% if include.mode == "strip" %}Scroll to fill the hand{% else %}Scroll to draw your first tile{% endif %}</b>{% for d in toc %}<b class="sizer" aria-hidden="true">{{ d.title }}</b>{% endfor %}</span>
     </p>
     <div class="stage-pile">
       <div class="stage-wall" aria-hidden="true">{% for i in (1..14) %}<span class="mt sm back"></span>{% endfor %}</div>
@@ -18,7 +33,8 @@
         <span class="set-name">{{ a.name }}</span>
         <div class="set-tiles">
           {%- for d in a.items -%}
-          <a class="slot" href="#draw-{{ d.n }}" data-n="{{ d.n }}" aria-label="Draw {{ d.n }}: {{ d.title }}"><span class="mt {{ d.suit }}" aria-hidden="true"><b{% if d.glyph %} class="g"{% endif %}>{{ d.face }}</b><i>{{ d.label }}</i></span></a>
+          {%- assign t = site.data.hand | where: "n", d.n | first -%}
+          <a class="slot" href="#{% if d.anchor %}{{ d.anchor }}{% else %}draw-{{ d.n }}{% endif %}" data-n="{{ d.n }}" data-act="{{ d.act }}" data-title="{{ d.title }}" aria-label="{{ unit }} {{ d.n }}: {{ d.title }}"><span class="mt {{ t.suit }}" aria-hidden="true"><b{% if t.glyph %} class="g"{% endif %}>{{ t.face }}</b><i>{{ t.label }}</i></span></a>
           {%- endfor -%}
         </div>
       </div>
@@ -26,19 +42,25 @@
     </nav>
     <div class="stage-tools">
       <button type="button" class="stage-btn" data-toc-open aria-haspopup="dialog">Contents</button>
+      {%- if include.mode == "strip" %}
+      <button type="button" class="stage-btn" data-stage-keep aria-pressed="false">Keep open</button>
+      {%- else %}
       <button type="button" class="stage-btn" data-stage-hide aria-controls="stage-panel" aria-expanded="true">Hide</button>
+      {%- endif %}
     </div>
     <p class="sr-only" aria-live="polite" data-stage-live></p>
   </div>
+  {%- unless include.mode == "strip" %}
   <button type="button" class="stage-show" data-stage-show hidden aria-controls="stage-panel" aria-expanded="false">
     <span class="mt sm back" aria-hidden="true"></span><span>Show hand <b data-stage-mini>0/14</b></span>
   </button>
+  {%- endunless %}
 </aside>
 
 <dialog class="toc" aria-labelledby="toc-h" data-toc>
   <div class="toc-inner">
     <header class="toc-head">
-      <div><p class="mj-eyebrow">The whole hand</p><h2 id="toc-h">14 draws in five sets</h2><p class="toc-read" data-toc-read></p></div>
+      <div><p class="mj-eyebrow">The whole hand</p><h2 id="toc-h">14 {{ unit | downcase }}s in five sets</h2><p class="toc-read" data-toc-read></p></div>
       <button type="button" class="toc-close" data-toc-close aria-label="Close contents">&times;</button>
     </header>
     <ol class="toc-acts">
@@ -47,7 +69,8 @@
         <p class="toc-act-name">{{ a.name }}</p>
         <ol>
           {%- for d in a.items -%}
-          <li><a href="#draw-{{ d.n }}" data-n="{{ d.n }}"><span class="mt {{ d.suit }}" aria-hidden="true"><b{% if d.glyph %} class="g"{% endif %}>{{ d.face }}</b><i>{{ d.label }}</i></span><span class="toc-title"><small>Draw {{ d.n }}</small>{{ d.title }}</span></a></li>
+          {%- assign t = site.data.hand | where: "n", d.n | first -%}
+          <li><a href="#{% if d.anchor %}{{ d.anchor }}{% else %}draw-{{ d.n }}{% endif %}" data-n="{{ d.n }}"><span class="mt {{ t.suit }}" aria-hidden="true"><b{% if t.glyph %} class="g"{% endif %}>{{ t.face }}</b><i>{{ t.label }}</i></span><span class="toc-title"><small>{{ unit }} {{ d.n }}</small>{{ d.title }}</span></a></li>
           {%- endfor -%}
         </ol>
       </li>

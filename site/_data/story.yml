@@ -1,16 +1,16 @@
-# The 14 draws of /story/. Together the tiles make the winning hand from the game-loop graphic:
-# a run, a triplet, a run, a triplet and a pair. Each act is one set.
-- {n: 1,  act: "Why",              title: "The short version",        suit: bam,  face: "2", label: bam}
-- {n: 2,  act: "Why",              title: "Why mahjong",              suit: bam,  face: "3", label: bam}
-- {n: 3,  act: "Why",              title: "The game",                 suit: bam,  face: "4", label: bam}
-- {n: 4,  act: "The bar",          title: "What success looks like",  suit: dots, face: "7", label: dots}
-- {n: 5,  act: "The bar",          title: "A clean hand, spelled out", suit: dots, face: "7", label: dots}
-- {n: 6,  act: "The bar",          title: "Where it stands",          suit: dots, face: "7", label: dots}
-- {n: 7,  act: "How it works",     title: "One turn, six steps",      suit: char, face: "5", label: char}
-- {n: 8,  act: "How it works",     title: "Eyes, brain and hands",    suit: char, face: "6", label: char}
-- {n: 9,  act: "How it works",     title: "The build, June to November", suit: char, face: "7", label: char}
-- {n: 10, act: "What went wrong",  title: "Learning can be brittle",  suit: wind, face: "東", label: east, glyph: true}
-- {n: 11, act: "What went wrong",  title: "Offline scores vs the arm", suit: wind, face: "東", label: east, glyph: true}
-- {n: 12, act: "What went wrong",  title: "Safety guardrails",        suit: wind, face: "東", label: east, glyph: true}
-- {n: 13, act: "What I learned",   title: "Three lessons",            suit: drag, face: "中", label: red, glyph: true}
-- {n: 14, act: "What I learned",   title: "What’s next",              suit: drag, face: "中", label: red, glyph: true}
+# The 14 draws of /story/: one section each, linked as #draw-N. The tile for each is in hand.yml.
+# Each act is one set of the hand, so acts run 3, 3, 3, 3 and 2 draws long.
+- {n: 1,  act: "Why",             title: "The short version"}
+- {n: 2,  act: "Why",             title: "Why mahjong"}
+- {n: 3,  act: "Why",             title: "The game"}
+- {n: 4,  act: "The bar",         title: "What success looks like"}
+- {n: 5,  act: "The bar",         title: "A clean hand, spelled out"}
+- {n: 6,  act: "The bar",         title: "Where it stands"}
+- {n: 7,  act: "How it works",    title: "One turn, six steps"}
+- {n: 8,  act: "How it works",    title: "Eyes, brain and hands"}
+- {n: 9,  act: "How it works",    title: "The build, June to November"}
+- {n: 10, act: "What went wrong", title: "Learning can be brittle"}
+- {n: 11, act: "What went wrong", title: "Offline scores vs the arm"}
+- {n: 12, act: "What went wrong", title: "Safety guardrails"}
+- {n: 13, act: "What I learned",  title: "Three lessons"}
+- {n: 14, act: "What I learned",  title: "What’s next"}
