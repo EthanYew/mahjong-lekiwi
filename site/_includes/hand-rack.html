@@ -1,21 +1,50 @@
+{%- assign acts = site.data.story | group_by: "act" -%}
 <aside class="stage" aria-label="Your hand: one tile per section">
-  <div class="stage-felt">
-    <p class="stage-act"><span data-stage-count>The deal</span><b data-stage-act>Scroll to draw your first tile</b></p>
+  <script>try { if (localStorage.getItem('mj-story-hand') === 'off') document.documentElement.classList.add('stage-off'); } catch (e) {}</script>
+  <div class="stage-felt" id="stage-panel">
+    <p class="stage-act" data-stage-head><span data-stage-count>The deal</span><b data-stage-act>Scroll to draw your first tile</b></p>
     <div class="stage-wall" aria-hidden="true">{% for i in (1..14) %}<span class="mt sm back"></span>{% endfor %}</div>
     <nav class="rack" aria-label="Sections, one tile each" data-rack>
-      {%- assign acts = site.data.story | group_by: "act" -%}
       {%- for a in acts -%}
       <div class="set" data-set="{{ forloop.index }}">
+        <span class="set-name">{{ a.name }}</span>
         <div class="set-tiles">
           {%- for d in a.items -%}
           <a class="slot" href="#draw-{{ d.n }}" data-n="{{ d.n }}" aria-label="Draw {{ d.n }}: {{ d.title }}"><span class="mt {{ d.suit }}" aria-hidden="true"><b{% if d.glyph %} class="g"{% endif %}>{{ d.face }}</b><i>{{ d.label }}</i></span></a>
           {%- endfor -%}
         </div>
-        <span class="set-name">{{ a.name }}</span>
       </div>
       {%- endfor -%}
     </nav>
     <p class="stage-win" data-stage-win hidden><b>Win!</b> Four sets and a pair.</p>
+    <div class="stage-tools">
+      <button type="button" class="stage-btn" data-toc-open aria-haspopup="dialog">Contents</button>
+      <button type="button" class="stage-btn" data-stage-hide aria-controls="stage-panel" aria-expanded="true">Hide</button>
+    </div>
     <p class="sr-only" aria-live="polite" data-stage-live></p>
   </div>
+  <button type="button" class="stage-show" data-stage-show hidden aria-controls="stage-panel" aria-expanded="false">
+    <span class="mt sm back" aria-hidden="true"></span><span>Show hand <b data-stage-mini>0/14</b></span>
+  </button>
 </aside>
+
+<dialog class="toc" aria-labelledby="toc-h" data-toc>
+  <div class="toc-inner">
+    <header class="toc-head">
+      <div><p class="mj-eyebrow">The whole hand</p><h2 id="toc-h">14 draws in five sets</h2><p class="toc-read" data-toc-read></p></div>
+      <button type="button" class="toc-close" data-toc-close aria-label="Close contents">&times;</button>
+    </header>
+    <ol class="toc-acts">
+      {%- for a in acts -%}
+      <li class="toc-act">
+        <p class="toc-act-name">{{ a.name }}</p>
+        <ol>
+          {%- for d in a.items -%}
+          <li><a href="#draw-{{ d.n }}" data-n="{{ d.n }}"><span class="mt {{ d.suit }}" aria-hidden="true"><b{% if d.glyph %} class="g"{% endif %}>{{ d.face }}</b><i>{{ d.label }}</i></span><span class="toc-title"><small>Draw {{ d.n }}</small>{{ d.title }}</span></a></li>
+          {%- endfor -%}
+        </ol>
+      </li>
+      {%- endfor -%}
+    </ol>
+  </div>
+</dialog>
