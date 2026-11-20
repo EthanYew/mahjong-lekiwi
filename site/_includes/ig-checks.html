@@ -3,21 +3,28 @@
   <div class="checks" style="margin-top:1rem">
     <div class="node">
       <h4 style="margin:0">Iteration check</h4>
+      <p class="q">Is this a better base to keep building on?</p>
       <span class="k">14 pairs</span>
       <div class="pairs14" role="img" aria-label="Illustration: 14 paired attempts, more clean wins than losses"><i class="w"></i><i class="w"></i><i></i><i class="w"></i><i class="l"></i><i class="w"></i><i></i><i class="w"></i><i class="w"></i><i class="l"></i><i></i><i class="w"></i><i></i><i class="w"></i></div>
       <p style="margin:0">More clean wins than losses against the current default, with the failure I set out to fix visibly improved.</p>
     </div>
     <div class="node">
       <h4 style="margin:0">Play-ready check</h4>
+      <p class="q">Is it worth spending scored hands on?</p>
       <span class="k">26 of 28</span>
       <div class="dots28" role="img" aria-label="Illustration: at least 26 of 28 attempts clean">{% for i in (1..26) %}<i></i>{% endfor %}<i class="miss"></i><i class="miss"></i></div>
       <p style="margin:0">At least 26 of 28 clean in one session, no spot missed twice, and no silent wrong tile name.</p>
     </div>
     <div class="node">
       <h4 style="margin:0">Strict paired test</h4>
-      <span class="k">“X is better”</span>
-      <p style="margin:0">Reserved for claiming that one version beats another.</p>
+      <p class="q">Can I claim it’s better, or replace a play-ready policy?</p>
+      <span class="k">28+ pairs</span>
+      <div class="pairs2" role="img" aria-label="Illustration: old and new policy side by side at the same spots; the pairs where only one was clean are outlined">
+        <span>Old</span><i></i><i></i><i class="x d"></i><i></i><i></i><i class="x d"></i><i></i><i></i><i></i><i class="x d"></i><i></i><i></i><i></i><i></i>
+        <span>New</span><i></i><i></i><i class="d"></i><i></i><i></i><i class="d"></i><i></i><i></i><i></i><i class="d"></i><i></i><i></i><i></i><i></i>
+      </div>
+      <p style="margin:0">Old and new take turns at the same spots in one session, about 40 minutes. Only pairs where exactly one was clean count. It ships if those split clearly its way (5-0 or 7-1, say); anything less clear means run more.</p>
     </div>
   </div>
-  <p class="ig-note">The bars and dots illustrate each bar to clear; they are not results from a run.</p>
+  <p class="ig-note">The bars and dots are illustrations of each check, not results from a run. Green is clean, a red ring is not.</p>
 </section>

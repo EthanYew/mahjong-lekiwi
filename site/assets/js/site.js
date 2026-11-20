@@ -89,21 +89,23 @@
   if (seat) {
     var seg = $('.seg', seat); seg.hidden = false;
     var states = {
-      visit: { label: 'Once a year', verdict: 'Four players. Game on.', note: 'My grandparents are in town from Malaysia, so we have enough kaki to play.', empty: [], robot: [] },
-      year: { label: 'The other days', verdict: 'Not enough kaki.', note: 'My grandparents are home in Malaysia, and two seats sit empty.', empty: ['gm', 'gp'], robot: [] },
-      goal: { label: 'The promise', verdict: 'Robotto takes a seat.', note: 'Steered by my grandparents from Malaysia, or playing its own hand when someone in Sydney wants a break. Not yet: today it plays alone.', empty: ['gp'], robot: ['gm'] }
+      visit: { label: 'Once a year', verdict: 'Four players. Game on.', note: 'My grandparents are in town from Malaysia, so we have enough kaki to play.', fill: {} },
+      year: { label: 'The rest of the year', verdict: 'One seat short.', note: 'My grandparents are home in Malaysia. Dad, my sister and I make three.', fill: { gm: 'me', gp: 'empty' } },
+      remote: { label: 'The goal', verdict: 'Robotto takes the empty seat.', note: 'My grandparents play through it, remote controlling the moves from Malaysia while the arm plays here. Not yet built.', fill: { gm: 'me', gp: 'remote' } },
+      auto: { label: 'The goal', verdict: 'Robotto takes the empty seat.', note: 'Or it plays its own hand as an autonomous extra player, so there are always enough kaki. Not yet: today it plays mahjong solitaire.', fill: { gm: 'me', gp: 'auto' } }
     };
-    var names = { gm: 'Grandma', gp: 'Grandpa' };
+    var base = { gm: ['G', 'Grandma'], gp: ['G', 'Grandpa'] };
+    var look = { me: ['E', 'Me'], empty: ['?', 'Empty'], remote: ['R', 'Robotto, steered from Malaysia'], auto: ['R', 'Robotto, on its own'] };
     seg.addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
       press(seg, b);
       var st = states[b.getAttribute('data-seat')];
       $$('.seat', seat).forEach(function (s) {
-        var who = s.getAttribute('data-who'), nm = $('.nm', s), dot = $('.dot', s);
-        var empty = st.empty.indexOf(who) > -1, robot = st.robot.indexOf(who) > -1;
-        s.classList.toggle('is-empty', empty); s.classList.toggle('is-robot', robot);
-        if (nm) nm.textContent = robot ? 'Robotto' : empty ? 'In Malaysia' : names[who];
-        if (who === 'gm' || who === 'gp') dot.textContent = robot ? 'R' : empty ? '?' : 'G';
+        var who = s.getAttribute('data-who'); if (!base[who]) return;
+        var f = st.fill[who], l = f ? look[f] : base[who];
+        s.classList.toggle('is-empty', f === 'empty'); s.classList.toggle('is-robot', f === 'remote' || f === 'auto');
+        s.classList.toggle('is-me', f === 'me');
+        $('.dot', s).textContent = l[0]; $('.nm', s).textContent = l[1];
       });
       $('[data-seat-label]', seat).textContent = st.label;
       $('[data-seat-verdict]', seat).textContent = st.verdict;
@@ -136,21 +138,6 @@
       if (c === 'yes') n++; else if (c === 'ask') asks++; else if (c === 'no') recov++; else if (c === 'audit') audit = true;
       render(b.getAttribute('data-name'));
     });
-  }
-
-  // ---- Merge flow: which path does a change take? ----
-  var mfT = $('[data-mf-toggle]'), mf = $('[data-mf]');
-  if (mfT && mf) {
-    mfT.hidden = false;
-    function path(p) {
-      $$('.node', mf).forEach(function (nd) {
-        var on = nd.getAttribute('data-on');
-        nd.classList.toggle('is-dim', on && on !== 'both' && on !== p);
-        nd.classList.toggle('is-path', on === p);
-      });
-    }
-    mfT.addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; press(mfT, b); path(b.getAttribute('data-path')); });
-    path('no');
   }
 
   // ---- Timeline: a wall of face-down tiles. Turn one over to read it ----
