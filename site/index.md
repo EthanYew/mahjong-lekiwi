@@ -5,6 +5,9 @@ description: "How I trained a low-cost SO-101 robot arm to play mahjong (mostly)
 image: writeup/grandparents.jpg
 next_url: /build-log/
 next_title: "Build log: MahjongBot"
+hero: true
+eyebrow: "A robot arm · a family table · 2026"
+pills: ["Autonomy: supervised", "Stage: internal test"]
 ---
 
 ## The short version
@@ -16,6 +19,8 @@ I’m Ethan, a product manager based in Sydney. On a career break, I trained a l
 **Where it stands, 19 November 2026:** **TODO** It hasn’t played with a person yet. That starts once **8 face-down hands in a row make no silent errors, and need no more than 3 interventions**.
 
 {% include youtube.html id="2sP834I__1Y" anchor="hero-video" caption="Final result: the robot reaching a winning hand from start to finish" %}
+
+{% include stats.html %}
 
 ## Why mahjong
 
@@ -68,7 +73,7 @@ In an ideal world, the robot plays a hand of mahjong, and a person's only job is
 
 Robotto must complete six key steps every turn in the game to reach a winning hand:
 
-{% include figure.html src="writeup/turn-steps.png" alt="One turn, step by step: six steps, three kinds of work. 1 Find (learned): YOLO on the overhead camera spots each tile and depth turns its pixels into a 3D position; face-down tiles in hand are tracked by saved slots. 2 Get above (geometry): IK moves the hand over the tile and a correction learned from hundreds of measured hovers cleans up the error. 3 Grasp (learned): an ACT policy lowers the hand, grabs the tile and lifts it, watching through the wrist camera. 4 Read (learned): the arm shows a drawn tile to the camera on its wheeled base and a small classifier names it. 5 Decide (rules): game code picks the discard that brings the hand closest to winning. 6 Return (geometry and learned): the drawn tile fills the discard’s gap, aimed by a correction fitted from over 1,000 measured set-downs." %}
+{% include turn-steps.html %}
 
 Each step in a turn is done by one of three kinds of work:
 
@@ -102,7 +107,7 @@ Before each game, a calibration check confirms the overhead camera maps the tabl
 
 I didn’t take the straightest path to get to this point. Here’s a high-level timeline of what got us to this point, followed by some technical challenges I encountered. If you’re interested in how the months played out in more detail, you can check out this other post [here]({{ '/build-log/' | relative_url }}).
 
-{% include figure.html src="writeup/timeline.png" alt="How I built it: each milestone unlocked the next, June to November 2026. Late June, tile recognition (learned, YOLO): a detector trained on about 9,300 public images and about 830 photos of my own tiles; accuracy 0.90, then 0.964 by August. Late June to July, hover and calibration (geometry, IK): the arm can hover over any tile the camera sees. 3 July, first pickups (learned, ACT): demonstrations re-recorded to start 5 cm above the tile. 18 August, first win face-up (rules): the whole loop works end to end, with help on reads and stray tiles. Late August to early September, hover fixes (geometry, IK): accurate enough to place tiles, not just pick them up. Late October to November, new setup and rebuild (learned, DAgger): wheeled base, game controller, fixed layout and lighting, a base camera to read face-down tiles. 17 and 19 November, clean face-down wins: 101 of 101 pickups held on 17 November, won unattended on 19 November. Next: play with my family, once it wins 8 of 10 face-down hands clean with no wrong tile ever played unnoticed." %}
+{% include timeline-wall.html %}
 
 ### Challenge 1: Deep-learning can be brittle
 
@@ -121,6 +126,8 @@ I would still get surprised at how it would fail even after doing all the above.
 I held out demonstration data from table spots the ACT policies hadn’t seen during training to check if predicted movements from a newly trained policy matched my actual demonstrations. They worked well as quick sanity checks — like spotting if the gripper closed too early above the tile — but they couldn’t predict real-world performance as physical errors compounded over time.
 
 In fact, two policy versions tied on every offline test (scoring the policy against recorded examples on the PC, without conducting a physical trial on the arm). Yet testing on the physical arm revealed one succeeded only 6 out of 14 times compared to 11 out of 14 for the other. It happened again in November: three versions tied offline, then went 23, 25 and 27 clean picks out of 28 on the arm. Now, offline tests serve only as a preliminary screen before paired physical trials on a standardized setup.
+
+{% include offline-vs-arm.html %}
 
 ### Challenge 3: Safety guardrails
 

@@ -1,0 +1,4 @@
+{%- comment -%}glyph: red | jade | blank | back; size: sm; tilt: l | r; i: stagger index{%- endcomment -%}
+<div class="mj-tile{% if include.size == 'sm' %} mj-tile--sm{% endif %}{% if include.glyph == 'back' %} mj-tile--back{% endif %}{% if include.tilt %} mj-tilt-{{ include.tilt }}{% endif %}"{% if include.i %} style="--i:{{ include.i }}"{% endif %}>
+{%- if include.glyph == 'red' %}<span class="mj-red">中</span>{% elsif include.glyph == 'jade' %}<span class="mj-jade">發</span>{% elsif include.glyph == 'blank' %}<div class="mj-blank"></div>{% endif -%}
+</div>

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   {% assign page_title = page.title | default: site.title %}
   {% assign page_desc = page.description | default: site.description %}
   <title>{{ page_title }}</title>
@@ -15,12 +16,20 @@
   <meta property="og:url" content="{{ page.url | absolute_url }}">
   {% if page.image %}<meta property="og:image" content="{{ page.image | prepend: '/assets/img/' | absolute_url }}">{% endif %}
   <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" href="{{ '/assets/fonts/Fraunces-normal.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ '/assets/fonts/DMSans-normal.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ '/assets/css/tokens.css' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/components.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
+  <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
   <header class="topbar">
     <nav>
-      <a class="brand" href="{{ '/' | relative_url }}">MahjongBot</a>
+      <a class="brand" href="{{ '/' | relative_url }}">
+        <span class="mark" aria-hidden="true">{% include tile.html glyph="red" size="sm" %}{% include tile.html glyph="jade" size="sm" %}{% include tile.html glyph="blank" size="sm" %}</span>
+        MahjongBot
+      </a>
       <span class="links">
         <a href="{{ '/' | relative_url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>Write-up</a>
         <a href="{{ '/build-log/' | relative_url }}"{% if page.url == '/build-log/' %} aria-current="page"{% endif %}>Build log</a>
@@ -28,9 +37,26 @@
       </span>
     </nav>
   </header>
+
+  {% if page.hero %}
+  <section class="hero">
+    <div class="hero-inner">
+      <div>
+        {% if page.eyebrow %}<p class="mj-eyebrow mj-in">{{ page.eyebrow }}</p>{% endif %}
+        <h1 class="mj-in" style="--i:1">{{ page.title }}</h1>
+        {% if page.pills %}<div class="pills mj-in" style="--i:2">{% for p in page.pills %}<span class="mj-pill mj-pill--outline">{{ p }}</span>{% endfor %}</div>{% endif %}
+        {% if page.lede %}<p class="lede mj-in" style="--i:3">{{ page.lede }}</p>{% endif %}
+      </div>
+      <div class="tile-deal" aria-hidden="true">
+        {% include tile.html glyph="red" tilt="l" i=0 %}{% include tile.html glyph="jade" i=1 %}{% include tile.html glyph="blank" tilt="r" i=2 %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
   <main>
     <article>
-      <h1>{{ page.title }}</h1>
+      {% unless page.hero %}<div class="page-title"><h1>{{ page.title }}</h1></div>{% endunless %}
       {{ content }}
       {% if page.next_url %}
       <aside class="read-next">Read next: <a href="{{ page.next_url | relative_url }}">{{ page.next_title }}</a></aside>
@@ -38,13 +64,9 @@
     </article>
   </main>
   <footer>
+    <div class="mark" aria-hidden="true">{% include tile.html glyph="red" size="sm" %}{% include tile.html glyph="jade" size="sm" %}{% include tile.html glyph="blank" size="sm" %}</div>
     <p>{{ site.author }} · <a href="{{ site.repo }}">Code on GitHub</a> · <a href="{{ site.linkedin }}">LinkedIn</a></p>
   </footer>
-  <script>
-    // Looping clips stand in for GIFs; respect a reduced-motion setting by pausing them and showing controls.
-    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      document.querySelectorAll('video[loop]').forEach(function (v) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; });
-    }
-  </script>
+  <script src="{{ '/assets/js/site.js' | relative_url }}" defer></script>
 </body>
 </html>

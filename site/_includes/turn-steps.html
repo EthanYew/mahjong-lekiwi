@@ -1,0 +1,18 @@
+<section class="felt-panel wide reveal" id="turn-steps" aria-labelledby="turn-steps-h">
+  <p class="mj-eyebrow">One turn · six steps · three kinds of work</p>
+  <h3 id="turn-steps-h" style="margin-top:0;font-size:1.6rem">Every turn, the robot runs this loop</h3>
+  <div class="chips" role="group" aria-label="Highlight a kind of work" hidden>
+    <button class="chip" type="button" data-kind="all" aria-pressed="true">All</button>
+    <button class="chip" type="button" data-kind="learned" aria-pressed="false">Learned</button>
+    <button class="chip" type="button" data-kind="geometry" aria-pressed="false">Geometry</button>
+    <button class="chip" type="button" data-kind="rules" aria-pressed="false">Rules</button>
+  </div>
+  <ol class="steps">
+    <li data-kinds="learned"><div class="mj-card"><span class="step-n">STEP 1</span><div class="pills"><span class="mj-pill mj-pill--learned">Learned</span></div><h3>Find</h3><p>YOLO on the overhead camera spots each tile; depth turns its pixels into a 3D position. Face-down tiles in hand are tracked by saved slots.</p></div></li>
+    <li data-kinds="geometry"><div class="mj-card"><span class="step-n">STEP 2</span><div class="pills"><span class="mj-pill mj-pill--geometry">Geometry</span></div><h3>Get above</h3><p>Inverse kinematics moves the hand over the tile, and a correction learned from hundreds of measured hovers cleans up the error.</p></div></li>
+    <li data-kinds="learned"><div class="mj-card"><span class="step-n">STEP 3</span><div class="pills"><span class="mj-pill mj-pill--learned">Learned</span></div><h3>Grasp</h3><p>An ACT policy lowers the hand, grabs the tile and lifts it, watching through the wrist camera.</p></div></li>
+    <li data-kinds="learned"><div class="mj-card"><span class="step-n">STEP 4</span><div class="pills"><span class="mj-pill mj-pill--learned">Learned</span></div><h3>Read</h3><p>The arm shows a drawn tile to the camera on its wheeled base, and a small classifier names it.</p></div></li>
+    <li data-kinds="rules"><div class="mj-card"><span class="step-n">STEP 5</span><div class="pills"><span class="mj-pill mj-pill--rules">Rules</span></div><h3>Decide</h3><p>Game code picks the discard that brings the hand closest to winning.</p></div></li>
+    <li data-kinds="geometry learned"><div class="mj-card"><span class="step-n">STEP 6</span><div class="pills"><span class="mj-pill mj-pill--geometry">Geometry</span><span class="mj-pill mj-pill--learned">Learned</span></div><h3>Return</h3><p>The drawn tile fills the discard’s gap, aimed by a correction fitted from over 1,000 measured set-downs.</p></div></li>
+  </ol>
+</section>
