@@ -9,23 +9,32 @@ next_title: "Build log: MahjongBot"
 
 ## The short version
 
-I’m Ethan, a product manager based in Sydney. On a career break, I trained a low-cost, open-source robot arm (SO-101) to play mahjong (mostly) by itself. The goal is a robot my family can play mahjong with, including my grandparents when they’re back in Malaysia. This is the first of several personal projects to learn robotics by doing and pivot my career towards physical AI.
+I’m Ethan, a product manager based in Sydney. On a career break, I trained a low-cost, open-source robot arm (SO-101) to play mahjong (mostly) by itself. My grandparents nicknamed it “Robotto”, and the goal is a robot my family can play mahjong with, including my grandparents when they’re back in Malaysia. This is the first of several personal projects to learn robotics by doing and pivot my career towards physical AI.
+
+<!-- DRAFT (from review, section 2): replace the paragraph above with an outcome-first opener if you like:
+I’m Ethan, a product manager in Sydney. In five months, on a career break, I took a low-cost, open-source robot arm (SO-101) from nothing to winning full hands of mahjong unattended, and wrote the acceptance criteria that decide when it is safe to play with people. [Add the BOM cost here, e.g. "built for about $X".] The end user is my grandparents, who play mahjong with us once a year when they visit from Malaysia. The goal is that a robot player can fill the empty seat the other 364 days. This is the first of several projects to learn robotics by doing and move my career into physical AI.
+-->
+
+<!-- DRAFT (from review, section 2): optional short section to add right after "Why mahjong", about who it is for and what failure costs them:
+## Who it’s for, and what failure costs them
+The users are my grandparents, in their [age/80s?], who are not going to debug a robot. For them, a robot that stalls is mildly annoying, but a robot that quietly plays the wrong tile means the game they think they won, they didn’t. That asymmetry shaped every target below: fixes by a family member are cheap, silent errors are not, so I allow a few interventions per hand but zero unnoticed mistakes.
+-->
 
 **How it works, in brief:** The arm is steered by two kinds of software. A **vision model** looks through cameras to find and name tiles. A **policy**, a neural network trained on recorded examples of me doing the task, controls the arm’s movements to pick a tile up. Scripts handle the rest. Every new version of either one is a candidate I have to test before trusting it.
 
-**Where it stands, 19 November 2026:** **TODO** It hasn’t played with a person yet. That starts once **8 face-down hands in a row make no silent errors, and need no more than 3 interventions**.
+**Where it stands, 20 November 2026:** Robotto has won 2 full face-down hands cleanly, one of them unattended (17 and 19 November). A third attempt on 20 November stopped after 3 turns. It hasn’t played with a person yet. That starts once **8 of 10 consecutive face-down hands are clean: no silent errors, and no more than 3 interventions each**.
 
-{% include youtube.html id="2sP834I__1Y" anchor="hero-video" caption="Final result: the robot reaching a winning hand from start to finish" %}
+{% include youtube.html id="2sP834I__1Y" anchor="hero-video" caption="The robot playing a face-down hand to a win, unattended (19 November)" %}
 
 ## Why mahjong
 
 My family only has enough mahjong “kaki” (buddies) to play when my grandparents are in town from Malaysia. That happens once a year.
 
-{% include figure.html src="writeup/grandparents.jpg" caption="Grandparents playing mahjong with my sister and I. I always get my butt kicked when they’re in town." %}
+{% include figure.html src="writeup/grandparents.jpg" caption="Grandparents playing mahjong with my sister and me. I always get beaten when they’re in town." %}
 
-In June 2026 they were in Sydney. I’d just built two SO-101 arms: a follower that does the work and a leader I move by hand to teach it. Before they flew home, I wowed them a classic pick-and-place demo of putting a ball into a container and let them remote-control it by hand (teleoperation).
+In June 2026 they were in Sydney. I’d just built two SO-101 arms: a follower that does the work and a leader I move by hand to teach it. Before they flew home, I wowed them with a classic pick-and-place demo of putting a ball into a container and let them remote-control it by hand (teleoperation).
 
-I promised that one day “Robotto”, as they’d affectionately nicknamed it, would play mahjong with them. Whether they're remote controlling it from back in Malaysia, or together with us in Sydney and wanting a break, Robotto will make sure we always have enough kaki on hand to play a game together. This write-up follows that promise. The first step, teaching Robotto how to play mahjong by itself, before it learns how to compete with other people.
+I promised that one day “Robotto”, as they’d affectionately nicknamed it, would play mahjong with them. Whether they’re remote controlling it from back in Malaysia, or together with us in Sydney and wanting a break, Robotto will make sure we always have enough kaki on hand to play a game together. This write-up follows that promise. The first step is teaching Robotto to play mahjong by itself, before it learns to play with other people.
 
 ## The mahjong game loop
 
@@ -39,30 +48,35 @@ Non-goals: no specific regional rule set, no opponents yet, simply chasing a win
 
 > The goal is for Robotto to play 8 "clean" hands out of 10 consecutive hands (defined below).
 
-Before Robotto is trusted to play against people, it must first learn how to play mahjong by itself. i.e. "autonomous" play. Before trusting that it's ready for autonomous play, I define targets and guardrails showing the setup is robust, accurate and consistent. - **Silent wrong tiles are unacceptable.** The robot must never act on a tile name it got wrong
-  without noticing.
-- **A clean full hand** is the headline target (defined in section 3).
+Before Robotto is trusted to play against people, it must first play mahjong by itself ("autonomous" play). To decide when it’s ready, I defined targets and guardrails that show the setup is robust, accurate and consistent.
 
-### 3. "A clean full hand", spelled out
+- **Silent misreads are unacceptable.** The robot must never act on a tile name it got wrong without noticing.
+- **A clean full hand** is the headline target.
 
-**Definition.** A clean hand runs from registering the 13 starting tiles to a win (or the wall running
-out). In it, **a person performs no more than 3 interventions to help the robot recover from failure**:
+### A “clean full hand”, spelled out
+
+**Definition.** A clean hand runs from the start of the game, registering the 13 starting tiles, to a win (or the wall running out). In it, **a person performs no more than 3 interventions to help the robot recover from failure**.
 
 Interventions include:
-- **Rescues** (touching the arm or a tile, a tile put back, a discard fished out of the bin, Esc);
 - **Assist**: I correct a misread tile label, or physically reposition a tile, so the game can continue.
-- **Safety stop**: I halt the arm operation to prevent physical damage.
-- **Resets** (`tile_reset` after a return landed > 25 mm from home);
+- **Safety stop**: I press Esc to halt the arm and prevent physical damage.
+- **Reset**: I reset the arm after a tile lands more than 25 mm from where it should.
 
-What's not included:
-- **Designed step**: something I am meant to do, such as setting up the wall. Not an intervention.
-- **Confirmation asks** (name confirmations, "is it held?", "move it into the zone", a recount); I approve a read without changing it. Not an intervention, but I count them, because each one is a person watching and waiting.
+What’s not included:
+- **Designed step**: something I am meant to do, such as setting up the wall each turn. Not an intervention.
+- **Confirmation asks**: I approve a tile read without changing it. Not an intervention, but I count them, because each one is a person watching and waiting.
 - **Recovery**: the robot notices its own failure and retries. Not an intervention.
 
-And at the end-of-hand **audit** (a person checks the robot's hand and discards against the table)
-  **zero mismatches**.
+At the end of the hand I run a post-game **audit**: I check the robot’s hand and discards against the table for any misidentified tile. It needs **zero mismatches**.
 
-In an ideal world, the robot plays a hand of mahjong, and a person's only job is to feed it new tiles to draw from (via the walls). Though the goal for Robotto is not to be *fully* autonomous, it shouldn’t require me stepping in to stop it, or constantly rescue it from failure either. In a home setting we relax the targets working back from what the cost of failure really is for our users i.e. performing fixes are cheap for my family. "No more than 3 interventions" is a judgement call, that still asks for Robotto to perform to a high quality bar. 
+In an ideal world, the robot plays a hand and a person’s only job is to feed it new tiles to draw from (via the wall). Robotto doesn’t need to be *fully* autonomous, but it shouldn’t need me to stop it or keep rescuing it either.
+
+In a home setting I relaxed the targets by working back from what failure actually costs the users: fixes are cheap for my family. “No more than 3 interventions” is a judgement call that still asks Robotto to meet a high quality bar.
+
+<!-- DRAFT (from review, section 2): one paragraph on a trade-off decision, to add after the paragraph above or in Lesson 3:
+The decision I’m least sure about was shipping policy v13 as the default. In its first paired test it went 27 clean of 28 against 25 of 28 for the previous version, but with that few trials the statistics said "no difference shown". I shipped it anyway, because it picked all 28 tiles against 26, and because the alternative was weeks of extra recording to settle a question the next real hand would answer faster. I recorded that decision, the evidence and the caveat where I made it, so I could reverse it cheaply.
+-->
+
 
 ### Dissecting a turn, step by step
 
@@ -79,6 +93,8 @@ Each step in a turn is done by one of three kinds of work:
 > The pattern I took from this is to use fixed rules where the world is predictable, and learning where it is not. Finding that boundary took a few attempts.
 
 {% include youtube.html id="Ba6jArcnLAQ" caption="Video of how the robot plays a turn in the mahjong game" %}
+
+---
 
 ## System architecture (how it works)
 
@@ -100,7 +116,9 @@ Before each game, a calibration check confirms the overhead camera maps the tabl
 
 ## The build & technical challenges
 
-I didn’t take the straightest path to get to this point. Here’s a high-level timeline of what got us to this point, followed by some technical challenges I encountered. If you’re interested in how the months played out in more detail, you can check out this other post [here]({{ '/build-log/' | relative_url }}).
+A good chunk of my time went on collecting data to train the vision models and ACT policies. It took far more hours of teleoperation and image annotation than I expected before they performed consistently and accurately.
+
+It wasn't a straight line getting to this point. Here’s a high-level timeline of what got me to this point, followed by some technical challenges I encountered. If you’re interested in how the months played out in more detail, you can check out this other post [here]({{ '/build-log/' | relative_url }}).
 
 {% include figure.html src="writeup/timeline.png" alt="How I built it: each milestone unlocked the next, June to November 2026. Late June, tile recognition (learned, YOLO): a detector trained on about 9,300 public images and about 830 photos of my own tiles; accuracy 0.90, then 0.964 by August. Late June to July, hover and calibration (geometry, IK): the arm can hover over any tile the camera sees. 3 July, first pickups (learned, ACT): demonstrations re-recorded to start 5 cm above the tile. 18 August, first win face-up (rules): the whole loop works end to end, with help on reads and stray tiles. Late August to early September, hover fixes (geometry, IK): accurate enough to place tiles, not just pick them up. Late October to November, new setup and rebuild (learned, DAgger): wheeled base, game controller, fixed layout and lighting, a base camera to read face-down tiles. 17 and 19 November, clean face-down wins: 101 of 101 pickups held on 17 November, won unattended on 19 November. Next: play with my family, once it wins 8 of 10 face-down hands clean with no wrong tile ever played unnoticed." %}
 
@@ -120,14 +138,14 @@ I would still get surprised at how it would fail even after doing all the above.
 
 I held out demonstration data from table spots the ACT policies hadn’t seen during training to check if predicted movements from a newly trained policy matched my actual demonstrations. They worked well as quick sanity checks — like spotting if the gripper closed too early above the tile — but they couldn’t predict real-world performance as physical errors compounded over time.
 
-In fact, two policy versions tied on every offline test (scoring the policy against recorded examples on the PC, without conducting a physical trial on the arm). Yet testing on the physical arm revealed one succeeded only 6 out of 14 times compared to 11 out of 14 for the other. It happened again in November: three versions tied offline, then went 23, 25 and 27 clean picks out of 28 on the arm. Now, offline tests serve only as a preliminary screen before paired physical trials on a standardized setup.
+In fact, two policy versions tied on every offline test (scoring the policy against recorded examples on the PC, without a physical trial on the arm). Yet on the physical arm, one picked up the tile 6 out of 14 times against 11 out of 14 for the other. It happened again in November: three versions tied offline, then went 23, 25 and 27 clean out of 28 on the arm. Those arm samples are small too (the November gaps were within noise), so the lesson isn’t that the arm is a perfect judge. It’s that offline scores didn’t predict which policy would work. Now, offline tests serve only as a preliminary screen before paired physical trials on a standardized setup.
 
 ### Challenge 3: Safety guardrails
 
-Unlike SaaS, bugs executed on a robot can physically harm you (there were some close calls during this project). Safeguards were put in place to protect against erratic, sudden movements of the robot arm. Especially when controlled by a learned model that produces non-deterministic outputs.
+Unlike SaaS, bugs executed on a robot can physically harm you (and there were certainly some close calls during this project). Safeguards were put in place to protect against erratic, sudden movements of the robot arm. Especially when controlled by a learned model that produces non-deterministic outputs.
 
 - **Permission first:** any command my AI coding agents run that would move the arm stops and asks me. I sit beside the arm and can stop it any time.
-- **Always approach from above, always rise first:** joint speed and range are capped. I added this after the arm once shot straight to its zero position because its starting pose in training differed from where I ran the policy.
+- **Always approach from above, always rise first:** joint speed and movement range are capped. I added this after the arm once shot straight to its zero position because its starting pose in training differed from where I ran the policy.
 - **Hard limits and fail-safes:** any step that would put the robot gripper tips more than 5 mm below the table is scaled back. Impossible detections are discarded. A camera fault stops the pickup. When I’m watching, the robot asks me about tile names it’s unsure of rather than guessing.
 
 ---
@@ -136,7 +154,11 @@ Unlike SaaS, bugs executed on a robot can physically harm you (there were some c
 
 ### Lesson 1: Working with AI coding agents as a PM
 
-I’m not an engineer. Since rebuilding the project in late October, AI coding agents wrote the code (600+ commits, 960+ automated tests). I set direction and owned the decisions. Including which policy ships, which data counts as an exam, what “clean” means, and rules that are checked before anything moves the arm.
+I’m not an engineer. Since rebuilding the project in late October, AI coding agents wrote the code (600+ commits, 1,300 automated tests). I set direction and owned the decisions: which policy ships, which data counts as an exam, what “clean” means, and the rules that are checked before anything moves the arm.
+
+<!-- DRAFT (from review, section 2): reframe the paragraph above, replacing "I’m not an engineer" with:
+I didn’t write the code. AI coding agents did (600+ commits, 1,300 automated tests since the late-October rebuild). My job was the PM’s job: specify what "done" means, set acceptance criteria and guardrails, and own the decisions, including which policy ships, which data counts as an exam, what "clean" means, and the rules checked before anything moves the arm.
+-->
 
 What made it work: every hardware lesson written down as a rule the agents read before touching that code, tests that run in a simulator (software test that runs commands without the physical arm) before anything reaches the arm, and a merge queue that holds decisions for me.
 
@@ -159,6 +181,7 @@ Three checks decide what happens to a new policy:
 - **Strict paired test:** reserved for claiming “X is better”.
 
 The one failure I treat as unacceptable is a **silent error**: a wrong tile played with nobody noticing. An assist costs a minute. A silent error means the game I thought it won, it didn’t.
+
 ---
 
 ## What’s next
@@ -166,9 +189,13 @@ The one failure I treat as unacceptable is a **silent error**: a wrong tile play
 At time of writing, Robotto has demonstrated it can achieve clean hands, just not consistently enough to hit the 8 clean out of 10 goal. Below I list what I'm doing to close the gap, and also hint at future scope to tackle beyond the interim goal.
 
 - **Prove it’s repeatable.** The goal is 8 clean hands in 10, with no wrong tile ever played unnoticed. Telling close versions apart takes more trials than I expected: at 28 paired attempts, a real gain from 90% to 95% clean shows up as a clear win only 1 time in 25.
-- **Improve accuracy** on the row closest to the robot, where the hand still closes slightly too high on face-down tiles (6 of 15 picked at one spot, against 24 of 29 face up).
+- **Improve accuracy** on the row closest to the robot, where the hand still closes about 10 mm higher on face-down tiles than face up (6 of 15 picked at one spot, against 24 of 29 face up).
 - **Automate error reviews** by having a vision model flag failed grabs from wrist camera footage, which I currently inspect by hand.
 - **Make it a player, not just a machine**: A screen that helps people follow the game, a voice and personality for the robot player, and a way for my grandparents to join in remotely, commanding the moves from Malaysia while the arm plays here. Success looks like my grandparents finishing a hand with Robotto without needing me to step in.
+
+<!-- DRAFT (from review, section 2): add a user test plan under the bullets above:
+**How I’ll test it with them.** [N] hands with my grandparents, one in person and one remote. I’ll measure how often I have to step in, how long they wait for the robot’s turn, and whether they’d choose to play another hand. The robot’s speed and its manner matter as much as accuracy to the people at the table, and I haven’t measured either yet.
+-->
 
 ---
 
@@ -176,5 +203,9 @@ At time of writing, Robotto has demonstrated it can achieve clean hands, just no
 
 Coming from SaaS, this gave me a real appreciation for what it takes to make even a simple robotics demo reliable. I’m looking for product roles in robotics. If you build robots or play mahjong, I’d love to hear from you.
 
+<!-- DRAFT (from review, section 2): sharper closing ask:
+I’m looking for product roles in robotics, especially robots that work alongside people at home or in care. [If tailored: name the company and one sentence on why, e.g. what about their product connects to a grandparent sitting down to play a game.] If you build robots or play mahjong, I’d love to hear from you.
+-->
+
 - **Repo**: [mahjong-lekiwi](https://github.com/EthanYew/mahjong-lekiwi)
-- **Linkedin:** [https://www.linkedin.com/in/ethan-yew/](https://www.linkedin.com/in/ethan-yew/)
+- **LinkedIn:** [https://www.linkedin.com/in/ethan-yew/](https://www.linkedin.com/in/ethan-yew/)
