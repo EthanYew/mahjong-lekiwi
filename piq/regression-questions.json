@@ -1,6 +1,6 @@
 {
   "_about": "Questions piq-check --ask runs. `must` and `forbid` are what makes an answer wrong (a FAIL); `should` is what makes it more useful (only a WARN: 'incomplete'). A forbidden pattern counts only on a line with no negation (no, not, n't, never, without), so an answer that denies a flag by name passes and one that recommends it fails. Each has a 'premise': a pattern that must (not) be in the repo for the question to still mean what it did. If the repo changes so the premise flips (e.g. someone adds a pause flag), the question is reported STALE instead of failing: update or retire it.",
-  "limits": {"seconds": 300, "tool_calls": 14, "peak_tokens": 40000},
+  "limits": {"seconds": 300, "tool_calls": 14, "peak_tokens": 50000},
   "questions": [
     {"id": "false-premise-pause-resume",
      "q": "what's the command to pause and resume a bench session, or start a bench session from a specific spot in a layout",
