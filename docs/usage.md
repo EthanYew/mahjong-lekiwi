@@ -66,6 +66,7 @@ not a worktree, or the sessions go when the worktree does.
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
 | Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
+| Find the demos that gripped short of the tile's middle ("gripped low") | `python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13` |
 | Add hover-correction samples from demos or older bench sessions | `python scripts/hover_samples.py --dataset Yewy/<name>` / `--sessions` |
 | Add return-correction samples from older bench sessions | `python scripts/return_samples.py` |
 | Train a policy | `python scripts/make_policy.py --source <the default's source> --add <each dataset it added> --add Yewy/<new> <its options> --version <next> --dry-run` (then drop `--dry-run`; it stops if one of the default's datasets is missing) |
@@ -700,6 +701,7 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases    
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_jitter_v3 --drop 8,39 --reason "searching"
 python scripts/quality_report.py --dataset mahjong_surfaces_standard_mat_eval_v1 --clean Yewy/mahjong_surfaces_standard_mat_eval_v1_clean
+python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13 --calibration   # demos that gripped short
 ```
 
 `--drop EPS` leaves reviewed episodes out of training without deleting them: they're listed in
@@ -721,8 +723,22 @@ on `mahjong_surfaces_standard_mat_eval_v1` the descent lag went from 14 to 29 st
 close enough for the jaws (a third of v2's were). Shifts beyond ~6 mm in one direction at most spots
 are worth a `collect_corrections.py` check; a few spots differing is as likely to be how the demos were done.
 
+`--grip-reach` finds demos whose jaws closed short of the tile's middle, toward the robot: what `d` ("gripped low") marks
+on the bench. It takes where the close landed in x, less the tile's detected x, and compares it with what the bench
+attempts the owner didn't mark low did at that position (face up, sessions since 11-18 with at least one `d`, lone-tile
+runs left out). An episode 4 mm or more short is proposed. For an episode whose log has only the spot's saved
+position (v8 to v10 face down, `spot-only`), the cutoff is 6 mm. A tile with no bench attempts near it (`outside`)
+isn't judged. A DAgger episode is measured from the takeover on. Held-out episodes, eval slices and earlier drops are
+never proposed. The report lists the proposed episodes and their close heights, warns when a spot would be left with
+under 3 episodes or lose over a third, and prints the `--drop` command for each dataset. Look at each one's close in
+the wrist video before running it. `--recipe POLICY` checks every dataset that policy trained on instead of `--dataset`.
+`--calibration` shows each cutoff's trade-off on the bench attempts: on 2026-11-23, 4 mm caught 68% of the marked-low
+ones and flagged 16% of the unmarked. It reads the bench sessions, so run it from the main checkout or pass
+`--sessions DIR`.
+
 Options: `--worst N` (rows shown, default 15), `--flag SCORE` (threshold, default 4), `--csv PATH` (save the table),
-`--phases`, `--against REPO`, `--drop EPS --reason TEXT`, `--fix-gripper EPS --reason TEXT`, `--clean REPO`.
+`--phases`, `--against REPO`, `--drop EPS --reason TEXT`, `--fix-gripper EPS --reason TEXT`, `--clean REPO`,
+`--grip-reach`, `--recipe POLICY`, `--calibration`, `--sessions DIR`.
 
 ## Training a policy: `scripts/make_policy.py`
 

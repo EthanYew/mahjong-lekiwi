@@ -76,3 +76,91 @@ def test_gripper_fixes_and_undropping(tmp_path):
     drop_episodes("a/b", [75, 86], "loose grip", drops)
     assert fix_gripper("a/b", [75], "stopped at 5.5%", fixes) == {75: "stopped at 5.5%"}
     assert undrop_episodes("a/b", [75], drops) == {86: "loose grip"} and gripper_fixes("a/b", fixes) == {75: "stopped at 5.5%"}
+
+
+# --- grip reach: demos that closed short of the tile's middle (2026-11-23) ---
+
+def closing_at(x, y, frames=20, open_frames=10):
+    """Open at a pose low over (x, y), then shut there."""
+    low = pose(x, y, 0.010, 27)
+    shut = low.copy(); shut[5] = 0
+    return np.array([low] * open_frames + [shut] * frames)
+
+
+def closed_x(x, y):
+    q = closing_at(x, y)[-1]
+    return float(kinematics.tool_point(dict(zip(config.JOINTS, q)))[0])
+
+
+def labels(reach=40.0, n=4):
+    """Unmarked bench attempts with the same reach over a grid of tiles, and one marked low 6 mm short."""
+    rows = [{"session": "s", "attempt_dir": f"{i}", "policy": "p", "spot": "S1", "detection_xy": [x, y],
+             "reach_mm": reach, "low": False} for i, (x, y) in enumerate((x, y) for x in np.linspace(0.14, 0.19, n)
+                                                                           for y in np.linspace(-0.1, 0.1, n))]
+    return rows + [{**rows[0], "attempt_dir": "low", "reach_mm": reach - 6, "low": True}]
+
+
+def test_episode_reach_is_the_close_less_the_tile_and_a_dagger_one_counts_from_the_takeover():
+    det = [0.17, 0.02]
+    joints = closing_at(0.18, 0.02)
+    reach, height = quality.episode_reach(joints, joints, {"detection_xy": det})
+    assert reach == pytest.approx((closed_x(0.18, 0.02) - det[0]) * 1000, abs=0.01) and height is not None
+    # the policy shut at x 0.16, the person took over at frame 30 and closed at 0.18: the person's close is what's trained on
+    dagger = np.vstack([closing_at(0.16, 0.02), closing_at(0.18, 0.02)])
+    record = {"detection_xy": det, "policy": "v13", "takeover_frame": 30}
+    assert quality.episode_reach(dagger, dagger, record)[0] == pytest.approx(reach, abs=0.01)
+    assert quality.episode_reach(dagger, dagger, {**record, "takeover_frame": None}) == (None, None)   # never trained on
+    assert quality.episode_reach(joints, joints, {}) == (None, None)                                    # no detection
+    assert quality.episode_reach(joints[:10], joints[:10], {"detection_xy": det}) == (None, None)       # never shut
+
+
+def test_reach_rows_propose_only_judged_training_episodes_short_enough():
+    ref = quality.ReachReference(labels())
+    assert ref.expected([0.16, 0.0]) == pytest.approx(40.0) and ref.marked_low == 1
+    row = lambda reach, **rec: quality.reach_row(1, {"detection_xy": [0.16, 0.0], **rec}, reach, 5.0, ref)
+    assert row(35.0)["propose"] and row(35.0)["basis"] == "measured"
+    assert row(35.0)["shortfall_mm"] == pytest.approx(-5.0)
+    assert not row(37.0)["propose"]                                                   # 3 mm short: within the cutoff
+    spot_only = {"placement_status": "saved_position"}
+    assert not row(35.0, **spot_only)["propose"] and row(33.0, **spot_only)["propose"]   # 6 mm where it's the spot, not the tile
+    far = quality.reach_row(1, {"detection_xy": [0.30, 0.0]}, 20.0, 5.0, ref)
+    assert far["basis"] == "outside" and not far["propose"]                           # no bench attempts there to judge by
+    assert not row(30.0, slice="familiar")["propose"]                                 # an eval slice
+    assert not quality.reach_row(1, {"detection_xy": [0.16, 0.0]}, 30.0, 5.0, ref, excluded={1})["propose"]   # held out
+    assert not quality.reach_row(1, {"detection_xy": [0.16, 0.0]}, 30.0, 5.0, ref, dropped={1})["propose"]
+    assert quality.reach_row(1, {}, None, None, ref)["basis"] == "no close"
+
+
+def test_reach_calibration_counts_marked_low_caught_and_unmarked_flagged():
+    ref = quality.ReachReference(labels())
+    assert quality.reach_calibration(labels(), ref, (4, 7)) == [(4, 1.0, 0.0), (7, 0.0, 0.0)]
+
+
+def test_thin_spots_warn_when_drops_empty_a_spot():
+    import pandas as pd
+    t = pd.DataFrame({"spot": ["S8", "S8", "S8", "S1", "S1", "S1", "S1", ""],
+                      "propose": [True, True, False, True, False, False, False, True], "dropped": False, "heldout": False})
+    assert quality.thin_spots(t) == {"S8": (3, 1)}     # S1 keeps 3 of 4; unnamed spots aren't grouped
+    t.loc[4, "dropped"] = True
+    assert quality.thin_spots(t) == {"S1": (3, 2), "S8": (3, 1)}   # now 2 left: under 3
+
+
+def test_bench_reach_labels_read_marked_sessions_only(tmp_path):
+    import json
+    def session(name, events):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    attempt = {"type": "attempt", "policy": "v13", "spot": "S1", "detection_xy": [0.15, 0.0], "grasp_xy": [0.19, 0.0]}
+    marked = [{"type": "session_start", "sim": False}, {**attempt, "attempt_dir": "001"}, {**attempt, "attempt_dir": "002"},
+              {"type": "keys", "attempt_dir": "002", "presses": [{"key": "d", "kind": "grip_low"}]},
+              {**attempt, "attempt_dir": "003", "face_down": True}, {**attempt, "attempt_dir": "004", "person_grasp_xy": [0.2, 0]}]
+    session("20261120_100000_bench", marked)
+    session("20261120_110000_bench", marked[:3])                                  # nothing marked: unmarked means nothing
+    session("20261120_120000_bench", [{**marked[0], "sim": True}] + marked[1:])   # sim
+    session("20261101_100000_bench", marked)                                      # before marking was close
+    session(next(iter(quality.LONE_TILE_SESSIONS)), marked)                       # a lone tile grips elsewhere
+    rows = quality.bench_reach_labels(tmp_path)
+    assert [(r["session"], r["attempt_dir"], r["low"]) for r in rows] == [
+        ("20261120_100000_bench", "001", False), ("20261120_100000_bench", "002", True)]
+    assert rows[0]["reach_mm"] == pytest.approx(40.0)

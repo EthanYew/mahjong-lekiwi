@@ -11,6 +11,7 @@ Review this recording: $ARGUMENTS. Propose; the owner decides. Don't run `--drop
 2. **The flagged ones.** `--episode N` for each, plus the top of the ranking even if nothing is flagged: `quality_report.py` flagged none of the standard mat recording's 56 episodes on 2026-11-03, and a person's review still dropped some.
 3. **Look.** Save frames from the wrist video of each suspect and view them before judging. A number says an episode was odd, not why.
 4. **`--against REPO`** when it should steer like an earlier recording at the same places.
+5. **`--grip-reach --dataset REPO`** for demos that closed short of the tile's middle, toward the robot ("gripped low"), judged against the bench attempts the owner didn't mark low. Run it from the main checkout: it reads the bench sessions. Each proposed episode still needs a look at its close.
 
 **Not flaws, so don't propose dropping for these:**
 - A DAgger (correction) episode narrowing its jaws early, near hover height. The operator does it on purpose so open jaws don't hit neighbouring tiles.

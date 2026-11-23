@@ -206,6 +206,162 @@ def drift_table(episodes, reference):
     return pd.DataFrame(rows).set_index("spot").sort_index()
 
 
+# --- grip reach: did a demo close short of the tile's middle, toward the robot ("gripped low", 2026-11-23) ---
+#
+# The owner's worry: v13 grips near the tile's robot-side end, which works on a tile where it was put but may not on one that
+# drifted outward in a game (docs/retrospectives/2026-11-23_v13_grip_and_wrist_calibration.md). The measure is where the jaws
+# closed in robot x (kinematics.grasp_point: the commanded tool point) less the tile's detected x: the bench logs the same two
+# numbers (`grasp_xy`, `detection_xy`). It sits around +40 mm because the tool point isn't the jaws' middle, and it depends on
+# where the tile is, so an episode is judged against the value expected at its tile's position. That expectation is fitted on
+# the face-up bench attempts the owner didn't mark gripped low (`d`, interventions "grip_low"): a close is judged by how far it
+# strayed from the usual place, not by its distance from the detection (demos leave a margin on purpose). Fitted 2026-11-23 on
+# 399 attempts: unmarked median shortfall -0.1 mm, marked-low -5.5 mm; at 4 mm short, 68% of marked-low and 16% of unmarked.
+
+REACH_SHORT_MM = 4.0            # this far short of the reference: proposed for dropping
+REACH_SPOT_ONLY_SHORT_MM = 6.0  # ...for an episode whose log has the spot's saved position, not a detection (v8-v10 face down)
+REACH_MARGIN_M = 0.010          # a tile further than this outside the bench attempts' extent has no reference
+REACH_SINCE = "20261118"        # bench sessions from here on: the owner marked low grips closely from 11-18 (the retro)
+REACH_THIN_SPOT = 3             # warn when a spot would be left with fewer episodes than this...
+REACH_THIN_SHARE = 1 / 3        # ...or lose more than this share of them
+# Lone tiles grip ~10 mm further out and ~12 mm higher than in a full layout (the retro's finding 3): not the usual place.
+# The setup answers can't tell them apart (the runs with neighbours that evening also said tiles "one").
+LONE_TILE_SESSIONS = {"20261123_203643_bench", "20261123_204256_bench", "20261123_210705_bench"}
+
+
+def reach_features(xy):
+    """The fit's terms for tile positions (n x 2, m): 1, x, y, y² (the reach grows toward both ends of a row)."""
+    xy = np.atleast_2d(np.asarray(xy, float))
+    return np.c_[np.ones(len(xy)), xy[:, 0], xy[:, 1], xy[:, 1] ** 2]
+
+
+def bench_reach_labels(sessions_dir=None, since=REACH_SINCE):
+    """Face-up bench attempts with a policy close and a detection, from sessions on or after `since` where the owner pressed
+    `d` (gripped low) at least once, so an unmarked attempt means "not low" rather than "not marked". Sim, voided and lone-tile
+    sessions are left out, and so are attempts a person took over (their grasp_xy is the policy's, the person's grip is what
+    was marked). [{session, attempt_dir, policy, spot, detection_xy, reach_mm, low}]."""
+    from .session import read_jsonl, void_reason
+    root = Path(sessions_dir or config.SESSIONS)
+    rows = []
+    for folder in sorted(root.glob("*_bench")):
+        if folder.name[:8] < since or folder.name in LONE_TILE_SESSIONS or void_reason(folder):
+            continue
+        events = read_jsonl(folder / "events.jsonl")
+        if any(e.get("type") == "session_start" and e.get("sim") for e in events):
+            continue
+        low = {e.get("attempt_dir") for e in events if e.get("type") == "keys"
+               and any(p.get("kind") == "grip_low" for p in e.get("presses", []))}
+        if not low:
+            continue
+        for e in events:
+            if (e.get("type") != "attempt" or e.get("face_down") or not e.get("grasp_xy") or not e.get("detection_xy")
+                    or e.get("person_grasp_xy")):
+                continue
+            rows.append({"session": folder.name, "attempt_dir": e.get("attempt_dir"), "policy": e.get("policy"),
+                         "spot": e.get("spot"), "detection_xy": e["detection_xy"],
+                         "reach_mm": (e["grasp_xy"][0] - e["detection_xy"][0]) * 1000, "low": e.get("attempt_dir") in low})
+    return rows
+
+
+class ReachReference:
+    """The reach expected at a tile position, fitted (least squares on reach_features) on bench attempts not marked low."""
+
+    def __init__(self, labels):
+        ok = [r for r in labels if not r["low"]]
+        if len(ok) < 2 * reach_features([[0, 0]]).shape[1]:
+            raise ValueError(f"{len(ok)} unmarked bench attempts: too few to fit a reference")
+        xy = np.array([r["detection_xy"] for r in ok], float)
+        self.coef, *_ = np.linalg.lstsq(reach_features(xy), np.array([r["reach_mm"] for r in ok]), rcond=None)
+        self.lo, self.hi = xy.min(axis=0) - REACH_MARGIN_M, xy.max(axis=0) + REACH_MARGIN_M
+        self.attempts, self.marked_low = len(labels), sum(r["low"] for r in labels)
+        self.sessions = len({r["session"] for r in labels})
+
+    def expected(self, xy):
+        return float((reach_features(xy) @ self.coef)[0])
+
+    def covers(self, xy):
+        xy = np.asarray(xy, float)
+        return bool(np.all(xy >= self.lo) and np.all(xy <= self.hi))
+
+    def shortfall(self, xy, reach_mm):
+        """reach less the expected: negative is short of the usual place, toward the robot."""
+        return reach_mm - self.expected(xy)
+
+
+def reach_calibration(labels, reference, thresholds=(2, 3, 4, 5, 6)):
+    """[(mm short, share of marked-low attempts caught, share of unmarked flagged)] on the bench labels: the cutoff's trade-off.
+    In-sample for the unmarked ones (the fit saw them), so their share is a little low."""
+    short = np.array([reference.shortfall(r["detection_xy"], r["reach_mm"]) for r in labels])
+    low = np.array([r["low"] for r in labels])
+    return [(t, float((short[low] <= -t).mean()) if low.any() else np.nan,
+             float((short[~low] <= -t).mean()) if (~low).any() else np.nan) for t in thresholds]
+
+
+def episode_reach(actions, states, record):
+    """(reach mm, close height mm) of one recorded episode: tool point x at the close less the tile's x, and the pincer tip
+    over the grasp point as the jaws closed. A DAgger episode is measured from the takeover on, the frames it's trained on
+    (dataset.takeover_frame); before that the policy may have closed on its own. (None, None) without a close, a detection,
+    or (DAgger) a takeover."""
+    from .dataset import takeover_frame
+    dagger, takeover = takeover_frame(record)
+    if (dagger and takeover is None) or not record.get("detection_xy"):
+        return None, None
+    start = takeover or 0
+    _, xy = kinematics.grasp_point(actions[start:])
+    if xy is None:
+        return None, None
+    clearance = kinematics.grasp_clearance(states[start:], actions[start:])
+    return (xy[0] - record["detection_xy"][0]) * 1000, None if clearance is None else clearance * 1000
+
+
+def reach_row(episode, record, reach_mm, height_mm, reference, excluded=(), dropped=()):
+    """One episode's verdict: its shortfall, how far the reference can be trusted there (`basis`), and whether it's proposed."""
+    row = {"episode": int(episode), "spot": record.get("spot") or "", "slice": record.get("slice", "train"),
+           "tile": record.get("tile_name", ""), "reach_mm": reach_mm, "close_mm": height_mm, "shortfall_mm": np.nan,
+           "heldout": int(episode) in excluded, "dropped": int(episode) in dropped, "propose": False}
+    xy = record.get("detection_xy")
+    if reach_mm is None:
+        row["basis"] = "no close"
+    elif not reference.covers(xy):
+        row["basis"] = "outside"
+    else:
+        row["shortfall_mm"] = reference.shortfall(xy, reach_mm)
+        spot_only = record.get("placement_status") == "saved_position"
+        row["basis"] = "spot-only" if spot_only else "measured"
+    limit = REACH_SPOT_ONLY_SHORT_MM if row["basis"] == "spot-only" else REACH_SHORT_MM
+    row["propose"] = bool(row["shortfall_mm"] <= -limit and row["slice"] == "train" and not row["heldout"]
+                          and not row["dropped"])
+    return row
+
+
+def grip_reach_table(repo_id, reference):
+    """Per episode of a recording (see reach_row), from action_raw / observation.state_raw and its episode log, with its
+    held-out episodes (offline_eval.excluded_episodes) and earlier drops marked, never proposed."""
+    from .offline_eval import excluded_episodes
+    root = dataset_root(repo_id)
+    df = pd.concat([pd.read_parquet(f, columns=["episode_index", "frame_index", "action_raw", "observation.state_raw"])
+                    for f in sorted((root / "data").glob("*/*.parquet"))], ignore_index=True)
+    log, excluded, dropped = episode_log(repo_id), set(excluded_episodes(repo_id)), set(dropped_episodes(repo_id))
+    rows = []
+    for ep, frames in df.groupby("episode_index"):
+        frames = frames.sort_values("frame_index")
+        record = log.get(int(ep), {})
+        reach, height = episode_reach(np.stack(frames["action_raw"].to_numpy()),
+                                      np.stack(frames["observation.state_raw"].to_numpy()), record)
+        rows.append(reach_row(ep, record, reach, height, reference, excluded, dropped))
+    return pd.DataFrame(rows).set_index("episode")
+
+
+def thin_spots(table):
+    """{spot: (episodes trained on now, left after the proposed drops)} for named spots the drops would leave thin."""
+    named = table[(table["spot"] != "") & ~table["dropped"] & ~table["heldout"]]
+    out = {}
+    for spot, group in named.groupby("spot"):
+        now, left = len(group), int((~group["propose"]).sum())
+        if left < now and (left < REACH_THIN_SPOT or (now - left) > REACH_THIN_SHARE * now):
+            out[spot] = (now, left)
+    return out
+
+
 # --- a cleaned copy: the recording itself stays as it was ---
 
 def clean_copy(repo_id, dst_repo, log=print):
