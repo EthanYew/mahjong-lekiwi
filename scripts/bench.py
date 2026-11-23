@@ -53,6 +53,8 @@ its wrist view is blocked, so the look waits for the next scan (which may see th
     python scripts/bench.py --trials 5 --tile 8D    # batch, then quit
     python scripts/bench.py --sim --trials 3        # no hardware
     python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
+    python scripts/bench.py --trials 2 --tiles 2D,6B,1D,3D    # these tiles in turn, 2 rounds each
+    python scripts/bench.py --layout eval_new --trials 2 --spots S2,S5   # only these spots (--start-spot S3: S3 to the end)
     python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # 2 x spots x 2
 
 Returns aim at the tile's home, not where the jaws closed: returning to each grasp point walked tiles
@@ -72,6 +74,8 @@ daylight) doesn't favour one. Each attempt starts from its own policy's hover (d
 --layout NAME (taught with scripts/layout.py) walks the layout's spots: --trials rounds at each spot,
 picking the tile detected nearest the spot; a spot it can't attempt is skipped, not the walk.
 session_report.py prints success per spot and policy side by side.
+--spots S1,S3 visits only those spots (in that order); --start-spot S3 starts there and goes on to the last spot.
+--tiles 2D,6B,1D picks each of those tiles in turn (--trials rounds each), without a layout.
 
 --face-down (with --layout) picks tiles lying GREEN side up, and you're asked once to lay a tile on each spot. With detector
 weights that have the back class (config.BACK), a back is found and checked like any tile: each pickup aims at the back the
@@ -184,6 +188,7 @@ class Bench:
         unknown = [c for c in args.carry or [] if c not in {s["id"] for s in self.spots}]
         if unknown:
             raise SystemExit(f"--carry: {args.layout} has no spot {', '.join(unknown)}")
+        self.pick_spots()       # before connecting anything, so a mistyped spot fails fast
         if args.sim:
             from mahjong import sim
             # face down: a simulated tile green side up on each spot, as a person lays them (boxed as backs, or by older
@@ -1075,33 +1080,61 @@ class Bench:
                 print(f"  No back seen on {', '.join(unseen)}: "
                       + ("it'll be skipped." if self.args.unattended else "squared up when it's reached, or skipped."))
 
+    @property
+    def trial_spots(self):
+        return self.pick_spots()
+
+    def pick_spots(self):
+        """The layout's spots the trials visit: --spots in the order given, --start-spot to the last one, else all."""
+        args = self.args
+        if not self.spots:
+            return self.spots
+        by_id = {s["id"].upper(): s for s in self.spots}
+        def known(ids, flag):
+            missing = [i for i in ids if i.upper() not in by_id]
+            if missing:
+                raise SystemExit(f"{flag}: {args.layout} has no spot {', '.join(missing)} (it has {', '.join(s['id'] for s in self.spots)})")
+        if args.spots:
+            known(args.spots, "--spots")
+            if len({i.upper() for i in args.spots}) != len(args.spots):
+                raise SystemExit("--spots: a spot is listed twice")
+            return [by_id[i.upper()] for i in args.spots]
+        if args.start_spot:
+            known([args.start_spot], "--start-spot")
+            first = [s["id"].upper() for s in self.spots].index(args.start_spot.upper())
+            return self.spots[first:]
+        return self.spots
+
     def trials(self, n=None, tile_name=None):
         """n rounds on one tile, or at every spot of the layout. A round is one attempt per policy, from
         the same hover offset, in alternating order (a b, b a, ...)."""
         if n is None:
             drain_stdin()
             n = int(input(f"How many rounds{' per spot' if self.spots else ''}? ").strip() or 0)
-            if not self.spots:
+            if not self.spots and not self.args.tiles:
                 tile_name = input("Which tile (name)? ").strip() or None
         if self.args.carry:
             return self.carry(n)
-        self.name_the_mat()
+        self.name_the_mat(self.trial_spots)
         offsets = self.args.hover_perturb_mm or [(0.0, 0.0)]
-        plan = [(spot, i, policy) for spot in (self.spots or [None]) for i in range(n)
+        # what each stretch of rounds aims at: (spot, tile name, label for the report). --tiles: one stretch per tile
+        # (labelled with the tile); a layout: one per spot; else the one tile (label None)
+        targets = ([(None, t, t) for t in self.args.tiles] if self.args.tiles
+                   else [(s, tile_name, s["id"]) for s in self.trial_spots] if self.spots else [(None, tile_name, None)])
+        plan = [(target, i, policy) for target in targets for i in range(n)
                 for policy in (self.policies if i % 2 == 0 else self.policies[::-1])]
-        done, skipped = [], set()       # done: (spot id, policy id, success)
+        done, skipped = [], set()       # done: (label, policy id, success)
         self.batch = True
         try:
-            for spot, i, policy in plan:
-                where = spot["id"] if spot else None
+            for (spot, aim, where), i, policy in plan:
                 if where in skipped:
                     continue
                 self.policy = policy
-                print(f"\n=== {f'spot {where}, ' if spot else ''}round {i + 1}/{n}"
+                print(f"\n=== {f'spot {where}, ' if spot else f'{where}, ' if where else ''}round {i + 1}/{n}"
                       f"{f', {policy.id}' if len(self.policies) > 1 else ''} ===")
-                success = self.pickup(tile_name, ask=False, perturb=offsets[i % len(offsets)], spot=spot)
-                if success is None and spot is not None:
-                    print(f"Couldn't attempt at spot {where} — on to the next spot.")
+                success = self.pickup(aim, ask=False, perturb=offsets[i % len(offsets)], spot=spot)
+                if success is None and where is not None:
+                    print(f"Couldn't attempt {f'at spot {where}' if spot else where} — on to the next {'spot' if spot else 'tile'}.")
                     skipped.add(where)
                     continue
                 if success is None:
@@ -1115,9 +1148,11 @@ class Bench:
                     break
         finally:        # even when interrupted: what you marked is still worth a word
             self.policy = self.policies[0]
-            self.session.event("trials_done", tile=tile_name, policy=self.policy.id, results=[d[2] for d in done],
-                               policies=[d[1] for d in done], spots=[d[0] for d in done],
-                               layout=self.args.layout, skipped_spots=sorted(skipped))
+            self.session.event("trials_done", tile=tile_name, tiles=self.args.tiles, policy=self.policy.id,
+                               results=[d[2] for d in done], policies=[d[1] for d in done],
+                               spots=[d[0] if self.spots else None for d in done],
+                               layout=self.args.layout, skipped_spots=sorted(skipped) if self.spots else [],
+                               skipped_tiles=[] if self.spots else sorted(skipped))
             print()
             for where in dict.fromkeys(d[0] for d in done):
                 for policy in self.policies:
@@ -1126,7 +1161,7 @@ class Bench:
                         print(f"{where or tile_name or 'trials'}{f' {policy.id}' if len(self.policies) > 1 else ''}: "
                               f"{sum(got)}/{len(got)} picked up")
             if skipped:
-                print(f"skipped spots: {', '.join(sorted(skipped))}")
+                print(f"skipped {'spots' if self.spots else 'tiles'}: {', '.join(sorted(skipped))}")
             self.batch = False
             self.review_queued()
             self.check_scans()
@@ -1241,6 +1276,15 @@ def parse_policies(text):
     return ids
 
 
+def parse_names(text):
+    """'2d, 6B' -> ['2D', '6B']: a comma-separated list of tile names or spot ids (spot ids match case-insensitively in
+    Bench.pick_spots)."""
+    names = [n.strip() for n in text.split(",") if n.strip()]
+    if not names:
+        raise argparse.ArgumentTypeError("needs at least one name")
+    return names
+
+
 COMMANDS = ["hover", "pickup", "return", "discard", "teach-discard", "trials", "rest", "note", "setup", "quit"]
 
 
@@ -1255,6 +1299,12 @@ def parse_args(argv=None):
                    help="with --trials and --tile or --layout: run with no one watching. Nothing is asked once the trials "
                         "start; neighbours the scans see move are self-reported, for scripts/bump_report.py to verify")
     p.add_argument("--tile", default=None, help="tile name for --trials")
+    p.add_argument("--tiles", type=lambda text: [n.upper() for n in parse_names(text)], default=None, metavar="A,B,...",
+                   help="with --trials and no --layout: these tiles in turn, --trials rounds on each (tiles to pick by name)")
+    p.add_argument("--spots", type=parse_names, default=None, metavar="S1,S3,...",
+                   help="with --layout: trials visit only these spots, in the order given (default: every spot)")
+    p.add_argument("--start-spot", default=None, metavar="SPOT",
+                   help="with --layout: trials start at this spot and go on to the layout's last one (default: its first)")
     p.add_argument("--layout", default=None, help="trials walk this layout's spots (scripts/layout.py)")
     p.add_argument("--sim", action="store_true", help="simulated arm, camera, perception and policy")
     p.add_argument("--device", default=None, help="gamepad evdev path (teach-discard, --dagger-dataset)")
@@ -1277,13 +1327,25 @@ def parse_args(argv=None):
                         "at the back the scan finds and returns are checked, so --unattended works; with older weights, at each "
                         "spot's saved position, unseen, and someone watching")
     args = p.parse_args(argv)
-    if args.face_down and (not args.layout or args.tile):
+    if args.tile and args.tiles:
+        p.error("--tile and --tiles both name tiles: use --tiles A,B for several")
+    if (args.spots or args.start_spot) and not args.layout:
+        p.error("--spots and --start-spot choose among a layout's spots: they need --layout")
+    if args.spots and args.start_spot:
+        p.error("--spots and --start-spot both choose spots: use one (--spots lists them all)")
+    if args.tiles and (args.layout or args.spots or args.start_spot):
+        p.error("--tiles picks tiles by name, without a layout: with --layout, choose spots with --spots or --start-spot")
+    bad = [t for t in args.tiles or [] if t not in detector.TILE_NAMES]
+    if bad:
+        p.error(f"--tiles: not a tile name: {', '.join(bad)}")
+    if args.face_down and (not args.layout or args.tile or args.tiles):
         p.error("--face-down needs --layout (each tile has a spot, its home) and no --tile: every back has the same name")
     if args.hover_lower_mm is not None and not -15 <= args.hover_lower_mm <= 10:
         p.error("--hover-lower-mm is from -15 (higher) to 10 (lower): the settle only goes 10mm under the hover's offset")
-    if args.unattended and not (args.trials and (args.tile or args.layout)):
-        p.error("--unattended needs --trials and --tile or --layout: at the menu, or asked which tile, it would wait for you")
+    if args.unattended and not (args.trials and (args.tile or args.tiles or args.layout)):
+        p.error("--unattended needs --trials and --tile, --tiles or --layout: at the menu, or asked which tile, it would wait for you")
     if args.carry and (len(args.carry) != 2 or len(set(args.carry)) != 2 or not args.layout or args.unattended
+                       or args.spots or args.start_spot
                        or "," in (args.policy or "") or args.hover_perturb_mm):
         p.error("--carry takes FROM,TO, two spots of --layout, with one policy, no --hover-perturb-mm, and someone watching")
     return args

@@ -409,6 +409,60 @@ def test_a_layout_walk_visits_every_spot_and_skips_an_empty_one(tmp_path, monkey
     assert len(asked) == 1 and "spot empty" in asked[0]
 
 
+def walk_bench(tmp_path, monkeypatch, *argv):
+    import bench
+    from mahjong import layout
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(config, "LAYOUTS", tmp_path / "layouts.json")
+    layout.save("walk", [{"id": "L", "xy": [0.21, 0.02]}, {"id": "M", "xy": [0.19, -0.05]},
+                         {"id": "R", "xy": [0.160, -0.165]}])
+    return bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--layout", "walk", *argv]))
+
+
+@pytest.mark.parametrize("argv, visited", [(["--spots", "R,l"], ["R", "L"]), (["--start-spot", "m"], ["M", "R"])])
+def test_a_layout_walk_can_be_narrowed_to_chosen_spots(tmp_path, monkeypatch, argv, visited):
+    import builtins
+    monkeypatch.setattr(builtins, "input", lambda prompt: "s")
+    b = walk_bench(tmp_path, monkeypatch, *argv)
+    try:
+        b.arm.rest()
+        b.trials(1)
+    finally:
+        b.close()
+    (done,) = [e for e in read_events(b.session.dir) if e["type"] == "trials_done"]
+    assert sorted(set(done["spots"] + done["skipped_spots"])) == sorted(visited)
+    assert [s["id"] for s in b.trial_spots] == visited
+
+
+def test_an_unknown_spot_fails_before_anything_connects(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="no spot Z"):
+        walk_bench(tmp_path, monkeypatch, "--spots", "L,Z")
+
+
+@pytest.mark.parametrize("argv", [["--spots", "L"], ["--start-spot", "L"], ["--tiles", "8D", "--layout", "x"],
+                                  ["--tiles", "8D", "--tile", "8D"], ["--tiles", "99Z"],
+                                  ["--layout", "x", "--spots", "L", "--start-spot", "L"]])
+def test_spot_and_tile_lists_need_their_partner_option(argv):
+    import bench
+    with pytest.raises(SystemExit):
+        bench.parse_args(argv)
+
+
+def test_several_tiles_are_picked_in_turn(tmp_path, monkeypatch):
+    import bench
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--tiles", "8d,9D"]))
+    try:
+        b.arm.rest()
+        b.trials(1)
+    finally:
+        b.close()
+    events = read_events(b.session.dir)
+    assert [a["tile"] for a in events if a["type"] == "attempt"] == ["8D", "9D"]
+    (done,) = [e for e in events if e["type"] == "trials_done"]
+    assert done["tiles"] == ["8D", "9D"] and done["spots"] == [None, None]
+
+
 FACE_DOWN_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]
 
 

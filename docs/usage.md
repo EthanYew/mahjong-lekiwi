@@ -253,6 +253,9 @@ python scripts/bench.py --trials 5 --tile 8D              # 5 pickup→return tr
 python scripts/bench.py --sim --trials 3 --tile 8D        # same, all simulated (no hardware)
 python scripts/bench.py --trials 15 --tile 4D --hover-perturb-mm 0,6x,-6x,6y,-6y
 python scripts/bench.py --policy pickup_mat_cl,pickup_mat_cl_v2n --layout eval_new --trials 2   # paired: 2 rounds x 6 spots x 2 policies = 24 pickups
+python scripts/bench.py --trials 2 --tiles 2D,6B,1D,3D    # several tiles in turn (no layout), 2 rounds on each
+python scripts/bench.py --layout even-hand14 --trials 2 --spots S2,S5    # only these spots of the layout, in this order
+python scripts/bench.py --layout even-hand14 --trials 2 --start-spot S3  # from S3 to the layout's last spot
 python scripts/bench.py --unattended --layout even-hand14 --trials 2     # no one watching: nothing is asked once the trials start
 python scripts/bench.py --layout even-hand14 --trials 2 --carry S7,S1   # carry a tile from the drop zone to a slot and back, as a hand does
 python scripts/bench.py --layout even-hand14 --trials 2 --face-down      # tiles GREEN side up (found by the scan once the detector sees backs)
