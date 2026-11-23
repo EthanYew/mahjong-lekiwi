@@ -7,7 +7,13 @@
 //      MAX_NUDGES nudges to answer. Turning thinking off did not help; this does.
 //
 // Each block's reason goes back to the model as the tool result, so it can act on it. Counters reset for every user prompt.
+import { appendFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+// Set PIQ_GUARD_LOG=/some/file to see what the guard saw and decided (event order, message types, blocks, nudges).
+const log = (line: string) => {
+  if (process.env.PIQ_GUARD_LOG) appendFileSync(process.env.PIQ_GUARD_LOG, `${new Date().toISOString().slice(11, 23)} ${line}\n`);
+};
 
 const MAX_CALLS = 10;
 const MAX_NUDGES = 2;
@@ -16,14 +22,11 @@ export default function (pi: ExtensionAPI) {
   let seen = new Set<string>();
   let calls = 0;
   let nudges = 0;
-  let continuing = false;      // set when we ask for a continuation: its before_agent_start must not reset the counters
 
+  // A nudge's continuation stays inside the same run: pi fires no before_agent_start for it (watched with PIQ_GUARD_LOG on 2026-11-23),
+  // so the counters, including the nudge count, survive until the next real prompt.
   pi.on("before_agent_start", async (event: any) => {
-    if (continuing && event.messageType !== "user") {      // the continuation a nudge asked for: keep the counters
-      continuing = false;
-      return;
-    }
-    continuing = false;
+    log(`before_agent_start messageType=${event.messageType} calls=${calls} nudges=${nudges}`);
     if (event.messageType === undefined || event.messageType === "user") {
       seen = new Set();
       calls = 0;
@@ -34,12 +37,14 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event: any) => {
     const key = `${event.toolName}:${JSON.stringify(event.input)}`;
     if (seen.has(key)) {
+      log(`tool_call BLOCK repeat ${event.toolName}`);
       return {
         block: true,
         reason: "You already made this exact call and have its result above. Do not repeat it. Answer now from what you have, or make a different call.",
       };
     }
     if (calls >= MAX_CALLS) {
+      log(`tool_call BLOCK cap ${event.toolName}`);
       return {
         block: true,
         reason: `Tool call limit reached (${MAX_CALLS}). Answer now in plain text with what you have and cite the files and lines you read. If you did not find the thing asked about, say it does not exist and name the nearest real option.`,
@@ -47,10 +52,6 @@ export default function (pi: ExtensionAPI) {
     }
     seen.add(key);
     calls += 1;
-  });
-
-  pi.on("agent_settled", async () => {
-    continuing = false;      // nothing continues after this, so a nudge that was dropped can't leave the flag set for the next prompt
   });
 
   pi.on("agent_before_settle", async (event: any) => {
@@ -64,7 +65,7 @@ export default function (pi: ExtensionAPI) {
     const hasCall = content.some((c) => c?.type === "toolCall");
     if (hasText || hasCall) return;
     nudges += 1;
-    continuing = true;
+    log(`agent_before_settle NUDGE ${nudges}`);
     return {
       entries: [
         ...entries,
