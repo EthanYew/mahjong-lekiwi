@@ -18,8 +18,8 @@ FOR_CLAUDE = (("CLAUDE.md", CLAUDE), (".claude/rules", RULES), (".claude/skills"
 CLAUDE_MD_LIMIT = 6000      # bytes. It loads into every session and had grown to 34.9KB by 2026-11-05: detail goes in .claude/rules/
 REGISTRY = json.loads(config.POLICIES.read_text())
 DEFAULT = REGISTRY["default"]
-# argparse's own, and options of other programs the docs mention (git, gh)
-OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard", "--rebase", "--autostash", "--base", "--body-file", "--title", "--match-head-commit", "--short", "--merges", "--query-gpu", "--format"}
+# argparse's own, and options of other programs the docs mention (git, gh, piq-check)
+OTHER_TOOLS = {"--help", "--no-verify", "--draft", "--ff-only", "--no-ff", "--force", "--delete", "--fill", "--hard", "--rebase", "--autostash", "--base", "--body-file", "--title", "--match-head-commit", "--short", "--merges", "--query-gpu", "--format", "--ask", "--quick"}
 
 
 def options_in_code():
