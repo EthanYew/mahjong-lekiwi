@@ -121,5 +121,14 @@ def test_regression_question_premise_still_holds(question):
     found = bool(re.search(premise["regex"], text))
     assert found == (premise["expect"] == "present"), (
         f"'{question['id']}' assumed: {premise['why']}. That is no longer true of {premise['file']}: update piq/regression-questions.json")
-    for pattern in [*question.get("must", []), *question.get("forbid", [])]:
+    for pattern in [*question.get("must", []), *question.get("should", []), *question.get("forbid", [])]:
         re.compile(pattern)
+
+
+def test_the_launcher_loads_the_guard_and_the_guard_keeps_its_limits():
+    """guard.ts is what stops a repeated-call loop and a blank answer (failure 004); a launcher edit that drops `-e` silently removes it."""
+    launcher = (PIQ / "piq").read_text()
+    assert '-e "$piq/guard.ts"' in launcher, "piq/piq no longer loads piq/guard.ts"
+    guard = (PIQ / "guard.ts").read_text()
+    for needle in ('pi.on("tool_call"', 'pi.on("agent_before_settle"', "block: true", "continue: true", "MAX_CALLS", "MAX_NUDGES"):
+        assert needle in guard, f"piq/guard.ts lost {needle}"

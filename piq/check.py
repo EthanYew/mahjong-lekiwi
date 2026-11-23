@@ -26,6 +26,7 @@ STAMP = AGENT / "piq-stamp.json"
 BASE_MODEL = "gemma4:12b"
 DERIVED = {"gemma4-12b-64k": HOME / ".ollama" / "Modelfile.gemma4-64k", "gemma4-12b-32k": HOME / ".ollama" / "Modelfile.gemma4-32k"}
 MAX_AGE_DAYS = 14
+MAX_EMPTY = 4     # empty answers (reasoning-only final turn, failure 004) tolerated per question before it counts as failed
 
 results = []   # (level, check, message)
 
@@ -159,13 +160,16 @@ def session_for(question, since):
 
 
 def attempt(q, lim):
-    """Ask one regression question once. Returns (problems, seconds, tool calls, peak context tokens)."""
+    """Ask one regression question once. Returns (problems, seconds, tool calls, peak context tokens, `should` patterns the answer lacked)."""
     t0 = time.time()
     rc, out, err = run([str(PIQ / "piq"), "-p", q["q"]], timeout=lim["seconds"], cwd=ROOT)
     secs = time.time() - t0
     problems = []
     if rc != 0:
         problems.append(f"piq exited {rc} or timed out after {secs:.0f}s")
+    elif len(out.split()) < 8:
+        # the model ended its turn on reasoning alone ("I'll look at bench.py..."), no tool call and no text: ~40% of answers on 2026-11-23
+        return ["EMPTY"], secs, 0, 0, []
     sess = session_for(q["q"], t0)
     calls = peak = 0
     stops = []
@@ -190,6 +194,7 @@ def attempt(q, lim):
     for pat in q.get("must", []):
         if not re.search(pat, out, re.I | re.S):
             problems.append(f"answer lacks /{pat}/")
+    soft = [pat for pat in q.get("should", []) if not re.search(pat, out, re.I | re.S)]
     for pat in q.get("forbid", []):
         # "there is no --video flag" names the flag to deny it; only a line that doesn't deny it counts as inventing it
         # a denial puts the negation just before the flag in the same clause: "there is no --video", "doesn't have --video"
@@ -197,7 +202,7 @@ def attempt(q, lim):
         hits = [ln for ln in out.splitlines() if re.search(pat, ln, re.I) and not re.search(denied, ln, re.I)]
         if hits:
             problems.append(f"answer says /{pat}/ without denying it (invented?): {hits[0].strip()[:80]}")
-    return problems, secs, calls, peak
+    return problems, secs, calls, peak, soft
 
 
 def ask():
@@ -212,19 +217,28 @@ def ask():
             add("FAIL", "ask", f"STALE QUESTION '{q['id']}': premise is now {'true' if found else 'false'} ({q['premise']['why']}). Update it in piq/regression-questions.json")
             failed += 1
             continue
-        problems, secs, calls, peak = attempt(q, lim)
+        empties = 0
         retried = False
-        if problems:   # a 12B model sometimes answers differently on the same question: one retry tells a real regression from bad luck
-            retried = True
-            first = problems
-            problems, secs, calls, peak = attempt(q, lim)
+        while True:
+            problems, secs, calls, peak, soft = attempt(q, lim)
+            if problems == ["EMPTY"]:
+                empties += 1
+                if empties < MAX_EMPTY:
+                    continue          # an empty answer says nothing about the content: ask again
+                problems = [f"{empties} empty answers in a row (the model ends its turn without text)"]
+            elif problems and not retried:
+                retried, first = True, problems      # a 12B model sometimes answers differently: one retry tells a regression from bad luck
+                continue
+            break
+        note = f" after {empties} empty answer(s)" if empties else ""
         if problems:
             failed += 1
-            add("FAIL", "ask", f"{q['id']}: failed twice. " + "; ".join(problems))
+            add("FAIL", "ask", f"{q['id']}: failed" + (" twice" if retried else "") + f"{note}. " + "; ".join(problems))
         elif retried:
-            add("WARN", "ask", f"{q['id']}: FLAKY, failed once ({'; '.join(first)}) and passed on retry ({secs:.0f}s, {calls} tool calls, peak {peak} tokens)")
+            add("WARN", "ask", f"{q['id']}: FLAKY, failed once ({'; '.join(first)}) and passed on retry{note} ({secs:.0f}s, {calls} tool calls, peak {peak} tokens)")
         else:
-            add("OK", "ask", f"{q['id']}: {secs:.0f}s, {calls} tool calls, peak {peak} tokens")
+            extra = (f"; EMPTY answer(s) first: {empties}" if empties else "") + (f"; incomplete, lacks /{'/, /'.join(soft)}/" if soft else "")
+            add("WARN" if extra else "OK", "ask", f"{q['id']}: {secs:.0f}s, {calls} tool calls, peak {peak} tokens{extra}")
     return failed
 
 

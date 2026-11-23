@@ -11,6 +11,7 @@ quick questions ("what does `--carry` do?", "what's still needed to clear v14?")
 | `skills/*/SKILL.md` | task recipes the model can load (`answer-from-docs`, `review-bench`, `check-ship-readiness`, `explain-error`, `brief-for-claude`) | `tests/test_piq.py`: cited paths and sizes, quoted headings still exist somewhere in the docs, rules or scripts |
 | `index.py` | at every launch writes a symbol index of the big files and **generated facts**: each script's options (helpers like `takeover.add_argument` included) and menu commands, read from the code | `tests/test_piq.py`: the generated options equal each script's own `--help` |
 | `regression-questions.json` | questions the model must still answer well: two false-premise, one true behaviour, one real option; each with a *premise* about the repo | `tests/test_piq.py`: a flipped premise fails the branch that flipped it |
+| `guard.ts` | a pi extension that **enforces** what the prompt can only ask: it blocks an exact repeat of an earlier tool call, blocks calls after 10 per question, and nudges the model (twice at most) when a turn ends with reasoning and no answer | `tests/test_piq.py`: the launcher loads it; `piq-check --ask` measures the effect |
 | `piq` | the launcher | `piq-check` hashes it |
 | `check.py` | the checks a test can't do: Ollama's real limits, base model and pi versions, and the model's own answers (`piq-check --ask`) | run by `/hand-back` when a branch touches `piq/` |
 
@@ -35,6 +36,12 @@ ln -sf <main checkout>/piq/check.py ~/.local/bin/piq-check
 pi's own settings (default model, compaction, thinking level) are in `~/.pi/agent/settings.json` and the model sizes in `~/.pi/agent/models.json`. Both stay on the
 machine. The Modelfiles (`~/.ollama/Modelfile.gemma4-64k`, `-32k`) must set `num_ctx` (and pi's `contextWindow` the same), `num_predict` and `repeat_penalty`;
 `piq-check` fails if Ollama runs something else.
+
+## What the model still gets wrong
+
+A 12B model is not reliable, and this folder makes that visible, not impossible. Measured 2026-11-23 on one question (5 runs each): blank answers 2 of 5 without `guard.ts`
+(also 2 of 5 with thinking off), 0 of 5 with it; a runaway of 64 tool calls (46 identical reads) without it, at most 11 calls with it. Questions with no answer in the docs
+are where it fails: it invents a flag or keeps searching. `piq-check --ask` reports FLAKY, EMPTY and "incomplete" separately so a bad sample isn't mistaken for a regression.
 
 ## Why each guard exists
 
