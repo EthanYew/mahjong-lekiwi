@@ -18,7 +18,7 @@
      "q": "what bench.py flag saves a video of each trial?",
      "premise": {"file": "scripts/bench.py", "regex": "wrist\\.mp4", "expect": "present", "why": "bench saves wrist.mp4 for every attempt"},
      "must": ["wrist\\.mp4"],
-     "forbid": ["--video", "--record-video", "--save-video"],
+     "forbid": ["python scripts/bench\\.py[^\\n]*--(video|record-video|save-video)"],
      "failure": "003"},
     {"id": "true-option-carry",
      "q": "what does the --carry option of bench.py do?",

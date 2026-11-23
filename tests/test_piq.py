@@ -107,8 +107,8 @@ def test_generated_option_list_matches_the_scripts_own_help(script):
     real = set()
     for line in run.stdout.splitlines():
         if re.match(r"^ {2,4}-", line):      # option declarations only, not flags mentioned in help prose
-            real |= set(re.findall(r"--[a-z][\w-]*", re.split(r"\s{2,}", line.strip())[0]))
-    listed = facts_by_script()[script] | {"--help"}
+            real |= set(re.findall(r"(?<![\w-])-{1,2}[a-zA-Z][\w-]*", re.split(r"\s{2,}", line.strip())[0]))
+    listed = facts_by_script()[script] | {"--help", "-h"}
     assert real == listed, f"{script}: piq's facts lack {sorted(real - listed)} and list {sorted(listed - real)}: fix piq/index.py"
 
 

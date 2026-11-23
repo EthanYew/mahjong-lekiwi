@@ -67,6 +67,12 @@ def setup_hash():
     return h.hexdigest()[:12]
 
 
+def pi_version():
+    rc, out, err = run(["pi", "--version"])
+    text = (out or err).strip()
+    return text.splitlines()[-1] if text else "?"
+
+
 def ollama_ids():
     rc, out, _ = run(["ollama", "list"])
     return {line.split()[0].removesuffix(":latest"): line.split()[1] for line in out.splitlines()[1:] if line.strip()} if rc == 0 else None
@@ -81,8 +87,11 @@ def ollama_params(model):
 
 def check_config():
     """Ollama's real limits vs the Modelfile vs what pi believes (failures 001 and 002)."""
-    models = json.loads((AGENT / "models.json").read_text())["providers"]["ollama"]["models"]
-    settings = json.loads((AGENT / "settings.json").read_text())
+    try:
+        models = json.loads((AGENT / "models.json").read_text())["providers"]["ollama"]["models"]
+        settings = json.loads((AGENT / "settings.json").read_text())
+    except (OSError, ValueError, KeyError) as e:
+        return add("FAIL", "config", f"can't read pi's models.json/settings.json ({AGENT}): {e}")
     pi_window = {m["id"]: m["contextWindow"] for m in models}
     ids = ollama_ids()
     if ids is None:
@@ -115,8 +124,7 @@ def check_versions():
         return add("WARN", "stamp", "never verified: run `piq-check --ask` once to record a baseline")
     st = json.loads(STAMP.read_text())
     ids = ollama_ids() or {}
-    rc, out, err = run(["pi", "--version"])
-    ver = (out or err).strip().splitlines()[-1] if (out or err).strip() else "?"
+    ver = pi_version()
     for label, now, then in (("base model " + BASE_MODEL, ids.get(BASE_MODEL), st.get("base_id")),
                              ("pi version", ver, st.get("pi_version")),
                              *[(f"derived model {n}", ids.get(n), st.get("derived", {}).get(n)) for n in DERIVED]):
@@ -131,9 +139,22 @@ def check_versions():
 
 # ---------------------------------------------------------------- regression questions
 
-def newest_session(since):
-    cands = [f for f in (AGENT / "sessions").glob("*/*.jsonl") if f.stat().st_mtime >= since]
-    return max(cands, key=lambda f: f.stat().st_mtime) if cands else None
+def session_for(question, since):
+    """The newest session file written since `since` whose first user message is this question (another pi window may be open)."""
+    for f in sorted((AGENT / "sessions").glob("*/*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True):
+        if f.stat().st_mtime < since:
+            break
+        for line in f.read_text().splitlines():
+            try:
+                m = json.loads(line).get("message") or {}
+            except ValueError:
+                continue
+            if m.get("role") == "user":
+                text = m["content"] if isinstance(m["content"], str) else " ".join(c.get("text", "") for c in m["content"])
+                if question in text:
+                    return f
+                break
+    return None
 
 
 def attempt(q, lim):
@@ -144,16 +165,21 @@ def attempt(q, lim):
     problems = []
     if rc != 0:
         problems.append(f"piq exited {rc} or timed out after {secs:.0f}s")
-    sess = newest_session(t0)
+    sess = session_for(q["q"], t0)
     calls = peak = 0
     stops = []
     if sess:
         for line in sess.read_text().splitlines():
-            m = json.loads(line).get("message") or {}
+            try:
+                m = json.loads(line).get("message") or {}
+            except ValueError:      # a line still being written
+                continue
             if m.get("role") == "assistant":
                 stops.append(m.get("stopReason"))
                 peak = max(peak, (m.get("usage") or {}).get("totalTokens", 0))
-                calls += sum(1 for c in m["content"] if c["type"] == "toolCall")
+                calls += sum(1 for c in m["content"] if isinstance(c, dict) and c.get("type") == "toolCall")
+    else:
+        problems.append("no session file found for this question, so tool calls and context size are unchecked")
     if "length" in stops:
         problems.append("a turn ended with stopReason length (cap hit: loop, or num_predict too small)")
     if calls > lim["tool_calls"]:
@@ -199,9 +225,8 @@ def ask():
 
 def write_stamp():
     ids = ollama_ids() or {}
-    rc, out, err = run(["pi", "--version"])
     STAMP.write_text(json.dumps({"date": date.today().isoformat(), "at": datetime.now().isoformat(timespec="seconds"),
-                                 "pi_version": (out or err).strip().splitlines()[-1], "base_id": ids.get(BASE_MODEL),
+                                 "pi_version": pi_version(), "base_id": ids.get(BASE_MODEL),
                                  "derived": {n: ids.get(n) for n in DERIVED}, "setup_hash": setup_hash()}, indent=1) + "\n")
 
 
