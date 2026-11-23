@@ -139,7 +139,8 @@ def test_reach_calibration_counts_marked_low_caught_and_unmarked_flagged():
 def test_thin_spots_warn_when_drops_empty_a_spot():
     import pandas as pd
     t = pd.DataFrame({"spot": ["S8", "S8", "S8", "S1", "S1", "S1", "S1", ""],
-                      "propose": [True, True, False, True, False, False, False, True], "dropped": False, "heldout": False})
+                      "propose": [True, True, False, True, False, False, False, True], "dropped": False, "heldout": False,
+                      "slice": "train"})
     assert quality.thin_spots(t) == {"S8": (3, 1)}     # S1 keeps 3 of 4; unnamed spots aren't grouped
     t.loc[4, "dropped"] = True
     assert quality.thin_spots(t) == {"S1": (3, 2), "S8": (3, 1)}   # now 2 left: under 3
@@ -164,3 +165,23 @@ def test_bench_reach_labels_read_marked_sessions_only(tmp_path):
     assert [(r["session"], r["attempt_dir"], r["low"]) for r in rows] == [
         ("20261120_100000_bench", "001", False), ("20261120_100000_bench", "002", True)]
     assert rows[0]["reach_mm"] == pytest.approx(40.0)
+
+
+def test_grip_reach_review_fixes(tmp_path, monkeypatch):
+    """A recording that isn't on disk is skipped rather than crashing; marks and attempts need an attempt_dir; eval-slice
+    episodes don't count toward a spot's training episodes."""
+    import json
+    import pandas as pd
+    monkeypatch.setattr(quality, "dataset_root", lambda repo: tmp_path / "nothing")
+    with pytest.raises(SystemExit):
+        quality.grip_reach_table("a/missing", quality.ReachReference(labels()))
+    folder = tmp_path / "20261120_100000_bench"
+    folder.mkdir()
+    attempt = {"type": "attempt", "policy": "v13", "spot": "S1", "detection_xy": [0.15, 0.0], "grasp_xy": [0.19, 0.0]}
+    events = [{"type": "keys", "presses": [{"key": "d", "kind": "grip_low"}]}, {**attempt, "attempt_dir": "001"},
+              dict(attempt), {"type": "keys", "attempt_dir": "001", "presses": [{"key": "d", "kind": "grip_low"}]}]
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert [(r["attempt_dir"], r["low"]) for r in quality.bench_reach_labels(tmp_path)] == [("001", True)]
+    t = pd.DataFrame({"spot": ["S1"] * 4, "slice": ["train", "train", "familiar", "familiar"],
+                      "propose": [True, False, False, False], "dropped": False, "heldout": False})
+    assert quality.thin_spots(t) == {"S1": (2, 1)}

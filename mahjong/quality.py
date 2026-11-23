@@ -248,13 +248,13 @@ def bench_reach_labels(sessions_dir=None, since=REACH_SINCE):
         events = read_jsonl(folder / "events.jsonl")
         if any(e.get("type") == "session_start" and e.get("sim") for e in events):
             continue
-        low = {e.get("attempt_dir") for e in events if e.get("type") == "keys"
+        low = {e["attempt_dir"] for e in events if e.get("type") == "keys" and e.get("attempt_dir")
                and any(p.get("kind") == "grip_low" for p in e.get("presses", []))}
         if not low:
             continue
         for e in events:
-            if (e.get("type") != "attempt" or e.get("face_down") or not e.get("grasp_xy") or not e.get("detection_xy")
-                    or e.get("person_grasp_xy")):
+            if (e.get("type") != "attempt" or not e.get("attempt_dir") or e.get("face_down") or not e.get("grasp_xy")
+                    or not e.get("detection_xy") or e.get("person_grasp_xy")):
                 continue
             rows.append({"session": folder.name, "attempt_dir": e.get("attempt_dir"), "policy": e.get("policy"),
                          "spot": e.get("spot"), "detection_xy": e["detection_xy"],
@@ -338,8 +338,11 @@ def grip_reach_table(repo_id, reference):
     held-out episodes (offline_eval.excluded_episodes) and earlier drops marked, never proposed."""
     from .offline_eval import excluded_episodes
     root = dataset_root(repo_id)
+    files = sorted((root / "data").glob("*/*.parquet"))
+    if not files:
+        raise SystemExit(f"no recording at {root}")
     df = pd.concat([pd.read_parquet(f, columns=["episode_index", "frame_index", "action_raw", "observation.state_raw"])
-                    for f in sorted((root / "data").glob("*/*.parquet"))], ignore_index=True)
+                    for f in files], ignore_index=True)
     log, excluded, dropped = episode_log(repo_id), set(excluded_episodes(repo_id)), set(dropped_episodes(repo_id))
     rows = []
     for ep, frames in df.groupby("episode_index"):
@@ -353,7 +356,7 @@ def grip_reach_table(repo_id, reference):
 
 def thin_spots(table):
     """{spot: (episodes trained on now, left after the proposed drops)} for named spots the drops would leave thin."""
-    named = table[(table["spot"] != "") & ~table["dropped"] & ~table["heldout"]]
+    named = table[(table["spot"] != "") & (table["slice"] == "train") & ~table["dropped"] & ~table["heldout"]]
     out = {}
     for spot, group in named.groupby("spot"):
         now, left = len(group), int((~group["propose"]).sum())

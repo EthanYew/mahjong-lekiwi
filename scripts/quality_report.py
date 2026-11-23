@@ -63,7 +63,14 @@ def main():
                    help="with --grip-reach: the bench sessions folder (default %(default)s; a worktree has none)")
     args = p.parse_args()
     if args.grip_reach:
+        others = [name for name in ("drop", "fix_gripper", "clean", "against", "episode") if getattr(args, name) is not None]
+        others += ["phases"] * args.phases
+        if others:
+            p.error("--grip-reach only reports; it can't go with " + ", ".join("--" + o.replace("_", "-") for o in others)
+                    + " (run --drop after looking at the proposals)")
         return grip_reach(args)
+    if args.recipe or args.calibration:
+        p.error("--recipe and --calibration go with --grip-reach")
     if not args.dataset:
         p.error("--dataset is required (--recipe goes with --grip-reach)")
     if args.fix_gripper:
@@ -163,7 +170,7 @@ def grip_reach(args):
                   + ". Some short grips may be keeping clear of the next tile out (the 2026-11-23 retro's hypothesis)")
         print(f"  python scripts/quality_report.py --dataset {repo} --drop {','.join(map(str, proposed.index))} "
               f"--reason \"gripped short of the tile's middle (--grip-reach)\"")
-    if args.csv:
+    if args.csv and tables:
         pd.concat(tables, names=["dataset"]).to_csv(args.csv)
     print("\nLook at each one's close in the wrist video before dropping it: a number says the close was short, not why.")
 
