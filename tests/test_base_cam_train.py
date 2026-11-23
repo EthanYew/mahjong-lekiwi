@@ -208,7 +208,9 @@ def test_teleop_view_sim_saves_a_pose_and_both_frames(tmp_path, monkeypatch):
     presses = iter(["c", "s", "s", "q"])
     out = teleop_view.main(["--sim", "--name", "t_"], keys=lambda: next(presses, "q"))
     assert sorted(camera_poses.load()) == ["t_1", "t_2"]
-    assert sorted(p.name for p in (out / "captures").iterdir()) == ["001_base.jpg", "001_wrist.jpg"]
+    assert sorted(p.name for p in (out / "captures").iterdir()) == ["001_base.jpg", "001_pose.json", "001_wrist.jpg"]
+    saved = json.loads((out / "captures" / "001_pose.json").read_text())
+    assert set(saved) == {"commanded", "measured", "grid_found"} and set(saved["measured"]) == set(config.JOINTS)
 
 
 def test_teleop_view_go_starts_at_a_saved_pose_and_needs_it_to_exist(tmp_path, monkeypatch):

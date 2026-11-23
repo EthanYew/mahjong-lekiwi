@@ -22,9 +22,9 @@ import shlex
 import sys
 from pathlib import Path
 
-ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
+ARM_SCRIPTS = ("bench", "record", "play", "collect_corrections", "setup_check", "wrist_capture", "grid_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
                "play_face_down")
-SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
+SIM_SCRIPTS = ("bench", "play", "setup_check", "wrist_capture", "grid_capture", "teleop_view", "base_cam_collect", "wall_test", "crude_run",
                "play_face_down")   # `record` and `collect_corrections` have no --sim
 SAFE_FLAGS = {"--help", "-h"}
 NO_HARDWARE_FLAGS = {"wall_test": {"--report", "--exclude-session"}, "play_face_down": {"--report"}}   # these return before anything connects

@@ -15,6 +15,7 @@ Saved poses are taught ones: the commanded pose, not the measured (the servos sa
 discard pose is. The arm is never started from the measured pose: the teleop is seeded from what was last commanded.
 """
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,7 @@ import cv2
 import numpy as np
 
 from mahjong import camera_poses, config, hardware, kinematics, privacy
+from mahjong.wrist_grid import grid_found
 from mahjong.gamepad import draw_input, warn_off_centre
 from mahjong.session import Session
 
@@ -155,8 +157,11 @@ def main(argv=None, keys=None, max_steps=None):
                 for label, frame, ok in (("wrist", frame_w, ok_w), ("base", frame_b, ok_b)):
                     if ok:      # the base camera sees the room: faces blurred in what's kept (mahjong/privacy.py)
                         cv2.imwrite(str(out / f"{captured:03d}_{label}.jpg"), privacy.blur_faces(frame)[0] if label == "base" else frame)
-                session.event("captured", n=captured, pose=pose)
-                print(f"saved captures/{captured:03d}_wrist.jpg and _base.jpg")
+                measured = {j: float(v) for j, v in arm.measured().items()}    # where the servos are: the pose a calibration needs
+                grid = ok_w and grid_found(frame_w)
+                (out / f"{captured:03d}_pose.json").write_text(json.dumps({"commanded": pose, "measured": measured, "grid_found": grid}) + "\n")
+                session.event("captured", n=captured, pose=pose, measured=measured, grid_found=grid)
+                print(f"saved captures/{captured:03d}_wrist.jpg, _base.jpg and _pose.json (grid {'found' if grid else 'NOT found'} in the wrist view)")
             elif key == "g" and args.go:
                 arm.go_to_pose(camera_poses.get(args.go)["pose"])
                 gamepad.start(arm)
