@@ -15,7 +15,7 @@ What each file is for. `tests/test_docs.py` fails on a script not listed here.
 | `mahjong/handoff_trace.py`, `scripts/handoff_report.py` | what the arm does once the gamepad has it (collect_corrections' `handoff/` traces): sag, drift, command moves |
 | `mahjong/hover_correction.py` | measured hover correction (`data/hover_corrections.jsonl`; live sources in `data/hover_model.json`) |
 | `mahjong/return_correction.py`, `scripts/return_samples.py` | where to set a held tile down so it lands at its home (`data/return_corrections.jsonl`, from each return's after-return scan) |
-| `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality |
+| `mahjong/dataset.py`, `quality.py` | trims + re-anchoring + resize; episode quality, and grip reach (demos that closed short of the tile) |
 | `mahjong/session.py`, `sim.py` | session folders; simulated arm/camera/perception/policy |
 | `mahjong/bump_report.py`, `scripts/bump_report.py` | every pickup and return before / after from the scans, for a person to say which tiles really moved (`scan_verdict` events) |
 | `mahjong/placements.py`, `name_ledger.py`, `scripts/name_report.py`, `docs/name_data.md` | which tiles get misread and how much it matters: a person's word on what's at each spot (bench, before trials; play's answers and audit), every read scored against it per placement, with reviewed wrist photos for older sessions |

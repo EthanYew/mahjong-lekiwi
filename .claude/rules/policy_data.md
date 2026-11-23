@@ -85,3 +85,9 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
   tile and missed 7/7, face down and face up; with neighbours around it, 14-16mm and 1 of 2 completed picked. A hover 4mm lower
   closed only 2-3mm lower, so the hover isn't the lever. Bench and collect near-row spots with their neighbours in place, and
   record demos on isolated tiles. Evidence: `docs/retrospectives/2026-11-05_arm_collects_base_camera_photos.md`.
+- **"Gripped low" (short of the tile's middle, toward the robot) is measured, and the neighbours are part of it** (2026-11-23).
+  Where the close landed in x less the tile's x, against the bench attempts not marked `d` at that position: marked-low
+  attempts sit a median 5.5mm short, unmarked ones 0.1mm. `quality_report.py --grip-reach` finds demos that teach it. v13
+  at S14 with no neighbours steered about 10mm further out, closed about 12mm high, and picked 4 of 10, so some short grips
+  may be keeping clear of the next tile out. Drop short demos only where the spot keeps enough of them (the report warns),
+  and bench a filtered policy with its neighbours in place. Evidence: `docs/retrospectives/2026-11-23_v13_grip_and_wrist_calibration.md`.
