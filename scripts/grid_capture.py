@@ -11,8 +11,7 @@ RealSense, until the run ends. The arm rests, the RealSense finds the board's 54
 mat (`grid_located` event). Then for every pose it lifts, hovers over the board (the usual measured hover, settled from above)
 moved by an offset that spreads over a disc, at a height and with a wrist roll that cycle so every height meets every roll,
 and saves the wrist frame if the whole board is in it. Poses are spread by a fixed rule, not drawn at random, so a run can't
-come out short of variety. The jaws never touch anything: the lowest height is --clearances-mm's first value above the grasp
-point. Not seen from a low pose is normal (the board is 80mm wide): those are listed and left out. The heights only decide how
+come out short of variety. The jaws never touch anything: no height may be under the policies' 40mm above the grasp point (lower is refused). Not seen from a low pose is normal (the board is 80mm wide): those are listed and left out. The heights only decide how
 much of the board the camera sees; the calibration doesn't depend on them.
 
 Saved to sessions/<time>_gridcal/: frames/NNN.jpg (the board whole), frames_partial/NNN.jpg (it wasn't), and an event per pose
@@ -36,6 +35,7 @@ from wrist_capture import roll_to
 
 GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 SIM_GRID_XY = (0.17, -0.14)
+MIN_CLEARANCE_M = config.HOVER_CLEARANCE_M      # no hover lower than the policies' own
 ROLL_STEPS = 3                  # rolls cycled: -roll, 0, +roll (coprime with the usual 4 heights, so all 12 pairs appear)
 
 
@@ -83,7 +83,7 @@ def locate_grid(realsense, session, args):
 
 
 def capture_pose(arm, camera, session, folder, n, pose, centre, n_frames):
-    """One pose: lift, hover, roll, photograph. Returns (found, the camera: reopened if it was lost)."""
+    """One pose: lift, hover, roll, photograph. Returns (found, the camera: reopened if it was lost); found is None if the pose was out of reach."""
     dx, dy, clearance, roll = pose
     hx, hy = centre[0] + dx, centre[1] + dy
     arm.lift()
@@ -92,16 +92,17 @@ def capture_pose(arm, camera, session, folder, n, pose, centre, n_frames):
     if result is None:
         print(f"  pose {n}: out of reach, skipped")
         session.event("grid_pose", n=n, skipped="unreachable", hover_xy=[hx, hy], target_clearance_m=clearance)
-        return False, camera
+        return None, camera
     applied = roll_to(arm, roll)
     frames = grab_frames(camera, n_frames)
     if not frames:
         camera = hardware.reopen_wrist_camera(camera)
         session.event("wrist_camera_reopened", n=n)
         frames = grab_frames(camera, n_frames)
-    kept, found = (frames[0] if frames else None), False
+    kept, found, corners = (frames[0] if frames else None), False, None
     for frame in frames:
-        if wrist_grid.grid_found(frame):
+        corners = wrist_grid.find_grid(frame)
+        if corners is not None:
             kept, found = frame, True
             break
     name = None
@@ -110,7 +111,8 @@ def capture_pose(arm, camera, session, folder, n, pose, centre, n_frames):
         (folder / name).parent.mkdir(exist_ok=True)
         cv2.imwrite(str(folder / name), kept, [cv2.IMWRITE_JPEG_QUALITY, 95])
     session.event("grid_pose", n=n, found=found, file=name, hover_xy=[hx, hy], clearance_m=result["clearance_m"],
-                  target_clearance_m=clearance, roll_offset_deg=applied, commanded=arm.commanded(), measured=arm.measured())
+                  target_clearance_m=clearance, roll_offset_deg=applied, commanded=arm.commanded(), measured=arm.measured(),
+                  corners=corners.tolist() if found else None)       # in the detector's own order: a check pairs them with the RealSense's
     print(f"  pose {n}: {'board whole' if found else 'board not whole' if kept is not None else 'no wrist frame'} "
           f"(height {clearance * 1000:.0f}mm, roll {applied:+.0f}deg)")
     return found, camera
@@ -119,6 +121,9 @@ def capture_pose(arm, camera, session, folder, n, pose, centre, n_frames):
 def main(argv=None):
     args = parse_args(argv)
     clearances = [float(c) / 1000 for c in args.clearances_mm.split(",")]
+    if min(clearances) < MIN_CLEARANCE_M:
+        sys.exit(f"--clearances-mm must all be at least {MIN_CLEARANCE_M * 1000:.0f} (the policies hover at 40): "
+                 "a lower hover could press the jaws into the board.")
     if args.grid_xy:
         float(args.grid_xy.split(",")[1])            # a malformed value stops before the arm moves
     if args.sim:
@@ -132,7 +137,7 @@ def main(argv=None):
                   frames=args.frames, grid_xy=args.grid_xy)
     if arm.at_connect:
         session.event("connect", **arm.at_connect)
-    found_count = 0
+    found_count = skipped = 0
     try:
         arm.rest()          # the RealSense must see the board with the arm out of the way
         centre = locate_grid(realsense, session, args)
@@ -142,21 +147,26 @@ def main(argv=None):
         print(f"Board centre ({centre[0] * 1000:.0f}, {centre[1] * 1000:.0f}) mm; {args.poses} poses.")
         for n, pose in enumerate(plan_poses(args.poses, args.jitter_mm / 1000, clearances, args.roll_deg), 1):
             found, camera = capture_pose(arm, camera, session, session.dir, n, pose, centre, args.frames)
-            found_count += found
+            found_count += bool(found)
+            skipped += found is None
     except KeyboardInterrupt:
         print("Interrupted.")
     finally:
-        arm.rest()
-        session.event("grid_capture_done", found=found_count)
-        session.close()
-        if not args.sim:
-            camera.release()
-            realsense.close()
-            arm.disconnect()
+        try:
+            arm.rest()
+        finally:                # a rest that fails (the servo bus dropped) still frees the cameras and closes the session
+            session.event("grid_capture_done", found=found_count, skipped=skipped)
+            session.close()
+            if not args.sim:
+                camera.release()
+                realsense.close()
+                arm.disconnect()
     enough = found_count >= args.min_found
-    print(f"{found_count} of {args.poses} poses saw the whole board" + ("." if enough else
-          f", fewer than {args.min_found}: lay the board nearer the arm's reach, add --clearances-mm 80,100,120,140, or raise --poses."))
-    print(f"Frames in {session.dir}/frames")
+    print(f"{found_count} of {args.poses} poses saw the whole board" + (f" ({skipped} out of reach)" if skipped else "") +
+          ("." if enough else f", fewer than {args.min_found}: lay the board nearer the arm's reach, add --clearances-mm 80,100,120,140, "
+                              "or raise --poses."))
+    if (session.dir / "frames").exists():
+        print(f"Frames in {session.dir}/frames")
     return session.dir
 
 

@@ -60,3 +60,22 @@ def test_a_malformed_board_position_stops_before_the_arm_moves(tmp_path, monkeyp
     with pytest.raises((ValueError, IndexError)):
         grid_capture.main(["--sim", "--grid-xy", "0.17"])
     assert not list(tmp_path.iterdir())
+
+
+def test_a_hover_lower_than_the_policies_is_refused_before_the_arm_moves(tmp_path, monkeypatch):
+    import grid_capture
+    import pytest
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    for value in ("10,20", "-5", "60,0"):
+        with pytest.raises(SystemExit):
+            grid_capture.main(["--sim", "--clearances-mm", value])
+    assert not list(tmp_path.iterdir())
+
+
+def test_an_unreachable_board_is_reported_as_skipped_not_as_not_seen(tmp_path, monkeypatch, capsys):
+    import grid_capture
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    out = grid_capture.main(["--sim", "--poses", "3", "--grid-xy", "0.9,0.9"])
+    assert all(e.get("skipped") for e in read_events(out) if e["type"] == "grid_pose")
+    printed = capsys.readouterr().out
+    assert "3 out of reach" in printed and "Frames in" not in printed
