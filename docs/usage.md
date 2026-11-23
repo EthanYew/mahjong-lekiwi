@@ -91,6 +91,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check the base camera photos of each tile name (mark wrong ones, rename misfiled ones) | `python scripts/base_cam_review.py` |
 | Teach the base camera's reader more tiles (the arm holds each up; then train, score and install) | `python scripts/base_cam_collect.py`, then `python scripts/base_cam_train.py --test-session <newest>_holdup`, then `--save-reader` |
 | Drive the arm by gamepad watching the wrist and base cameras, and save poses that hold a tile up to the base camera | `python scripts/teleop_view.py` |
+| Photograph a checkerboard on the mat from the wrist camera at spread-out poses, to check the wrist camera's calibration | `python scripts/grid_capture.py` (arm) |
 | Check the saved base-camera poses with nothing in the jaws, before collecting | `python scripts/base_cam_collect.py --empty` |
 | Try a whole face-down turn: draw, show, read, you check, discard (crude, to find where it breaks) | `python scripts/crude_run.py --hand <13 names> --turns 6` |
 | Play a face-down hand: the arm reads its own hand, then draws from the wall until a win or the wall runs out | `python scripts/play_face_down.py` (`--unattended`: no names asked, only the wall) ([below](#face-down-play-scriptsplay_face_downpy)) |
@@ -1035,9 +1036,11 @@ have a clean control and which of those were on a session never trained on, whic
 `teleop_view.py` (moves the arm: asks a person to run it): the gamepad drives the arm as in `collect_corrections.py`, and one
 window shows the wrist and base cameras side by side with the commanded pose, the tool point and its distance from the
 shoulder. Keys in the window: `s` saves the commanded pose as the next `--name` (default `base_view_`) in
-`data/camera_poses.json`, `c` saves both frames to the session's `captures/`, `g` returns to `--go`'s pose, `q` rests and
+`data/camera_poses.json`, `c` saves both frames to the session's `captures/` with a `NNN_pose.json` beside them (the commanded and the measured joints, and whether the 9x6-corner checkerboard is whole in the wrist view: what a wrist-camera calibration check needs), `g` returns to `--go`'s pose, `q` rests and
 quits. Options: `--go POSE`, `--name PREFIX`, `--device PATH` (gamepad), `--sim`. `data/camera_poses.json` starts with the two
 poses placed by hand on 2026-11-05 (`manual_1`, `manual_2`: measured, not commanded).
+
+`grid_capture.py` (moves the arm: asks a person to run it): checks the wrist camera's calibration against the RealSense. Lay the 10x7-square checkerboard (about 8mm squares, 9x6 inner corners) flat on the mat with no tiles near it, and leave it and the RealSense alone. The RealSense finds the board and computes where its corners lie on the mat; the arm then hovers over it at `--poses` (default 24) positions spread over a `--jitter-mm` disc, with heights from `--clearances-mm` (default 60,80,100,120) and a wrist roll cycled through -`--roll-deg`, 0, +`--roll-deg`, and saves the wrist frame when the whole board is in it. Each pose's commanded and measured joints go in a `grid_pose` event; `grid_located` holds the RealSense's pixels and the corners' base-frame positions. Saved to `sessions/<time>_gridcal/frames/` (the board whole) and `frames_partial/` (it wasn't). It says if fewer than `--min-found` (15) saw the whole board. Other options: `--frames`, `--grid-xy X,Y` (the board's centre; skips the RealSense look), `--sim`. It's a check, not a recalibration: nothing reads its output yet.
 
 `crude_run.py` (moves the arm: asks a person to run it; `docs/face_down_plan.md`, test 8): the whole face-down turn, crude on purpose, for a list of where it breaks. Lay 13 tiles green side up on the hand's slots and name them with `--hand`, in the layout's order.
 
