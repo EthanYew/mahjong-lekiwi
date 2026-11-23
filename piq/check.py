@@ -90,9 +90,9 @@ def check_config():
     try:
         models = json.loads((AGENT / "models.json").read_text())["providers"]["ollama"]["models"]
         settings = json.loads((AGENT / "settings.json").read_text())
-    except (OSError, ValueError, KeyError) as e:
-        return add("FAIL", "config", f"can't read pi's models.json/settings.json ({AGENT}): {e}")
-    pi_window = {m["id"]: m["contextWindow"] for m in models}
+        pi_window = {m["id"]: m["contextWindow"] for m in models}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return add("FAIL", "config", f"can't read pi's models.json/settings.json ({AGENT}): {e!r}")
     ids = ollama_ids()
     if ids is None:
         return add("WARN", "config", "ollama isn't answering; skipped the model checks")
@@ -150,7 +150,8 @@ def session_for(question, since):
             except ValueError:
                 continue
             if m.get("role") == "user":
-                text = m["content"] if isinstance(m["content"], str) else " ".join(c.get("text", "") for c in m["content"])
+                content = m.get("content", "")
+                text = content if isinstance(content, str) else " ".join(c.get("text", "") for c in content if isinstance(c, dict))
                 if question in text:
                     return f
                 break
@@ -190,8 +191,10 @@ def attempt(q, lim):
         if not re.search(pat, out, re.I | re.S):
             problems.append(f"answer lacks /{pat}/")
     for pat in q.get("forbid", []):
-        if re.search(pat, out, re.I | re.S):
-            problems.append(f"answer contains /{pat}/ (invented?)")
+        # "there is no --video flag" names the flag to deny it; only a line that doesn't deny it counts as inventing it
+        hits = [ln for ln in out.splitlines() if re.search(pat, ln, re.I) and not re.search(r"\b(no|not|never|without|nor)\b|n't", ln, re.I)]
+        if hits:
+            problems.append(f"answer says /{pat}/ without denying it (invented?): {hits[0].strip()[:80]}")
     return problems, secs, calls, peak
 
 
@@ -239,8 +242,11 @@ def main():
         if any(r[0] == "FAIL" for r in results):
             add("WARN", "ask", "skipped the questions: fix the FAILs above first")
         elif ask() == 0:
-            write_stamp()
-            add("OK", "stamp", f"all regression questions passed; stamped {STAMP.name}")
+            if pi_version() == "?":      # a stamp with an unknown version would hide the next upgrade
+                add("WARN", "stamp", "all questions passed but `pi --version` printed nothing, so the version can't be recorded: not stamped")
+            else:
+                write_stamp()
+                add("OK", "stamp", f"all regression questions passed; stamped {STAMP.name}")
         else:
             add("WARN", "stamp", "not stamped: fix the failures above and re-run")
     shown = [r for r in results if not quick or r[0] != "OK"]
