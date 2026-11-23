@@ -56,7 +56,7 @@ QUESTIONS = PIQ / "regression-questions.json"
 
 
 def setup_files():
-    files = [PIQ / "prompt.md", PIQ / "piq", PIQ / "index.py", PIQ / "check.py", PIQ / "regression-questions.json",
+    files = [PIQ / "prompt.md", PIQ / "piq", PIQ / "index.py", PIQ / "check.py", PIQ / "guard.ts", PIQ / "regression-questions.json",
              AGENT / "settings.json", AGENT / "models.json", *DERIVED.values(), *sorted((PIQ / "skills").glob("*/SKILL.md"))]
     return [f for f in files if f.exists()]
 
@@ -81,7 +81,20 @@ def ollama_ids():
 
 def ollama_params(model):
     rc, out, _ = run(["ollama", "show", model, "--parameters"])
-    return dict(line.split(None, 1) for line in out.splitlines() if line.strip()) if rc == 0 else {}
+    params = {}
+    for line in out.splitlines() if rc == 0 else []:
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            params[parts[0]] = parts[1].strip()      # a repeated key (stop) keeps its last value; the keys checked here appear once
+    return params
+
+
+def same_value(a, b):
+    """'1.10' and '1.1' are the same Modelfile value; compare as numbers when both are."""
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return a == b
 
 
 # ---------------------------------------------------------------- checks
@@ -112,9 +125,9 @@ def check_config():
             m = re.search(rf"PARAMETER {key} (\S+)", file_text)
             if not m:
                 add("FAIL", "config", f"{mf.name} has no {key}" + (" (output is uncapped: failure 002)" if key == "num_predict" else ""))
-            elif real.get(key) != m.group(1):
+            elif not same_value(real.get(key), m.group(1)):
                 add("FAIL", "config", f"{name} runs {key}={real.get(key)} but {mf.name} says {m.group(1)}: you edited the file but didn't `ollama create`")
-        if str(pi_window.get(name)) != real.get("num_ctx"):
+        if not same_value(pi_window.get(name), real.get("num_ctx")):
             add("FAIL", "config", f"pi thinks {name} has window {pi_window.get(name)} (models.json) but Ollama runs num_ctx {real.get('num_ctx')}: truncation or late compaction (failure 001)")
     add("OK", "config", f"default {default}; Modelfiles, running models and models.json agree")
 
@@ -123,7 +136,11 @@ def check_versions():
     """Base model re-pulled, derived model rebuilt, pi upgraded, or the setup edited since the last verified run."""
     if not STAMP.exists():
         return add("WARN", "stamp", "never verified: run `piq-check --ask` once to record a baseline")
-    st = json.loads(STAMP.read_text())
+    try:
+        st = json.loads(STAMP.read_text())
+        age = (date.today() - date.fromisoformat(st["date"])).days
+    except (OSError, ValueError, KeyError, TypeError):
+        return add("WARN", "stamp", f"{STAMP.name} is unreadable or damaged: run `piq-check --ask` to write a new one")
     ids = ollama_ids() or {}
     ver = pi_version()
     for label, now, then in (("base model " + BASE_MODEL, ids.get(BASE_MODEL), st.get("base_id")),
@@ -131,7 +148,6 @@ def check_versions():
                              *[(f"derived model {n}", ids.get(n), st.get("derived", {}).get(n)) for n in DERIVED]):
         if now and then and now != then:
             add("WARN", "versions", f"{label} changed since the last verified run ({then} -> {now}): re-run `piq-check --ask`")
-    age = (date.today() - date.fromisoformat(st["date"])).days
     if age > MAX_AGE_DAYS:
         add("WARN", "stamp", f"last verified {age} days ago (limit {MAX_AGE_DAYS}): re-run `piq-check --ask`")
     if st.get("setup_hash") != setup_hash():
@@ -198,7 +214,7 @@ def attempt(q, lim):
     for pat in q.get("forbid", []):
         # "there is no --video flag" names the flag to deny it; only a line that doesn't deny it counts as inventing it
         # a denial puts the negation just before the flag in the same clause: "there is no --video", "doesn't have --video"
-        denied = rf"(\b(no|not|never|without|nor)\b|n't)[^.;\n]{{0,30}}(?:{pat})"
+        denied = rf"(\b(no|not|never|without|nor)\b|n't)(?:(?!\bbut\b|\buse\b|\binstead\b|\bhowever\b)[^.;\n]){{0,30}}(?:{pat})"
         hits = [ln for ln in out.splitlines() if re.search(pat, ln, re.I) and not re.search(denied, ln, re.I)]
         if hits:
             problems.append(f"answer says /{pat}/ without denying it (invented?): {hits[0].strip()[:80]}")

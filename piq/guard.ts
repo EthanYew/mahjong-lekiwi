@@ -16,8 +16,13 @@ export default function (pi: ExtensionAPI) {
   let seen = new Set<string>();
   let calls = 0;
   let nudges = 0;
+  let continuing = false;      // set when we ask for a continuation: its before_agent_start must not reset the counters
 
   pi.on("before_agent_start", async (event: any) => {
+    if (continuing) {
+      continuing = false;
+      return;
+    }
     if (event.messageType === undefined || event.messageType === "user") {
       seen = new Set();
       calls = 0;
@@ -54,6 +59,7 @@ export default function (pi: ExtensionAPI) {
     const hasCall = content.some((c) => c?.type === "toolCall");
     if (hasText || hasCall) return;
     nudges += 1;
+    continuing = true;
     return {
       entries: [
         ...entries,

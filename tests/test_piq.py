@@ -132,3 +132,19 @@ def test_the_launcher_loads_the_guard_and_the_guard_keeps_its_limits():
     guard = (PIQ / "guard.ts").read_text()
     for needle in ('pi.on("tool_call"', 'pi.on("agent_before_settle"', "block: true", "continue: true", "MAX_CALLS", "MAX_NUDGES"):
         assert needle in guard, f"piq/guard.ts lost {needle}"
+
+
+def test_options_added_by_helpers_are_found_however_the_script_reaches_them():
+    """The facts say 'an option not listed does not exist', so a helper the scanner can't see makes the model deny a real flag."""
+    import ast
+    index = load_index()
+    helpers = {("takeover", "add_argument"): ["--dagger-dataset"], ("shared", "add_args"): ["--layout"], ("tool", "add_local"): ["--mine"]}
+    cases = {
+        "import takeover\ntakeover.add_argument(p)": ["--dagger-dataset"],             # module.function(parser)
+        "from mahjong.shared import add_args\nadd_args(p)": ["--layout"],              # imported by name
+        "def add_local(p):\n    pass\nadd_local(p)": ["--mine"],                       # the script's own helper
+        "p.add_argument('--x', '-y')\nunknown(p)": ["--x", "-y"],                      # a plain option; an unknown call adds nothing
+    }
+    for source, expected in cases.items():
+        found = index.parser_options(ast.parse(source), helpers, "tool")
+        assert found == expected, f"{source!r}: got {found}, wanted {expected}"

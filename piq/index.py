@@ -21,8 +21,9 @@ MIN_BYTES = 6000
 DOC_LEN = 90
 
 
-def git(*args):
-    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+def git(*args, repo=None):
+    cmd = ["git", *(["-C", str(repo)] if repo else []), *args]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
 
 
 def first_line(node):
@@ -56,8 +57,11 @@ def markdown_symbols(path, text):
             yield f"{path}:{n} {line.strip()[:120]}"
 
 
-def parser_options(tree, helpers):
-    """Option strings from add_argument calls, plus those added by helper functions (e.g. takeover.add_argument(parser)), which a plain scan misses."""
+def parser_options(tree, helpers, stem=None):
+    """Option strings from add_argument calls, plus those added by helper functions, which a plain scan misses: `takeover.add_argument(p)`,
+    `add_args(p)` after `from mahjong.x import add_args`, and a function the script defines itself."""
+    imported = {alias.asname or alias.name: node.module.split(".")[-1]
+                for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module for alias in node.names}
     opts = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -65,7 +69,11 @@ def parser_options(tree, helpers):
         f = node.func
         if isinstance(f, ast.Attribute) and f.attr == "add_argument":
             opts += [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value.startswith("-")]
-        key = (f.value.id, f.attr) if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else (None, getattr(f, "id", None))
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            key = (f.value.id, f.attr)
+        else:
+            name = getattr(f, "id", None)
+            key = (imported.get(name, stem), name)       # imported by name, else defined in this script
         if key in helpers:
             opts += helpers[key]
     return opts
@@ -93,7 +101,7 @@ def helper_functions(root):
 
 def script_facts(root):
     """Facts read straight from the code, so they cannot go stale: each script's argparse options, and any COMMANDS menu list."""
-    head = git("log", "-1", "--format=%h %cs").strip()
+    head = git("log", "-1", "--format=%h %cs", repo=root).strip()
     out = [f"GENERATED FACTS (read from the working tree at launch, HEAD {head}; current by construction, unlike anything written by hand).",
            "Script options, from each script's add_argument calls. An option not listed for a script does not exist for that script:"]
     menus = []
@@ -103,7 +111,7 @@ def script_facts(root):
             tree = ast.parse(p.read_text(errors="replace"))
         except SyntaxError:
             continue
-        opts = parser_options(tree, helpers)
+        opts = parser_options(tree, helpers, p.stem)
         if opts:
             out.append(f"scripts/{p.name}: " + " ".join(dict.fromkeys(opts)))
         for node in tree.body:
@@ -120,7 +128,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "symbol_index.md"
     lines = [f"# Symbol index of {root} (built from the working tree; line numbers can drift if files change after this)"]
-    files = git("ls-files", "--cached", "--others", "--exclude-standard", "*.py", "*.md").split()
+    files = [f for f in git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.py", "*.md", repo=root).split("\0") if f]
     for rel in sorted(files):
         p = root / rel
         if not p.is_file() or p.stat().st_size < MIN_BYTES:
