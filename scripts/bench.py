@@ -1335,6 +1335,8 @@ def parse_args(argv=None):
         p.error("--spots and --start-spot both choose spots: use one (--spots lists them all)")
     if args.tiles and (args.layout or args.spots or args.start_spot):
         p.error("--tiles picks tiles by name, without a layout: with --layout, choose spots with --spots or --start-spot")
+    if args.tiles and len(set(args.tiles)) != len(args.tiles):
+        p.error("--tiles: a tile is listed twice (use --trials for more rounds on it)")
     bad = [t for t in args.tiles or [] if t not in detector.TILE_NAMES]
     if bad:
         p.error(f"--tiles: not a tile name: {', '.join(bad)}")

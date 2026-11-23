@@ -424,10 +424,11 @@ def main():
         if sheet:
             print(f"\ncontact sheet: {sheet}")
     for t in (e for e in events if e["type"] == "trials_done"):
-        on = f"layout {t['layout']}" if t.get("layout") else t["tile"]
+        on = f"layout {t['layout']}" if t.get("layout") else ", ".join(t["tiles"]) if t.get("tiles") else t["tile"]
         policies = sorted(set(t.get("policies") or [t["policy"]]))
         print(f"trials on {on}: {sum(t['results'])}/{len(t['results'])} ({', '.join(policies)})"
-              + (f", skipped spots {', '.join(t['skipped_spots'])}" if t.get("skipped_spots") else ""))
+              + (f", skipped spots {', '.join(t['skipped_spots'])}" if t.get("skipped_spots") else "")
+              + (f", skipped tiles {', '.join(t['skipped_tiles'])}" if t.get("skipped_tiles") else ""))
     for kind in ("return", "return_skipped", "discard", "episode_saved", "correction_recorded"):
         n = sum(e["type"] == kind for e in events)
         if n:

@@ -440,7 +440,7 @@ def test_an_unknown_spot_fails_before_anything_connects(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("argv", [["--spots", "L"], ["--start-spot", "L"], ["--tiles", "8D", "--layout", "x"],
-                                  ["--tiles", "8D", "--tile", "8D"], ["--tiles", "99Z"],
+                                  ["--tiles", "8D", "--tile", "8D"], ["--tiles", "99Z"], ["--tiles", "8D,8d"],
                                   ["--layout", "x", "--spots", "L", "--start-spot", "L"]])
 def test_spot_and_tile_lists_need_their_partner_option(argv):
     import bench
@@ -448,7 +448,7 @@ def test_spot_and_tile_lists_need_their_partner_option(argv):
         bench.parse_args(argv)
 
 
-def test_several_tiles_are_picked_in_turn(tmp_path, monkeypatch):
+def test_several_tiles_are_picked_in_turn(tmp_path, monkeypatch, capsys):
     import bench
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     b = bench.Bench(bench.parse_args(["--sim", "--trials", "1", "--tiles", "8d,9D"]))
@@ -461,6 +461,10 @@ def test_several_tiles_are_picked_in_turn(tmp_path, monkeypatch):
     assert [a["tile"] for a in events if a["type"] == "attempt"] == ["8D", "9D"]
     (done,) = [e for e in events if e["type"] == "trials_done"]
     assert done["tiles"] == ["8D", "9D"] and done["spots"] == [None, None]
+    import session_report
+    monkeypatch.setattr("sys.argv", ["session_report.py", str(b.session.dir)])
+    session_report.main()
+    assert "trials on 8D, 9D:" in capsys.readouterr().out
 
 
 FACE_DOWN_SPOTS = [{"id": "L", "xy": [0.21, 0.02]}, {"id": "R", "xy": [0.160, -0.165]}]
