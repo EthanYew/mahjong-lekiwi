@@ -214,7 +214,7 @@ def attempt(q, lim):
     for pat in q.get("forbid", []):
         # "there is no --video flag" names the flag to deny it; only a line that doesn't deny it counts as inventing it
         # a denial puts the negation just before the flag in the same clause: "there is no --video", "doesn't have --video"
-        denied = rf"(\b(no|not|never|without|nor)\b|n't)(?:(?!\bbut\b|\buse\b|\binstead\b|\bhowever\b)[^.;\n]){{0,30}}(?:{pat})"
+        denied = rf"(\b(no|not|never|without|nor)\b|n't)(?:(?!\bbut\b|\binstead\b|\bhowever\b|(?<!\bnot )(?<!n't )(?<!\bnever )\buse\b)[^.;\n]){{0,30}}(?:{pat})"
         hits = [ln for ln in out.splitlines() if re.search(pat, ln, re.I) and not re.search(denied, ln, re.I)]
         if hits:
             problems.append(f"answer says /{pat}/ without denying it (invented?): {hits[0].strip()[:80]}")

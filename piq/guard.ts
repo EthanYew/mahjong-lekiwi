@@ -19,10 +19,11 @@ export default function (pi: ExtensionAPI) {
   let continuing = false;      // set when we ask for a continuation: its before_agent_start must not reset the counters
 
   pi.on("before_agent_start", async (event: any) => {
-    if (continuing) {
+    if (continuing && event.messageType !== "user") {      // the continuation a nudge asked for: keep the counters
       continuing = false;
       return;
     }
+    continuing = false;
     if (event.messageType === undefined || event.messageType === "user") {
       seen = new Set();
       calls = 0;
@@ -46,6 +47,10 @@ export default function (pi: ExtensionAPI) {
     }
     seen.add(key);
     calls += 1;
+  });
+
+  pi.on("agent_settled", async () => {
+    continuing = false;      // nothing continues after this, so a nudge that was dropped can't leave the flag set for the next prompt
   });
 
   pi.on("agent_before_settle", async (event: any) => {
