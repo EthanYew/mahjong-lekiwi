@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# pi in read-only question-and-answer mode for codebase questions. What each part is for: piq/README.md.
+#   --tools read,grep,find,ls   no bash/edit/write: can't touch the arm or any file (the repo's arm-run gate is a Claude Code hook; pi has none)
+#   --no-extensions --no-mcp    drops the web-search package and MCP tool descriptions from every request
+#   --thinking low              less hidden reasoning per answer
+#   --no-skills --skill DIR     the skills come from this repo's piq/skills (versioned and tested), not from ~/.pi/agent/skills
+#   piq/index.py                symbol index of the repo's big files plus generated facts (script options, menus), rebuilt at every launch
+# The model, window and compaction settings come from ~/.pi/agent/settings.json. Extra arguments pass through to pi.
+# The piq/ folder used is the one in the checkout you run this from (a worktree's own, so a branch's changes are what it sees),
+# else the one this file lives in.
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+top="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -n "$top" ] && [ -f "$top/piq/prompt.md" ]; then piq="$top/piq"; else piq="$here"; fi
+args=(--tools read,grep,find,ls --no-extensions --no-mcp --thinking low --no-skills --skill "$piq/skills" --append-system-prompt "$piq/prompt.md")
+if idx=$(python3 "$piq/index.py" 2>/dev/null); then
+  [ -f "$(dirname "$idx")/facts.md" ] && args+=(--append-system-prompt "$(dirname "$idx")/facts.md")
+  args+=(--append-system-prompt "Symbol index of this repo's big files: $idx . Every line starts with the file path, so grep -n \"scripts/bench.py\" $idx lists that file's size and every function, class or heading with its line number. Do this before reading any file marked over 150 lines, then read just the range you need.")
+fi
+python3 "$piq/check.py" --quick >&2 || true   # warns (never blocks) when something on this machine has drifted: Ollama limits, versions, an unverified edit
+exec pi "${args[@]}" "$@"

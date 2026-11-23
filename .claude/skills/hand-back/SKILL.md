@@ -16,6 +16,9 @@ Never `--no-verify`, never push to `main`.
      a watchdog failure is a motion bug until shown otherwise: never mark a test `motion_unwatched` to pass it)
    - the slow tests too if `mahjong/policy.py` or `mahjong/dataset.py` changed: `python -m pytest -m slow -q`
    - `python scripts/review_brief.py --range origin/main..HEAD` is the reviewer's view; its sim runs are the queue's too.
+   - if the diff touches `piq/` (the local model's prompt, skills, questions or launcher): `python piq/check.py --ask` from the worktree. It runs the
+     model's regression questions (about 3 minutes, needs Ollama) and a test can't. A FAIL is a bug in `piq/` until shown otherwise; a stale question
+     means this branch changed what it assumed, so update the question. If Ollama isn't reachable, say so under `## Unverified on the arm`, don't skip it silently.
 3. **Review**: `/code-review medium` on `git diff origin/main...HEAD`, every round. Fix what's clearly a bug and **commit it**, rerun
    2, then one `/code-review low` on all of this round's fixes (`<commit before them>..HEAD`; name the changed functions so it
    checks their callers). At most 2 low passes a round; a bug the second one finds is open. A bug still open: stop before opening

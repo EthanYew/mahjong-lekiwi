@@ -62,4 +62,5 @@ Git catches overlapping lines, not overlapping intent. `merging.md` has the deta
 - **Only decisions wait for the person** (`needs-owner`: the default policy, eval/exam splits, the standard setup, the scorecard,
   installed weights; `merge_pr.HOLD_FILES`); they merge those with `merge_pr.py N`. Merge only through the queue, never `gh pr merge`
   or a push to `main`; never `--no-verify`.
+- **`piq/` is the local model's input** (prompt, skills, questions; `piq/README.md`). Script options reach it by themselves; if you rename a doc heading or file it cites, update it in the same branch: `tests/test_piq.py` says what.
 - A new user-run script gets an end-to-end sim test (`tests/test_bench.py`, `tests/test_record.py`).

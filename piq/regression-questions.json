@@ -1,0 +1,30 @@
+{
+  "_about": "Questions piq-check --ask runs. Each has a 'premise': a pattern that must (not) be in the repo for the question to still mean what it did. If the repo changes so the premise flips (e.g. someone adds a pause flag), the question is reported STALE instead of failing: update or retire it.",
+  "limits": {"seconds": 300, "tool_calls": 10, "peak_tokens": 40000},
+  "questions": [
+    {"id": "false-premise-pause-resume",
+     "q": "what's the command to pause and resume a bench session, or start a bench session from a specific spot in a layout",
+     "premise": {"file": "scripts/bench.py", "regex": "add_argument\\(\"--(resume|pause|start|spot|from)", "expect": "absent", "why": "bench.py has no pause/resume/start-at option"},
+     "must": ["no (such )?(command|option|flag)|does(n't| not) (exist|have)|there is no|not (supported|available)"],
+     "forbid": ["python scripts/bench\\.py[^\\n]*--(resume|pause|start)", "start_at"],
+     "failure": "002"},
+    {"id": "false-premise-start-at-spot",
+     "q": "how do I make bench.py start at spot S5 of a layout and skip the earlier spots?",
+     "premise": {"file": "scripts/bench.py", "regex": "add_argument\\(\"--(resume|pause|start|spot|from)", "expect": "absent", "why": "bench.py has no start-at-spot option"},
+     "must": ["no (such )?(command|option|flag)|does(n't| not) (exist|have)|there is no|not (supported|available)"],
+     "forbid": ["start_at", "--start-at", "--start-spot", "args\\.start"],
+     "failure": "003"},
+    {"id": "true-behaviour-video",
+     "q": "what bench.py flag saves a video of each trial?",
+     "premise": {"file": "scripts/bench.py", "regex": "wrist\\.mp4", "expect": "present", "why": "bench saves wrist.mp4 for every attempt"},
+     "must": ["wrist\\.mp4"],
+     "forbid": ["--video", "--record-video", "--save-video"],
+     "failure": "003"},
+    {"id": "true-option-carry",
+     "q": "what does the --carry option of bench.py do?",
+     "premise": {"file": "scripts/bench.py", "regex": "add_argument\\(\"--carry\"", "expect": "present", "why": "--carry exists"},
+     "must": ["carry", "FROM|spot|tile"],
+     "forbid": ["no (such )?(option|flag)|does(n't| not) exist"],
+     "failure": "over-refusal guard: after adding the 'absence is an answer' rule, real options must still be found"}
+  ]
+}

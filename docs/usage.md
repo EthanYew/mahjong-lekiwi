@@ -31,6 +31,7 @@ not a worktree, or the sessions go when the worktree does.
 |---|---|
 | Check nothing's broken (no hardware, ~11 s) | `python -m pytest -m "not slow" -n 8` |
 | See where things stand (default policy and why, bench totals, layouts, the drop zone, this checkout) | `python scripts/status.py` |
+| Ask a quick read-only question about the repo without Claude Code | `piq` ([Asking the local model](#asking-the-local-model-piq)) |
 | See which tiles get misread, and how much it matters | `python scripts/name_report.py` |
 | Approve and merge a branch's PR, then clean up after it | `python scripts/merge_pr.py` (lists them), then `python scripts/merge_pr.py <number>` |
 | Train on the PC, or check on a run | `/train-policy` in Claude Code |
@@ -1597,6 +1598,23 @@ git pull --rebase --autostash origin main && git push origin main
 Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach
 `main` from this checkout, where the hardware runs, and these three files merge by union if two ever meet.
 
+## Asking the local model: `piq`
+
+`piq` is pi with a local Ollama model (gemma4 12B) and read-only tools, for quick questions about the docs, scripts and options that don't need Claude Code.
+It can't run, edit or move anything. Run it from any checkout or worktree; it uses that checkout's `piq/` folder. What each file there is for, and how to install it:
+`piq/README.md`.
+
+```
+piq                          # interactive
+piq -p "what does --carry do in bench.py?" </dev/null     # one answer, then exit (the </dev/null matters when a tool has stdin open)
+piq-check                    # is the setup on this machine still what it was verified as? (Ollama's limits, model and pi versions)
+piq-check --ask              # re-run the model's regression questions (about 3 minutes, needs Ollama); stamps the setup as verified
+```
+
+`piq` prints a warning at launch if something drifted. Its prompt, skills and regression questions are in the repo and `tests/test_piq.py` keeps them true:
+the script options and menu commands it tells the model about are generated from the code at every launch, so a new flag needs nothing; a doc heading or file
+that `piq/` cites needs updating in the same branch, and `/hand-back` runs `piq-check --ask` when a branch changes `piq/`.
+
 ## Tests
 
 ```
@@ -1608,6 +1626,7 @@ python -m pytest                      # everything; slow tests load policies and
 Git hooks run the fast tests on every commit and every merge (in parallel when pytest-xdist is installed:
 `pip install pytest-xdist` in the lerobot env), so a broken invariant, or two branches that break each
 other, can't be committed. Turn them on once per clone: `git config core.hooksPath scripts/hooks`.
+`tests/test_piq.py` checks `piq/` (the local model's prompt, skills and questions) against the scripts and docs they cite.
 `tests/test_docs.py` checks this file, README.md, CLAUDE.md and `.claude/rules/` against `data/` and the scripts: every option they
 mention exists, every script has a section, the default policy and every registered one are named right.
 `tests/test_code_health.py` runs ruff (`pip install ruff` in the lerobot env; rules in `ruff.toml`) and looks for functions copied whole between files. A
