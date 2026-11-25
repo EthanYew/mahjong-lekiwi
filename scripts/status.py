@@ -2,6 +2,7 @@
 
     python scripts/status.py                       # checkout, default policy, policies on the bench, eval sets, layouts...
     python scripts/status.py --set-default pickup_mat_cl_v5 --evidence sessions/20261101_100000_bench --why "..."
+    python scripts/status.py --void 20261101_100000_play_fd --why "..."     # a play run stopped by something but the robot
 
 The default policy, the registered policies and how each did on the bench (every bench session's attempts:
 clean, then picked, docs/scorecard.md; the first run works out and saves each session's clean count),
@@ -10,6 +11,10 @@ the standard setup and each policy's clean count on it, the eval sets, the detec
 
 --set-default is how the default changes: it writes the decision's evidence next to it in
 data/policies.json (default_note), which tests/test_docs.py checks agrees with the default.
+
+--void is for a played hand stopped partway by something that isn't the robot's doing (a power cut, a script's crash, a
+person needed elsewhere): it goes in data/void_sessions.json with the reason and counts for nothing. A hand that ran to its
+end can't be voided, nor one with a wrong tile name found in it.
 """
 import argparse
 import json
@@ -19,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, hand_tally, layout, markers, name_ledger, owed, scorecard
-from mahjong.session import counted_real, read_events
+from mahjong import checkout, config, face_down_play, hand_tally, layout, markers, name_ledger, owed, play_log, scorecard
+from mahjong.session import counted_real, read_events, void, void_reason
 from mahjong.session import voided as session_voided
 
 
@@ -145,12 +150,42 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--set-default", metavar="ID", help="make this registered policy the default (with --evidence)")
     p.add_argument("--evidence", help="what the switch rests on, e.g. the bench session folder(s) and their scores")
+    p.add_argument("--void", metavar="SESSION", help="count a play run stopped partway by something but the robot for nothing (with --why)")
     p.add_argument("--why", default="", help="the reason, in a sentence")
     p.add_argument("--since", default=None, help="with --set-default: the day it was decided, YYYY-MM-DD (default today)")
     args = p.parse_args(argv)
     if args.set_default and not args.evidence:
         p.error("--set-default needs --evidence (e.g. sessions/<time>_bench and what it showed)")
+    if args.void and not args.why.strip():
+        p.error("--void needs --why: what stopped the run, and what shows it wasn't the robot")
+    if args.void and args.set_default:
+        p.error("one decision at a time: --void or --set-default")
     return args
+
+
+def void_play(arg, why, sessions_dir=None):
+    """Void a play session (face up or face down) whose hand was stopped partway. Refuses what would hide the robot's own
+    result: a hand that ran to its end, and one where a wrong tile name is already known."""
+    folder = (sessions_dir or config.SESSIONS) / Path(arg).name
+    if not (folder / "events.jsonl").exists():
+        raise SystemExit(f"no session {Path(arg).name} under {folder.parent}")
+    if not folder.name.endswith(("_play", "_play_fd")):
+        raise SystemExit(f"{folder.name} isn't a play run: --void is for played hands (data/void_sessions.json for the rest)")
+    if (already := void_reason(folder)):
+        raise SystemExit(f"{folder.name} is already voided: {already}")
+    end = play_log.hand(read_events(folder))["end"] or {}
+    fd = folder.name.endswith("_play_fd")
+    if end.get("silent_errors") or (fd and hand_tally.wrong_reads(face_down_play.scored_reads(folder))):
+        raise SystemExit(f"{folder.name} used a wrong tile name: that's the robot's own result, so it stays")
+    if end.get("result") in hand_tally.COMPLETE:
+        raise SystemExit(f"{folder.name}'s hand ran to its end ({end['result']}): it wasn't stopped partway")
+    checkpoint = folder / "checkpoint.json"
+    phase = json.loads(checkpoint.read_text()).get("phase") if checkpoint.exists() else None
+    if not end and phase in ("won", "end"):
+        raise SystemExit(f"{folder.name}'s hand finished ({phase}) and only its end check is missing"
+                         + (": python scripts/play_face_down.py --end-check " + folder.name if fd else ""))
+    void(folder.name, why.strip())
+    return folder.name
 
 
 def stale_docs(policy_id, repo=None):
@@ -175,6 +210,13 @@ def stale_docs(policy_id, repo=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.void:
+        name = void_play(args.void, args.why)
+        print(f"Voided {name} (data/void_sessions.json): {args.why.strip()}\nIt counts for nothing from now on.")
+        if checkout.git("rev-parse", "--abbrev-ref", "HEAD") == "main":
+            print("WARNING: this is main. Voiding is a decision: commit it on a branch (undo here with: git restore data/void_sessions.json)")
+        print("Then commit data/void_sessions.json, open a PR, and merge it with scripts/merge_pr.py.")
+        return
     if args.set_default:
         from mahjong.policy import set_default
         note = set_default(args.set_default, args.evidence, args.why, args.since)

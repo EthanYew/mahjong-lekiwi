@@ -101,3 +101,45 @@ def test_face_up_and_face_down_are_counted_on_separate_lines(tmp_path):
     text = status.report(sessions_dir=tmp_path)
     assert "face down when the tiles were found by the scans' back boxes" in text
     assert any(line.strip().startswith("face down b") and "3/3" in line for line in text.splitlines())
+
+
+def play_session(sessions, name, events, phase="play"):
+    folder = sessions / name
+    folder.mkdir(parents=True)
+    (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    (folder / "checkpoint.json").write_text(json.dumps({"phase": phase}))
+    return folder
+
+
+STARTED = [{"type": "session_start"},
+           {"type": "fd_turn_start", "turn": 1, "slots": ["S1"], "hand": {"S1": "5C"}, "discards": []}]
+
+
+def test_a_play_run_stopped_partway_can_be_voided_and_is_listed_but_not_counted(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "void.json")
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "s")
+    play_session(tmp_path / "s", "20261120_071428_play_fd", STARTED)
+    assert "unfinished" in status.report()
+    with pytest.raises(SystemExit):
+        status.parse_args(["--void", "20261120_071428_play_fd"])        # no reason: refused
+    status.main(["--void", "sessions/20261120_071428_play_fd", "--why", "power cut"])
+    assert json.loads((tmp_path / "void.json").read_text()) == {"20261120_071428_play_fd": "power cut"}
+    text = status.report()
+    assert "voided: power cut" in text and "counted 0 hand(s)" in text
+    with pytest.raises(SystemExit, match="already voided"):
+        status.main(["--void", "20261120_071428_play_fd", "--why", "again"])
+
+
+@pytest.mark.parametrize("name, events, phase, refusal", [
+    ("20261120_100000_play_fd", [*STARTED, {"type": "hand_end", "result": "win", "end_check": True}], "won", "ran to its end"),
+    ("20261120_100000_play", [{"type": "hand_end", "result": "end", "end_check": True, "silent_errors": 1}], "end", "wrong tile name"),
+    ("20261120_100000_play_fd", [*STARTED, {"type": "hand_end", "result": "win", "end_check": False}], "won", "ran to its end"),
+    ("20261120_100000_play_fd", STARTED, "won", "--end-check"),
+    ("20261120_100000_bench", [], "play", "isn't a play run"),
+])
+def test_a_hand_the_robot_finished_or_misread_cant_be_voided(tmp_path, monkeypatch, name, events, phase, refusal):
+    monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "void.json")
+    play_session(tmp_path, name, events, phase)
+    with pytest.raises(SystemExit, match=refusal):
+        status.void_play(name, "why", sessions_dir=tmp_path)
+    assert not (tmp_path / "void.json").exists()

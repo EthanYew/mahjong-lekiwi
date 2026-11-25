@@ -141,10 +141,7 @@ class Session:
         self.conditions, self.notes = conditions, notes
         self.dir = config.SESSIONS / f"{datetime.now():%Y%m%d_%H%M%S}_{kind}"
         self.dir.mkdir(parents=True)
-        self._log = open(self.dir / "session.log", "a")
-        self._outer, Session.current = Session.current, self
-        self._stdout, self._stderr = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
+        self._open()
         self.event("session_start", kind=kind, commit=git_commit(), checkout=checkout.state(), conditions=conditions,
                    notes=notes, **setup)
         print(f"Session: {self.dir}" + (f"\nSetup: {conditions_text(conditions)}" if conditions else ""))
@@ -154,6 +151,23 @@ class Session:
             from . import owed      # here, not at the top: owed reads sessions with this module
             for line in owed.items(quick=True):
                 print(f"OWED: {line}")
+
+    @classmethod
+    def reopen(cls, folder):
+        """A session that stopped (or crashed) before its last step, open again to add to its folder: output goes on in its
+        session.log. Logs `session_reopened` with today's code; close() as usual."""
+        self = cls.__new__(cls)
+        self.conditions, self.notes = {}, ""
+        self.dir = Path(folder)
+        self._open()
+        self.event("session_reopened", commit=git_commit(), checkout=checkout.state())
+        return self
+
+    def _open(self):
+        self._log = open(self.dir / "session.log", "a")
+        self._outer, Session.current = Session.current, self
+        self._stdout, self._stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = _Tee(self._stdout, self._log), _Tee(self._stderr, self._log)
 
     def event(self, type, **fields):
         record = {"time": datetime.now().isoformat(timespec="seconds"), "type": type, **fields}
@@ -287,6 +301,15 @@ def voided(path=None):
         _voided_cache.clear()
         _voided_cache[key] = json.loads(path.read_text())
     return _voided_cache[key]
+
+
+def void(name, why, path=None):
+    """Add a session to data/void_sessions.json (scripts/status.py --void says which ones may be)."""
+    path = Path(path or VOID_SESSIONS)
+    saved = {**voided(path), name: why}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(saved, indent=2, ensure_ascii=False) + "\n")
+    _voided_cache.clear()
 
 
 def void_reason(folder, path=None):

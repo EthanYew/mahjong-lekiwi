@@ -119,3 +119,24 @@ def test_the_tally_reads_session_folders_and_leaves_out_sim_and_voided_ones(tmp_
                                                           ("20261119_120000_play_fd", "rescued")]
     text = "\n".join(hand_tally.lines(rows))
     assert "counted 2 hand(s)" in text and "not met" in text
+
+
+def test_a_voided_hand_is_listed_but_a_silent_error_or_a_resumed_one_unreviewed_still_counts(monkeypatch, tmp_path):
+    names = ["20261120_100000_play_fd", "20261120_110000_play_fd"]
+    for name in names:
+        folder = tmp_path / name
+        folder.mkdir()
+        start = {"type": "session_start", **({"resumed_from": names[0]} if name == names[1] else {})}
+        turn = {**TURN[0], "slots": ["S1"], "hand": {"S1": "5C"}, "discards": []}
+        (folder / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in [start, turn]))
+    monkeypatch.setattr(hand_tally, "void_reason", lambda f: "power cut" if f.name == names[0] else None)
+    holds = {names[0]: [read()], names[1]: []}
+    monkeypatch.setattr(face_down_play, "scored_reads", lambda folder, review=None: holds[folder.name])
+    rows = hand_tally.tally(tmp_path, review={})
+    assert [r["status"] for r in rows] == ["voided", "unfinished"]
+    counted, behind = hand_tally.series(rows)
+    assert [r["name"] for r in counted] == [names[1]] and not behind
+    holds[names[0]] = [read(reviewed=False)]
+    assert hand_tally.tally(tmp_path, review={})[0]["status"] == "waiting for review"
+    holds[names[0]] = [read(filed="9C", truth="5C")]
+    assert hand_tally.tally(tmp_path, review={})[0]["status"] == "silent error"

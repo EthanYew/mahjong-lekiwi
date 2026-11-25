@@ -11,7 +11,8 @@ The events:
   turn_done       the turn over: discarded, slot, the hand after it in slot order (`hand`, `slots`), the discards
   win             the drawn tile completed the hand: turn, drawn
   hand_end        result, turns, grade, asks, rescues, silent_errors, hand (a list in slot order), slots, discards,
-                  winning (the drawn tile of a win), audit {checked, wrong: {slot: name}, covers: [slots]}
+                  winning (the drawn tile of a win), audit {checked, wrong: {slot: name}, covers: [slots], on_word (why the
+                  hand was taken on a person's word, without turning it over)}
 `hand()` also reads the logs from before these were shared, so older sessions keep their videos and reports.
 """
 from . import game, interventions
@@ -54,14 +55,16 @@ def won(session, turn, drawn, read=None):
     return session.event("win", turn=turn, drawn=drawn, **({"read": read} if read else {}))
 
 
-def hand_end(session, *, result, turns, grade, found, slots, hand, discards, wrong, checked, covers, winning=None, **extra):
+def hand_end(session, *, result, turns, grade, found, slots, hand, discards, wrong, checked, covers, winning=None, on_word=None,
+             **extra):
     """found: interventions.derive's list (without the "killed" a running session shows). wrong: {slot: the table's name}
     from the end check; covers: the slots it checked (the 13, plus ZONE when the drawn tile was checked too)."""
     return session.event("hand_end", result=result, turns=turns, grade=grade, silent_errors=len(wrong),
                          asks=sum(i["class"] == interventions.ASK for i in found),
                          rescues=sum(i["class"] == interventions.RESCUE for i in found),
                          slots=list(slots), hand=in_order(slots, hand), discards=list(discards), winning=winning,
-                         audit={"checked": checked, "wrong": dict(wrong), "covers": list(covers) if checked else []},
+                         audit={"checked": checked, "wrong": dict(wrong), "covers": list(covers) if checked else [],
+                                **({"on_word": on_word} if on_word else {})},
                          **extra)
 
 
@@ -242,6 +245,7 @@ def verdict(hand_log, reads=None):
     if hand_log["unattended"]:
         lines.append("Unattended: the reader named every tile, no person confirmed a read during play")
     audit = hand_log["audit"]
+    word = (audit or {}).get("on_word")
     if end.get("slots") and isinstance(end.get("hand"), list):     # hand_end's own: the hand in slot order, even with no turn_done
         slots, thirteen = list(end["slots"]), list(end["hand"])
     else:
@@ -252,6 +256,8 @@ def verdict(hand_log, reads=None):
     if not audit or not audit["checked"]:
         lines.append("End check skipped: no person turned the hand over")
         missing.append("the end check")
+    elif word:
+        lines.append(f"End check not done at the table: the hand was taken as right on the owner's word: {word}")
     else:
         in_hand = {s: n for s, n in wrong.items() if s != ZONE and (not slots or s in slots)}
         lines.append("End check: a person checked the 13 in hand: " + (
@@ -260,7 +266,7 @@ def verdict(hand_log, reads=None):
             for s, n in in_hand.items():
                 thirteen[slots.index(s)] = n
     truth_drawn, drawn_checked = drawn, False
-    if audit and audit["checked"] and audit.get("covers") and ZONE in audit["covers"]:
+    if audit and audit["checked"] and not word and audit.get("covers") and ZONE in audit["covers"]:
         drawn_checked, truth_drawn = True, wrong.get(ZONE, drawn)
         lines.append(f"Winning {drawn}: a person checked it" + (f": it was {truth_drawn}" if truth_drawn != drawn else ""))
     elif audit and audit["checked"] and audit.get("covers") is None:      # older face-up: the person was shown it too
@@ -272,6 +278,9 @@ def verdict(hand_log, reads=None):
         if row and row.get("reviewed") and row.get("truth"):
             drawn_checked, truth_drawn = True, row["truth"]
             lines.append(f"Winning {drawn}: its photos were reviewed: " + ("it was " + truth_drawn if truth_drawn != drawn else "right"))
+        elif drawn and word:
+            drawn_checked = True
+            lines.append(f"Winning {drawn}: taken on the owner's word, its photos not reviewed")
         elif drawn:
             by = read.get("by")
             if by == "person":
@@ -297,4 +306,5 @@ def verdict(hand_log, reads=None):
             return {"status": "not verified", "lines": lines + [
                 f"Win not verified: the end check found {plural(len(wrong), 'tile')} wrong, and the log can't say if it still wins"]}
         return {"status": "verified", "lines": lines + ["Win verified: a person matched every tile to the robot's winning hand"]}
-    return {"status": "verified", "lines": lines + ["Win verified: a person vouched for all 14 tiles"]}
+    return {"status": "verified", "lines": lines + ["Win verified on the owner's word, not by an end check at the table" if word
+                                                     else "Win verified: a person vouched for all 14 tiles"]}

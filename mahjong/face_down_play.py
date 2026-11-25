@@ -128,12 +128,26 @@ def bad_names(fixes):
     return [f"{slot}={name}" for slot, name in fixes.items() if not game.is_playable(name)]
 
 
-def summary(turns, result, grade, unattended, reads, corrections, by_hand, silent_errors, audited, waiting):
+def summary(turns, result, grade, unattended, reads, corrections, by_hand, silent_errors, audited, waiting, on_word=None):
     """What one hand did: how it ended and its grade, the reads and how many a person corrected, steps done by hand, the
-    end check, and the holds that wait for review."""
+    end check (on_word: why it was taken on a person's word instead), and the holds that wait for review."""
     return {"result": result, "turns": turns, "grade": grade, "mode": "unattended" if unattended else "attended",
             "reads": reads, "corrected": corrections, "by_hand": by_hand, "silent_errors": silent_errors,
-            "end_check": audited, "holds_waiting_for_review": waiting}
+            "end_check": audited, "holds_waiting_for_review": waiting, **({"end_check_on_word": on_word} if on_word else {})}
+
+
+def played(events, state):
+    """What a finished hand did, from its session's log and checkpoint: the same keys as the running script's Player.played,
+    for an end check done afterwards (play_face_down.py --end-check). Counts are this session's own, as the script's are
+    after a --resume."""
+    of = lambda kind: [e for e in events if e["type"] == kind]
+    starts, wins = of("fd_turn_start"), of("win")
+    return {"turns": len(of("turn_done")) + len(wins),
+            "reads": len(of("fd_register_read")) + len(of("crude_read")),
+            "corrected": sum(e["kind"] == "name_corrected" for e in of("intervention")),
+            "breaks": [{k: e[k] for k in ("turn", "step", "what", "by_hand")} for e in of("crude_break")],
+            "slots": starts[-1]["slots"] if starts else list(state["hand"]),
+            "hand": state["hand"], "winning": wins[-1]["drawn"] if wins else None, "discards": state["discards"]}
 
 
 def break_lines(breaks):
@@ -146,7 +160,9 @@ def summary_lines(s):
     mode = "Unattended hand" if s["mode"] == "unattended" else "Hand"
     lines = [f"{mode} over ({s['result']}) after {s['turns']} turn(s): {s['grade'] or 'not graded (it stopped before the end check)'}",
              f"{s['reads']} reads, {s['corrected']} corrected by a person, {s['by_hand']} step(s) done by hand",
-             f"End check: {s['silent_errors']} tile(s) the robot had wrong" if s["end_check"] else "End check skipped: nothing says the hand was right"]
+             f"End check: taken on a person's word, not done tile by tile: {s['end_check_on_word']}" if s.get("end_check_on_word")
+             else f"End check: {s['silent_errors']} tile(s) the robot had wrong" if s["end_check"]
+             else "End check skipped: nothing says the hand was right"]
     if s["holds_waiting_for_review"]:
         lines.append(f"{s['holds_waiting_for_review']} hold(s) wait for review before the reader trains on them: python scripts/base_cam_review.py --play")
     return lines

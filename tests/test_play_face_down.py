@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import base_cam, camera_poses, config, face_down_play, interventions, photo_review
+from mahjong import base_cam, camera_poses, config, face_down_play, face_down_rig, hand_tally, interventions, photo_review, play_log
 from mahjong.session import read_events
 
 POSE = {j: 0.0 for j in config.ARM_JOINTS}
@@ -343,3 +343,84 @@ def test_the_end_check_s_retry_hint_names_the_zone_after_a_win(monkeypatch, tmp_
     script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
     run(script, ["--unattended"], [*LIGHT, "", "ZONE 6D", ""])
     assert "or ZONE=NAME" in capsys.readouterr().out
+
+
+def stopped_at_the_end_check(script, argv, answers):
+    """A hand whose script stops at its end check, as 20261125_214715_play_fd's did. Returns its folder."""
+    answers = iter(answers)
+
+    def ask(text):
+        if text.startswith("Turn the"):
+            raise RuntimeError("stopped at the end check")
+        return next(answers, "q")
+    with pytest.raises(RuntimeError):
+        script.main(["--sim", "--station", "F", *argv], ask=ask)
+    (folder,) = config.SESSIONS.glob("*_play_fd")
+    return folder
+
+
+def test_a_hand_that_stopped_at_its_end_check_is_finished_without_the_arm(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder = stopped_at_the_end_check(script, ["--unattended"], [*LIGHT, ""])
+    assert not events_of(folder, "hand_end")
+    with pytest.raises(SystemExit, match="--end-check"):
+        script.main(["--sim", "--station", "F", "--resume", str(folder)], ask=lambda text: "q")
+    monkeypatch.setattr(face_down_rig, "Rig", None)        # no hardware: not even the sim's
+    assert script.main(["--end-check"], ask=lambda text: "ZONE=6D") == folder
+    (end,) = events_of(folder, "hand_end")
+    assert end["result"] == "win" and end["winning"] == "5D" and end["turns"] == 1
+    assert end["silent_errors"] == 1 and end["grade"] == "silent error" and end["end_check"]
+    assert end["reads"] == len(SLOTS) + 1 and end["rescues"] == 0      # the stop itself isn't counted against the hand
+    assert json.loads((folder / "play_fd_summary.json").read_text())["winning"] == "5D"
+    assert not [i for i in interventions.derive(read_events(folder)) if i["kind"] in ("killed", "crashed", "interrupted")]
+    with pytest.raises(SystemExit, match="already has its end"):
+        script.main(["--end-check", str(folder)], ask=lambda text: "")
+
+
+def test_a_late_end_check_logs_what_the_script_would_have(monkeypatch, tmp_path):
+    """The counts read back from the log are the ones the running hand keeps: the same hand, stopped or not, ends the same."""
+    ends = []
+    for name, stop in (("whole", False), ("stopped", True)):
+        with monkeypatch.context() as m:
+            (tmp_path / name).mkdir()
+            script = script_in(m, tmp_path / name, HAND[:2] + ["4C"] + HAND[3:] + ["4D", "8B"])
+            answers = [*LIGHT, "", "S3=3C", "", "", "S1=2C", "end"]       # a hand check fix, then one after turn 1
+            if stop:
+                folder = stopped_at_the_end_check(script, [], answers)
+                script.main(["--end-check", str(folder)], ask=lambda text: "")
+            else:
+                folder, _ = run(script, [], [*answers, ""])
+            (end,) = events_of(folder, "hand_end")
+            ends.append({k: v for k, v in end.items() if k != "time"})
+    assert ends[0] == ends[1]
+    assert ends[0]["result"] == "end" and ends[0]["corrected"] == 2
+
+
+def test_a_hand_still_in_play_has_no_end_check_to_do(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D"])
+    folder, _ = run(script, [], [*LIGHT, "", "", "", "q"])
+    with pytest.raises(SystemExit, match="--resume"):
+        script.main(["--end-check", str(folder)], ask=lambda text: "")
+
+
+def test_an_end_check_on_the_owners_word_asks_nothing_and_says_so_everywhere(monkeypatch, tmp_path, capsys):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder = stopped_at_the_end_check(script, ["--unattended"], [*LIGHT, ""])
+    with pytest.raises(SystemExit):
+        script.parse_args(["--on-my-word", "no check"])
+    with pytest.raises(SystemExit):
+        script.parse_args(["--end-check", "--on-my-word", " "])
+    capsys.readouterr()
+
+    def ask(text):
+        raise AssertionError(f"asked: {text}")
+    script.main(["--end-check", str(folder), "--on-my-word", "the script crashed"], ask=ask)
+    assert "not done tile by tile: the script crashed" in capsys.readouterr().out
+    (end,) = events_of(folder, "hand_end")
+    assert end["end_check"] and end["audit"]["on_word"] == "the script crashed" and end["grade"] == "clean"
+    hand_log = play_log.hand(read_events(folder))
+    check = play_log.verdict(hand_log, face_down_play.scored_reads(folder, {}))
+    assert check["status"] == "verified" and "owner's word" in check["lines"][-1]
+    assert not any("a person checked" in line for line in check["lines"])
+    judged = hand_tally.judge(hand_log, [], read_events(folder))
+    assert judged["status"] == "clean" and "the script crashed" in judged["why"]

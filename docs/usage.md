@@ -41,6 +41,7 @@ not a worktree, or the sessions go when the worktree does.
 | Check a plan or branch against what has merged since | `/recheck-main <plan or branch>` in Claude Code |
 | Write up a run of work | `/write-retro` in Claude Code |
 | Review a batch of merges for what the tests didn't reach | `python scripts/merge_pr.py --review`, or `/post-merge-review` in Claude Code |
+| Leave out a played hand that was stopped partway by something that isn't the robot's doing | `python scripts/status.py --void <session> --why "..."` |
 | Make another policy the default | `python scripts/status.py --set-default <id> --evidence "sessions/<bench session>: <scores>" --why "..."` |
 | Check the workspace is set up as before (after packing up / moving things) | `python scripts/setup_check.py` (once, on a good setup: `--save-reference`) |
 | Run the bench without the robot | `python scripts/bench.py --sim --trials 3 --tile 8D` |
@@ -448,6 +449,12 @@ picked 127/130 and 20mm or more 3/25 (`docs/retrospectives/2026-11-03_eval_valid
 and 13-16mm 66%, hence the 13mm+ column (`docs/retrospectives/2026-11-17_scorecard_refresh.md`). It explains a run; it
 doesn't decide one or rank policies. A session named in `data/void_sessions.json` says VOIDED at the top and in `--all`,
 and counts for nothing in `status.py` or the checks.
+
+A played hand (face up or face down) stopped partway by something that isn't the robot's doing (a power cut, a script's crash,
+you called away) is voided with `python scripts/status.py --void <session folder> --why "what stopped it"`, which writes that
+file: commit it and merge it yourself. The face-down tally lists the hand as voided and counts neither for nor against it. It
+refuses a hand that ran to its end, one that only lacks its end check (`--end-check`), and one with a wrong tile name; a
+wrong name found in a voided face-down hand's photos later is still a silent error.
 Layout sessions also get **where to record more**: per spot, the misses, the keys you pressed (pushed, bumped, low,
 high, shallow) and knocks the scans found, closes 20mm or more up, and the wrist camera there (attempts it voided and
 reran, or a pickup it stopped). Then a list of the spots with trouble, most first, each saying whether the camera
@@ -1082,6 +1089,7 @@ python scripts/play_face_down.py                          # even-hand13, the wal
 python scripts/play_face_down.py --unattended             # the reader's names are taken: you lay the hand and feed the wall, nothing else
 python scripts/play_face_down.py --resume                 # carry on the latest hand from its last finished turn (one that stopped
                                                           # part-way: you're told how to put the table right first)
+python scripts/play_face_down.py --end-check              # the end check of a finished hand that never got it (the script stopped there): no arm
 python scripts/base_cam_review.py --play                  # afterwards: check the photos it saved (nothing trains on them before)
 python scripts/play_face_down.py --report                 # then: every read against your review, and the discards a wrong read changed
 python scripts/play_face_down.py --sim                    # simulated arm and cameras
@@ -1118,6 +1126,12 @@ discards too, and lists the discards a wrong read changed. Other options: `--top
 robot), `--layout` (`even-hand13`), `--policy`, `--no-view`, `--record-desk` (a desk video, as `play.py`'s; it opens the
 RealSense even with `--no-view`), `--via-rest` (rest between every move, as `crude_run.py`'s: by default the arm goes straight from
 one move to the next and rests only to ask you something, unattended not at all mid-turn), `--dagger-dataset REPO` ([Taking over mid-pickup](#taking-over-mid-pickup---dagger-dataset)).
+`--end-check [SESSION]` (no arm, default: the latest hand) is for a hand that was won, or ran out of wall, but stopped before its
+end check was answered: with the tiles still where the hand left them, it asks step 5's question and writes the summary into
+the same session. It refuses a hand still in play (`--resume`) and one that already has its end. If the tiles can't be checked
+any more, `--end-check --on-my-word "why"` takes the hand as right without asking: the log, the session report and
+`status.py` say it rests on your word, and its photos still need reviewing before it counts (a wrong name found there is a
+silent error all the same).
 `--resume [SESSION]` starts from the last finished turn, with the tiles where they were: nothing is laid or read again. A drop zone
 the bench hasn't checked is a warning, not a refusal as in `play.py`: scans can't check a face-down carry. Results:
 `sessions/<time>_play_fd/` (the crude run's events, `fd_*` events, `holdup_shot` events and `photos/`, `checkpoint.json`,

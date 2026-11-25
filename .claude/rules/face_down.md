@@ -33,6 +33,9 @@ Face-down tiles: drawing from the wall station, the base camera's reader, the cr
   A low read gets a second hold (`--reshow-below` 0.6, a guess from 6 reads). Unconfirmed on the arm.
 - **A face-down turn doesn't go to rest between moves**, only before a question, the RealSense window, after a miss and at the end
   (`Rig.direct`, `--via-rest` for the old way). motion.md has the detail.
+- **The end check comes after the arm is closed, so it asks with the bare `input`, not `Player.ask`** (which rests the arm first). Every
+  finished hand crashed there until 2026-11-25 (`20261125_214715_play_fd`), unseen in the sim because a disconnected `SimRobot` still
+  answered; now it raises. `--end-check` finishes a hand that stopped there.
 - **A hold saved in play trains nothing until a person has reviewed it** (the owner's rule, 2026-11-17). Unattended, its name is the
   reader's own, and training on that teaches the reader its mistakes. Every hold is `review_first`, and `base_cam.rows` is the one check,
   so training, `base_cam_collect`'s counts and `--counts` all leave it out until `data/holdup_review.jsonl` has a verdict

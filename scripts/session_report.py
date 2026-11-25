@@ -302,7 +302,7 @@ def all_sessions():
     hands = [(folder, events, play_log.hand(events)) for folder, events in hands]
     hands = [(folder, events, h) for folder, events, h in hands if h["end"]]
     if hands:
-        grades = Counter(h["end"].get("grade") or "-" for _, _, h in hands)
+        grades = Counter("voided" if void_reason(folder) else h["end"].get("grade") or "-" for folder, _, h in hands)
         print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7} {'win':<12}  setup   "
               f"({len(hands)} hands: " + ", ".join(f"{n} {g}" for g, n in grades.most_common()) + ")")
         review = {}             # the review store, loaded once for every face-down hand
@@ -311,7 +311,8 @@ def all_sessions():
             end, asks, rescues = h["end"], *hand_asks_rescues(events, h["end"])
             check = play_log.verdict(h, fd_reads(folder, h, review))
             print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end.get('grade') or '-':<12} {asks:>4} "
-                  f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}")
+                  f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}"
+                  + ("  VOIDED" if void_reason(folder) else ""))
 
 
 def hand_asks_rescues(events, end):
