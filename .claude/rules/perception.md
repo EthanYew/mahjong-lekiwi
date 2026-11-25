@@ -102,8 +102,9 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   logged losses, the `-71`s, the `EMI?` disables and the position-correlated drop rate were all put down to that receptacle. Treat a port
   as a suspect before the camera: the swap takes a minute and the cable swap needs a spare.
   **Back on 3-8 on trial since 2026-11-25** (the owner's call: a new, shorter cable that can't reach 3-5 without hitting the tripod).
-  There it streamed 45s with the arm still (26fps, 0 failed or torn frames, no kernel lines), where on 11-13 it couldn't stream at all;
-  not yet through a run with the arm moving, which is when it dropped. A drop, `-71` / `-110` or torn frames: move it to 3-5.
+  There it streamed 45s with the arm still, where on 11-13 it couldn't stream at all, and then ran one face-down hand with the arm
+  moving (`20261125_214715_play_fd`, 28 min, 46 of 46 picked, 0 torn frames, no kernel lines for the port). One disconnect between
+  runs that evening (21:44:38, back 45s later, nothing logged about why). A drop, `-71` / `-110` or torn frames: move it to 3-5.
   Evidence: `docs/invariant_notes.md`.
 - **The wrist camera's USB storm takes Bluetooth audio down with it.** The camera (3-8) and the Bluetooth radio (3-14) are on
   the same root hub, so a flapping camera port starves it: on 2026-11-13 the bluez transport failed mid-storm and Firefox's
