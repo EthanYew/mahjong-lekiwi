@@ -8,8 +8,8 @@ pack-up nothing says whether they do; a few mm off and every hover lands off-tar
 - camera: where the robot's base appears in the RealSense image vs the reference (features matched in the
   robot's box only: tiles, the keyboard and the person move between sessions, the arm's base doesn't).
   1px there is ~1.5mm on the mat (0.87m away, fx ~590).
-- table: the mat's depth through T_cam_to_base vs config.table_z — catches a different table, a tilt or a
-  thicker mat (and a moved camera).
+- table: the mat's depth through T_cam_to_base vs config.table_z. Shown and logged, not graded: the depth reading
+  drifts by more than a real change would have to be to matter (see table_result).
 - tile test: the same tile placed to green on a few spots, the arm hovers over it as the bench does (measured
   position + hover correction) and the wrist camera looks. The tile landing where it did in the reference
   wrist frame means camera, table, arm calibration, hover correction and wrist camera mount all still
@@ -62,6 +62,11 @@ WRIST_PATCH_HALF_PX = 60
 # pairs, no tile at that spot 0.68 (one frame). So this asks "is a tile there", and leaves room for a change of light. It
 # can't tell which tile: another one reached 0.84 (median 0.58, 182 pairs), which is why the prompt names the tile.
 MATCH_MIN_SCORE = 0.78
+# Between this and MATCH_MIN_SCORE the tile test shows the match and asks a person rather than call it "no tile". Every
+# "no tile" on the standard mat from 2026-11-11 to 11-23 (12 frames, the tile plainly in view) matched 0.67-0.77 within
+# 15px of the reference's place: a 3-week-old reference in other light, not a moved tile. Below it: 0.47-0.56, or a
+# match at the wrong place. A person's yes is graded like a found tile, and logged as theirs (`confirmed_by`).
+MATCH_ASK_SCORE = 0.6
 MATCH_ANGLES_DEG = tuple(range(-12, 13, 3))                 # green lets a tile sit ±6° differently; by eye, a little more
 MATCH_SCALES = tuple(0.75 + 0.025 * k for k in range(21))   # ±25%: past wrist_size_pct's fail line, so that's graded
 ANGLE_UNKNOWN_DEG = 0.0
@@ -70,8 +75,6 @@ ANGLE_UNKNOWN_DEG = 0.0
 LIMITS = {
     "camera_mm": (2.0, 5.0),        # robot's image shift turned into mm on the mat
     "camera_deg": (0.5, 1.5),       # image rotation
-    "table_mm": (3.0, 6.0),         # mat height change at the workspace centre
-    "table_tilt_mm": (2.0, 4.0),    # change in height difference per 10cm
     # tile's position in the wrist view at the hover. The chain's own noise (RealSense finding ~1.5mm, hover
     # repeatability, the face's outline) is ~3mm, and 4-5.5mm showed with nothing moved (2026-10-29), so the
     # tile test grades the median over the spots: a moved camera or arm shifts them all, noise doesn't
@@ -80,7 +83,7 @@ LIMITS = {
     "parked_deg": (3.0, 6.0),       # unpowered settle, worst joint
 }
 BRIGHTNESS_RANGE = (0.7, 1.4)       # live / reference; outside it's a warning (lighting changed)
-STATUSES = ("pass", "warn", "fail", "skipped")
+STATUSES = ("pass", "warn", "fail", "skipped", "info")      # info: shown, never counted
 
 
 def grade(value, limit):
@@ -90,7 +93,7 @@ def grade(value, limit):
 
 
 def worst(statuses):
-    """The worst of pass / warn / fail ("skipped" counts as nothing; all skipped is "skipped")."""
+    """The worst of pass / warn / fail ("skipped" and "info" count as nothing; none of the three is "skipped")."""
     ranked = [s for s in statuses if s in ("pass", "warn", "fail")]
     return max(ranked, key=("pass", "warn", "fail").index) if ranked else "skipped"
 
@@ -120,9 +123,9 @@ def _grey(image_bgr):
     return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(grey)       # evens out lighting changes
 
 
-def image_shift(reference_bgr, live_bgr, region):
-    """How the robot's region moved from the reference to the live frame: {"dx_px", "dy_px", "shift_px",
-    "rotation_deg", "inliers"}, or {"inliers": n} if too few features agree (MIN_INLIERS)."""
+def matched_points(reference_bgr, live_bgr, region):
+    """Features matched between the reference and the live frame inside `region`: (reference px, live px) as N x 2
+    arrays, or the number matched if under MIN_INLIERS."""
     u0, v0, u1, v1 = region
     mask = np.zeros(reference_bgr.shape[:2], np.uint8)
     mask[v0:v1, u0:u1] = 255
@@ -130,12 +133,21 @@ def image_shift(reference_bgr, live_bgr, region):
     kp_ref, des_ref = orb.detectAndCompute(_grey(reference_bgr), mask)
     kp_live, des_live = orb.detectAndCompute(_grey(live_bgr), mask)
     if des_ref is None or des_live is None or len(kp_ref) < MIN_INLIERS or len(kp_live) < MIN_INLIERS:
-        return {"inliers": 0}
+        return 0
     matches = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True).match(des_ref, des_live)
     if len(matches) < MIN_INLIERS:
-        return {"inliers": len(matches)}
-    src = np.float32([kp_ref[m.queryIdx].pt for m in matches])
-    dst = np.float32([kp_live[m.trainIdx].pt for m in matches])
+        return len(matches)
+    return (np.float32([kp_ref[m.queryIdx].pt for m in matches]), np.float32([kp_live[m.trainIdx].pt for m in matches]))
+
+
+def image_shift(reference_bgr, live_bgr, region):
+    """How the robot's region moved from the reference to the live frame: {"dx_px", "dy_px", "shift_px",
+    "rotation_deg", "inliers"}, or {"inliers": n} if too few features agree (MIN_INLIERS)."""
+    u0, v0, u1, v1 = region
+    points = matched_points(reference_bgr, live_bgr, region)
+    if isinstance(points, int):
+        return {"inliers": points}
+    src, dst = points
     affine, inliers = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=2.0)
     n = int(inliers.sum()) if inliers is not None else 0
     if affine is None or n < MIN_INLIERS:
@@ -163,21 +175,158 @@ def camera_text(result):
             f"on the mat), turned {result['rotation_deg']:+.2f}° ({result['inliers']} features)")
 
 
-def alignment_view(reference_bgr, live_bgr, region, result):
-    """Live frame with the reference blended in, the robot's region boxed in the status colour and the shift
-    as text: nudge the tripod until it's green."""
-    colour = {"pass": (0, 200, 0), "warn": (0, 190, 255), "fail": (0, 0, 255)}[result["status"]]
-    out = cv2.addWeighted(live_bgr, 0.5, reference_bgr, 0.5, 0)
+# --- the alignment guide: what to do to the robot ---
+# The old guide drew the image shift x8 as one arrow, frame by frame. At 1-2px of real shift that direction is mostly
+# feature noise, so it spun (2026-11-25), and one arrow didn't say whether to turn or slide. So the guide takes the median
+# of the last GUIDE_FRAMES readings, says nothing about a direction inside the pass line, and asks for one thing at a
+# time: the turn first. It's worked out from camera_result itself (the turn is its image rotation, the slide its shift at
+# the robot's middle), so the window can't say "lined up" while the check grades a warning. The arrows are for moving the
+# robot; a knocked tripod goes the opposite way.
+
+GUIDE_FRAMES = 7                    # frames the window's reading, and the check's, are the median of
+COLOURS = {"pass": (0, 200, 0), "warn": (0, 190, 255), "fail": (0, 0, 255), "skipped": (200, 200, 200)}
+OUTLINE_COLOUR = (255, 0, 255)      # the reference robot's outline: magenta shows on the teal arm, the striped mat and grey
+
+
+def steady(readings, keys):
+    """The median of each key over the readings that have them all, or None if under half of them do (the view is
+    too unsettled to say)."""
+    have = [r for r in readings if all(k in r for k in keys)]
+    if not have or len(have) * 2 < len(readings):
+        return None
+    return {k: float(np.median([r[k] for r in have])) for k in keys}
+
+
+def steady_camera(shifts, scale_mm_per_px):
+    """The camera check over several image_shift() readings (their median), so neither the window's colour nor the
+    grade flickers with feature noise."""
+    median = steady(shifts, ("dx_px", "dy_px", "rotation_deg", "inliers"))
+    if median is None:
+        seen = sum("shift_px" in s for s in shifts)
+        if not seen:
+            return camera_result({"inliers": shifts[-1].get("inliers", 0)}, scale_mm_per_px)
+        return {"inliers": shifts[-1].get("inliers", 0), "status": "warn",
+                "why": f"the view is unsteady: the robot was matched in only {seen} of the last {len(shifts)} frames "
+                       "(is something moving in front of it?)"}
+    shift = {**median, "inliers": int(median["inliers"]), "shift_px": math.hypot(median["dx_px"], median["dy_px"])}
+    return camera_result(shift, scale_mm_per_px)
+
+
+def table_direction(region, du, dv, intrinsics, T_cam_to_base):
+    """The unit (forward, left) on the table of an image displacement (du, dv) at the middle of `region`."""
+    from .layout import pixel_to_table
     u0, v0, u1, v1 = region
-    cv2.rectangle(out, (u0, v0), (u1 - 1, v1 - 1), colour, 2)
-    if "shift_px" in result:
-        centre = np.array([(u0 + u1) / 2, (v0 + v1) / 2])
-        tip = centre - 8 * np.array([result["dx_px"], result["dy_px"]])        # the way to move it back, x8
-        cv2.arrowedLine(out, tuple(int(v) for v in centre), tuple(int(v) for v in tip), colour, 2, tipLength=0.3)
-    cv2.putText(out, camera_text(result)[:90], (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
-    cv2.putText(out, "arrow: the way to move the view back (x8). Enter: done, q: quit", (10, out.shape[0] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-    return out
+    centre = np.array([(u0 + u1) / 2, (v0 + v1) / 2])
+    a, b = pixel_to_table([centre, centre + (du, dv)], intrinsics, T_cam_to_base, config.table_z)[:, :2]
+    return (b - a) / (np.linalg.norm(b - a) or 1.0)
+
+
+def guide_steps(result, region, intrinsics, T_cam_to_base):
+    """What to do about a camera check: [{"kind": "turn" / "move", "status", "text"}], turn first; the turn step says
+    which way ("clockwise", seen from above, which the camera does) and the slide step which way on screen
+    ("direction"). A step inside its pass line says so rather than give a direction (that direction would be noise)."""
+    if "shift_mm" not in result:
+        return [{"kind": "turn", "status": "warn", "text": "can't see the robot well enough: is the arm at rest, in view?"}]
+    turned = result["rotation_deg"]                 # + = it looks turned clockwise (image y points down)
+    clockwise = turned < 0
+    turn_status = grade(turned, "camera_deg")
+    turn_text = ("square: leave the turn" if turn_status == "pass" else
+                 f"turn it {abs(turned):.1f} deg {'clockwise' if clockwise else 'anticlockwise'} (seen from above)")
+    back_px = np.array([-result["dx_px"], -result["dy_px"]])
+    forward, left = result["shift_mm"] * table_direction(region, *back_px, intrinsics, T_cam_to_base)
+    move_status = grade(result["shift_mm"], "camera_mm")
+    parts = [f"{abs(forward):.0f}mm {'forward' if forward > 0 else 'back'}" if abs(forward) >= 1 else "",
+             f"{abs(left):.0f}mm to its {'left' if left > 0 else 'right'}" if abs(left) >= 1 else ""]
+    move_text = ("in place: leave it" if move_status == "pass" else
+                 "slide it " + " and ".join(p for p in parts if p))
+    return [{"kind": "turn", "status": turn_status, "text": turn_text, "clockwise": clockwise},
+            {"kind": "move", "status": move_status, "text": move_text,
+             "direction": back_px / (np.linalg.norm(back_px) or 1.0)}]
+
+
+def step_now(steps):
+    """The step to do now: the first not passing, or None when all pass."""
+    return next((s for s in steps if s["status"] != "pass"), None)
+
+
+OUTLINE_MIN_PX = 80                 # edges shorter than this are stripe and texture, not the robot's shape
+ZOOM_MARGIN_PX = 24
+
+
+def zoom_box(region, shape, margin=ZOOM_MARGIN_PX):
+    """(u0, v0, u1, v1): the robot's region with a margin, clipped to the image: what the guide zooms in on."""
+    u0, v0, u1, v1 = region
+    h, w = shape[:2]
+    return max(u0 - margin, 0), max(v0 - margin, 0), min(u1 + margin, w), min(v1 + margin, h)
+
+
+def reference_outline(reference_bgr, region):
+    """The reference robot's shape around `region`: its long, strong edges as contours in image pixels."""
+    u0, v0, u1, v1 = zoom_box(region, reference_bgr.shape)
+    grey = cv2.GaussianBlur(cv2.cvtColor(reference_bgr[v0:v1, u0:u1], cv2.COLOR_BGR2GRAY), (7, 7), 0)
+    contours, _ = cv2.findContours(cv2.Canny(grey, 80, 200), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    return [c + np.int32([u0, v0]) for c in contours if cv2.arcLength(c, False) > OUTLINE_MIN_PX]
+
+
+def draw_turn(image, centre, clockwise, colour):
+    """A large curved arrow around `centre` (view pixels): the way to turn."""
+    radius = int(0.32 * min(image.shape[:2]))
+    start, stop = (200, 340) if clockwise else (340, 200)
+    angles = np.linspace(math.radians(start), math.radians(stop), 24)
+    px = np.int32([(centre[0] + radius * math.cos(a), centre[1] + radius * math.sin(a)) for a in angles])
+    cv2.polylines(image, [px], False, (0, 0, 0), 11, cv2.LINE_AA)
+    cv2.polylines(image, [px], False, colour, 6, cv2.LINE_AA)
+    cv2.arrowedLine(image, tuple(int(v) for v in px[-4]), tuple(int(v) for v in px[-1]), colour, 6, cv2.LINE_AA,
+                    tipLength=1.5)
+
+
+def draw_move(image, centre, direction, colour, length_px=110):
+    """A large straight arrow from `centre` (view pixels) along `direction`: the way to slide."""
+    tip = np.array(centre) + length_px * np.array(direction)
+    for thickness, c in ((12, (0, 0, 0)), (6, colour)):
+        cv2.arrowedLine(image, tuple(int(v) for v in centre), tuple(int(v) for v in tip), c, thickness, cv2.LINE_AA,
+                        tipLength=0.3)
+
+
+def guide_view(reference_bgr, live_bgr, region, result, steps, width=900):
+    """The alignment window: the robot zoomed in, live, with the reference robot's outline in magenta to line it up
+    with and a large arrow for the one step to do now (curved: turn; straight: slide); under it the two steps in
+    words, each in its status colour; under that the whole view, small, for context."""
+    h, w = live_bgr.shape[:2]
+    z0, y0, z1, y1 = zoom_box(region, live_bgr.shape)
+    scale = width / max(z1 - z0, 1)
+    zoom = cv2.resize(live_bgr[y0:y1, z0:z1], (width, int((y1 - y0) * scale)), interpolation=cv2.INTER_LINEAR)
+    outline = reference_outline(reference_bgr, region)
+    cv2.polylines(zoom, [np.int32((c - [z0, y0]) * scale) for c in outline], False, OUTLINE_COLOUR, 3, cv2.LINE_AA)
+    now = step_now(steps)
+    middle = (zoom.shape[1] // 2, zoom.shape[0] // 2)
+    if now is not None and "clockwise" in now:
+        draw_turn(zoom, middle, now["clockwise"], COLOURS[now["status"]])
+    elif now is not None and "direction" in now:
+        draw_move(zoom, middle, now["direction"], COLOURS[now["status"]])
+    cv2.rectangle(zoom, (0, 0), (zoom.shape[1] - 1, zoom.shape[0] - 1), COLOURS[result["status"]], 4)
+
+    lined_up = now is None and result["status"] == "pass"
+    panel = np.full((150, width, 3), 30, np.uint8)
+    head = "Lined up: press Enter" if lined_up else "Line the robot up with the magenta outline, one step at a time:"
+    cv2.putText(panel, head, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOURS["pass"] if lined_up else (255, 255, 255),
+                2, cv2.LINE_AA)
+    for i, step in enumerate(steps):
+        label = {"turn": "1 TURN ", "move": "2 SLIDE"}[step["kind"]]
+        cv2.putText(panel, f"{'>' if step is now else ' '} {label}  {step['text']}", (12, 28 + 34 * (i + 1)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75 if step is now else 0.6, COLOURS[step["status"]],
+                    2 if step is now else 1, cv2.LINE_AA)
+    cv2.putText(panel, "Move the robot (a knocked tripod goes the opposite way). forward = toward the tiles. "
+                "Enter: done  q: leave it", (12, 28 + 34 * 3 + 4),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
+
+    context = live_bgr.copy()
+    cv2.polylines(context, outline, False, OUTLINE_COLOUR, 1, cv2.LINE_AA)
+    cv2.rectangle(context, (z0, y0), (z1 - 1, y1 - 1), COLOURS[result["status"]], 2)
+    small = cv2.resize(context, (width // 2, int(h * (width // 2) / w)))
+    strip = np.full((small.shape[0], width, 3), 30, np.uint8)
+    strip[:, width // 4: width // 4 + small.shape[1]] = small
+    return np.vstack([zoom, panel, strip])
 
 
 # --- table: the mat's depth vs config.table_z ---
@@ -221,14 +370,17 @@ def table_fit(depth_m, intrinsics, T_cam_to_base):
 
 
 def table_result(live, reference):
+    """The mat's height and tilt against the reference's, as "info": never part of the overall grade. The RealSense's
+    absolute depth wanders with nothing moved (+3.4 to +10.8mm for 90% of 1881 bench scans, 2026-11-13 to 11-23, climbing
+    1-3mm within sessions while the colour image didn't rescale), wider than any pass line that would catch a real change;
+    it was the only thing short of a pass in 8 of 15 checks (docs/invariant_notes.md). Too few samples is still a
+    warning: that's a camera giving no depth, which tile positions come from."""
     if live is None:
         return {"status": "warn", "why": "too few depth samples on the mat"}
     if reference is None:
         return {**live, "status": "skipped", "why": "no table in the reference"}
     change = {k: live[k] - reference[k] for k in ("offset_mm", "slope_x_mm", "slope_y_mm")}
-    status = worst([grade(change["offset_mm"], "table_mm"), grade(change["slope_x_mm"], "table_tilt_mm"),
-                    grade(change["slope_y_mm"], "table_tilt_mm")])
-    return {**live, "change": change, "status": status}
+    return {**live, "change": change, "status": "info"}
 
 
 def table_text(result):
@@ -238,7 +390,8 @@ def table_text(result):
             f"{result['slope_y_mm']:+.1f} (y) mm per 10cm")
     if "change" in result:
         c = result["change"]
-        text += f"; vs reference {c['offset_mm']:+.1f}mm, tilt {c['slope_x_mm']:+.1f} / {c['slope_y_mm']:+.1f}"
+        text += (f"; vs reference {c['offset_mm']:+.1f}mm, tilt {c['slope_x_mm']:+.1f} / {c['slope_y_mm']:+.1f} "
+                 "(not graded: the depth reading drifts)")
     return text
 
 
@@ -309,6 +462,34 @@ def wrist_tile(image_bgr, near_px=None):
         best = (distance, {"centre_px": [float(cu), float(cv_)], "area_px": float(area),
                            "angle_deg": wrap_yaw(float(angle)), "size_px": [float(long_side), float(short_side)]})
     return best[1] if best else None
+
+
+# --- is the wrist camera on the arm? ---
+# The wrist and base cameras are the same model with the same ID and serial: only the USB port tells them apart, so swapped
+# cables make /dev/wristcam the base camera with nothing failing. On 20261125_201151_setup the tile test hovered over F2 five
+# times and "found no tile" in what was the base camera's view of the room. A camera on the arm sees a new picture when the
+# arm moves: real wrist frames at different spots were 0.00-0.52 alike (view_similarity, 61 pairs), the base camera's
+# frames across those five hovers 0.94-1.00 (a person moving in view included). Rest against the hover, which is what's
+# compared, has no recorded pairs from the arm yet.
+CAMERA_STILL_SIMILARITY = 0.75
+FLAT_GREY_STD = 3.0                 # a frame this featureless (a dark or blank view) can't say whether it moved
+
+
+def view_similarity(a_bgr, b_bgr):
+    """How alike two frames' overall pictures are (-1..1: the correlation of their 32 x 24 greys), or None if either is
+    featureless."""
+    greys = [cv2.cvtColor(cv2.resize(f, (32, 24), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).astype(float)
+             for f in (a_bgr, b_bgr)]
+    if any(g.std() < FLAT_GREY_STD for g in greys):
+        return None
+    a, b = ((g - g.mean()) / g.std() for g in greys)
+    return float((a * b).mean())
+
+
+def camera_stayed(rest_bgr, hover_bgr):
+    """Whether the wrist camera saw the same picture at rest and at the hover: it isn't on the arm."""
+    similarity = view_similarity(rest_bgr, hover_bgr)
+    return similarity is not None and similarity >= CAMERA_STILL_SIMILARITY
 
 
 def patch_centre(centre, shape):
@@ -407,6 +588,7 @@ def wrist_text(result):
     placed = (f"; placed {result['placed_turn_deg']:+.1f}° differently" if result.get("placed_turn_deg") is not None
               else "")
     match = f"; match {result['score']:.2f}" if "score" in result else ""
+    match += " (a person said it's the tile)" if result.get("confirmed_by") == "person" else ""
     return (f"tile {result['du_px']:+.0f}px, {result['dv_px']:+.0f}px from where it was (~{result['shift_mm']:.1f}mm), "
             f"size {result['size_pct']:+.0f}% (height); turned {result['angle_change_deg']:+.1f}° in the wrist view"
             f"{placed} (not graded){match}")
@@ -503,14 +685,15 @@ def _jsonable(value):
 # --- what to do about it ---
 
 ADVICE = {
-    "camera": "The RealSense moved relative to the robot. Nudge the tripod (or the LeKiwi) back until the "
-              "alignment view turns green, rather than recalibrating: a new T_cam_to_base sets aside the hover "
-              "and return corrections.",
-    "table": "The mat's height or tilt changed (another table, something under a wheel or the tripod, a "
-             "different mat). If the camera check passed, fix the table; if not, fix the camera first.",
-    "tiles": "The hover lands the tile somewhere else in the wrist view. If camera and table pass, look at the "
+    "camera": "The RealSense moved relative to the robot. Move the LeKiwi as the alignment window says until it "
+              "turns green (a knocked tripod goes the opposite way to the arrows), rather than recalibrating: a new "
+              "T_cam_to_base sets aside the hover and return corrections.",
+    "table": "The RealSense gave almost no depth on the mat: check its USB cable and that nothing blocks its view.",
+    "tiles": "The hover lands the tile somewhere else in the wrist view. If the camera passes, look at the "
              "wrist camera's mount, the arm's calibration (parked pose) and whether the hover correction changed. "
-             "\"No tile\" with the tile in view: is it the same tile as the reference's, and is the light the same?",
+             "\"No tile\" with the tile in view: is it the same tile as the reference's, and is the light the same? "
+             "A \"wrist camera\" that saw the room, or didn't change when the arm moved, is the base camera: swap the two "
+             "camera cables between their USB ports.",
     "parked": "The unpowered arm settles differently: a servo recalibrated or replaced, a loose horn, or "
               "something touching the arm. Joint angles may no longer mean what they did in training.",
     "brightness": "The light changed: compare the setup answers with the training sessions "

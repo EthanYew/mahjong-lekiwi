@@ -8,13 +8,17 @@ setup you trust (mahjong/setup_check.py has what each measures and why).
     python scripts/setup_check.py --sim --save-reference && python scripts/setup_check.py --sim   # no hardware
 
 Steps: the arm goes to rest; the RealSense looks at the robot's base and the mat. If the robot isn't where it
-was in the image, a window shows the reference blended with the live view and an arrow: nudge the tripod
-until the box turns green, then Enter (moving it back keeps T_cam_to_base and both corrections valid;
-recalibrating doesn't). Then for each check spot: place the spot's tile until its outline is green, the arm hovers
-over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
+was in the image, a window shows it zoomed in with the reference's outline in magenta and one step at a time:
+turn it (curved arrow), then slide it (straight arrow), in the robot's own terms (a knocked tripod goes the
+opposite way); Enter once it's lined up (moving it back keeps T_cam_to_base and both corrections valid; recalibrating doesn't). Then for each check spot: place
+the spot's tile until its outline is green, the arm hovers over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
 (by the RealSense at the spot, or in the wrist view at the hover) is asked about: reposition it, chasing green
-again, and Enter looks again; s skips the spot, q stops the tile test. At the end the arm
+again, and Enter looks again; s skips the spot, q stops the tile test. A weak match is shown for a person to
+confirm first, and a wrist view that doesn't change when the arm moves (the base camera on the wrist's USB port)
+stops the tile test. At the end the arm
 is switched off and settles onto its stops, and that pose is compared too.
+
+The mat's height from the RealSense depth is shown and logged but not graded (the depth reading drifts).
 
 The wrist view finds the tile by the reference's picture of it, so each spot needs the same tile every time. Saving a
 reference: use any tiles, click the middle of the tile in the window if the cross is off it, and say which tile each spot
@@ -27,6 +31,7 @@ import argparse
 import json
 import math
 import sys
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +47,9 @@ from mahjong.hover_correction import HoverCorrection, setup_fingerprint
 from mahjong.session import Session
 
 WINDOW = "setup check"
+WRONG_CAMERA = (f"the wrist camera's picture didn't change when the arm moved: it's the base camera. The two cameras can "
+                f"only be told apart by USB port, so swap their cables (the wrist camera goes in port {config.WRIST_USB_PORT}) "
+                "and run this again. Tile test stopped.")
 DEFAULT_LAYOUT, DEFAULT_SPOTS = "eval_familiar", "F2,F3,F6"      # left near, middle far, right near
 
 
@@ -84,18 +92,29 @@ def measure_camera(realsense, reference, show, wait_key=lambda: cv2.waitKey(30) 
     region = reference["region"] if reference else sc.robot_region(K, T, color.shape)
     camera = None
     if reference is not None:
-        camera = sc.camera_result(sc.image_shift(reference["realsense_image"], color, region), sc.mm_per_px(K, T))
+        scale = sc.mm_per_px(K, T)
+        shifts = deque(maxlen=sc.GUIDE_FRAMES)
+
+        def look():
+            live = realsense.snapshot()
+            shifts.append(sc.image_shift(reference["realsense_image"], live, region))
+            return live
+
+        for _ in range(sc.GUIDE_FRAMES):
+            look()
+        camera = sc.steady_camera(shifts, scale)
         if show and camera["status"] != "pass":
-            print(f"Camera: {sc.camera_text(camera)}.\n  Nudge the RealSense (or the LeKiwi) until the box turns "
-                  "green, then Enter in the window (q leaves it as it is).")
+            print(f"Camera: {sc.camera_text(camera)}.\n  Line the robot up with the magenta outline in the window, one "
+                  "step at a time (turn, then slide), then Enter (q leaves it as it is). A knocked tripod goes the "
+                  "opposite way to the arrows.")
             while True:
-                live = realsense.snapshot()
-                camera = sc.camera_result(sc.image_shift(reference["realsense_image"], live, region), sc.mm_per_px(K, T))
-                cv2.imshow(WINDOW, sc.alignment_view(reference["realsense_image"], live, region, camera))
+                live = look()
+                camera = sc.steady_camera(shifts, scale)        # the check's result is the one the window showed last
+                steps = sc.guide_steps(camera, region, K, T)
+                cv2.imshow(WINDOW, sc.guide_view(reference["realsense_image"], live, region, camera, steps))
                 if wait_key() in (13, 10, 32, ord("q"), 27):
                     break
             color, depth = realsense.depth_snapshot()
-            camera = sc.camera_result(sc.image_shift(reference["realsense_image"], color, region), sc.mm_per_px(K, T))
     measured = {"region": list(region), "table": sc.table_fit(depth, K, T),
                 "mat_brightness": sc.brightness(color, sc.mat_region(K, T, color.shape))}
     return color, measured, camera
@@ -176,6 +195,23 @@ def confirm_on_screen(ask):
     return confirm
 
 
+def ask_on_screen(ask):
+    """Checking: show a weak match's cross on the wrist frame and ask whether it's on the tile. Returns
+    confirm_weak(spot, frame, weak) -> True if a person says it is."""
+    def confirm_weak(spot, frame, weak):
+        image = frame.copy()
+        u, v = (int(c) for c in weak["centre_px"])
+        cv2.drawMarker(image, (u, v), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
+        cv2.putText(image, f"{spot['id']}: is the cross on {spot.get('tile_name') or 'the tile'}?", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.imshow(WINDOW, image)
+        cv2.waitKey(1)
+        answer = ask(f"  {spot['id']}: a weak match ({weak['score']:.2f}; the light may have changed since the reference). "
+                     f"Is the cross in the window on {spot.get('tile_name') or 'the tile'}? [y/N]: ")
+        return answer.strip().lower() in ("y", "yes")
+    return confirm_weak
+
+
 def wrist_look(arm, camera, xy, delta):
     """Hover over the tile at xy, moved by the hover correction `delta` (m), and grab 3 wrist frames: (frames,
     hover result or None if out of reach, the camera — reopened if it was lost)."""
@@ -197,11 +233,15 @@ def hover_delta(spot_reference, correction, xy):
     return list(correction.delta_at(*xy)) if correction else [0.0, 0.0]
 
 
-def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input, confirm=None):
+def tile_test(arm, camera, realsense, correction, spots, reference, session, sim, ask=input, confirm=None,
+              confirm_weak=None):
     """Every spot: place, hover (with the reference's hover correction), look. A tile not found (by the RealSense,
     or in the wrist view at the hover) is repositioned and looked at again, until it's found or the person skips
     the spot / stops. Saving, confirm(spot, frame, found) -> "ok" / "retry" / the tile's centre lets a person reject a
-    find or mark the tile themselves, so nothing needs finding by colour. Returns ({id: per-spot result},
+    find or mark the tile themselves, so nothing needs finding by colour. Checking, confirm_weak(spot, frame, weak) ->
+    True / False is asked when the reference's tile matches only between MATCH_ASK_SCORE and MATCH_MIN_SCORE (a person's
+    yes counts it as found). A wrist view that didn't change from rest to the hover stops the tile test (WRONG_CAMERA).
+    Returns ({id: per-spot result},
     {id: wrist frame}, camera)."""
     by_id = {s["id"]: s for s in (reference or {}).get("spots", [])}
     results, frames = {}, {}
@@ -210,6 +250,7 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
         ref = by_id.get(spot["id"])
         while True:                     # until the tile is found, or the person skips / quits
             arm.rest()
+            at_rest = grab_frames(camera, 1)          # to tell the wrist camera from the base camera (camera_stayed)
             placed, action = tile_at(realsense, spot, sim, again=attempt > 0)
             attempt += 1
             if action == "quit":
@@ -223,8 +264,23 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
                 delta = hover_delta(ref, correction, placed["xy"])
                 shots, hover, camera = wrist_look(arm, camera, placed["xy"], delta)
                 frame = shots[-1] if shots else None
+                if frame is not None and at_rest and sc.camera_stayed(at_rest[0], frame):
+                    print(f"  {spot['id']}: {WRONG_CAMERA}")
+                    session.event("setup_wrist_camera_still", spot=spot["id"],
+                                  similarity=sc.view_similarity(at_rest[0], frame), port=config.WRIST_USB_PORT)
+                    cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_not_on_arm.jpg"), frame)
+                    results[spot["id"]] = {"status": "fail", "why": "the wrist camera isn't on the arm (swapped cables?)",
+                                           "attempts": attempt, "wrong_camera": True}
+                    stop = True
+                    break
                 found = sc.median_tile([sc.match_tile(f, ref["template_image"], ref["tile"]) if ref else sc.wrist_tile(f)
                                         for f in shots])
+                if found is None and ref is not None and shots and confirm_weak is not None:
+                    weak = sc.median_tile([sc.match_tile(f, ref["template_image"], ref["tile"], min_score=sc.MATCH_ASK_SCORE)
+                                           for f in shots])
+                    if weak is not None and confirm_weak(spot, frame, weak):
+                        found = {**weak, "confirmed_by": "person"}
+                        session.event("setup_tile_confirmed", spot=spot["id"], attempt=attempt, score=weak["score"])
                 marking = confirm is not None and ref is None
                 problem = None if frame is None or found is not None or marking else "no tile in the wrist view at the hover"
             if problem is None and frame is not None and confirm is not None:
@@ -303,6 +359,9 @@ def main(argv=None, ask=None, devices=None):
         raise SystemExit(f"No reference in {folder}. On a setup you trust, run setup_check.py "
                          f"{'--sim ' if args.sim else ''}--save-reference first.")
     spots = check_spots(args, reference)
+    if reference and not args.skip_tiles and not spots:
+        raise SystemExit(f"The reference in {folder} ({reference.get('time')}) has no check spots (saved with "
+                         "--skip-tiles?): run setup_check.py --save-reference again (or --skip-tiles).")
     if reference and not args.skip_tiles and any("hover_delta_mm" not in s or s.get("template_image") is None
                                                  for s in reference.get("spots", [])):
         raise SystemExit(f"The reference in {folder} ({reference.get('time')}) predates the stored hover correction and "
@@ -317,7 +376,7 @@ def main(argv=None, ask=None, devices=None):
     start = datetime.now().isoformat(timespec="seconds")
     session = Session("setup", ask_setup=not args.sim, sim=args.sim)
     show = not (args.sim or args.no_view)
-    if show:              # the windows keep answering while a question waits in the terminal
+    if not args.sim:      # the windows keep answering while a question waits in the terminal
         from wrist_capture import ask_pumping
         ask = ask_pumping(ask)
     overall = "skipped"
@@ -344,16 +403,18 @@ def main(argv=None, ask=None, devices=None):
             color, measured, camera_check = measure_camera(realsense, reference, show)
             cv2.imwrite(str(session.dir / "realsense.png"), color)
             if reference is not None:
+                steps = sc.guide_steps(camera_check, measured["region"], realsense.intrinsics, realsense.T_cam_to_base)
                 cv2.imwrite(str(session.dir / "camera_vs_reference.jpg"),
-                            sc.alignment_view(reference["realsense_image"], color, measured["region"], camera_check))
+                            sc.guide_view(reference["realsense_image"], color, measured["region"], camera_check, steps))
                 results["camera"] = {**camera_check, "text": sc.camera_text(camera_check)}
                 table = sc.table_result(measured["table"], reference.get("table"))
                 results["table"] = {**table, "text": sc.table_text(table)}
             if not args.skip_tiles:
                 print(f"Tile test on {', '.join(s['id'] for s in spots)}:")
                 confirm = confirm_on_screen(ask) if show and reference is None else None
+                confirm_weak = ask_on_screen(ask) if not args.sim and reference is not None else None
                 tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim,
-                                                  ask, confirm)
+                                                  ask, confirm, confirm_weak)
                 if reference is not None:
                     results["tiles"] = sc.tiles_result(tiles)
             wrist_light = [r["brightness"] for r in tiles.values() if "brightness" in r]
@@ -371,7 +432,7 @@ def main(argv=None, ask=None, devices=None):
             session.intervention("interrupted", command="setup_check")
         finally:
             arm.rest()
-            if show:
+            if not args.sim:
                 cv2.destroyAllWindows()
             if not args.sim:
                 camera.release()
@@ -404,8 +465,15 @@ def tile_names(spots, ask):
 
 
 def save(folder, measured, color, frames, tiles, spots, correction, args, ask):
-    """Show what was measured and, if confirmed, write it as the reference."""
+    """Show what was measured and, if confirmed, write it as the reference. Never one whose tile test saw the wrong
+    camera or measured no spot (writing it deletes the old reference's wrist pictures)."""
     missing = [s["id"] for s in spots if s["id"] not in frames or not tiles[s["id"]].get("centre_px")]
+    if any(r.get("wrong_camera") for r in tiles.values()):
+        print("Not saved: the wrist camera isn't on the arm.")
+        return "fail"
+    if not args.skip_tiles and len(missing) == len(spots):
+        print("Not saved: no check spot's tile was measured. Run it again (or --skip-tiles for a reference without them).")
+        return "fail"
     print(f"\nMeasured: {sc.table_text({**measured['table'], 'status': ''}) if measured['table'] else 'no table'}; "
           f"mat brightness {measured['mat_brightness']:.0f}"
           + (f"; parked pose {', '.join(f'{v:.1f}' for v in measured['parked'].values())}" if measured["parked"] else "")
