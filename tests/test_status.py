@@ -153,3 +153,11 @@ def test_a_hand_with_a_photo_marked_wrong_cant_be_voided(tmp_path, monkeypatch, 
     with pytest.raises(SystemExit, match=refusal):
         status.void_play("20261120_100000_play_fd", "why", sessions_dir=tmp_path)
 
+
+def test_a_finished_hand_with_an_unnamed_photo_isnt_told_to_name_it_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "void.json")
+    play_session(tmp_path, "20261120_100000_play_fd", [*STARTED, {"type": "hand_end", "result": "win", "end_check": True}], "won")
+    monkeypatch.setattr(status.face_down_play, "scored_reads", lambda folder: [{"filed": "5C", "truth": None, "reviewed": True}])
+    with pytest.raises(SystemExit, match="ran to its end"):
+        status.void_play("20261120_100000_play_fd", "why", sessions_dir=tmp_path)
+

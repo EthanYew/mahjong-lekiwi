@@ -51,7 +51,7 @@ def judge(hand_log, reads, events):
     waiting = [r for r in reads if not r["reviewed"]]
     if waiting or unnamed:
         return {"status": WAITING, "why": f"{len(waiting)} of {len(reads)} hold(s) have no verdict, {len(unnamed)} marked wrong "
-                                          "with no name (rename it in base_cam_review.py --play)"}
+                                          "with no name (rename it in base_cam_review.py --play --all)"}
     check = play_log.verdict(hand_log, reads)
     if end.get("result") == "win" and (check or {}).get("status") != "verified":
         return {"status": NOT_VERIFIED, "why": "; ".join((check or {}).get("lines", [])) or "no person vouched for the win"}

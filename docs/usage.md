@@ -1225,7 +1225,7 @@ laid on that spot, so a tile laid on the wrong spot, or one that slipped out of 
 python scripts/base_cam_review.py --counts           # per tile: holds each way up, photos, sessions, light, reviewed, short of 6
 python scripts/base_cam_review.py                    # review every name's photos not yet reviewed
 python scripts/base_cam_review.py --name 3C --only   # one name
-python scripts/base_cam_review.py --all              # reviewed ones too
+python scripts/base_cam_review.py --all              # reviewed ones too (a photo marked wrong with no name shows under its filed name)
 python scripts/base_cam_review.py --play             # only the holds face-down play saved, which wait for this before training
 ```
 

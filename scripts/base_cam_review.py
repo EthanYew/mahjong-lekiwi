@@ -3,7 +3,7 @@
     python scripts/base_cam_review.py --counts         # holds per tile and way up, fewest first; flowers after
     python scripts/base_cam_review.py                  # review every name's photos not yet reviewed
     python scripts/base_cam_review.py --name 3C --only # one name
-    python scripts/base_cam_review.py --all            # reviewed ones too
+    python scripts/base_cam_review.py --all            # reviewed ones too, marked-wrong-with-no-name ones among them
     python scripts/base_cam_review.py --play           # the holds face-down play saved: nothing trains on them until reviewed
 
 Holds from play (play_face_down.py) are filed under the name a person confirmed or, unattended, the reader's read (the

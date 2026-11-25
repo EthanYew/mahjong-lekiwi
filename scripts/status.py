@@ -178,9 +178,6 @@ def void_play(arg, why, sessions_dir=None):
     reads = face_down_play.scored_reads(folder) if fd else []
     if end.get("silent_errors") or hand_tally.wrong_reads(reads):
         raise SystemExit(f"{folder.name} used a wrong tile name: that's the robot's own result, so it stays")
-    if any(r["reviewed"] and r["truth"] is None for r in reads):
-        raise SystemExit(f"{folder.name} has a photo marked wrong with no right name: name it first "
-                         "(python scripts/base_cam_review.py --play)")
     if end.get("result") in hand_tally.COMPLETE:
         raise SystemExit(f"{folder.name}'s hand ran to its end ({end['result']}): it wasn't stopped partway")
     checkpoint = folder / "checkpoint.json"
@@ -189,6 +186,9 @@ def void_play(arg, why, sessions_dir=None):
         raise SystemExit(f"{folder.name}'s hand finished ({phase}) and only its end check is missing: "
                          + ("python scripts/play_face_down.py --end-check " + folder.name if fd else
                             "face-up play can't do one afterwards, so it stays as a hand with no end check"))
+    if any(r["reviewed"] and r["truth"] is None for r in reads):
+        raise SystemExit(f"{folder.name} has a photo marked wrong with no right name: name it first "
+                         "(python scripts/base_cam_review.py --play --all)")
     void(folder.name, why.strip())
     return folder.name
 
