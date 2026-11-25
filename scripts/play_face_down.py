@@ -101,6 +101,12 @@ def find_session(arg, need_checkpoint=False, sim=None):
 def read_checkpoint(arg, sim=None):
     """(session folder, its checkpoint) of the hand named, or the latest with one (sim: the latest simulated or real one)."""
     folder = find_session(arg, need_checkpoint=True, sim=sim)
+    if arg == "latest":     # the table holds the last hand laid: a newer one that stopped early has no checkpoint
+        newer = [f for f in play_sessions() if f.name > folder.name and is_sim(f) == bool(sim)
+                 and next((e.get("resumed_from") for e in read_events(f) if e["type"] == "session_start"), None) != folder.name]
+        if newer:
+            raise SystemExit(f"{newer[-1].name} is newer than the latest hand with a checkpoint, {folder.name}: if that's the "
+                             f"one you mean, name it")
     state = json.loads((folder / "checkpoint.json").read_text()) if (folder / "checkpoint.json").exists() else None
     if state is None:
         raise SystemExit(f"{folder.name} has no checkpoint.json: it stopped before the hand was checked, so start a new one")
@@ -517,11 +523,6 @@ def late_end_check(arg, ask=input, on_word=None, sim=False):
     folder, state = read_checkpoint(arg, sim=sim)
     if not folder.name.endswith(f"_{face_down_play.PLAY_KIND}"):
         raise SystemExit(f"{folder.name} isn't a face-down hand")
-    if arg == "latest":         # the table holds the last hand laid: a newer one that stopped early has no checkpoint
-        newest = [f for f in play_sessions() if is_sim(f) == sim][-1]
-        if newest != folder:
-            raise SystemExit(f"{newest.name} is newer than the latest hand with a checkpoint, {folder.name}: name the one "
-                             f"you mean (--end-check {folder.name})")
     if state["phase"] not in ("won", "end"):
         raise SystemExit(f"{folder.name}'s hand isn't over ({state['phase']}): carry it on with --resume")
     events = read_events(folder)

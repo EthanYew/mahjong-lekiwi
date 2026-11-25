@@ -479,6 +479,11 @@ def test_a_bare_end_check_wont_pass_over_a_newer_hand(monkeypatch, tmp_path):
     assert not events_of(folder, "hand_end")
     with pytest.raises(SystemExit, match="no face-down play session"):
         script.load_checkpoint("latest")                    # a real run never resumes a simulated hand
+    with pytest.raises(SystemExit, match="newer than"):
+        script.load_checkpoint("latest", sim=True)
+    (newer / "events.jsonl").write_text(json.dumps({"type": "session_start", "sim": True, "resumed_from": folder.name}) + "\n")
+    with pytest.raises(SystemExit, match=f"--end-check {folder.name}"):     # a resume that stopped early is the same hand
+        script.load_checkpoint("latest", sim=True)
 
 
 def test_a_wall_out_hand_s_line_gives_way_to_the_photo_review():

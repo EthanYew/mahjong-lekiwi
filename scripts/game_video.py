@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import base_cam, config, desk_video, face_down_play, game, interventions, play_log, privacy
+from mahjong import base_cam, config, desk_video, face_down_play, game, hand_tally, interventions, play_log, privacy
 from mahjong.session import read_events
 
 OUT_FPS = 30
@@ -275,6 +275,7 @@ class Story:
 
     def __init__(self, session_dir, events, reads=None):
         self.name = session_dir.name
+        self.lower = hand_tally.lowered(session_dir, (play_log.hand(events)["end"] or {}).get("grade"))
         self.found = interventions.derive(events)
         self.attempts = play_log.pickups(events)
         self.hand = play_log.hand(events)
@@ -372,7 +373,9 @@ class Story:
             out.append(f"Result: {result}" + (f" in {self.end['turns']} turns" if self.end.get("turns") is not None else ""))
             if win and win.get("before"):
                 out.append(f"Winning hand: {play_log.melds_line(win['before'] + [win['drawn']])}  (drew {win['drawn']})")
-            if self.end.get("grade"):
+            if self.lower:
+                out.append(f"Graded: {self.lower}, for {hand_tally.CARRIED}")
+            elif self.end.get("grade"):
                 out.append(f"Graded: {self.end['grade']}")
         else:
             out.append("The hand didn't finish in this session")

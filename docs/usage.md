@@ -1154,8 +1154,8 @@ the same session. It refuses a hand still in play (`--resume`) and one that alre
 any more, `--end-check --on-my-word "why"` takes the hand as right without asking: the log, the session report and
 `status.py` say it rests on your word, and its photos still need reviewing before it counts (a wrong name found there is a
 silent error all the same, and the session report stops calling the win verified). With no `SESSION` it takes the latest
-real hand (`--sim`: the latest simulated one, as `--resume` does too), and asks you to name it if a newer hand stopped before it
-could be checkpointed.
+real hand (`--sim`: the latest simulated one), and asks you to name it if a newer hand stopped before it could be
+checkpointed. A bare `--resume` picks the same way.
 `--resume [SESSION]` starts from the last finished turn, with the tiles where they were: nothing is laid or read again. A drop zone
 the bench hasn't checked is a warning, not a refusal as in `play.py`: scans can't check a face-down carry. Results:
 `sessions/<time>_play_fd/` (the crude run's events, `fd_*` events, `holdup_shot` events and `photos/`, `checkpoint.json`,

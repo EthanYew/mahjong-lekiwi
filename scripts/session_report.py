@@ -302,7 +302,9 @@ def all_sessions():
     hands = [(folder, events, play_log.hand(events)) for folder, events in hands]
     hands = [(folder, events, h) for folder, events, h in hands if h["end"]]
     if hands:
-        grades = Counter("voided" if void_reason(folder) else h["end"].get("grade") or "-" for folder, _, h in hands)
+        from mahjong import hand_tally      # here: it reads the base camera's code, which a bench report doesn't need
+        lower = {folder: hand_tally.lowered(folder, h["end"].get("grade")) for folder, _, h in hands}
+        grades = Counter("voided" if void_reason(folder) else lower[folder] or h["end"].get("grade") or "-" for folder, _, h in hands)
         print(f"\n{'hand':<24} {'result':<6} {'turns':>5} {'grade':<12} {'asks':>4} {'rescues':>7} {'win':<12}  setup   "
               f"({len(hands)} hands: " + ", ".join(f"{n} {g}" for g, n in grades.most_common()) + ")")
         review = {}             # the review store, loaded once for every face-down hand
@@ -310,9 +312,10 @@ def all_sessions():
             start = next((e for e in events if e["type"] == "session_start"), {})
             end, asks, rescues = h["end"], *hand_asks_rescues(events, h["end"])
             check = play_log.verdict(h, fd_reads(folder, h, review))
-            print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end.get('grade') or '-':<12} {asks:>4} "
+            print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {lower[folder] or end.get('grade') or '-':<12} {asks:>4} "
                   f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}"
-                  + ("  VOIDED" if void_reason(folder) else "") + ("  ON THE OWNER'S WORD" if end.get("end_check_on_word") else ""))
+                  + ("  VOIDED" if void_reason(folder) else "") + ("  ON THE OWNER'S WORD" if end.get("end_check_on_word") else "")
+                  + ("  HELPED IN A VOIDED SESSION" if lower[folder] else ""))
 
 
 def hand_asks_rescues(events, end):
@@ -463,6 +466,10 @@ def play_report(events, found, folder=None):
         check = play_log.verdict(h, reads)
         for line in check["lines"] if check else filter(None, [play_log.word_line(h, reads)]):
             print(f"  {line}")
+        if folder:
+            from mahjong import hand_tally
+            if lower := hand_tally.lowered(folder, end.get("grade")):
+                print(f"  Counted as {lower}, not {end['grade']}: {hand_tally.CARRIED}")
     asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
     if asked:
         print("  asked: " + ", ".join(f"{kind} {n}" for kind, n in asked.most_common()))

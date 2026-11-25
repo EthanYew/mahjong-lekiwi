@@ -1,9 +1,13 @@
 """mahjong/hand_tally.py: which face-down hands count toward 8 clean in 10 consecutive, 0 silent errors."""
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
 from mahjong import face_down_play, hand_tally, play_log
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 END_OK = {"result": "win", "turns": 15, "grade": "clean", "end_check": True, "silent_errors": 0}
 
@@ -154,11 +158,33 @@ def test_help_in_a_voided_run_stays_with_the_hand_that_carried_it_on(monkeypatch
     turn = {**TURN[0], "slots": ["S1"], "hand": {"S1": "5C"}, "discards": []}
     helped = [{"type": "intervention", "kind": k, "attempt_dir": None} for k in kinds]
     logs = [[{"type": "session_start"}, turn, *helped],
-            [{"type": "session_start", "resumed_from": names[0]}, turn, {"type": "hand_end", **END_OK, "slots": ["S1"], "hand": ["5C"]}]]
+            [{"type": "session_start", "resumed_from": names[0]}, turn,
+             {"type": "hand_end", **END_OK, "slots": ["S1"], "hand": ["5C"], "discards": []}]]
     for name, events in zip(names, logs):
         (tmp_path / name).mkdir()
         (tmp_path / name / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
     monkeypatch.setattr(hand_tally, "void_reason", lambda f: "power cut" if f.name == names[0] else None)
     monkeypatch.setattr(face_down_play, "scored_reads", lambda folder, review=None: [])
-    assert [r["status"] for r in hand_tally.tally(tmp_path, review={})] == ["voided", status]
+    rows = hand_tally.tally(tmp_path, review={})
+    assert [r["status"] for r in rows] == ["voided", status]
+    second = tmp_path / names[1]
+    assert hand_tally.lowered(second, "clean") == (None if status == "clean" else status)
+    import session_report
+    session_report.play_report([{"time": "2026-11-20T11:00:00", **e} for e in logs[1]], [], second)
+
+
+def test_carried_help_keeps_the_owners_word_in_the_tally(monkeypatch, tmp_path):
+    verified(monkeypatch)
+    names = ["20261120_100000_play_fd", "20261120_110000_play_fd"]
+    turn = {**TURN[0], "slots": ["S1"], "hand": {"S1": "5C"}, "discards": []}
+    end = {"type": "hand_end", **END_OK, "end_check_on_word": "crashed", "slots": ["S1"], "hand": ["5C"]}
+    logs = [[{"type": "session_start"}, turn, {"type": "intervention", "kind": "fd_by_hand", "attempt_dir": None}],
+            [{"type": "session_start", "resumed_from": names[0]}, turn, end]]
+    for name, events in zip(names, logs):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    monkeypatch.setattr(hand_tally, "void_reason", lambda f: "power cut" if f.name == names[0] else None)
+    monkeypatch.setattr(face_down_play, "scored_reads", lambda folder, review=None: [])
+    why = hand_tally.tally(tmp_path, review={})[1]["why"]
+    assert "owner's word: crashed" in why and hand_tally.CARRIED in why
 

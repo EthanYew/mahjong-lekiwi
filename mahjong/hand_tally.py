@@ -25,6 +25,7 @@ CLEAN, SILENT, WAITING, UNFINISHED, NOT_VERIFIED = "clean", "silent error", "wai
 VOIDED = "voided"
 GRADES = (CLEAN, "attended", "rescued")             # interventions.hand_grade's, best first
 STOPS = ("killed", "interrupted", "crashed")        # how a session stopped: what voiding it says wasn't the robot's
+CARRIED = "a person's help in the voided session(s) it carried on"
 
 
 def wrong_reads(reads):
@@ -62,14 +63,29 @@ def judge(hand_log, reads, events):
     return {"status": end.get("grade") or "-", "why": f"end check on the owner's word: {word}" if word else ""}
 
 
-def carried_over(folder, by_name, starts):
+def _start(folder):
+    return next((e for e in read_events(folder) if e["type"] == "session_start"), {})
+
+
+def carried_over(folder):
     """What a person did in the voided sessions this one carried on (--resume): voiding drops a stopped run, not the help the
-    hand it began had already needed. [interventions]; by_name: {session name: folder}, starts: {name: session_start}."""
-    found, name = [], starts[folder.name].get("resumed_from")
-    while name in by_name and void_reason(by_name[name]):
-        found += [i for i in interventions.derive(read_events(by_name[name])) if i["kind"] not in STOPS]
-        name = starts[name].get("resumed_from")
+    hand it began had already needed. [interventions]."""
+    folder, found = Path(folder), []
+    while name := _start(folder).get("resumed_from"):
+        folder = folder.parent / name
+        if not (folder / "events.jsonl").exists() or not void_reason(folder):
+            break
+        found += [i for i in interventions.derive(read_events(folder)) if i["kind"] not in STOPS]
     return found
+
+
+def lowered(folder, grade):
+    """The worse grade that help in voided sessions gives a hand graded `grade`, or None. Its own hand_end can't know of it, so
+    the tally and every report ask here (CARRIED says why)."""
+    if grade not in GRADES:
+        return None
+    carried = interventions.hand_grade(carried_over(folder))
+    return carried if carried in GRADES and GRADES.index(carried) > GRADES.index(grade) else None
 
 
 def series(rows):
@@ -96,8 +112,7 @@ def tally(sessions_dir=None, review=None):
     review = base_cam.load_review() if review is None else review
     rows = []
     folders = [f for f in sorted(folder_root.glob("*_play_fd")) if (f / "events.jsonl").exists() and not is_sim(f)]
-    by_name = {f.name: f for f in folders}
-    starts = {f.name: next((e for e in read_events(f) if e["type"] == "session_start"), {}) for f in folders}
+    starts = {f.name: _start(f) for f in folders}
     resumed = {s.get("resumed_from") for s in starts.values()}
     for folder in folders:
         events = read_events(folder)
@@ -112,10 +127,8 @@ def tally(sessions_dir=None, review=None):
             held = ([f"{unnamed} hold(s) are marked wrong with no name"] if unnamed else []) \
                 + ([f"a later session carried its hand on and {carried} hold(s) have no verdict"] if carried else [])
             verdict = {"status": WAITING, "why": "voided, but " + "; ".join(held)} if held else {"status": VOIDED, "why": why}
-        elif verdict["status"] in GRADES:
-            grade = interventions.hand_grade(carried_over(folder, by_name, starts))
-            if grade in GRADES and GRADES.index(grade) > GRADES.index(verdict["status"]):
-                verdict = {"status": grade, "why": "a person's help in the voided session(s) it carried on"}
+        elif lower := lowered(folder, verdict["status"]):
+            verdict = {"status": lower, "why": "; ".join(filter(None, [verdict["why"], CARRIED]))}
         start = starts[folder.name]
         end = hand_log["end"] or {}
         rows.append({"name": folder.name, "mode": "unattended" if hand_log["unattended"] else "attended",
