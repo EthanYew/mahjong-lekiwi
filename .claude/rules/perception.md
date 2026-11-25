@@ -84,7 +84,7 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   `train_detector.py` keep them out). New weights replace `assets/tile_detector.pt` only if they beat it
   on the exam (`detector_eval.py --against`).
 - **The wrist and base cameras can only be told apart by USB port.** They report the same ID and serial, and on 2026-11-05 `/dev/wristcam`
-  pointed at the base camera. The udev rule names them by port (wrist **3-5**, base 3-9 on the NUC), so keep each cable in its port —
+  pointed at the base camera. The udev rule names them by port (wrist **3-8**, base 3-9 on the NUC), so keep each cable in its port —
   and moving one means editing `/etc/udev/rules.d/99-mahjong-cameras.rules` and `config.WRIST_USB_PORT`, or `/dev/wristcam` simply
   isn't there and every script stops at `hardware.connect`. **Swapped cables fail silently**: `/dev/wristcam` is then the base camera
   (20261125_201151_setup hovered F2 five times "seeing no tile" in a view of the room). `setup_check.py` stops its tile test when the
@@ -93,8 +93,11 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
 - **The wrist camera's USB trouble was the NUC's port 3-8, not the camera and not the cable** (2026-11-13). Same camera, same cable,
   a different receptacle on the same root hub: on 3-8 it enumerated fine and then timed out (`-110`) setting the UVC probe control, so it
   never streamed — in Cheese or anywhere; moved to 3-5 it gave 267 frames in 10s at 26.7fps, 0 failed reads, 0 kernel lines. So the 94
-  logged losses, the `-71`s, the `EMI?` disables and the position-correlated drop rate were all one marginal receptacle. Don't put the
-  wrist camera back on 3-8, and treat a port as a suspect before the camera: the swap takes a minute and the cable swap needs a spare.
+  logged losses, the `-71`s, the `EMI?` disables and the position-correlated drop rate were all put down to that receptacle. Treat a port
+  as a suspect before the camera: the swap takes a minute and the cable swap needs a spare.
+  **Back on 3-8 on trial since 2026-11-25** (the owner's call: a new, shorter cable that can't reach 3-5 without hitting the tripod).
+  There it streamed 45s with the arm still (26fps, 0 failed or torn frames, no kernel lines), where on 11-13 it couldn't stream at all;
+  not yet through a run with the arm moving, which is when it dropped. A drop, `-71` / `-110` or torn frames: move it to 3-5.
   Evidence: `docs/invariant_notes.md`.
 - **The wrist camera's USB storm takes Bluetooth audio down with it.** The camera (3-8) and the Bluetooth radio (3-14) are on
   the same root hub, so a flapping camera port starves it: on 2026-11-13 the bluez transport failed mid-storm and Firefox's

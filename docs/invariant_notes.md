@@ -182,6 +182,10 @@ one-variable test the log couldn't do, and it is decisive.
 - **Still unmeasured.** Whether another device also fails on 3-8 (that would separate a worn receptacle from a worn plug end
   that happens to seat well in 3-5), and whether 3-5 holds up over a real session with the arm moving. One disconnect at
   14:38:32 on 3-5 was the owner replugging, not a drop.
+- **2026-11-25: back on 3-8, on trial.** The owner changed to a shorter cable that can't reach 3-5 without hitting the
+  tripod. On 3-8 it streamed 1183 frames in 45s (26.3fps, 0 failed reads, 0 torn, no kernel lines for the port; one 0.5s
+  gap), arm still. That differs from 11-13, when it couldn't stream there, but cable and insertion both changed since, and
+  still-arm watches never caught a drop. Go back to 3-5 on any drop, `-71` / `-110` or torn frames with the arm moving.
 - **Bluetooth audio shares the root hub.** `lsusb -t` puts the camera on bus 3 port 8 and `btusb` on bus 3 port 14. At
   12:19:10 wireplumber logged `Failure in Bluetooth audio transport /org/bluez/hci0/dev_*/sep1/fd0` and the bluez output node
   went `running -> error`; at 12:20:24 `pipewire-pulse` gave client `[Firefox]` `error:25 (Input/output error)`, which is

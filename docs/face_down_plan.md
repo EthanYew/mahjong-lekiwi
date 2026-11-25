@@ -262,12 +262,13 @@ Done: these lines are in `/etc/udev/rules.d/99-mahjong-cameras.rules` (since 202
 `/dev/wristcam` was `video8` and `/dev/basecam` `video10`. The names hold as long as each cable stays in its port.
 
 ```
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-5", ATTRS{idVendor}=="05a3", SYMLINK+="wristcam"
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-8", ATTRS{idVendor}=="05a3", SYMLINK+="wristcam"
 SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", KERNELS=="3-9", ATTRS{idVendor}=="05a3", SYMLINK+="basecam"
 ```
 
-Those port numbers are the NUC's, and change on the Pi. The wrist camera's was `3-5` from 2026-11-13; before that it was `3-8`,
-which turned out to be the faulty receptacle behind every USB loss (`docs/invariant_notes.md`). Moving a camera means editing both
+Those port numbers are the NUC's, and change on the Pi. The wrist camera's was `3-5` from 2026-11-13 to 11-25; before that it was `3-8`,
+diagnosed then as the faulty receptacle behind every USB loss, and it's back there on trial with a new cable since 2026-11-25
+(`docs/invariant_notes.md`). Moving a camera means editing both
 this rule (then `sudo udevadm control --reload-rules && sudo udevadm trigger`) and `config.WRIST_USB_PORT`.
 
 Still to do: a check in `setup_check.py` that the jaws are in the wrist view and the base camera is present. Whether a second camera of this model makes the wrist camera's dropouts worse is an open
