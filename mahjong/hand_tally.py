@@ -94,9 +94,9 @@ def tally(sessions_dir=None, review=None):
         if (why := void_reason(folder)) and verdict["status"] != SILENT:
             unnamed = sum(r["reviewed"] and r["truth"] is None for r in reads)
             carried = sum(not r["reviewed"] for r in reads) if folder.name in resumed else 0
-            verdict = {"status": WAITING, "why": f"voided, but {unnamed} hold(s) are marked wrong with no name and {carried} of a hand "
-                                                 "a later session carried on have no verdict"} \
-                if unnamed or carried else {"status": VOIDED, "why": why}
+            held = ([f"{unnamed} hold(s) are marked wrong with no name"] if unnamed else []) \
+                + ([f"a later session carried its hand on and {carried} hold(s) have no verdict"] if carried else [])
+            verdict = {"status": WAITING, "why": "voided, but " + "; ".join(held)} if held else {"status": VOIDED, "why": why}
         start = next((e for e in events if e["type"] == "session_start"), {})
         end = hand_log["end"] or {}
         rows.append({"name": folder.name, "mode": "unattended" if hand_log["unattended"] else "attended",

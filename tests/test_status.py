@@ -145,11 +145,11 @@ def test_a_hand_the_robot_finished_or_misread_cant_be_voided(tmp_path, monkeypat
     assert not (tmp_path / "void.json").exists()
 
 
-@pytest.mark.parametrize("truth", ["6D", None])
-def test_a_hand_with_a_photo_marked_wrong_cant_be_voided(tmp_path, monkeypatch, truth):
+@pytest.mark.parametrize("truth, refusal", [("6D", "wrong tile name"), (None, "name it first")])
+def test_a_hand_with_a_photo_marked_wrong_cant_be_voided(tmp_path, monkeypatch, truth, refusal):
     monkeypatch.setattr(session, "VOID_SESSIONS", tmp_path / "void.json")
     play_session(tmp_path, "20261120_100000_play_fd", STARTED)
     monkeypatch.setattr(status.face_down_play, "scored_reads", lambda folder: [{"filed": "5C", "truth": truth, "reviewed": True}])
-    with pytest.raises(SystemExit, match="wrong tile name"):
+    with pytest.raises(SystemExit, match=refusal):
         status.void_play("20261120_100000_play_fd", "why", sessions_dir=tmp_path)
 
