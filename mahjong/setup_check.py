@@ -175,42 +175,17 @@ def camera_text(result):
             f"on the mat), turned {result['rotation_deg']:+.2f}° ({result['inliers']} features)")
 
 
-# --- the alignment guide: what to do to the robot, in its own terms ---
+# --- the alignment guide: what to do to the robot ---
 # The old guide drew the image shift x8 as one arrow, frame by frame. At 1-2px of real shift that direction is mostly
-# feature noise, so it spun (2026-11-25), and an image shift mixes a turn with a slide. So the guide fits the robot's turn
-# and slide on the table, steadies them over the last GUIDE_FRAMES frames, says nothing about a direction inside the
-# pass line, and asks for one thing at a time: the turn first, since turning about the middle moves the slide reading.
+# feature noise, so it spun (2026-11-25), and one arrow didn't say whether to turn or slide. So the guide takes the median
+# of the last GUIDE_FRAMES readings, says nothing about a direction inside the pass line, and asks for one thing at a
+# time: the turn first. It's worked out from camera_result itself (the turn is its image rotation, the slide its shift at
+# the robot's middle), so the window can't say "lined up" while the check grades a warning. The arrows are for moving the
+# robot; a knocked tripod goes the opposite way.
 
-ROBOT_FEATURE_HEIGHT_M = 0.06       # the features on the base and folded arm sit 0-12cm up (ROBOT_BOX_HEIGHT_M): halfway
-GUIDE_FRAMES = 7                    # frames the guide's numbers are the median of
+GUIDE_FRAMES = 7                    # frames the window's reading, and the check's, are the median of
 COLOURS = {"pass": (0, 200, 0), "warn": (0, 190, 255), "fail": (0, 0, 255), "skipped": (200, 200, 200)}
 OUTLINE_COLOUR = (255, 0, 255)      # the reference robot's outline: magenta shows on the teal arm, the striped mat and grey
-
-
-def robot_height(x, y):
-    return config.table_z(x, y) + ROBOT_FEATURE_HEIGHT_M
-
-
-def robot_motion(reference_bgr, live_bgr, region, intrinsics, T_cam_to_base):
-    """How the robot sits now against the reference, on the table: {"turn_deg" (+ = turned anticlockwise seen from
-    above), "dx_mm" (+ = its base origin is further forward), "dy_mm" (+ = further to its left), "inliers"}, or
-    {"inliers": n} if too few features agree. Moving the camera instead reads as the robot moving the other way."""
-    points = matched_points(reference_bgr, live_bgr, region)
-    if isinstance(points, int):
-        return {"inliers": points}
-    was, now = (table_to_table_xy(p, intrinsics, T_cam_to_base) for p in points)
-    fit, inliers = cv2.estimateAffinePartial2D(was, now, method=cv2.RANSAC, ransacReprojThreshold=0.002)
-    n = int(inliers.sum()) if inliers is not None else 0
-    if fit is None or n < MIN_INLIERS:
-        return {"inliers": n}
-    return {"turn_deg": float(math.degrees(math.atan2(fit[1, 0], fit[0, 0]))), "dx_mm": float(1000 * fit[0, 2]),
-            "dy_mm": float(1000 * fit[1, 2]), "inliers": n}
-
-
-def table_to_table_xy(pixels, intrinsics, T_cam_to_base):
-    """Pixels on the robot -> base-frame (x, y) at the robot's feature height, float32 N x 2."""
-    from .layout import pixel_to_table
-    return np.float32(pixel_to_table(pixels, intrinsics, T_cam_to_base, robot_height)[:, :2])
 
 
 def steady(readings, keys):
@@ -222,23 +197,51 @@ def steady(readings, keys):
     return {k: float(np.median([r[k] for r in have])) for k in keys}
 
 
-def guide_steps(motion):
-    """What to do about robot_motion (steadied): [{"kind": "turn" / "move", "status", "text"}], turn first. A step
-    inside its pass line says so rather than give a direction (that direction would be noise)."""
-    if motion is None or "turn_deg" not in motion:
+def steady_camera(shifts, scale_mm_per_px):
+    """The camera check over several image_shift() readings (their median), so neither the window's colour nor the
+    grade flickers with feature noise."""
+    median = steady(shifts, ("dx_px", "dy_px", "rotation_deg", "inliers"))
+    if median is None:
+        seen = sum("shift_px" in s for s in shifts)
+        if not seen:
+            return camera_result({"inliers": shifts[-1].get("inliers", 0)}, scale_mm_per_px)
+        return {"inliers": shifts[-1].get("inliers", 0), "status": "warn",
+                "why": f"the view is unsteady: the robot was matched in only {seen} of the last {len(shifts)} frames "
+                       "(is something moving in front of it?)"}
+    shift = {**median, "inliers": int(median["inliers"]), "shift_px": math.hypot(median["dx_px"], median["dy_px"])}
+    return camera_result(shift, scale_mm_per_px)
+
+
+def table_direction(region, du, dv, intrinsics, T_cam_to_base):
+    """The unit (forward, left) on the table of an image displacement (du, dv) at the middle of `region`."""
+    from .layout import pixel_to_table
+    u0, v0, u1, v1 = region
+    centre = np.array([(u0 + u1) / 2, (v0 + v1) / 2])
+    a, b = pixel_to_table([centre, centre + (du, dv)], intrinsics, T_cam_to_base, config.table_z)[:, :2]
+    return (b - a) / (np.linalg.norm(b - a) or 1.0)
+
+
+def guide_steps(result, region, intrinsics, T_cam_to_base):
+    """What to do about a camera check: [{"kind": "turn" / "move", "status", "text"}], turn first; the turn step says
+    which way ("clockwise", seen from above, which the camera does) and the slide step which way on screen
+    ("direction"). A step inside its pass line says so rather than give a direction (that direction would be noise)."""
+    if "shift_mm" not in result:
         return [{"kind": "turn", "status": "warn", "text": "can't see the robot well enough: is the arm at rest, in view?"}]
-    turn = motion["turn_deg"]
-    turn_status = grade(turn, "camera_deg")
+    turned = result["rotation_deg"]                 # + = it looks turned clockwise (image y points down)
+    clockwise = turned < 0
+    turn_status = grade(turned, "camera_deg")
     turn_text = ("square: leave the turn" if turn_status == "pass" else
-                 f"turn it {abs(turn):.1f} deg {'clockwise' if turn > 0 else 'anticlockwise'} (seen from above)")
-    forward, left = -motion["dx_mm"], -motion["dy_mm"]              # the way back
-    move_status = grade(math.hypot(forward, left), "camera_mm")
+                 f"turn it {abs(turned):.1f} deg {'clockwise' if clockwise else 'anticlockwise'} (seen from above)")
+    back_px = np.array([-result["dx_px"], -result["dy_px"]])
+    forward, left = result["shift_mm"] * table_direction(region, *back_px, intrinsics, T_cam_to_base)
+    move_status = grade(result["shift_mm"], "camera_mm")
     parts = [f"{abs(forward):.0f}mm {'forward' if forward > 0 else 'back'}" if abs(forward) >= 1 else "",
              f"{abs(left):.0f}mm to its {'left' if left > 0 else 'right'}" if abs(left) >= 1 else ""]
     move_text = ("in place: leave it" if move_status == "pass" else
                  "slide it " + " and ".join(p for p in parts if p))
-    return [{"kind": "turn", "status": turn_status, "text": turn_text, "deg": -turn},
-            {"kind": "move", "status": move_status, "text": move_text, "forward_mm": forward, "left_mm": left}]
+    return [{"kind": "turn", "status": turn_status, "text": turn_text, "clockwise": clockwise},
+            {"kind": "move", "status": move_status, "text": move_text,
+             "direction": back_px / (np.linalg.norm(back_px) or 1.0)}]
 
 
 def step_now(steps):
@@ -265,22 +268,6 @@ def reference_outline(reference_bgr, region):
     return [c + np.int32([u0, v0]) for c in contours if cv2.arcLength(c, False) > OUTLINE_MIN_PX]
 
 
-def _project(points_xy, intrinsics, T_cam_to_base):
-    return table_to_pixel([(x, y, robot_height(x, y)) for x, y in points_xy], intrinsics, T_cam_to_base)
-
-
-def screen_clockwise(anchor_xy, deg, intrinsics, T_cam_to_base):
-    """Whether turning the robot by `deg` (+ = anticlockwise seen from above) looks clockwise on screen."""
-    radius = 0.07
-    a, b = (np.array(p) for p in _project([(anchor_xy[0] + radius, anchor_xy[1]),
-                                           (anchor_xy[0] + radius * math.cos(math.radians(math.copysign(10, deg))),
-                                            anchor_xy[1] + radius * math.sin(math.radians(math.copysign(10, deg))))],
-                                          intrinsics, T_cam_to_base))
-    c = _project([anchor_xy], intrinsics, T_cam_to_base)[0]
-    cross = (a - c)[0] * (b - c)[1] - (a - c)[1] * (b - c)[0]
-    return cross > 0                    # image y points down, so a positive cross product is clockwise on screen
-
-
 def draw_turn(image, centre, clockwise, colour):
     """A large curved arrow around `centre` (view pixels): the way to turn."""
     radius = int(0.32 * min(image.shape[:2]))
@@ -301,15 +288,7 @@ def draw_move(image, centre, direction, colour, length_px=110):
                         tipLength=0.3)
 
 
-def screen_direction(anchor_xy, forward_mm, left_mm, intrinsics, T_cam_to_base):
-    """The unit vector on screen of sliding the robot forward_mm / left_mm from anchor_xy."""
-    norm = math.hypot(forward_mm, left_mm) or 1.0
-    tip = (anchor_xy[0] + 0.03 * forward_mm / norm, anchor_xy[1] + 0.03 * left_mm / norm)
-    a, b = (np.array(p) for p in _project([anchor_xy, tip], intrinsics, T_cam_to_base))
-    return (b - a) / (np.linalg.norm(b - a) or 1.0)
-
-
-def guide_view(reference_bgr, live_bgr, region, result, steps, intrinsics, T_cam_to_base, width=900):
+def guide_view(reference_bgr, live_bgr, region, result, steps, width=900):
     """The alignment window: the robot zoomed in, live, with the reference robot's outline in magenta to line it up
     with and a large arrow for the one step to do now (curved: turn; straight: slide); under it the two steps in
     words, each in its status colour; under that the whole view, small, for context."""
@@ -320,14 +299,11 @@ def guide_view(reference_bgr, live_bgr, region, result, steps, intrinsics, T_cam
     outline = reference_outline(reference_bgr, region)
     cv2.polylines(zoom, [np.int32((c - [z0, y0]) * scale) for c in outline], False, OUTLINE_COLOUR, 3, cv2.LINE_AA)
     now = step_now(steps)
-    u0, v0, u1, v1 = region
-    anchor = table_to_table_xy([((u0 + u1) / 2, (v0 + v1) / 2)], intrinsics, T_cam_to_base)[0]
     middle = (zoom.shape[1] // 2, zoom.shape[0] // 2)
-    if now is not None and now["kind"] == "turn" and "deg" in now:
-        draw_turn(zoom, middle, screen_clockwise(anchor, now["deg"], intrinsics, T_cam_to_base), COLOURS[now["status"]])
-    elif now is not None and now["kind"] == "move":
-        draw_move(zoom, middle, screen_direction(anchor, now["forward_mm"], now["left_mm"], intrinsics, T_cam_to_base),
-                  COLOURS[now["status"]])
+    if now is not None and "clockwise" in now:
+        draw_turn(zoom, middle, now["clockwise"], COLOURS[now["status"]])
+    elif now is not None and "direction" in now:
+        draw_move(zoom, middle, now["direction"], COLOURS[now["status"]])
     cv2.rectangle(zoom, (0, 0), (zoom.shape[1] - 1, zoom.shape[0] - 1), COLOURS[result["status"]], 4)
 
     lined_up = now is None and result["status"] == "pass"
@@ -340,8 +316,9 @@ def guide_view(reference_bgr, live_bgr, region, result, steps, intrinsics, T_cam
         cv2.putText(panel, f"{'>' if step is now else ' '} {label}  {step['text']}", (12, 28 + 34 * (i + 1)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75 if step is now else 0.6, COLOURS[step["status"]],
                     2 if step is now else 1, cv2.LINE_AA)
-    cv2.putText(panel, "forward = toward the tiles.   Enter: done   q: leave it as it is", (12, 28 + 34 * 3 + 4),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+    cv2.putText(panel, "Move the robot (a knocked tripod goes the opposite way). forward = toward the tiles. "
+                "Enter: done  q: leave it", (12, 28 + 34 * 3 + 4),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
 
     context = live_bgr.copy()
     cv2.polylines(context, outline, False, OUTLINE_COLOUR, 1, cv2.LINE_AA)
@@ -491,8 +468,9 @@ def wrist_tile(image_bgr, near_px=None):
 # The wrist and base cameras are the same model with the same ID and serial: only the USB port tells them apart, so swapped
 # cables make /dev/wristcam the base camera with nothing failing. On 20261125_201151_setup the tile test hovered over F2 five
 # times and "found no tile" in what was the base camera's view of the room. A camera on the arm sees a new picture when the
-# arm moves: real wrist frames at different spots were 0.00-0.43 alike (view_similarity), the base camera's frames across
-# those five hovers 0.94-1.00 (a person moving in view included).
+# arm moves: real wrist frames at different spots were 0.00-0.52 alike (view_similarity, 61 pairs), the base camera's
+# frames across those five hovers 0.94-1.00 (a person moving in view included). Rest against the hover, which is what's
+# compared, has no recorded pairs from the arm yet.
 CAMERA_STILL_SIMILARITY = 0.75
 FLAT_GREY_STD = 3.0                 # a frame this featureless (a dark or blank view) can't say whether it moved
 
@@ -707,9 +685,9 @@ def _jsonable(value):
 # --- what to do about it ---
 
 ADVICE = {
-    "camera": "The RealSense moved relative to the robot. Nudge the tripod (or the LeKiwi) back until the "
-              "alignment view turns green, rather than recalibrating: a new T_cam_to_base sets aside the hover "
-              "and return corrections.",
+    "camera": "The RealSense moved relative to the robot. Move the LeKiwi as the alignment window says until it "
+              "turns green (a knocked tripod goes the opposite way to the arrows), rather than recalibrating: a new "
+              "T_cam_to_base sets aside the hover and return corrections.",
     "table": "The RealSense gave almost no depth on the mat: check its USB cable and that nothing blocks its view.",
     "tiles": "The hover lands the tile somewhere else in the wrist view. If the camera passes, look at the "
              "wrist camera's mount, the arm's calibration (parked pose) and whether the hover correction changed. "

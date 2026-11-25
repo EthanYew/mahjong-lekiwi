@@ -9,8 +9,8 @@ setup you trust (mahjong/setup_check.py has what each measures and why).
 
 Steps: the arm goes to rest; the RealSense looks at the robot's base and the mat. If the robot isn't where it
 was in the image, a window shows it zoomed in with the reference's outline in magenta and one step at a time:
-turn it (curved arrow), then slide it (straight arrow), in the robot's own terms; Enter once it's lined up (moving
-it back keeps T_cam_to_base and both corrections valid; recalibrating doesn't). Then for each check spot: place
+turn it (curved arrow), then slide it (straight arrow), in the robot's own terms (a knocked tripod goes the
+opposite way); Enter once it's lined up (moving it back keeps T_cam_to_base and both corrections valid; recalibrating doesn't). Then for each check spot: place
 the spot's tile until its outline is green, the arm hovers over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
 (by the RealSense at the spot, or in the wrist view at the hover) is asked about: reposition it, chasing green
 again, and Enter looks again; s skips the spot, q stops the tile test. A weak match is shown for a person to
@@ -84,17 +84,6 @@ def check_spots(args, reference):
 
 # --- camera, table, mat brightness ---
 
-def steady_camera(shifts, scale_mm_per_px):
-    """The camera check over the last few image_shift() readings (their median), so the window's colour doesn't flicker
-    with feature noise."""
-    keys = ("dx_px", "dy_px", "rotation_deg", "inliers")
-    median = sc.steady(shifts, keys)
-    if median is None:
-        return sc.camera_result({"inliers": shifts[-1].get("inliers", 0)}, scale_mm_per_px)
-    shift = {**median, "inliers": int(median["inliers"]), "shift_px": math.hypot(median["dx_px"], median["dy_px"])}
-    return sc.camera_result(shift, scale_mm_per_px)
-
-
 def measure_camera(realsense, reference, show, wait_key=lambda: cv2.waitKey(30) & 0xFF):
     """RealSense frame, its measurements, and the camera / table results. With the robot off its reference
     place and a window: the alignment view until Enter, then measure again."""
@@ -103,22 +92,29 @@ def measure_camera(realsense, reference, show, wait_key=lambda: cv2.waitKey(30) 
     region = reference["region"] if reference else sc.robot_region(K, T, color.shape)
     camera = None
     if reference is not None:
-        camera = sc.camera_result(sc.image_shift(reference["realsense_image"], color, region), sc.mm_per_px(K, T))
+        scale = sc.mm_per_px(K, T)
+        shifts = deque(maxlen=sc.GUIDE_FRAMES)
+
+        def look():
+            live = realsense.snapshot()
+            shifts.append(sc.image_shift(reference["realsense_image"], live, region))
+            return live
+
+        for _ in range(sc.GUIDE_FRAMES):
+            look()
+        camera = sc.steady_camera(shifts, scale)
         if show and camera["status"] != "pass":
             print(f"Camera: {sc.camera_text(camera)}.\n  Line the robot up with the magenta outline in the window, one "
-                  "step at a time (turn, then slide), then Enter (q leaves it as it is).")
-            shifts, motions = deque(maxlen=sc.GUIDE_FRAMES), deque(maxlen=sc.GUIDE_FRAMES)
+                  "step at a time (turn, then slide), then Enter (q leaves it as it is). A knocked tripod goes the "
+                  "opposite way to the arrows.")
             while True:
-                live = realsense.snapshot()
-                shifts.append(sc.image_shift(reference["realsense_image"], live, region))
-                motions.append(sc.robot_motion(reference["realsense_image"], live, region, K, T))
-                camera = steady_camera(shifts, sc.mm_per_px(K, T))
-                steps = sc.guide_steps(sc.steady(motions, ("turn_deg", "dx_mm", "dy_mm")))
-                cv2.imshow(WINDOW, sc.guide_view(reference["realsense_image"], live, region, camera, steps, K, T))
+                live = look()
+                camera = sc.steady_camera(shifts, scale)        # the check's result is the one the window showed last
+                steps = sc.guide_steps(camera, region, K, T)
+                cv2.imshow(WINDOW, sc.guide_view(reference["realsense_image"], live, region, camera, steps))
                 if wait_key() in (13, 10, 32, ord("q"), 27):
                     break
             color, depth = realsense.depth_snapshot()
-            camera = sc.camera_result(sc.image_shift(reference["realsense_image"], color, region), sc.mm_per_px(K, T))
     measured = {"region": list(region), "table": sc.table_fit(depth, K, T),
                 "mat_brightness": sc.brightness(color, sc.mat_region(K, T, color.shape))}
     return color, measured, camera
@@ -274,7 +270,7 @@ def tile_test(arm, camera, realsense, correction, spots, reference, session, sim
                                   similarity=sc.view_similarity(at_rest[0], frame), port=config.WRIST_USB_PORT)
                     cv2.imwrite(str(session.dir / f"wrist_{spot['id']}_not_on_arm.jpg"), frame)
                     results[spot["id"]] = {"status": "fail", "why": "the wrist camera isn't on the arm (swapped cables?)",
-                                           "attempts": attempt}
+                                           "attempts": attempt, "wrong_camera": True}
                     stop = True
                     break
                 found = sc.median_tile([sc.match_tile(f, ref["template_image"], ref["tile"]) if ref else sc.wrist_tile(f)
@@ -363,6 +359,9 @@ def main(argv=None, ask=None, devices=None):
         raise SystemExit(f"No reference in {folder}. On a setup you trust, run setup_check.py "
                          f"{'--sim ' if args.sim else ''}--save-reference first.")
     spots = check_spots(args, reference)
+    if reference and not args.skip_tiles and not spots:
+        raise SystemExit(f"The reference in {folder} ({reference.get('time')}) has no check spots (saved with "
+                         "--skip-tiles?): run setup_check.py --save-reference again (or --skip-tiles).")
     if reference and not args.skip_tiles and any("hover_delta_mm" not in s or s.get("template_image") is None
                                                  for s in reference.get("spots", [])):
         raise SystemExit(f"The reference in {folder} ({reference.get('time')}) predates the stored hover correction and "
@@ -377,7 +376,7 @@ def main(argv=None, ask=None, devices=None):
     start = datetime.now().isoformat(timespec="seconds")
     session = Session("setup", ask_setup=not args.sim, sim=args.sim)
     show = not (args.sim or args.no_view)
-    if show:              # the windows keep answering while a question waits in the terminal
+    if not args.sim:      # the windows keep answering while a question waits in the terminal
         from wrist_capture import ask_pumping
         ask = ask_pumping(ask)
     overall = "skipped"
@@ -404,18 +403,16 @@ def main(argv=None, ask=None, devices=None):
             color, measured, camera_check = measure_camera(realsense, reference, show)
             cv2.imwrite(str(session.dir / "realsense.png"), color)
             if reference is not None:
-                K, T = realsense.intrinsics, realsense.T_cam_to_base
-                motion = sc.robot_motion(reference["realsense_image"], color, measured["region"], K, T)
+                steps = sc.guide_steps(camera_check, measured["region"], realsense.intrinsics, realsense.T_cam_to_base)
                 cv2.imwrite(str(session.dir / "camera_vs_reference.jpg"),
-                            sc.guide_view(reference["realsense_image"], color, measured["region"], camera_check,
-                                          sc.guide_steps(motion), K, T))
+                            sc.guide_view(reference["realsense_image"], color, measured["region"], camera_check, steps))
                 results["camera"] = {**camera_check, "text": sc.camera_text(camera_check)}
                 table = sc.table_result(measured["table"], reference.get("table"))
                 results["table"] = {**table, "text": sc.table_text(table)}
             if not args.skip_tiles:
                 print(f"Tile test on {', '.join(s['id'] for s in spots)}:")
                 confirm = confirm_on_screen(ask) if show and reference is None else None
-                confirm_weak = ask_on_screen(ask) if show and reference is not None else None
+                confirm_weak = ask_on_screen(ask) if not args.sim and reference is not None else None
                 tiles, frames, camera = tile_test(arm, camera, realsense, correction, spots, reference, session, args.sim,
                                                   ask, confirm, confirm_weak)
                 if reference is not None:
@@ -435,7 +432,7 @@ def main(argv=None, ask=None, devices=None):
             session.intervention("interrupted", command="setup_check")
         finally:
             arm.rest()
-            if show:
+            if not args.sim:
                 cv2.destroyAllWindows()
             if not args.sim:
                 camera.release()
@@ -468,8 +465,15 @@ def tile_names(spots, ask):
 
 
 def save(folder, measured, color, frames, tiles, spots, correction, args, ask):
-    """Show what was measured and, if confirmed, write it as the reference."""
+    """Show what was measured and, if confirmed, write it as the reference. Never one whose tile test saw the wrong
+    camera or measured no spot (writing it deletes the old reference's wrist pictures)."""
     missing = [s["id"] for s in spots if s["id"] not in frames or not tiles[s["id"]].get("centre_px")]
+    if any(r.get("wrong_camera") for r in tiles.values()):
+        print("Not saved: the wrist camera isn't on the arm.")
+        return "fail"
+    if not args.skip_tiles and len(missing) == len(spots):
+        print("Not saved: no check spot's tile was measured. Run it again (or --skip-tiles for a reference without them).")
+        return "fail"
     print(f"\nMeasured: {sc.table_text({**measured['table'], 'status': ''}) if measured['table'] else 'no table'}; "
           f"mat brightness {measured['mat_brightness']:.0f}"
           + (f"; parked pose {', '.join(f'{v:.1f}' for v in measured['parked'].values())}" if measured["parked"] else "")

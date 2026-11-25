@@ -202,7 +202,8 @@ magenta. Line the robot up with the outline one step at a time, as the window sa
 "turn it 0.8 deg clockwise (seen from above)") first, then **2 SLIDE** (a straight arrow, "slide it 4mm back and 2mm to
 its right"; forward is toward the tiles). Each step goes green inside its pass line (0.5°, 2mm) and then shows no
 arrow, so small noise can't swing it. The numbers are the median of the last 7 frames: move, then let it settle. Enter
-when it says "Lined up". Moving it back keeps `T_cam_to_base` and both corrections valid; recalibrating sets the
+when it says "Lined up". The arrows are for moving the robot; if it was the tripod that got knocked, move that the
+opposite way. Moving it back keeps `T_cam_to_base` and both corrections valid; recalibrating sets the
 corrections aside. If a tile isn't found (by the RealSense at its spot, or in the wrist view at the hover), the check
 asks you to reposition it: the placing window opens again to chase green, then it looks again (Enter), or `s` skips
 the spot, `q` stops the tile test.

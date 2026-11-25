@@ -242,48 +242,93 @@ def test_grading():
 
 
 def guide_for(warp):
-    """The guide's steps and view for the sim RealSense frame warped by `warp` (2 x 3) as the live one."""
+    """The guide's steps, view and camera check for the sim RealSense frame warped by `warp` (2 x 3) as the live one."""
     from mahjong.sim import SimPerception
     mat = SimPerception(tiles=[])
     K, T = mat.intrinsics, mat.T_cam_to_base
     reference = mat.snapshot()
     region = sc.robot_region(K, T, reference.shape)
     live = cv2.warpAffine(reference, np.float32(warp), reference.shape[1::-1])
-    steps = sc.guide_steps(sc.robot_motion(reference, live, region, K, T))
     result = sc.camera_result(sc.image_shift(reference, live, region), sc.mm_per_px(K, T))
-    view = sc.guide_view(reference, live, region, result, steps, K, T)
+    steps = sc.guide_steps(result, region, K, T)
+    view = sc.guide_view(reference, live, region, result, steps)
+    assert sc.worst([s["status"] for s in steps]) == result["status"]          # the window can't disagree with the grade
     return {s["kind"]: s for s in steps}, view, (K, T, region)
 
 
 def test_the_guide_says_turn_or_slide_in_the_robots_terms():
-    steps, view, _ = guide_for([[1, 0, 0], [0, 1, 0]])
+    steps, view, (K, T, region) = guide_for([[1, 0, 0], [0, 1, 0]])
     assert sc.step_now(list(steps.values())) is None and view.shape[1] == 900                 # lined up: no arrow
-    _, _, (K, T, region) = guide_for([[1, 0, 0], [0, 1, 0]])
     centre = ((region[0] + region[2]) / 2, (region[1] + region[3]) / 2)
 
-    # the robot's middle 8mm further forward (toward the tiles): slide it back, nothing about turning
-    ahead = sc.table_to_table_xy([centre], K, T)[0] + [0.008, 0.0]
-    du, dv = sc._project([ahead], K, T)[0] - np.array(centre)
-    steps, _, _ = guide_for([[1, 0, du], [0, 1, dv]])
+    # the robot higher in the image (further forward, toward the tiles): slide it back, nothing about turning
+    steps, _, _ = guide_for([[1, 0, 0], [0, 1, -4]])
     assert steps["turn"]["status"] == "pass" and steps["move"]["status"] != "pass"
     assert "back" in steps["move"]["text"] and "left" not in steps["move"]["text"] and "right" not in steps["move"]["text"]
-    assert sc.step_now(list(steps.values()))["kind"] == "move"
+    assert sc.step_now(list(steps.values()))["kind"] == "move" and steps["move"]["direction"][1] > 0.9
+    steps, _, _ = guide_for([[1, 0, -4], [0, 1, 0]])                  # left in the image: its left, so back to the right
+    assert "to its right" in steps["move"]["text"] and steps["move"]["direction"][0] > 0.9
 
-    # turned 2° about its middle: turn it first, whichever way undoes it
-    turned = cv2.getRotationMatrix2D(centre, 2.0, 1.0)
-    steps, _, _ = guide_for(turned)
+    # turned 2° anticlockwise about its middle: turn it clockwise first (and the other way round)
+    steps, _, _ = guide_for(cv2.getRotationMatrix2D(centre, 2.0, 1.0))
     assert steps["turn"]["status"] == "fail" and sc.step_now(list(steps.values()))["kind"] == "turn"
-    back = cv2.getRotationMatrix2D(centre, -2.0, 1.0)
-    other, _, _ = guide_for(back)
-    assert {steps["turn"]["text"].split()[4], other["turn"]["text"].split()[4]} == {"clockwise", "anticlockwise"}
+    assert steps["turn"]["clockwise"] and " clockwise" in steps["turn"]["text"]
+    other, _, _ = guide_for(cv2.getRotationMatrix2D(centre, -2.0, 1.0))
+    assert not other["turn"]["clockwise"] and "anticlockwise" in other["turn"]["text"]
 
 
-def test_the_guide_holds_still_on_noise():
-    readings = [{"turn_deg": t, "dx_mm": x, "dy_mm": 0.0} for t, x in ((0.3, 1.0), (-0.2, -1.2), (0.1, 0.4), (5.0, 9.0),
-                                                                       (0.0, 0.2))]
-    steps = sc.guide_steps(sc.steady(readings, ("turn_deg", "dx_mm", "dy_mm")))
-    assert all(s["status"] == "pass" for s in steps)              # one wild frame doesn't swing the arrow
-    assert sc.steady([{"inliers": 3}] * 3 + readings[:2], ("turn_deg",)) is None          # mostly unseen: can't say
+def test_the_guide_holds_still_on_noise_and_says_when_the_view_is_unsteady():
+    shifts = [{"dx_px": x, "dy_px": 0.0, "rotation_deg": t, "inliers": 50, "shift_px": abs(x)}
+              for t, x in ((0.3, 0.7), (-0.2, -0.8), (0.1, 0.3), (5.0, 6.0), (0.0, 0.1))]
+    result = sc.steady_camera(shifts, 1.5)
+    assert result["status"] == "pass"                               # one wild frame doesn't swing it
+    blind = sc.steady_camera([{"inliers": 3}] * 4 + shifts[:1] + [{"inliers": 40}], 1.5)
+    assert blind["status"] == "warn" and "unsteady" in blind["why"] and "only 1 of the last 6" in blind["why"]
+    assert "only 3 features" in sc.steady_camera([{"inliers": 3}] * 7, 1.5)["why"]
+
+
+def test_the_camera_result_is_the_one_the_window_showed(monkeypatch):
+    import setup_check
+    from mahjong.sim import SimPerception
+    mat = SimPerception(tiles=[])
+    K, T = mat.intrinsics, mat.T_cam_to_base
+    still = mat.snapshot()
+    reference = {"realsense_image": still, "region": sc.robot_region(K, T, still.shape)}
+    moved = cv2.warpAffine(still, np.float32([[1, 0, 0], [0, 1, -4]]), still.shape[1::-1])
+    seen, frames = [], iter([moved] * sc.GUIDE_FRAMES + [still] * 20)       # moved back while the window is up
+    mat.snapshot = lambda: next(frames)
+    monkeypatch.setattr(cv2, "imshow", lambda *a: None)
+    monkeypatch.setattr(sc, "guide_view", lambda ref, live, region, result, steps: seen.append(result) or still)
+    keys = iter([0] * sc.GUIDE_FRAMES + [13])
+    _, _, camera = setup_check.measure_camera(mat, reference, True, wait_key=lambda: next(keys))
+    assert camera is seen[-1] and camera["status"] == "pass" and seen[0]["status"] != "pass"
+
+
+def test_a_reference_is_never_saved_from_the_wrong_camera_or_with_no_spot(tmp_path, monkeypatch):
+    import pytest
+    import setup_check
+    from mahjong.sim import SimWristCamera
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    folder = tmp_path / "reference"
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    room = cv2.resize(np.random.default_rng(0).integers(0, 255, (12, 16, 3), dtype=np.uint8), (640, 480),
+                      interpolation=cv2.INTER_NEAREST)
+
+    class BaseCamera(SimWristCamera):
+        def read(self):
+            return True, room.copy()
+
+    devices = sim_devices()
+    devices["wrist_camera"] = BaseCamera(devices["arm"], devices["realsense"])
+    assert run(tmp_path, ["--save-reference"], ["y"], devices=devices) == "fail"
+    monkeypatch.setattr(setup_check, "place_sim_tile", lambda realsense, spot: setattr(realsense, "tiles", []))
+    assert run(tmp_path, ["--save-reference"], ["s", "s", "s"]) == "fail"           # every spot skipped
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+    assert run(tmp_path, ["--save-reference", "--skip-tiles"], ["y"]) == "pass"     # asked for: no spots in it
+    with pytest.raises(SystemExit, match="no check spots"):
+        run(tmp_path, [])
 
 
 def test_a_wrist_camera_that_doesnt_move_with_the_arm_stops_the_tile_test(tmp_path, monkeypatch):

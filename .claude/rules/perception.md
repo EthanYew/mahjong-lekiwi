@@ -30,7 +30,8 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
   `docs/invariant_notes.md`.
 - After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane (shown only), a tile
   in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken
-  with `--save-reference` on a setup that worked. Nudge the camera back to green rather than recalibrating.
+  with `--save-reference` on a setup that worked. Nudge the robot (the tripod: opposite to the window's arrows)
+  back to green rather than recalibrating.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:
   `policy.run` stops (`stop_reason` "camera"), the bench voids and reruns, record.py discards the episode. Reopen with
   `hardware.reopen_wrist_camera` in any new script: it waits, cuts the port's power once, and only then asks a person, and each
