@@ -132,7 +132,13 @@ def test_table_fit_sees_a_mat_lower_than_config():
     mat.T_render[2, 3] += 0.005                     # the camera 5mm higher than calibrated: the mat reads 5mm low
     _, depth = mat.depth_snapshot()
     lower = sc.table_result(sc.table_fit(depth, mat.intrinsics, mat.T_cam_to_base), level)
-    assert abs(lower["change"]["offset_mm"] + 5) < 0.5 and lower["status"] == "warn"
+    assert abs(lower["change"]["offset_mm"] + 5) < 0.5
+    # shown, never counted: the real depth reading wanders more than this with nothing moved
+    assert lower["status"] == "info" and "not graded" in sc.table_text(lower)
+    results = {"camera": {"status": "pass"}, "table": {**lower, "text": sc.table_text(lower)}}
+    lines, overall = sc.summary(results)
+    assert overall == "pass" and not any(line.startswith("\ntable:") for line in lines)
+    assert sc.table_result(None, level)["status"] == "warn"          # no depth at all is still worth a look
 
 
 def test_a_refit_hover_correction_doesnt_count_against_the_setup(tmp_path, monkeypatch):
@@ -233,3 +239,142 @@ def test_grading():
     off = sc.parked_result({**parked, "elbow_flex": 4.0}, parked)
     assert off["worst_joint"] == "elbow_flex" and off["status"] == "warn"
     assert sc.parked_result(None, parked)["status"] == "skipped"
+
+
+def guide_for(warp):
+    """The guide's steps, view and camera check for the sim RealSense frame warped by `warp` (2 x 3) as the live one."""
+    from mahjong.sim import SimPerception
+    mat = SimPerception(tiles=[])
+    K, T = mat.intrinsics, mat.T_cam_to_base
+    reference = mat.snapshot()
+    region = sc.robot_region(K, T, reference.shape)
+    live = cv2.warpAffine(reference, np.float32(warp), reference.shape[1::-1])
+    result = sc.camera_result(sc.image_shift(reference, live, region), sc.mm_per_px(K, T))
+    steps = sc.guide_steps(result, region, K, T)
+    view = sc.guide_view(reference, live, region, result, steps)
+    assert sc.worst([s["status"] for s in steps]) == result["status"]          # the window can't disagree with the grade
+    return {s["kind"]: s for s in steps}, view, (K, T, region)
+
+
+def test_the_guide_says_turn_or_slide_in_the_robots_terms():
+    steps, view, (K, T, region) = guide_for([[1, 0, 0], [0, 1, 0]])
+    assert sc.step_now(list(steps.values())) is None and view.shape[1] == 900                 # lined up: no arrow
+    centre = ((region[0] + region[2]) / 2, (region[1] + region[3]) / 2)
+
+    # the robot higher in the image (further forward, toward the tiles): slide it back, nothing about turning
+    steps, _, _ = guide_for([[1, 0, 0], [0, 1, -4]])
+    assert steps["turn"]["status"] == "pass" and steps["move"]["status"] != "pass"
+    assert "back" in steps["move"]["text"] and "left" not in steps["move"]["text"] and "right" not in steps["move"]["text"]
+    assert sc.step_now(list(steps.values()))["kind"] == "move" and steps["move"]["direction"][1] > 0.9
+    steps, _, _ = guide_for([[1, 0, -4], [0, 1, 0]])                  # left in the image: its left, so back to the right
+    assert "to its right" in steps["move"]["text"] and steps["move"]["direction"][0] > 0.9
+
+    # turned 2° anticlockwise about its middle: turn it clockwise first (and the other way round)
+    steps, _, _ = guide_for(cv2.getRotationMatrix2D(centre, 2.0, 1.0))
+    assert steps["turn"]["status"] == "fail" and sc.step_now(list(steps.values()))["kind"] == "turn"
+    assert steps["turn"]["clockwise"] and " clockwise" in steps["turn"]["text"]
+    other, _, _ = guide_for(cv2.getRotationMatrix2D(centre, -2.0, 1.0))
+    assert not other["turn"]["clockwise"] and "anticlockwise" in other["turn"]["text"]
+
+
+def test_the_guide_holds_still_on_noise_and_says_when_the_view_is_unsteady():
+    shifts = [{"dx_px": x, "dy_px": 0.0, "rotation_deg": t, "inliers": 50, "shift_px": abs(x)}
+              for t, x in ((0.3, 0.7), (-0.2, -0.8), (0.1, 0.3), (5.0, 6.0), (0.0, 0.1))]
+    result = sc.steady_camera(shifts, 1.5)
+    assert result["status"] == "pass"                               # one wild frame doesn't swing it
+    blind = sc.steady_camera([{"inliers": 3}] * 4 + shifts[:1] + [{"inliers": 40}], 1.5)
+    assert blind["status"] == "warn" and "unsteady" in blind["why"] and "only 1 of the last 6" in blind["why"]
+    assert "only 3 features" in sc.steady_camera([{"inliers": 3}] * 7, 1.5)["why"]
+
+
+def test_the_camera_result_is_the_one_the_window_showed(monkeypatch):
+    import setup_check
+    from mahjong.sim import SimPerception
+    mat = SimPerception(tiles=[])
+    K, T = mat.intrinsics, mat.T_cam_to_base
+    still = mat.snapshot()
+    reference = {"realsense_image": still, "region": sc.robot_region(K, T, still.shape)}
+    moved = cv2.warpAffine(still, np.float32([[1, 0, 0], [0, 1, -4]]), still.shape[1::-1])
+    seen, frames = [], iter([moved] * sc.GUIDE_FRAMES + [still] * 20)       # moved back while the window is up
+    mat.snapshot = lambda: next(frames)
+    monkeypatch.setattr(cv2, "imshow", lambda *a: None)
+    monkeypatch.setattr(sc, "guide_view", lambda ref, live, region, result, steps: seen.append(result) or still)
+    keys = iter([0] * sc.GUIDE_FRAMES + [13])
+    _, _, camera = setup_check.measure_camera(mat, reference, True, wait_key=lambda: next(keys))
+    assert camera is seen[-1] and camera["status"] == "pass" and seen[0]["status"] != "pass"
+
+
+def test_a_reference_is_never_saved_from_the_wrong_camera_or_with_no_spot(tmp_path, monkeypatch):
+    import pytest
+    import setup_check
+    from mahjong.sim import SimWristCamera
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    folder = tmp_path / "reference"
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    room = cv2.resize(np.random.default_rng(0).integers(0, 255, (12, 16, 3), dtype=np.uint8), (640, 480),
+                      interpolation=cv2.INTER_NEAREST)
+
+    class BaseCamera(SimWristCamera):
+        def read(self):
+            return True, room.copy()
+
+    devices = sim_devices()
+    devices["wrist_camera"] = BaseCamera(devices["arm"], devices["realsense"])
+    assert run(tmp_path, ["--save-reference"], ["y"], devices=devices) == "fail"
+    monkeypatch.setattr(setup_check, "place_sim_tile", lambda realsense, spot: setattr(realsense, "tiles", []))
+    assert run(tmp_path, ["--save-reference"], ["s", "s", "s"]) == "fail"           # every spot skipped
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+    assert run(tmp_path, ["--save-reference", "--skip-tiles"], ["y"]) == "pass"     # asked for: no spots in it
+    with pytest.raises(SystemExit, match="no check spots"):
+        run(tmp_path, [])
+
+
+def test_a_wrist_camera_that_doesnt_move_with_the_arm_stops_the_tile_test(tmp_path, monkeypatch):
+    from mahjong.sim import SimWristCamera
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    room = cv2.resize(np.random.default_rng(0).integers(0, 255, (12, 16, 3), dtype=np.uint8), (640, 480),
+                      interpolation=cv2.INTER_NEAREST)                # blocks: a room's shapes, not pixel noise
+
+    class BaseCamera(SimWristCamera):     # the base camera on the wrist's port: the same room wherever the arm is
+        def read(self):
+            return True, room.copy()
+
+    devices = sim_devices()
+    devices["wrist_camera"] = BaseCamera(devices["arm"], devices["realsense"])
+    assert run(tmp_path, [], devices=devices) == "fail"            # no "reposition the tile" questions
+    check, session = last_check(tmp_path)
+    spots = check["results"]["tiles"]["spots"]
+    assert list(spots) == ["F2"] and "isn't on the arm" in spots["F2"]["why"]
+    assert [e["type"] for e in read_events(session)].count("setup_wrist_camera_still") == 1
+
+
+def test_a_weak_match_is_shown_to_a_person_rather_than_looped(tmp_path, monkeypatch):
+    import setup_check
+    from mahjong import sim
+    from mahjong.session import Session
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    reference = sc.load_reference(tmp_path / "reference")
+    monkeypatch.setattr(sc, "MATCH_MIN_SCORE", 1.01)                # every match weak: a reference in other light
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "check")
+    spots = setup_check.check_spots(None, reference)[:1]
+
+    def tile_test(confirm_weak, answers=()):
+        devices = sim.connect(tiles=[], wrist_view=True)
+        session = Session("setup", ask_setup=False, sim=True)
+        answers = iter(answers)
+        results, _, _ = setup_check.tile_test(devices["arm"], devices["wrist_camera"], devices["realsense"], None, spots,
+                                              reference, session, True, ask=lambda p: next(answers),
+                                              confirm_weak=confirm_weak)
+        session.close()
+        return results[spots[0]["id"]], [e["type"] for e in read_events(session.dir)]
+
+    said = []
+    result, events = tile_test(lambda spot, frame, weak: said.append(weak["score"]) or True)
+    assert result["status"] == "pass" and result["confirmed_by"] == "person" and result["attempts"] == 1
+    assert len(said) == 1 and sc.MATCH_ASK_SCORE <= said[0] and "setup_tile_confirmed" in events
+    result, events = tile_test(lambda spot, frame, weak: False, answers=["s"])              # "no": the usual question
+    assert result["status"] == "fail" and "setup_tile_not_found" in events

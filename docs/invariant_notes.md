@@ -182,6 +182,14 @@ one-variable test the log couldn't do, and it is decisive.
 - **Still unmeasured.** Whether another device also fails on 3-8 (that would separate a worn receptacle from a worn plug end
   that happens to seat well in 3-5), and whether 3-5 holds up over a real session with the arm moving. One disconnect at
   14:38:32 on 3-5 was the owner replugging, not a drop.
+- **2026-11-25: back on 3-8, on trial.** The owner changed to a shorter cable that can't reach 3-5 without hitting the
+  tripod. On 3-8 it streamed 1183 frames in 45s (26.3fps, 0 failed reads, 0 torn, no kernel lines for the port; one 0.5s
+  gap), arm still. That differs from 11-13, when it couldn't stream there, but cable and insertion both changed since, and
+  still-arm watches never caught a drop. Then with the arm moving: `20261125_214715_play_fd` (21:47-22:15), 46 of 46
+  picked, 0 torn frames, no camera events and no kernel line for 3-8 (the old rate was ~19 disconnects an hour). Before
+  it, 3-8 logged a disconnect at 21:44:38, 15s after `20261125_214243_play_fd` ended, and the camera came back at
+  21:45:23 with no error lines; whether a person replugged it isn't recorded. Go back to 3-5 on any drop, `-71` / `-110`
+  or torn frames.
 - **Bluetooth audio shares the root hub.** `lsusb -t` puts the camera on bus 3 port 8 and `btusb` on bus 3 port 14. At
   12:19:10 wireplumber logged `Failure in Bluetooth audio transport /org/bluez/hci0/dev_*/sep1/fd0` and the bluez output node
   went `running -> error`; at 12:20:24 `pipewire-pulse` gave client `[Firefox]` `error:25 (Input/output error)`, which is
@@ -306,6 +314,40 @@ The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep wh
   is none), and the setup check's wrist view matches the reference's own picture of the tile
   (`setup_check.match_tile`: same tile 0.82-0.96 on 14 pairs, no tile 0.68 on one frame; it can't tell which tile,
   another reached 0.84). The cutoff comes from one session's light and hasn't run on the arm.
+  It proved marginal across light: from 2026-11-11 to 11-23 every "no tile" on the standard mat (12 frames, the tile
+  plainly in view) matched 0.67-0.77 within 15px of the reference's place, against a reference from 2026-11-03, while
+  passes scored 0.78-0.82 at F2 and F3. So a match from `MATCH_ASK_SCORE` (0.6) up is shown to a person rather than
+  looped as "no tile". The tile detector is no help in the wrist view: it boxed nothing in the reference frames or any
+  of those (best 0.55, a tile cut by the image edge); it was trained on the RealSense's view from 0.87m.
+  **Swapped camera cables** (2026-11-25, `20261125_201151_setup`): both cameras replugged at 20:08, the base camera's
+  into the wrist's port 3-5, so the tile test hovered F2 five times over a tile the base camera couldn't see (match
+  0.36). The udev rule was right; only the port tells the two apart. The base camera's frames across those hovers were
+  0.94-1.00 alike (`setup_check.view_similarity`), real wrist frames 0.00-0.52 between spots (61 pairs), so a wrist
+  view that stays 0.75 alike from rest to the hover stops the tile test.
+
+- **The RealSense's depth reading drifts** (analysed 2026-11-25 from the `depth.npz` saved with each scan; the setup
+  check's own `table_fit` run on every one). Over 1881 bench and play scans from 2026-11-13 to 11-23 (8+ confident
+  tiles; `20261118_234045_bench` left out, its tiles read 39mm up) the mat read +3.4 / +5.5 / +10.8mm vs `config.table_z`
+  (p5 / median / p95); the 11-03 reference reads ~0. Tile tops moved with it (1.0-1.3mm per mm), though a tile's thickness
+  can't change. Against the colour image (ORB features, scale of a similarity fit; a real vertical move rescales it):
+
+  | Compared | Depth moved | Image scale seen | A real move predicts | Features |
+  |---|---|---|---|---|
+  | `20261116_200001_bench`, start → end | +2.2mm | +0.04% | +0.26% | 1515 |
+  | `20261118_105159_bench`, start → end | +3.3mm | +0.03% | +0.39% | 1862 |
+  | `20261118_153155_bench`, start → end | +1.0mm | +0.01% | +0.12% | 1828 |
+  | `20261123_224453_bench`, start → end | +2.4mm | +0.01% | +0.28% | 2293 |
+  | `20261123_203643_bench` → `205508` | +3.0mm | +0.02% | +0.36% | 1876 |
+  | `20261123_161326_bench` → `203643` | -6.6mm | -0.02% | -0.78% | 118 |
+  | `20261123_085733_bench` → `203643` | -11.2mm | -0.49% | -1.32% | 63 |
+
+  The last row doesn't fit as cleanly: few features match and the image also shifted 1.4px, so something may have moved
+  between that morning and evening. A `116_200001` → `123_085733` pair (+5.9mm) was inconclusive (±0.17%, 59 features).
+  The cause is unknown: the climb within sessions looks like warm-up, but `20261125_203948_setup` read +9.6mm seconds
+  after the RealSense was replugged. Effect on scans, which place tiles from this depth: against the same box on the flat
+  table plane, x moves -0.22 to -0.25mm per mm of drift, y ~0.05. The setup check's tile test uses the flat plane, so it
+  says nothing about this. Untested: face-down scans drop back boxes under `BACK_MIN_HEIGHT_M` (8mm), and face-up tile
+  tops read as low as ~6mm on 11-23 evening.
 
 - **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
   for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the
