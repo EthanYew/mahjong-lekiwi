@@ -28,6 +28,7 @@ class SimRobot:
         """on_release(tool xy, measured tip clearance m): called when the jaws open on a held tile. mat: the SimPerception whose
         tiles the watchdog checks the jaws against (taken from on_release when that's a mat's release)."""
         self.command = dict(start or config.REST_POSE)
+        self.connected = True
         self.mat = mat if mat is not None else getattr(on_release, "__self__", None) if isinstance(
             getattr(on_release, "__self__", None), SimPerception) else None
         self.violations = []    # (kind, detail, command index) from mahjong.motion_watch.check
@@ -50,7 +51,14 @@ class SimRobot:
         previous = self._measured_offset or {j: lo for j, (lo, _) in band.items()}
         self._measured_offset = {j: min(max(previous[j], lo), hi) for j, (lo, hi) in band.items()}
 
+    def _require_connected(self):
+        """The real bus refuses reads and writes once disconnected, so this does too: with a sim that still answered, face-down
+        play asked its end check through a question that rests the arm, after closing it, and only the arm found out."""
+        if not self.connected:
+            raise ConnectionError("SimRobot is disconnected")
+
     def _read(self, register):
+        self._require_connected()
         if register == "Goal_Position":
             return dict(self.command)
         if self._measured_offset is None:
@@ -63,6 +71,7 @@ class SimRobot:
         return measured
 
     def send_action(self, action):
+        self._require_connected()
         previous_command = dict(self.command)
         previous_measured = self._read("Present_Position")
         for key, value in action.items():
@@ -96,10 +105,10 @@ class SimRobot:
         return {f"{j}.pos": v for j, v in self._read("Present_Position").items()}
 
     def connect(self, calibrate=False):
-        pass
+        self.connected = True
 
     def disconnect(self):
-        pass
+        self.connected = False
 
     def measured_clearance_mm(self):
         tip = kinematics.pincer_tip(self._read("Present_Position"))

@@ -4,6 +4,7 @@ runs out. Built on the crude run's turn (mahjong/crude_run.py), with every tile 
     python scripts/play_face_down.py                         # even-hand13, the wall at L2; you check the hand and every draw
     python scripts/play_face_down.py --unattended            # the reader's name is taken: you only lay the hand and feed the wall
     python scripts/play_face_down.py --resume                # carry on the latest hand from its last finished turn
+    python scripts/play_face_down.py --end-check             # the end check the latest hand never got (a stop there), no hardware
     python scripts/play_face_down.py --report                # the latest hand's reads against your review of its photos
     python scripts/play_face_down.py --sim                   # simulated arm and cameras, no hardware
 
@@ -43,7 +44,7 @@ from mahjong import (base_cam, base_cam_collect, config, crude_run, desk_video, 
                      interventions, layout, markers, play_log, privacy, takeover, wall_test)
 from mahjong.identity import parse_fixes
 from mahjong.perception import drain_stdin
-from mahjong.session import read_events
+from mahjong.session import Session, is_sim, read_events
 
 LAY_WINDOW = "lay the hand and the wall (RealSense view)"
 ZONE = play_log.ZONE.upper()     # what a person types for the drop zone in the end check: a win's drawn tile lies there
@@ -60,6 +61,10 @@ def parse_args(argv=None):
                    help="--unattended: a read under this confidence gets a second hold at the poses (default %(default)s)")
     p.add_argument("--resume", nargs="?", const="latest", default=None, metavar="SESSION",
                    help="carry on a hand (default: the latest) from its last finished turn; the tiles stay where they are")
+    p.add_argument("--end-check", nargs="?", const="latest", default=None, metavar="SESSION",
+                   help="do the end check a finished hand (default: the latest) never got, e.g. the script stopped at it: no hardware")
+    p.add_argument("--on-my-word", default=None, metavar="WHY",
+                   help="with --end-check: take the hand as right without turning the tiles over, and log why (they're gone, say)")
     p.add_argument("--report", nargs="?", const="latest", default=None, metavar="SESSION",
                    help="score a hand's reads (default: the latest) against your review of its photos, and stop: no hardware")
     p.add_argument("--policy", default=None, help="policy id (default: the registry's default)")
@@ -70,32 +75,51 @@ def parse_args(argv=None):
     p.add_argument("--sim", action="store_true", help="simulated arm, cameras and policy: no hardware")
     takeover.add_argument(p)
     p.set_defaults(empty=False, hover_lower_mm=None, frames=1, settle_s=1.0, gap_s=0.25, jitter_deg=0.0, stacked=True)     # what face_down_rig's Rig and crude_run's Run read
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.on_my_word is not None and (args.end_check is None or not args.on_my_word.strip()):
+        p.error("--on-my-word goes with --end-check and says why")
+    return args
 
 
 def play_sessions():
     return sorted(config.SESSIONS.glob(f"*_{face_down_play.PLAY_KIND}"))
 
 
-def find_session(arg, need_checkpoint=False):
+def find_session(arg, need_checkpoint=False, sim=None):
     if arg != "latest":
         folder = Path(arg) if Path(arg).is_dir() else config.SESSIONS / arg
         if not folder.is_dir():
             raise SystemExit(f"no session {arg}")
         return folder
-    folders = [f for f in play_sessions() if not need_checkpoint or (f / "checkpoint.json").exists()]
+    folders = [f for f in play_sessions() if (not need_checkpoint or (f / "checkpoint.json").exists())
+               and (sim is None or is_sim(f) == sim)]
     if not folders:
         raise SystemExit(f"no face-down play session{' with a checkpoint' if need_checkpoint else ''} under {config.SESSIONS}")
     return folders[-1]
 
 
-def load_checkpoint(arg):
-    folder = find_session(arg, need_checkpoint=True)
+def read_checkpoint(arg, sim=None):
+    """(session folder, its checkpoint) of the hand named, or the latest with one (sim: the latest simulated or real one)."""
+    folder = find_session(arg, need_checkpoint=True, sim=sim)
+    if arg == "latest":     # the table holds the last hand laid: a newer one that stopped early has no checkpoint
+        newer = [f for f in play_sessions() if f.name > folder.name and is_sim(f) == bool(sim)
+                 and next((e.get("resumed_from") for e in read_events(f) if e["type"] == "session_start"), None) != folder.name]
+        if newer:
+            raise SystemExit(f"{newer[-1].name} is newer than the latest hand with a checkpoint, {folder.name}: if that's the "
+                             f"one you mean, name it")
     state = json.loads((folder / "checkpoint.json").read_text()) if (folder / "checkpoint.json").exists() else None
     if state is None:
         raise SystemExit(f"{folder.name} has no checkpoint.json: it stopped before the hand was checked, so start a new one")
+    return folder, state
+
+
+def load_checkpoint(arg, sim=False):
+    """The hand --resume carries on."""
+    folder, state = read_checkpoint(arg, sim=sim)
     if state["phase"] != "play":
-        raise SystemExit(f"{folder.name}'s hand is over ({state['phase']})")
+        ended = any(e["type"] == "hand_end" for e in read_events(folder))
+        raise SystemExit(f"{folder.name}'s hand is over ({state['phase']})"
+                         + ("" if ended else f": its end check never ran, do it with --end-check {folder.name}"))
     return folder, state
 
 
@@ -426,35 +450,92 @@ class Player(crude_run.Run):
                     self.checkpoint("end")
                 return result
 
-    def audit(self, result):
-        """The end check: a person turns the 13 over, and after a win the drawn tile on the drop zone too (as play.py's audit
-        shows it: a win is only as good as all 14 names), and says which the robot had wrong (silent errors).
-        Returns {grade, checked, wrong, covers, found}."""
-        if not self.hand:
-            return {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": []}
-        believed = {**self.hand, **({play_log.ZONE: self.winning} if self.winning else {})}
-        print("\nThe robot's hand: " + "  ".join(f"{s}={self.hand[s]}" for s in self.slots)
-              + (f"\n  and {self.winning} on the drop zone, the tile it won on ({ZONE})" if self.winning else ""))
-        ids = {s.upper(): s for s in believed}
-        what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if self.winning else f"the {len(self.slots)}"
-        drain_stdin()
-        while True:
-            answer = self.ask(f"Turn {what} over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
-            if answer.lower() == "s":
-                checked, wrong = False, {}
-                break
-            wrong = parse_fixes(answer, ids) if answer else {}
-            if wrong is not None and not face_down_play.bad_names(wrong):
-                checked = True
-                break
-            print(f"  As SLOT=NAME, slots {self.slots[0]}-{self.slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if self.winning else ""))
-        wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
-        for slot, name in wrong.items():
-            self.rig.session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
-        covers = list(believed) if checked else []
-        self.rig.session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(self.hand), won_on=self.winning, covers=covers)
-        found = [i for i in interventions.derive(read_events(self.rig.session.dir)) if i["kind"] != "killed"]
-        return {"grade": interventions.hand_grade(found), "checked": checked, "wrong": wrong, "covers": covers, "found": found}
+    def played(self):
+        """What this hand did, for finish_hand (face_down_play.played reads the same from a log)."""
+        return {"turns": self.done, "reads": self.registered + len(self.reads), "corrected": self.corrected, "breaks": self.breaks,
+                "slots": self.slots, "hand": self.hand, "winning": self.winning, "discards": self.discards}
+
+
+def end_check(session, ask, slots, hand, winning, on_word=None):
+    """A person turns the 13 over, and after a win the drawn tile on the drop zone too (as play.py's audit shows it: a win is
+    only as good as all 14 names), and says which the robot had wrong (silent errors). Returns {grade, checked, wrong,
+    covers, found}. on_word: why the person takes the hand as right without turning it over (--on-my-word): nothing is
+    asked, and the log says that's what it rests on. It comes after the arm is closed, so `ask` is the bare one: Player's rests the arm first (2026-11-25:
+    every finished hand crashed here, `20261125_214715_play_fd`)."""
+    if not hand:
+        return {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": []}
+    believed = {**hand, **({play_log.ZONE: winning} if winning else {})}
+    print("\nThe robot's hand: " + "  ".join(f"{s}={hand[s]}" for s in slots)
+          + (f"\n  and {winning} on the drop zone, the tile it won on ({ZONE})" if winning else ""))
+    ids = {s.upper(): s for s in believed}
+    what = f"the {len(believed)} (the drop zone's too, as {ZONE}=NAME)" if winning else f"the {len(slots)}"
+    drain_stdin()
+    while True:
+        if on_word:
+            print(f"Taken as right on your word, without a tile-by-tile check: {on_word}")
+            checked, wrong = True, {}
+            break
+        answer = ask(f"Turn {what} over and check them. Enter if every one matches, the wrong ones as SLOT=NAME (S3=5C), or s to skip: ").strip()
+        if answer.lower() == "s":
+            checked, wrong = False, {}
+            break
+        wrong = parse_fixes(answer, ids) if answer else {}
+        if wrong is not None and not face_down_play.bad_names(wrong):
+            checked = True
+            break
+        print(f"  As SLOT=NAME, slots {slots[0]}-{slots[-1]}" + (f", or {ZONE}=NAME for the drop zone" if winning else ""))
+    wrong = {slot: name for slot, name in wrong.items() if name != believed[slot]}
+    for slot, name in wrong.items():
+        session.intervention("silent_error", slot=slot, robot=believed[slot], table=name)
+    covers = list(believed) if checked else []
+    session.event("fd_audit", checked=checked, wrong=wrong, hand=dict(hand), won_on=winning, covers=covers,
+                  **({"on_word": on_word} if on_word else {}))
+    found = [i for i in interventions.derive(read_events(session.dir)) if i["kind"] != "killed"]
+    return {"grade": interventions.hand_grade(found), "checked": checked, "wrong": wrong, "covers": covers, "found": found}
+
+
+def finish_hand(session, ask, result, unattended, played, on_word=None):
+    """What follows a hand, with the arm closed: the end check (a win or the wall run out), the summary, play_fd_summary.json
+    and hand_end. played: Player.played's dict; on_word: end_check's."""
+    folder = session.dir
+    if result in ("win", "end"):
+        check = end_check(session, ask, played["slots"], played["hand"], played["winning"], on_word)
+    else:                   # no end check, but what a person did still counts in the hand's asks and rescues
+        found = [i for i in interventions.derive(read_events(folder)) if i["kind"] != "killed"]
+        check = {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": found}
+    waiting = len(base_cam.waiting_for_review(folder))
+    s = face_down_play.summary(played["turns"], result, check["grade"], unattended, played["reads"], played["corrected"],
+                               sum(bool(b["by_hand"]) for b in played["breaks"]), len(check["wrong"]), check["checked"], waiting,
+                               on_word=on_word)
+    print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(played["breaks"])))
+    (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": played["breaks"], "hand": played["hand"],
+                                                             "winning": played["winning"], "discards": played["discards"]}, indent=2) + "\n")
+    play_log.hand_end(session, result=result, turns=s["turns"], grade=s["grade"], found=check["found"],
+                      slots=played["slots"], hand=played["hand"], discards=played["discards"], wrong=check["wrong"],
+                      checked=check["checked"], covers=check["covers"], winning=played["winning"], on_word=on_word,
+                      **{k: v for k, v in s.items() if k not in ("result", "turns", "grade", "silent_errors")})
+
+
+def late_end_check(arg, ask=input, on_word=None, sim=False):
+    """--end-check: finish a hand that was won, or ran out of wall, but never reached its hand_end (the script stopped at the
+    end check). No hardware; the tiles have to be as the hand left them, unless on_word (--on-my-word) says why they're
+    taken as right without looking."""
+    folder, state = read_checkpoint(arg, sim=sim)
+    if not folder.name.endswith(f"_{face_down_play.PLAY_KIND}"):
+        raise SystemExit(f"{folder.name} isn't a face-down hand")
+    if state["phase"] not in ("won", "end"):
+        raise SystemExit(f"{folder.name}'s hand isn't over ({state['phase']}): carry it on with --resume")
+    events = read_events(folder)
+    if any(e["type"] == "hand_end" for e in events):
+        raise SystemExit(f"{folder.name} already has its end: score it with --report")
+    session = Session.reopen(folder)
+    try:
+        print(f"End check for {folder.name} ({state['phase']})." + ("" if on_word else " The tiles have to be where the hand left them."))
+        finish_hand(session, ask, "win" if state["phase"] == "won" else "end", state["unattended"], face_down_play.played(events, state),
+                    on_word)
+    finally:
+        session.close(reason="quit")        # a Ctrl-C here isn't the hand's: it ran to its end, and this can be run again
+    return folder
 
 
 def report(arg):
@@ -477,6 +558,8 @@ def main(argv=None, ask=input):
     args = parse_args(argv)
     if args.report is not None:
         return report(args.report)
+    if args.end_check is not None:
+        return late_end_check(args.end_check, ask, args.on_my_word, args.sim)
     privacy.require()           # the weights that blur faces in the base camera's photos: before any hardware
     spots = layout.load(args.layout)["spots"]
     slots = [s["id"] for s in spots]
@@ -497,7 +580,7 @@ def main(argv=None, ask=input):
     reader = base_cam.load_reader()
     if reader is None and args.unattended:
         raise SystemExit(f"--unattended takes the reader's names, and there's no reader ({base_cam.READER}): base_cam_train.py --save-reader")
-    resumed = load_checkpoint(args.resume) if args.resume else None
+    resumed = load_checkpoint(args.resume, args.sim) if args.resume else None
     station = stations[args.station]
     print(f"Reader: {base_cam.READER.name}, knows {len(reader.classes)} names" if reader else f"No reader ({base_cam.READER}): you'll name every tile")
     rig = face_down_rig.Rig(args, [station, zone, *spots], poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does
@@ -531,22 +614,7 @@ def main(argv=None, ask=input):
             desk_video.stop(rig.session, rig.desk_camera, desk)     # before the camera closes
         rig.close()
         if rig.session and player:
-            if result in ("win", "end"):
-                check = player.audit(result)
-            else:                   # no end check, but what a person did still counts in the hand's asks and rescues
-                found = [i for i in interventions.derive(read_events(folder)) if i["kind"] != "killed"]
-                check = {"grade": None, "checked": False, "wrong": {}, "covers": [], "found": found}
-            waiting = len(base_cam.waiting_for_review(folder))
-            s = face_down_play.summary(player.done, result, check["grade"], args.unattended, player.registered + len(player.reads),
-                                       player.corrected, sum(bool(b["by_hand"]) for b in player.breaks), len(check["wrong"]),
-                                       check["checked"], waiting)
-            print("\n" + "\n".join(face_down_play.summary_lines(s) + face_down_play.break_lines(player.breaks)))
-            (folder / "play_fd_summary.json").write_text(json.dumps({**s, "breaks_list": player.breaks, "hand": player.hand,
-                                                                     "winning": player.winning, "discards": player.discards}, indent=2) + "\n")
-            play_log.hand_end(rig.session, result=result, turns=s["turns"], grade=s["grade"], found=check["found"],
-                              slots=player.slots, hand=player.hand, discards=player.discards, wrong=check["wrong"],
-                              checked=check["checked"], covers=check["covers"], winning=player.winning,
-                              **{k: v for k, v in s.items() if k not in ("result", "turns", "grade", "silent_errors")})
+            finish_hand(rig.session, ask, result, args.unattended, player.played())
         if rig.session:
             rig.session.close()
     return folder

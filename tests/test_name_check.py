@@ -249,7 +249,7 @@ def test_a_problem_read_the_wrist_agrees_with_waits_for_the_hand_check(tmp_path,
     decided = next(e for e in events_of(p) if e["type"] == "name_decided" and e["slot"] == "H1")
     assert (decided["name"], decided["how"]) == ("7C", "wrist") and reader.reads == 1
     assert any(e["type"] == "hand_confirmed" for e in events_of(p))      # a person still saw it
-    assert p.bench.arm.tip_clearance()[0] > 0.05                          # and the arm went back to rest
+    assert p.bench.arm.robot.clearances[-1] > 50                         # and the arm went back to rest
 
 
 def test_a_problem_read_the_wrist_disagrees_with_asks_and_says_what_it_saw(tmp_path, monkeypatch):

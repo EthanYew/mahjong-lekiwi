@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from mahjong import base_cam, config, desk_video, face_down_play, game, interventions, play_log, privacy
+from mahjong import base_cam, config, desk_video, face_down_play, game, hand_tally, interventions, play_log, privacy
 from mahjong.session import read_events
 
 OUT_FPS = 30
@@ -275,6 +275,7 @@ class Story:
 
     def __init__(self, session_dir, events, reads=None):
         self.name = session_dir.name
+        self.lower = hand_tally.lowered(session_dir, (play_log.hand(events)["end"] or {}).get("grade"))
         self.found = interventions.derive(events)
         self.attempts = play_log.pickups(events)
         self.hand = play_log.hand(events)
@@ -286,7 +287,8 @@ class Story:
         self.verdict = play_log.verdict(self.hand, reads)
         self.policy = next((e.get("policy") for e in events if e["type"] == "bench_setup"), None) \
             or next((e.get("policy") for e in events if e["type"] == "session_start"), None)
-        times = [seconds(e["time"]) for e in events if e.get("time")]
+        reopened = next((i for i, e in enumerate(events) if e["type"] == "session_reopened"), len(events))     # a late end check
+        times = [seconds(e["time"]) for e in events[:reopened] if e.get("time")]
         self.start, self.stop = (min(times), max(times)) if times else (0, 0)
 
     def counts(self, t=None):
@@ -371,7 +373,9 @@ class Story:
             out.append(f"Result: {result}" + (f" in {self.end['turns']} turns" if self.end.get("turns") is not None else ""))
             if win and win.get("before"):
                 out.append(f"Winning hand: {play_log.melds_line(win['before'] + [win['drawn']])}  (drew {win['drawn']})")
-            if self.end.get("grade"):
+            if self.lower:
+                out.append(f"Graded: {self.lower}, for {hand_tally.CARRIED}")
+            elif self.end.get("grade"):
                 out.append(f"Graded: {self.end['grade']}")
         else:
             out.append("The hand didn't finish in this session")
@@ -383,6 +387,8 @@ class Story:
             out.append(f"A person checked {self.checked} of the reader's names")
         if self.verdict:
             out += self.verdict["lines"]
+        elif (line := play_log.word_line(self.hand, self.reads)):
+            out.append(line)
         out.append(f"session {self.name}")
         return out
 

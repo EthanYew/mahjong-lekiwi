@@ -154,6 +154,8 @@ errors** (`scripts/play_face_down.py`). What differs from the face-up hand above
 - **Unattended hands count.** Wrong names can get in silently, so they are caught afterwards: every hold's photo gets a verdict
   (`base_cam_review.py --play`), `play_face_down.py --report` scores every read against it, and the end check compares the 13
   to the table. One wrong name found is a silent error: a gate, play stops. A hand not yet reviewed counts for nothing.
+  Where the end check couldn't be done, the owner can take the hand as right on their word (`--end-check --on-my-word`, decided
+  2026-11-25 after a crash at the end check): it counts, and `status.py` and the reports say what it rests on. The writeup should too.
 - **Clean, home definition (decided 2026-11-20, the owner; the code doesn't grade it yet, see below).** A hand at a family table
   can take a nudge, so a clean hand now has a **fix budget: at most 3 fixes** (a fix is a rescue, a step a person did by hand such
   as putting a tile back or redoing a pickup, or a reset), plus: no ask (a correction of a name is an ask; pressing Enter on a read

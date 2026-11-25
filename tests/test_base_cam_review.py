@@ -187,3 +187,18 @@ def test_training_finds_play_sessions_but_only_their_reviewed_holds(tmp_path, mo
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     assert [f.name for f in base_cam_train.find_sessions(None)] == ["20261112_100000_holdup", session.name]
     assert base_cam.rows(session) == []
+
+
+def test_a_photo_marked_wrong_with_no_name_can_be_named_in_a_later_run_with_all(tmp_path):
+    """status.py --void and the face-down tally ask for such a photo to be named, and no new window showed it (2026-11-26)."""
+    import base_cam_review
+    photo = {"key": "s/a.jpg", "path": tmp_path / "a.jpg", "name": "3B", "session": "20261125_000000_play_fd", "pose": "base_view_1",
+             "spot": "draw t1", "arrangement": None, "shot": 1, "hold": 1, "kind": "unknown", "group": "g"}
+    log = tmp_path / "review.jsonl"
+    review = {"s/a.jpg": {"photo": "s/a.jpg", "verdict": "wrong", "name": None}}
+    assert base_cam_review.Reviewer([photo], dict(review), ["3B"], log=log, boxes={}).names == []
+    reviewer = base_cam_review.Reviewer([photo], dict(review), ["3B", "3D"], show_all=True, log=log, boxes={})
+    assert reviewer.names == ["3B"] and reviewer.rows == [[photo]]
+    reviewer.mark([photo], "wrong", "3D")
+    assert photo_review.name_of(photo, photo_review.load_review(log)) == "3D"
+

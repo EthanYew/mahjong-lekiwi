@@ -9,28 +9,41 @@ A hand (a `*_play_fd` session, real and not voided) is one of:
                                hand counts as consecutive until it is
   unfinished                   it started turns but never reached its end check, or a person quit it: a failed hand, not skipped
   not verified                 a win no person vouched for (play_log.verdict)
-Only hands before the first one waiting are counted. The window is the last WINDOW of them."""
+  voided                       stopped by something other than the robot (data/void_sessions.json, status.py --void): listed,
+                               not counted. What a person did to help in it stays with a later session that resumed it, and can
+                               lower that hand's grade. A wrong name it used is still a silent error. It waits for review like any other while
+                               a photo is marked wrong with no name, or if a later session resumed it and one has no verdict
+Only hands before the first one waiting are counted, voided ones left out. The window is the last WINDOW of them."""
 from pathlib import Path
 
-from mahjong import base_cam, config, face_down_play, play_log
-from mahjong.session import counted_real, read_events
+from mahjong import base_cam, config, face_down_play, interventions, play_log
+from mahjong.session import is_sim, read_events, void_reason
 
 TARGET, WINDOW = 8, 10
 COMPLETE = ("win", "end")       # a win, or the wall ran out ("end"); a "quit" is a hand a person stopped
 CLEAN, SILENT, WAITING, UNFINISHED, NOT_VERIFIED = "clean", "silent error", "waiting for review", "unfinished", "not verified"
+VOIDED = "voided"
+GRADES = (CLEAN, "attended", "rescued")             # interventions.hand_grade's, best first
+STOPS = ("killed", "interrupted", "crashed")        # how a session stopped: what voiding it says wasn't the robot's
+CARRIED = "a person's help in the voided session(s) it carried on"
+
+
+def wrong_reads(reads):
+    """The reviewed holds whose name the hand used was wrong."""
+    return [r for r in reads if r["reviewed"] and r["truth"] is not None and r["filed"] != r["truth"]]
 
 
 def judge(hand_log, reads, events):
     """{"status", "why"} for one hand (play_log.hand's dict, face_down_play.scored_reads' rows, the session's events), or None
     for a session that never started a turn and ended nothing (a quit at the laying window: not a hand)."""
     end = hand_log["end"]
-    wrong_reads = [r for r in reads if r["reviewed"] and r["truth"] is not None and r["filed"] != r["truth"]]
+    wrong = wrong_reads(reads)
     started = any(e["type"] == "fd_turn_start" for e in events)
     if end is None and not started:         # a quit at the laying window: not a hand, whatever its registration holds said
         return None
-    if wrong_reads or (end or {}).get("silent_errors"):      # a known wrong name the hand used is a silent error, finished or not
+    if wrong or (end or {}).get("silent_errors"):      # a known wrong name the hand used is a silent error, finished or not
         found = [f"end check: {end['silent_errors']} tile(s)"] if (end or {}).get("silent_errors") else []
-        found += [f"{r['where']} read {r['filed']}, really {r['truth']}" for r in wrong_reads]
+        found += [f"{r['where']} read {r['filed']}, really {r['truth']}" for r in wrong]
         return {"status": SILENT, "why": "; ".join(found)}
     if end is None or not end.get("end_check") or end.get("result") not in COMPLETE:
         if not started:
@@ -42,22 +55,44 @@ def judge(hand_log, reads, events):
     waiting = [r for r in reads if not r["reviewed"]]
     if waiting or unnamed:
         return {"status": WAITING, "why": f"{len(waiting)} of {len(reads)} hold(s) have no verdict, {len(unnamed)} marked wrong "
-                                          "with no name (rename it in base_cam_review.py --play)"}
+                                          "with no name (rename it in base_cam_review.py --play --all)"}
     check = play_log.verdict(hand_log, reads)
     if end.get("result") == "win" and (check or {}).get("status") != "verified":
         return {"status": NOT_VERIFIED, "why": "; ".join((check or {}).get("lines", [])) or "no person vouched for the win"}
-    return {"status": end.get("grade") or "-", "why": ""}
+    word = end.get("end_check_on_word")
+    return {"status": end.get("grade") or "-", "why": f"end check on the owner's word: {word}" if word else ""}
+
+
+def _start(folder):
+    return next((e for e in read_events(folder) if e["type"] == "session_start"), {})
+
+
+def carried_over(folder):
+    """What a person did in the voided sessions this one carried on (--resume): voiding drops a stopped run, not the help the
+    hand it began had already needed. [interventions]."""
+    folder, found = Path(folder), []
+    while name := _start(folder).get("resumed_from"):
+        folder = folder.parent / name
+        if not (folder / "events.jsonl").exists() or not void_reason(folder):
+            break
+        found += [i for i in interventions.derive(read_events(folder)) if i["kind"] not in STOPS]
+    return found
+
+
+def lowered(folder, grade):
+    """The worse grade that help in voided sessions gives a hand graded `grade`, or None. Its own hand_end can't know of it, so
+    the tally and every report ask here (CARRIED says why)."""
+    if grade not in GRADES:
+        return None
+    carried = interventions.hand_grade(carried_over(folder))
+    return carried if carried in GRADES and GRADES.index(carried) > GRADES.index(grade) else None
 
 
 def series(rows):
-    """Split chronological rows ({status, ...}) into (counted, behind): the hands before the first one waiting for review, and the
-    ones after it, which can't be called consecutive until it is reviewed."""
-    counted = []
-    for i, row in enumerate(rows):
-        if row["status"] == WAITING:
-            return counted, rows[i:]
-        counted.append(row)
-    return counted, []
+    """Split chronological rows ({status, ...}) into (counted, behind): the hands before the first one waiting for review (voided
+    ones left out), and the ones from it on, which can't be called consecutive until it is reviewed."""
+    first = next((i for i, row in enumerate(rows) if row["status"] == WAITING), len(rows))
+    return [row for row in rows[:first] if row["status"] != VOIDED], rows[first:]
 
 
 def window(counted):
@@ -76,15 +111,25 @@ def tally(sessions_dir=None, review=None):
     folder_root = Path(sessions_dir or config.SESSIONS)
     review = base_cam.load_review() if review is None else review
     rows = []
-    for folder in sorted(folder_root.glob("*_play_fd")):
-        if not (folder / "events.jsonl").exists() or not counted_real(folder):
-            continue
+    folders = [f for f in sorted(folder_root.glob("*_play_fd")) if (f / "events.jsonl").exists() and not is_sim(f)]
+    starts = {f.name: _start(f) for f in folders}
+    resumed = {s.get("resumed_from") for s in starts.values()}
+    for folder in folders:
         events = read_events(folder)
         hand_log = play_log.hand(events)
-        verdict = judge(hand_log, face_down_play.scored_reads(folder, review), events)
+        reads = face_down_play.scored_reads(folder, review)
+        verdict = judge(hand_log, reads, events)
         if verdict is None:
             continue
-        start = next((e for e in events if e["type"] == "session_start"), {})
+        if (why := void_reason(folder)) and verdict["status"] != SILENT:
+            unnamed = sum(r["reviewed"] and r["truth"] is None for r in reads)
+            carried = sum(not r["reviewed"] for r in reads) if folder.name in resumed else 0
+            held = ([f"{unnamed} hold(s) are marked wrong with no name"] if unnamed else []) \
+                + ([f"a later session carried its hand on and {carried} hold(s) have no verdict"] if carried else [])
+            verdict = {"status": WAITING, "why": "voided, but " + "; ".join(held)} if held else {"status": VOIDED, "why": why}
+        elif lower := lowered(folder, verdict["status"]):
+            verdict = {"status": lower, "why": "; ".join(filter(None, [verdict["why"], CARRIED]))}
+        start = starts[folder.name]
         end = hand_log["end"] or {}
         rows.append({"name": folder.name, "mode": "unattended" if hand_log["unattended"] else "attended",
                      "turns": end.get("turns"), "result": end.get("result") or "-", **verdict,
@@ -94,12 +139,13 @@ def tally(sessions_dir=None, review=None):
 
 def lines(rows):
     """The tally as text for status.py."""
-    counted, _ = series(rows)
+    counted, behind = series(rows)
     out = [f"Face-down hands (target {TARGET} of {WINDOW} consecutive clean, 0 silent errors; unattended count once reviewed; mahjong/hand_tally.py)"]
     if not rows:
         return out + ["  no face-down hand played yet"]
     for i, r in enumerate(rows):
-        mark = "  (not consecutive yet: behind a hand waiting for review)" if i >= len(counted) and r["status"] != WAITING else ""
+        mark = "  (not consecutive yet: behind a hand waiting for review)" \
+            if i >= len(rows) - len(behind) and r["status"] not in (WAITING, VOIDED) else ""
         out.append(f"  {r['name']:<26} {r['mode']:<10} {r['result']:<5} {r['turns'] or '-':>3} turns  {r['status']}"
                    + (f": {r['why']}" if r["why"] else "") + mark)
     w = window(counted)

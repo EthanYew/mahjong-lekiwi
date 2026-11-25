@@ -7,6 +7,8 @@ was filed as). Nothing is moved or deleted: each verdict is a line in a JSONL lo
 "wrong" with the right name, or "wrong" with none (not a usable photo of any tile). Counts and training sets read the photos
 through `labelled`.
 
+A run with show_all (--all) shows the photos marked wrong with no name too, under the name they were filed as.
+
 The window shows one name at a time, a row per group (what a person gets wrong together: one physical tile for the wrist
 camera, one tile laid on one spot for the base camera). Click a photo to mark it wrong; click the row's label for the whole
 row. Right-click renames (asked in the terminal). Shift+click opens a photo at full size. Space marks the page's unmarked
@@ -97,11 +99,17 @@ class Reviewer:
         import cv2
         return cv2.imread(str(photo["path"]))
 
+    def shown_under(self, photo):
+        """The name whose pages show the photo: its name as reviewed. With show_all, one marked wrong with no right name stays
+        under the name it was filed as, or no later run could show it to be named."""
+        name = name_of(photo, self.review)
+        return photo["name"] if name is None and self.show_all and photo["key"] in self.review else name
+
     def _rows(self, name):
         """Rows for a name: its photos (as named now) by group, COLUMNS a row."""
         groups = {}
         for photo in self.photos:
-            if name_of(photo, self.review) == name:
+            if self.shown_under(photo) == name:
                 groups.setdefault(self.group_of(photo), []).append(photo)
         rows = []
         for members in groups.values():
