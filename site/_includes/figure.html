@@ -1,4 +1,7 @@
+{%- comment -%} width/height come from _data/image_sizes.yml so the browser reserves each photo's space before it loads;
+without them, lazy images above a #link load after the jump and push the target down. Add a line there for a new image. {%- endcomment -%}
+{%- assign dim = site.data.image_sizes[include.src] -%}
 <figure{% if include.narrow %} class="narrow"{% endif %}>
-  <img src="{{ include.src | prepend: '/assets/img/' | relative_url }}" alt="{{ include.alt | default: include.caption | markdownify | strip_html | strip | escape_once }}" loading="lazy">
+  <img src="{{ include.src | prepend: '/assets/img/' | relative_url }}" alt="{{ include.alt | default: include.caption | markdownify | strip_html | strip | escape_once }}"{% if dim %} width="{{ dim.w }}" height="{{ dim.h }}"{% endif %} loading="lazy">
   {% if include.caption %}<figcaption>{{ include.caption | markdownify | remove: '<p>' | remove: '</p>' | strip }}</figcaption>{% endif %}
 </figure>

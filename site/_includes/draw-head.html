@@ -1,0 +1,9 @@
+{%- assign d = site.data.story | where: "n", include.n | first -%}
+{%- assign t = site.data.hand | where: "n", include.n | first -%}
+<header class="draw-head">
+  <span class="mt {{ t.suit }}" aria-hidden="true"><b{% if t.glyph %} class="g"{% endif %}>{{ t.face }}</b><i>{{ t.label }}</i></span>
+  <div>
+    <p class="mj-eyebrow">Draw {{ d.n }} of 14 · {{ d.act }}</p>
+    <h2>{{ d.title }}</h2>
+  </div>
+</header>

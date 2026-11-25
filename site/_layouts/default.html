@@ -9,6 +9,7 @@
   <title>{{ page_title }}</title>
   <meta name="description" content="{{ page_desc }}">
   <meta name="author" content="{{ site.author }}">
+  {% if page.noindex %}<meta name="robots" content="noindex">{% endif %}
   <link rel="canonical" href="{{ page.url | absolute_url }}">
   <meta property="og:type" content="article">
   <meta property="og:title" content="{{ page_title }}">
@@ -22,6 +23,8 @@
   <link rel="stylesheet" href="{{ '/assets/css/components.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/infographics.css' | relative_url }}">
+  {% if page.story or page.hand %}<link rel="stylesheet" href="{{ '/assets/css/hand.css' | relative_url }}">{% endif %}
+  {% if page.story %}<link rel="stylesheet" href="{{ '/assets/css/story.css' | relative_url }}">{% endif %}
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -37,7 +40,7 @@
         <a href="{{ site.repo }}">GitHub</a>
       </span>
     </nav>
-    <div class="progress-hand" aria-hidden="true" data-progress>{% for i in (1..14) %}<i></i>{% endfor %}</div>
+    {% unless page.story %}<div class="progress-hand" aria-hidden="true" data-progress>{% for i in (1..14) %}<i></i>{% endfor %}</div>{% endunless %}
   </header>
 
   {% if page.hero %}
@@ -48,6 +51,7 @@
         <h1 class="mj-in" style="--i:1">{{ page.title }}</h1>
         {% if page.pills %}<div class="pills mj-in" style="--i:2">{% for p in page.pills %}<span class="mj-pill mj-pill--outline">{{ p }}</span>{% endfor %}</div>{% endif %}
         {% if page.lede %}<p class="lede mj-in" style="--i:3">{{ page.lede }}</p>{% endif %}
+        {% if page.story %}<p class="lede mj-in" style="--i:4"><a class="alt-link" href="{{ '/' | relative_url }}">Prefer the article version?</a></p>{% endif %}
       </div>
       <div class="tile-deal" aria-hidden="true">
         {% include tile.html glyph="red" tilt="l" i=0 %}{% include tile.html glyph="jade" i=1 %}{% include tile.html glyph="blank" tilt="r" i=2 %}
@@ -56,7 +60,8 @@
   </section>
   {% endif %}
 
-  <main>
+  <main{% if page.story %} class="story"{% elsif page.hand %} class="has-strip"{% endif %}>
+    {% if page.story %}{% include hand-rack.html toc=site.data.story unit="Draw" mode="rail" %}{% elsif page.hand %}{% assign hand_toc = site.data[page.hand] %}{% include hand-rack.html toc=hand_toc unit="Section" mode="strip" %}{% endif %}
     <article>
       {% unless page.hero %}<div class="page-title"><h1>{{ page.title }}</h1></div>{% endunless %}
       {{ content }}
@@ -72,5 +77,7 @@
   <div class="gloss-pop" id="gloss-pop" role="tooltip" hidden></div>
   <script type="application/json" id="glossary-data">{{ site.data.glossary | jsonify }}</script>
   <script src="{{ '/assets/js/site.js' | relative_url }}" defer></script>
+  {% if page.story or page.hand %}<script src="{{ '/assets/js/hand.js' | relative_url }}" defer></script>{% endif %}
+  {% if page.story %}<script src="{{ '/assets/js/story.js' | relative_url }}" defer></script>{% endif %}
 </body>
 </html>

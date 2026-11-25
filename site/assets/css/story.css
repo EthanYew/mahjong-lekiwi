@@ -1,0 +1,92 @@
+/* /story/: the scroll-driven version. Each section is a draw; the hand (hand.css) sits in a rail beside it.
+   Loaded only on pages with `story: true`, after hand.css. */
+
+.hero .alt-link { color: var(--gold); text-decoration-color: var(--gold); font-size: .95rem; }
+
+/* ---- Layout: the rail in the left margin; the article keeps the same column as on / ----
+   Three columns: the rail's (at least --rail-w), the article's (up to 60rem, for .wide graphics) and a
+   matching right margin. With room to spare the side columns are equal, so the article is centred. */
+main.story { display: grid; grid-template-columns: minmax(var(--rail-w), 1fr) minmax(0, 60rem) minmax(0, 1fr);
+  column-gap: 2rem; padding: 2rem 1.25rem 3rem; align-items: start; }
+main.story > .stage { grid-column: 1; grid-row: 1; justify-self: end; width: var(--rail-w); position: sticky; top: 72px; }
+main.story > article { grid-column: 2; grid-row: 1; min-width: 0; }
+main.story > article > * { max-width: none; }
+.draw > * { max-width: 44rem; margin-left: auto; margin-right: auto; }
+.draw > .wide, .draw > figure.video { max-width: 60rem; }
+html.stage-off main.story { grid-template-columns: minmax(0, 1fr) minmax(0, 60rem) minmax(0, 1fr); }
+@media (max-width: 1100px) and (min-width: 1001px) { main.story { column-gap: 1.25rem; padding-left: .75rem; padding-right: .75rem; } }
+
+/* Hide leaves a small button to bring the hand back */
+html.stage-off .stage-felt { display: none; }
+.stage-show { display: inline-flex; align-items: center; gap: .5rem; background: var(--felt); color: var(--ivory); cursor: pointer;
+  font: 600 .8rem/1 var(--font-sans); border: 1.5px solid rgba(245, 239, 226, .4); border-radius: 999px;
+  padding: .5rem .8rem .5rem .55rem; box-shadow: 0 6px 16px rgba(0,0,0,.2); }
+.stage-show .mt { --w: 1rem; border-radius: 2px; box-shadow: 0 2px 0 var(--tile-lip); }
+.stage-show b { color: var(--gold); margin-left: .2rem; }
+.stage-show:hover { border-color: var(--gold); }
+.stage-show:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+@media (min-width: 1001px) { .stage-show { position: fixed; left: .75rem; bottom: 1rem; z-index: 20; } }
+
+/* ---- Draws ---- */
+.draw { padding-bottom: 3.5rem; min-height: 70vh; scroll-margin-top: 72px; }
+.draw-head { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; margin-bottom: 1.2rem; }
+.draw-head .mt { --w: 2.8rem; flex: none; }
+.draw-head .mj-eyebrow { margin: 0 0 .2rem; }
+.draw-head h2 { margin: 0; }
+.draw-head h2::before { display: none; }
+.draw.is-current .draw-head .mt { box-shadow: 0 4px 0 var(--tile-lip), 0 0 0 3px var(--gold); }
+.win-card { background: var(--felt); color: var(--ivory); border-radius: var(--radius-card); padding: 2rem; text-align: center; margin-bottom: 2rem; }
+.win-card h2 { color: var(--ivory); margin: 0 0 .6rem; } .win-card h2::before { display: none; }
+.win-card .mj-eyebrow { color: var(--gold); }
+.win-card a { color: var(--gold); text-decoration-color: var(--gold); }
+main.story > article > .win-card { max-width: 44rem; }
+
+/* ---- Scroll-stepped set-pieces: items light up as you read through them, and stay lit ---- */
+.js .scrub [data-scrub-item] { transition: opacity 300ms, transform 300ms; }
+.js .scrub [data-scrub-item]:not(.lit) { opacity: .3; }
+.js .scrub .bar[data-scrub-item]:not(.lit) { opacity: 1; }
+.js .scrub .bar[data-scrub-item]:not(.lit) .bar-fill { width: 0 !important; }
+.js .scrub .bar[data-scrub-item].lit .bar-fill { width: var(--w); }
+.js .scrub .tile-btn[data-scrub-item]:not(.lit) { opacity: 1; }
+.js .scrub .tile-btn.lit .flip { transform: rotateY(180deg); }
+
+/* The article column is a little narrower here when the rail is showing, so the two-column game loop stacks sooner. */
+@media (max-width: 1200px) { .story .gl-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- No JS: a plain article with a tile beside each heading ---- */
+html:not(.js) main.story { grid-template-columns: minmax(0, 1fr) minmax(0, 60rem) minmax(0, 1fr); }
+
+/* ---- Phones and narrow screens: the hand becomes a dock at the bottom ---- */
+@media (max-width: 1000px) {
+  main.story, html.stage-off main.story { display: block; padding-bottom: 7rem; }
+  main.story > article { max-width: 46rem; margin: 0 auto; }
+  main.story > .stage { width: auto; position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 20; pointer-events: none; }
+  .stage > * { pointer-events: auto; }
+  .stage-felt { border-radius: 16px 16px 0 0; padding: .45rem .6rem calc(.55rem + env(safe-area-inset-bottom)); gap: .35rem;
+    box-shadow: 0 -8px 24px rgba(0,0,0,.25); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+    max-height: none; overflow: visible; }
+  .stage-act { display: flex; gap: .5rem; align-items: baseline; min-width: 0; text-align: left; justify-self: stretch; }
+  .stage-act .sizer { display: none; }
+  .stage-eyebrow, .stage-title { display: block; min-width: 0; }
+  .stage-eyebrow { flex: none; }
+  .stage-title { overflow: hidden; }
+  .stage-eyebrow > span { font-size: .62rem; white-space: nowrap; }
+  .stage-title > b { display: block; font: 600 .85rem/1.2 var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stage-tools { grid-column: 2; grid-row: 1; flex-wrap: nowrap; gap: .3rem; }
+  .stage-btn { padding: .3rem .55rem; font-size: .72rem; }
+  .rack { grid-column: 1 / -1; flex-direction: row; justify-content: center; gap: 6px; }
+  .stage-pile, .set-name { display: none !important; }
+  .set { gap: 0; } .set-tiles { gap: 2px; }
+  .slot { width: 1.3rem; height: calc(1.3rem * 1.36); border-radius: 4px; }
+  .slot .mt { --w: 1.3rem; border-radius: 4px; box-shadow: 0 2px 0 var(--tile-lip); }
+  .slot .mt b { font-size: .7rem; } .slot .mt i { display: none; }
+  .slot.current .mt, .slot.peek .mt { box-shadow: 0 2px 0 var(--tile-lip), 0 0 0 2px var(--gold); }
+  .set.done .set-tiles { filter: none; box-shadow: 0 3px 0 -1px var(--gold); border-radius: 2px; }
+  .stage-show { position: absolute; left: .75rem; bottom: calc(.75rem + env(safe-area-inset-bottom)); }
+  html.stage-off main.story { padding-bottom: 4.5rem; }
+  .gloss-pop { z-index: 30; }
+  .toc { max-height: calc(100vh - 1.5rem); }
+  .toc-inner { padding: 1.1rem 1rem 1.2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) { .js .scrub [data-scrub-item] { transition: none; } }

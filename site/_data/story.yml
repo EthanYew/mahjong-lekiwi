@@ -1,0 +1,16 @@
+# The 14 draws of /story/: one section each, linked as #draw-N. The tile for each is in hand.yml.
+# Each act is one set of the hand, so acts run 3, 3, 3, 3 and 2 draws long.
+- {n: 1,  act: "Why",             title: "The short version"}
+- {n: 2,  act: "Why",             title: "Why mahjong"}
+- {n: 3,  act: "Why",             title: "The game"}
+- {n: 4,  act: "The bar",         title: "What success looks like"}
+- {n: 5,  act: "The bar",         title: "A clean hand, spelled out"}
+- {n: 6,  act: "The bar",         title: "Where it stands"}
+- {n: 7,  act: "How it works",    title: "One turn, six steps"}
+- {n: 8,  act: "How it works",    title: "Eyes, brain and hands"}
+- {n: 9,  act: "How it works",    title: "The build, June to November"}
+- {n: 10, act: "What went wrong", title: "Learning can be brittle"}
+- {n: 11, act: "What went wrong", title: "Offline scores vs the arm"}
+- {n: 12, act: "What went wrong", title: "Safety guardrails"}
+- {n: 13, act: "What I learned",  title: "Three lessons"}
+- {n: 14, act: "What I learned",  title: "What’s next"}

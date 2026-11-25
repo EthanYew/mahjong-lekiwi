@@ -1,0 +1,12 @@
+# Pixel size of each write-up image, so figure.html can set width/height and the page doesn't jump as they load.
+# Regenerate after adding an image: see the comment in _includes/figure.html.
+"writeup/architecture.png": {w: 1400, h: 1096}
+"writeup/game-loop.png": {w: 1400, h: 848}
+"writeup/grandparents.jpg": {w: 1600, h: 900}
+"writeup/green-paper-test.jpg": {w: 1600, h: 1599}
+"writeup/merge-process.png": {w: 1600, h: 713}
+"writeup/tile-layout.jpg": {w: 1600, h: 900}
+"writeup/timeline.png": {w: 1400, h: 960}
+"writeup/turn-steps.png": {w: 1600, h: 900}
+"writeup/upside-down-pickup.jpg": {w: 1600, h: 1289}
+"writeup/workspace.jpg": {w: 1080, h: 1920}
