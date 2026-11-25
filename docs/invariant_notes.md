@@ -321,6 +321,30 @@ The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep wh
   0.94-1.00 alike (`setup_check.view_similarity`), real wrist frames 0.00-0.52 between spots (61 pairs), so a wrist
   view that stays 0.75 alike from rest to the hover stops the tile test.
 
+- **The RealSense's depth reading drifts** (analysed 2026-11-25 from the `depth.npz` saved with each scan; the setup
+  check's own `table_fit` run on every one). Over 1881 bench and play scans from 2026-11-13 to 11-23 (8+ confident
+  tiles; `20261118_234045_bench` left out, its tiles read 39mm up) the mat read +3.4 / +5.5 / +10.8mm vs `config.table_z`
+  (p5 / median / p95); the 11-03 reference reads ~0. Tile tops moved with it (1.0-1.3mm per mm), though a tile's thickness
+  can't change. Against the colour image (ORB features, scale of a similarity fit; a real vertical move rescales it):
+
+  | Compared | Depth moved | Image scale seen | A real move predicts | Features |
+  |---|---|---|---|---|
+  | `20261116_200001_bench`, start → end | +2.2mm | +0.04% | +0.26% | 1515 |
+  | `20261118_105159_bench`, start → end | +3.3mm | +0.03% | +0.39% | 1862 |
+  | `20261118_153155_bench`, start → end | +1.0mm | +0.01% | +0.12% | 1828 |
+  | `20261123_224453_bench`, start → end | +2.4mm | +0.01% | +0.28% | 2293 |
+  | `20261123_203643_bench` → `205508` | +3.0mm | +0.02% | +0.36% | 1876 |
+  | `20261123_161326_bench` → `203643` | -6.6mm | -0.02% | -0.78% | 118 |
+  | `20261123_085733_bench` → `203643` | -11.2mm | -0.49% | -1.32% | 63 |
+
+  The last row doesn't fit as cleanly: few features match and the image also shifted 1.4px, so something may have moved
+  between that morning and evening. A `116_200001` → `123_085733` pair (+5.9mm) was inconclusive (±0.17%, 59 features).
+  The cause is unknown: the climb within sessions looks like warm-up, but `20261125_203948_setup` read +9.6mm seconds
+  after the RealSense was replugged. Effect on scans, which place tiles from this depth: against the same box on the flat
+  table plane, x moves -0.22 to -0.25mm per mm of drift, y ~0.05. The setup check's tile test uses the flat plane, so it
+  says nothing about this. Untested: face-down scans drop back boxes under `BACK_MIN_HEIGHT_M` (8mm), and face-up tile
+  tops read as low as ~6mm on 11-23 evening.
+
 - **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
   for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the
   bench voids and reruns the attempt, record.py discards the episode. Reopen with

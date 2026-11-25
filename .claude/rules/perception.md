@@ -23,7 +23,12 @@ paths:
 ---
 Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant_notes.md`.
 
-- After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane, a tile
+- **The RealSense's absolute depth drifts; don't grade anything on it alone.** The mat read +3.4 to +10.8mm vs `table_z`
+  for 90% of 1881 bench scans (2026-11-13 to 11-23), climbing 1-3mm within a session with the colour image not rescaling,
+  and tile tops moved with it. So `setup_check.py` shows the mat reading and leaves it out of the grade (`table_result`,
+  owner's decision 2026-11-25). Scans place tiles from that depth: ~0.25mm across the mat per 1mm of drift. Evidence:
+  `docs/invariant_notes.md`.
+- After packing up or moving anything: `python scripts/setup_check.py` (camera vs robot, table plane (shown only), a tile
   in the wrist view at the hover on 3 spots, parked pose, brightness) against `data/setup_reference/`, taken
   with `--save-reference` on a setup that worked. Nudge the camera back to green rather than recalibrating.
 - **The wrist camera can drop out mid-session.** No frames for `camera.LOST_S` means it's lost in every script:

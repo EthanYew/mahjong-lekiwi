@@ -132,7 +132,13 @@ def test_table_fit_sees_a_mat_lower_than_config():
     mat.T_render[2, 3] += 0.005                     # the camera 5mm higher than calibrated: the mat reads 5mm low
     _, depth = mat.depth_snapshot()
     lower = sc.table_result(sc.table_fit(depth, mat.intrinsics, mat.T_cam_to_base), level)
-    assert abs(lower["change"]["offset_mm"] + 5) < 0.5 and lower["status"] == "warn"
+    assert abs(lower["change"]["offset_mm"] + 5) < 0.5
+    # shown, never counted: the real depth reading wanders more than this with nothing moved
+    assert lower["status"] == "info" and "not graded" in sc.table_text(lower)
+    results = {"camera": {"status": "pass"}, "table": {**lower, "text": sc.table_text(lower)}}
+    lines, overall = sc.summary(results)
+    assert overall == "pass" and not any(line.startswith("\ntable:") for line in lines)
+    assert sc.table_result(None, level)["status"] == "warn"          # no depth at all is still worth a look
 
 
 def test_a_refit_hover_correction_doesnt_count_against_the_setup(tmp_path, monkeypatch):

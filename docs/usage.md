@@ -185,7 +185,7 @@ no error. `setup_check.py` compares the setup with a reference taken once on a s
 | Check | What it measures | Warn / fail |
 |---|---|---|
 | camera | where the LeKiwi base and the folded arm appear in the RealSense image (1px ≈ 1.5mm on the mat) | 2 / 5mm, 0.5 / 1.5° |
-| table | the mat's height and tilt from the RealSense depth, vs the reference | 3 / 6mm, 2 / 4mm per 10cm |
+| table | the mat's height and tilt from the RealSense depth, vs the reference | shown as `info`, not graded (below) |
 | tiles | a tile placed to green on 3 spots; the arm hovers over its measured position with the hover correction stored in the reference; where the tile sits in the wrist view. Graded on the median spot; its angle is shown, not graded | median 4 / 7mm, size 10 / 20% |
 | brightness | the mat (RealSense) and the wrist view, vs the reference | outside 0.7-1.4x |
 | parked | where the arm settles when switched off at the end (a recalibrated servo shows here) | 3 / 6° |
@@ -206,6 +206,11 @@ when it says "Lined up". Moving it back keeps `T_cam_to_base` and both correctio
 corrections aside. If a tile isn't found (by the RealSense at its spot, or in the wrist view at the hover), the check
 asks you to reposition it: the placing window opens again to chase green, then it looks again (Enter), or `s` skips
 the spot, `q` stops the tile test.
+
+**The table line isn't graded.** The RealSense's depth reading wanders by several mm with nothing moved, so it's
+printed and logged but never changes the overall result; it warns only if there's almost no depth at all. A real change
+in the table's height is caught only through the other checks, and only when it's large (roughly 15mm in the tile's size
+in the wrist view).
 
 Two wrist-view problems are caught before that question:
 - **The wrist camera isn't on the arm.** The wrist and base cameras can only be told apart by USB port, so cables

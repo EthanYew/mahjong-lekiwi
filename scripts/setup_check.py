@@ -10,13 +10,15 @@ setup you trust (mahjong/setup_check.py has what each measures and why).
 Steps: the arm goes to rest; the RealSense looks at the robot's base and the mat. If the robot isn't where it
 was in the image, a window shows it zoomed in with the reference's outline in magenta and one step at a time:
 turn it (curved arrow), then slide it (straight arrow), in the robot's own terms; Enter once it's lined up (moving
-it back keeps T_cam_to_base and both corrections valid; recalibrating doesn't). Then for each check spot: place the spot's tile until its outline is green, the arm hovers
-over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
+it back keeps T_cam_to_base and both corrections valid; recalibrating doesn't). Then for each check spot: place
+the spot's tile until its outline is green, the arm hovers over it as the bench does and the wrist camera looks; the arm rests before the next spot. A tile not found
 (by the RealSense at the spot, or in the wrist view at the hover) is asked about: reposition it, chasing green
 again, and Enter looks again; s skips the spot, q stops the tile test. A weak match is shown for a person to
 confirm first, and a wrist view that doesn't change when the arm moves (the base camera on the wrist's USB port)
 stops the tile test. At the end the arm
 is switched off and settles onto its stops, and that pose is compared too.
+
+The mat's height from the RealSense depth is shown and logged but not graded (the depth reading drifts).
 
 The wrist view finds the tile by the reference's picture of it, so each spot needs the same tile every time. Saving a
 reference: use any tiles, click the middle of the tile in the window if the cross is off it, and say which tile each spot

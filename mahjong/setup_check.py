@@ -8,8 +8,8 @@ pack-up nothing says whether they do; a few mm off and every hover lands off-tar
 - camera: where the robot's base appears in the RealSense image vs the reference (features matched in the
   robot's box only: tiles, the keyboard and the person move between sessions, the arm's base doesn't).
   1px there is ~1.5mm on the mat (0.87m away, fx ~590).
-- table: the mat's depth through T_cam_to_base vs config.table_z — catches a different table, a tilt or a
-  thicker mat (and a moved camera).
+- table: the mat's depth through T_cam_to_base vs config.table_z. Shown and logged, not graded: the depth reading
+  drifts by more than a real change would have to be to matter (see table_result).
 - tile test: the same tile placed to green on a few spots, the arm hovers over it as the bench does (measured
   position + hover correction) and the wrist camera looks. The tile landing where it did in the reference
   wrist frame means camera, table, arm calibration, hover correction and wrist camera mount all still
@@ -75,8 +75,6 @@ ANGLE_UNKNOWN_DEG = 0.0
 LIMITS = {
     "camera_mm": (2.0, 5.0),        # robot's image shift turned into mm on the mat
     "camera_deg": (0.5, 1.5),       # image rotation
-    "table_mm": (3.0, 6.0),         # mat height change at the workspace centre
-    "table_tilt_mm": (2.0, 4.0),    # change in height difference per 10cm
     # tile's position in the wrist view at the hover. The chain's own noise (RealSense finding ~1.5mm, hover
     # repeatability, the face's outline) is ~3mm, and 4-5.5mm showed with nothing moved (2026-10-29), so the
     # tile test grades the median over the spots: a moved camera or arm shifts them all, noise doesn't
@@ -85,7 +83,7 @@ LIMITS = {
     "parked_deg": (3.0, 6.0),       # unpowered settle, worst joint
 }
 BRIGHTNESS_RANGE = (0.7, 1.4)       # live / reference; outside it's a warning (lighting changed)
-STATUSES = ("pass", "warn", "fail", "skipped")
+STATUSES = ("pass", "warn", "fail", "skipped", "info")      # info: shown, never counted
 
 
 def grade(value, limit):
@@ -95,7 +93,7 @@ def grade(value, limit):
 
 
 def worst(statuses):
-    """The worst of pass / warn / fail ("skipped" counts as nothing; all skipped is "skipped")."""
+    """The worst of pass / warn / fail ("skipped" and "info" count as nothing; none of the three is "skipped")."""
     ranked = [s for s in statuses if s in ("pass", "warn", "fail")]
     return max(ranked, key=("pass", "warn", "fail").index) if ranked else "skipped"
 
@@ -395,14 +393,17 @@ def table_fit(depth_m, intrinsics, T_cam_to_base):
 
 
 def table_result(live, reference):
+    """The mat's height and tilt against the reference's, as "info": never part of the overall grade. The RealSense's
+    absolute depth wanders with nothing moved (+3.4 to +10.8mm for 90% of 1881 bench scans, 2026-11-13 to 11-23, climbing
+    1-3mm within sessions while the colour image didn't rescale), wider than any pass line that would catch a real change;
+    it was the only thing short of a pass in 8 of 15 checks (docs/invariant_notes.md). Too few samples is still a
+    warning: that's a camera giving no depth, which tile positions come from."""
     if live is None:
         return {"status": "warn", "why": "too few depth samples on the mat"}
     if reference is None:
         return {**live, "status": "skipped", "why": "no table in the reference"}
     change = {k: live[k] - reference[k] for k in ("offset_mm", "slope_x_mm", "slope_y_mm")}
-    status = worst([grade(change["offset_mm"], "table_mm"), grade(change["slope_x_mm"], "table_tilt_mm"),
-                    grade(change["slope_y_mm"], "table_tilt_mm")])
-    return {**live, "change": change, "status": status}
+    return {**live, "change": change, "status": "info"}
 
 
 def table_text(result):
@@ -412,7 +413,8 @@ def table_text(result):
             f"{result['slope_y_mm']:+.1f} (y) mm per 10cm")
     if "change" in result:
         c = result["change"]
-        text += f"; vs reference {c['offset_mm']:+.1f}mm, tilt {c['slope_x_mm']:+.1f} / {c['slope_y_mm']:+.1f}"
+        text += (f"; vs reference {c['offset_mm']:+.1f}mm, tilt {c['slope_x_mm']:+.1f} / {c['slope_y_mm']:+.1f} "
+                 "(not graded: the depth reading drifts)")
     return text
 
 
@@ -708,9 +710,8 @@ ADVICE = {
     "camera": "The RealSense moved relative to the robot. Nudge the tripod (or the LeKiwi) back until the "
               "alignment view turns green, rather than recalibrating: a new T_cam_to_base sets aside the hover "
               "and return corrections.",
-    "table": "The mat's height or tilt changed (another table, something under a wheel or the tripod, a "
-             "different mat). If the camera check passed, fix the table; if not, fix the camera first.",
-    "tiles": "The hover lands the tile somewhere else in the wrist view. If camera and table pass, look at the "
+    "table": "The RealSense gave almost no depth on the mat: check its USB cable and that nothing blocks its view.",
+    "tiles": "The hover lands the tile somewhere else in the wrist view. If the camera passes, look at the "
              "wrist camera's mount, the arm's calibration (parked pose) and whether the hover correction changed. "
              "\"No tile\" with the tile in view: is it the same tile as the reference's, and is the light the same? "
              "A \"wrist camera\" that saw the room, or didn't change when the arm moved, is the base camera: swap the two "
