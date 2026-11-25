@@ -107,13 +107,13 @@ def read_checkpoint(arg, sim=None):
     return folder, state
 
 
-def load_checkpoint(arg):
+def load_checkpoint(arg, sim=False):
     """The hand --resume carries on."""
-    folder, state = read_checkpoint(arg)
+    folder, state = read_checkpoint(arg, sim=sim)
     if state["phase"] != "play":
         ended = any(e["type"] == "hand_end" for e in read_events(folder))
         raise SystemExit(f"{folder.name}'s hand is over ({state['phase']})"
-                         + ("" if ended else ": its end check never ran, do it with --end-check"))
+                         + ("" if ended else f": its end check never ran, do it with --end-check {folder.name}"))
     return folder, state
 
 
@@ -517,6 +517,11 @@ def late_end_check(arg, ask=input, on_word=None, sim=False):
     folder, state = read_checkpoint(arg, sim=sim)
     if not folder.name.endswith(f"_{face_down_play.PLAY_KIND}"):
         raise SystemExit(f"{folder.name} isn't a face-down hand")
+    if arg == "latest":         # the table holds the last hand laid: a newer one that stopped early has no checkpoint
+        newest = [f for f in play_sessions() if is_sim(f) == sim][-1]
+        if newest != folder:
+            raise SystemExit(f"{newest.name} is newer than the latest hand with a checkpoint, {folder.name}: name the one "
+                             f"you mean (--end-check {folder.name})")
     if state["phase"] not in ("won", "end"):
         raise SystemExit(f"{folder.name}'s hand isn't over ({state['phase']}): carry it on with --resume")
     events = read_events(folder)
@@ -574,7 +579,7 @@ def main(argv=None, ask=input):
     reader = base_cam.load_reader()
     if reader is None and args.unattended:
         raise SystemExit(f"--unattended takes the reader's names, and there's no reader ({base_cam.READER}): base_cam_train.py --save-reader")
-    resumed = load_checkpoint(args.resume) if args.resume else None
+    resumed = load_checkpoint(args.resume, args.sim) if args.resume else None
     station = stations[args.station]
     print(f"Reader: {base_cam.READER.name}, knows {len(reader.classes)} names" if reader else f"No reader ({base_cam.READER}): you'll name every tile")
     rig = face_down_rig.Rig(args, [station, zone, *spots], poses, sim_empty=[zone])   # the sim's zone starts clear, as the real one does

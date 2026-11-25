@@ -384,7 +384,7 @@ class Story:
             out.append(f"A person checked {self.checked} of the reader's names")
         if self.verdict:
             out += self.verdict["lines"]
-        elif (line := play_log.word_line(self.hand)):
+        elif (line := play_log.word_line(self.hand, self.reads)):
             out.append(line)
         out.append(f"session {self.name}")
         return out

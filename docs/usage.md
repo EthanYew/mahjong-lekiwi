@@ -472,7 +472,8 @@ and counts for nothing in `status.py` or the checks.
 
 A played hand (face up or face down) stopped partway by something that isn't the robot's doing (a power cut, a script's crash,
 you called away) is voided with `python scripts/status.py --void <session folder> --why "what stopped it"`, which writes that
-file: commit it and merge it yourself. The face-down tally lists the hand as voided and counts neither for nor against it. It
+file: commit it and merge it yourself. The face-down tally lists the hand as voided and counts neither for nor against it (if a
+later `--resume` carried it on, any help you gave in the voided part still counts against that hand's grade). It
 refuses a hand that ran to its end, one that only lacks its end check (face down: `--end-check`; face up has no late end
 check, so it stays as it is), and one with a wrong tile name or a photo marked wrong; a wrong name found in a voided
 face-down hand's photos later is still a silent error.
@@ -1153,7 +1154,8 @@ the same session. It refuses a hand still in play (`--resume`) and one that alre
 any more, `--end-check --on-my-word "why"` takes the hand as right without asking: the log, the session report and
 `status.py` say it rests on your word, and its photos still need reviewing before it counts (a wrong name found there is a
 silent error all the same, and the session report stops calling the win verified). With no `SESSION` it takes the latest
-real hand (`--sim`: the latest simulated one).
+real hand (`--sim`: the latest simulated one, as `--resume` does too), and asks you to name it if a newer hand stopped before it
+could be checkpointed.
 `--resume [SESSION]` starts from the last finished turn, with the tiles where they were: nothing is laid or read again. A drop zone
 the bench hasn't checked is a warning, not a refusal as in `play.py`: scans can't check a face-down carry. Results:
 `sessions/<time>_play_fd/` (the crude run's events, `fd_*` events, `holdup_shot` events and `photos/`, `checkpoint.json`,

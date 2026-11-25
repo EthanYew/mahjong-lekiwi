@@ -467,3 +467,24 @@ def test_a_hand_that_ran_out_of_wall_says_it_rests_on_the_owners_word(monkeypatc
     story = game_video.Story(folder, events)
     assert story.stop == before and any("tiles cleared" in line for line in story.ending())
 
+
+def test_a_bare_end_check_wont_pass_over_a_newer_hand(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder = stopped_at_the_end_check(script, ["--unattended"], [*LIGHT, ""])
+    newer = tmp_path / "20991231_000000_play_fd"            # stopped while the hand was laid: no checkpoint
+    newer.mkdir()
+    (newer / "events.jsonl").write_text(json.dumps({"type": "session_start", "sim": True}) + "\n")
+    with pytest.raises(SystemExit, match=folder.name):
+        script.main(["--sim", "--end-check"], ask=lambda text: "")
+    assert not events_of(folder, "hand_end")
+    with pytest.raises(SystemExit, match="no face-down play session"):
+        script.load_checkpoint("latest")                    # a real run never resumes a simulated hand
+
+
+def test_a_wall_out_hand_s_line_gives_way_to_the_photo_review():
+    hand_log = {"audit": {"on_word": "why"}}
+    read = {"where": "S3", "filed": "3C", "truth": "6C", "reviewed": True}
+    assert "contradicts it: S3 read 3C, really 6C" in play_log.word_line(hand_log, [read])
+    assert "contradicts" not in play_log.word_line(hand_log, [{**read, "reviewed": False, "truth": None}])
+    assert play_log.word_line({"audit": None}, [read]) is None
+

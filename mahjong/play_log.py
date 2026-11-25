@@ -233,11 +233,21 @@ def winning_read(hand_log, reads):
     return rows[-1] if rows else None
 
 
-def word_line(hand_log):
-    """For a report on a hand with no verdict (the wall ran out): that its end check was taken on the owner's word, or None.
-    A win says it in its verdict's lines."""
+def _doubted(reads):
+    """The reviewed reads that are wrong or marked wrong, in words ("draw t3 read 9C, really 5C; ..."), "" with none."""
+    return "; ".join(f"{r['where']} read {r['filed']}, " + (f"really {r['truth']}" if r["truth"] else "marked wrong")
+                     for r in reads or [] if r.get("reviewed") and r.get("truth") != r.get("filed"))
+
+
+def word_line(hand_log, reads=None):
+    """For a report on a hand with no verdict (the wall ran out): that its end check was taken on the owner's word, and what
+    the photo review says against it, or None. A win says both in its verdict's lines."""
     word = (hand_log["audit"] or {}).get("on_word")
-    return f"End check not done at the table: the hand was taken as right on the owner's word: {word}" if word else None
+    if not word:
+        return None
+    said = _doubted(reads)
+    return (f"End check not done at the table: the hand was taken as right on the owner's word: {word}"
+            + (f". The photo review contradicts it: {said}" if said else ""))
 
 
 def verdict(hand_log, reads=None):
@@ -305,9 +315,7 @@ def verdict(hand_log, reads=None):
     known = thirteen is not None and truth_drawn is not None
     if known and not game.is_win(thirteen + [truth_drawn]) and (wrong or truth_drawn != drawn):
         return {"status": "not a win", "lines": lines + ["Not a win: the checked tiles don't make one"]}
-    doubted = [r for r in reads or [] if r.get("reviewed") and r.get("truth") != r.get("filed")] if word else []
-    if doubted:
-        said = "; ".join(f"{r['where']} read {r['filed']}, " + (f"really {r['truth']}" if r["truth"] else "marked wrong") for r in doubted)
+    if word and (said := _doubted(reads)):
         return {"status": "not verified", "lines": lines + [f"Win not verified: the photo review contradicts the owner's word: {said}"]}
     if missing:
         return {"status": "not verified", "lines": lines + ["Win not verified yet: needs " + "; ".join(missing)]}

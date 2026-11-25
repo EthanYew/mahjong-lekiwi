@@ -459,8 +459,9 @@ def play_report(events, found, folder=None):
         print(f"  hand {' '.join(names)}{won}; discards {' '.join(end['discards']) or '-'}")
         if winning and end["result"] == "win" and h["win"] and h["win"].get("before"):
             print(f"  winning hand: {play_log.melds_line(h['win']['before'] + [winning])}")
-        check = play_log.verdict(h, fd_reads(folder, h) if folder else None)
-        for line in check["lines"] if check else filter(None, [play_log.word_line(h)]):
+        reads = fd_reads(folder, h) if folder else None
+        check = play_log.verdict(h, reads)
+        for line in check["lines"] if check else filter(None, [play_log.word_line(h, reads)]):
             print(f"  {line}")
     asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
     if asked:

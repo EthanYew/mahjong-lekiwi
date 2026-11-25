@@ -10,18 +10,21 @@ A hand (a `*_play_fd` session, real and not voided) is one of:
   unfinished                   it started turns but never reached its end check, or a person quit it: a failed hand, not skipped
   not verified                 a win no person vouched for (play_log.verdict)
   voided                       stopped by something other than the robot (data/void_sessions.json, status.py --void): listed,
-                               not counted. A wrong name it used is still a silent error. It waits for review like any other while
+                               not counted. What a person did to help in it stays with a later session that resumed it, and can
+                               lower that hand's grade. A wrong name it used is still a silent error. It waits for review like any other while
                                a photo is marked wrong with no name, or if a later session resumed it and one has no verdict
 Only hands before the first one waiting are counted, voided ones left out. The window is the last WINDOW of them."""
 from pathlib import Path
 
-from mahjong import base_cam, config, face_down_play, play_log
+from mahjong import base_cam, config, face_down_play, interventions, play_log
 from mahjong.session import is_sim, read_events, void_reason
 
 TARGET, WINDOW = 8, 10
 COMPLETE = ("win", "end")       # a win, or the wall ran out ("end"); a "quit" is a hand a person stopped
 CLEAN, SILENT, WAITING, UNFINISHED, NOT_VERIFIED = "clean", "silent error", "waiting for review", "unfinished", "not verified"
 VOIDED = "voided"
+GRADES = (CLEAN, "attended", "rescued")             # interventions.hand_grade's, best first
+STOPS = ("killed", "interrupted", "crashed")        # how a session stopped: what voiding it says wasn't the robot's
 
 
 def wrong_reads(reads):
@@ -59,6 +62,16 @@ def judge(hand_log, reads, events):
     return {"status": end.get("grade") or "-", "why": f"end check on the owner's word: {word}" if word else ""}
 
 
+def carried_over(folder, by_name, starts):
+    """What a person did in the voided sessions this one carried on (--resume): voiding drops a stopped run, not the help the
+    hand it began had already needed. [interventions]; by_name: {session name: folder}, starts: {name: session_start}."""
+    found, name = [], starts[folder.name].get("resumed_from")
+    while name in by_name and void_reason(by_name[name]):
+        found += [i for i in interventions.derive(read_events(by_name[name])) if i["kind"] not in STOPS]
+        name = starts[name].get("resumed_from")
+    return found
+
+
 def series(rows):
     """Split chronological rows ({status, ...}) into (counted, behind): the hands before the first one waiting for review (voided
     ones left out), and the ones from it on, which can't be called consecutive until it is reviewed."""
@@ -83,7 +96,9 @@ def tally(sessions_dir=None, review=None):
     review = base_cam.load_review() if review is None else review
     rows = []
     folders = [f for f in sorted(folder_root.glob("*_play_fd")) if (f / "events.jsonl").exists() and not is_sim(f)]
-    resumed = {e.get("resumed_from") for f in folders for e in read_events(f) if e["type"] == "session_start"}
+    by_name = {f.name: f for f in folders}
+    starts = {f.name: next((e for e in read_events(f) if e["type"] == "session_start"), {}) for f in folders}
+    resumed = {s.get("resumed_from") for s in starts.values()}
     for folder in folders:
         events = read_events(folder)
         hand_log = play_log.hand(events)
@@ -97,7 +112,11 @@ def tally(sessions_dir=None, review=None):
             held = ([f"{unnamed} hold(s) are marked wrong with no name"] if unnamed else []) \
                 + ([f"a later session carried its hand on and {carried} hold(s) have no verdict"] if carried else [])
             verdict = {"status": WAITING, "why": "voided, but " + "; ".join(held)} if held else {"status": VOIDED, "why": why}
-        start = next((e for e in events if e["type"] == "session_start"), {})
+        elif verdict["status"] in GRADES:
+            grade = interventions.hand_grade(carried_over(folder, by_name, starts))
+            if grade in GRADES and GRADES.index(grade) > GRADES.index(verdict["status"]):
+                verdict = {"status": grade, "why": "a person's help in the voided session(s) it carried on"}
+        start = starts[folder.name]
         end = hand_log["end"] or {}
         rows.append({"name": folder.name, "mode": "unattended" if hand_log["unattended"] else "attended",
                      "turns": end.get("turns"), "result": end.get("result") or "-", **verdict,
