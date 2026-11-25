@@ -233,3 +233,97 @@ def test_grading():
     off = sc.parked_result({**parked, "elbow_flex": 4.0}, parked)
     assert off["worst_joint"] == "elbow_flex" and off["status"] == "warn"
     assert sc.parked_result(None, parked)["status"] == "skipped"
+
+
+def guide_for(warp):
+    """The guide's steps and view for the sim RealSense frame warped by `warp` (2 x 3) as the live one."""
+    from mahjong.sim import SimPerception
+    mat = SimPerception(tiles=[])
+    K, T = mat.intrinsics, mat.T_cam_to_base
+    reference = mat.snapshot()
+    region = sc.robot_region(K, T, reference.shape)
+    live = cv2.warpAffine(reference, np.float32(warp), reference.shape[1::-1])
+    steps = sc.guide_steps(sc.robot_motion(reference, live, region, K, T))
+    result = sc.camera_result(sc.image_shift(reference, live, region), sc.mm_per_px(K, T))
+    view = sc.guide_view(reference, live, region, result, steps, K, T)
+    return {s["kind"]: s for s in steps}, view, (K, T, region)
+
+
+def test_the_guide_says_turn_or_slide_in_the_robots_terms():
+    steps, view, _ = guide_for([[1, 0, 0], [0, 1, 0]])
+    assert sc.step_now(list(steps.values())) is None and view.shape[1] == 900                 # lined up: no arrow
+    _, _, (K, T, region) = guide_for([[1, 0, 0], [0, 1, 0]])
+    centre = ((region[0] + region[2]) / 2, (region[1] + region[3]) / 2)
+
+    # the robot's middle 8mm further forward (toward the tiles): slide it back, nothing about turning
+    ahead = sc.table_to_table_xy([centre], K, T)[0] + [0.008, 0.0]
+    du, dv = sc._project([ahead], K, T)[0] - np.array(centre)
+    steps, _, _ = guide_for([[1, 0, du], [0, 1, dv]])
+    assert steps["turn"]["status"] == "pass" and steps["move"]["status"] != "pass"
+    assert "back" in steps["move"]["text"] and "left" not in steps["move"]["text"] and "right" not in steps["move"]["text"]
+    assert sc.step_now(list(steps.values()))["kind"] == "move"
+
+    # turned 2° about its middle: turn it first, whichever way undoes it
+    turned = cv2.getRotationMatrix2D(centre, 2.0, 1.0)
+    steps, _, _ = guide_for(turned)
+    assert steps["turn"]["status"] == "fail" and sc.step_now(list(steps.values()))["kind"] == "turn"
+    back = cv2.getRotationMatrix2D(centre, -2.0, 1.0)
+    other, _, _ = guide_for(back)
+    assert {steps["turn"]["text"].split()[4], other["turn"]["text"].split()[4]} == {"clockwise", "anticlockwise"}
+
+
+def test_the_guide_holds_still_on_noise():
+    readings = [{"turn_deg": t, "dx_mm": x, "dy_mm": 0.0} for t, x in ((0.3, 1.0), (-0.2, -1.2), (0.1, 0.4), (5.0, 9.0),
+                                                                       (0.0, 0.2))]
+    steps = sc.guide_steps(sc.steady(readings, ("turn_deg", "dx_mm", "dy_mm")))
+    assert all(s["status"] == "pass" for s in steps)              # one wild frame doesn't swing the arrow
+    assert sc.steady([{"inliers": 3}] * 3 + readings[:2], ("turn_deg",)) is None          # mostly unseen: can't say
+
+
+def test_a_wrist_camera_that_doesnt_move_with_the_arm_stops_the_tile_test(tmp_path, monkeypatch):
+    from mahjong.sim import SimWristCamera
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    room = cv2.resize(np.random.default_rng(0).integers(0, 255, (12, 16, 3), dtype=np.uint8), (640, 480),
+                      interpolation=cv2.INTER_NEAREST)                # blocks: a room's shapes, not pixel noise
+
+    class BaseCamera(SimWristCamera):     # the base camera on the wrist's port: the same room wherever the arm is
+        def read(self):
+            return True, room.copy()
+
+    devices = sim_devices()
+    devices["wrist_camera"] = BaseCamera(devices["arm"], devices["realsense"])
+    assert run(tmp_path, [], devices=devices) == "fail"            # no "reposition the tile" questions
+    check, session = last_check(tmp_path)
+    spots = check["results"]["tiles"]["spots"]
+    assert list(spots) == ["F2"] and "isn't on the arm" in spots["F2"]["why"]
+    assert [e["type"] for e in read_events(session)].count("setup_wrist_camera_still") == 1
+
+
+def test_a_weak_match_is_shown_to_a_person_rather_than_looped(tmp_path, monkeypatch):
+    import setup_check
+    from mahjong import sim
+    from mahjong.session import Session
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "sessions")
+    assert run(tmp_path, ["--save-reference"], ["y"]) == "pass"
+    reference = sc.load_reference(tmp_path / "reference")
+    monkeypatch.setattr(sc, "MATCH_MIN_SCORE", 1.01)                # every match weak: a reference in other light
+    monkeypatch.setattr(config, "SESSIONS", tmp_path / "check")
+    spots = setup_check.check_spots(None, reference)[:1]
+
+    def tile_test(confirm_weak, answers=()):
+        devices = sim.connect(tiles=[], wrist_view=True)
+        session = Session("setup", ask_setup=False, sim=True)
+        answers = iter(answers)
+        results, _, _ = setup_check.tile_test(devices["arm"], devices["wrist_camera"], devices["realsense"], None, spots,
+                                              reference, session, True, ask=lambda p: next(answers),
+                                              confirm_weak=confirm_weak)
+        session.close()
+        return results[spots[0]["id"]], [e["type"] for e in read_events(session.dir)]
+
+    said = []
+    result, events = tile_test(lambda spot, frame, weak: said.append(weak["score"]) or True)
+    assert result["status"] == "pass" and result["confirmed_by"] == "person" and result["attempts"] == 1
+    assert len(said) == 1 and sc.MATCH_ASK_SCORE <= said[0] and "setup_tile_confirmed" in events
+    result, events = tile_test(lambda spot, frame, weak: False, answers=["s"])              # "no": the usual question
+    assert result["status"] == "fail" and "setup_tile_not_found" in events

@@ -197,11 +197,25 @@ python scripts/setup_check.py --skip-tiles         # camera, table, parked pose 
 python scripts/setup_check.py --sim --save-reference && python scripts/setup_check.py --sim   # no hardware
 ```
 
-If the camera check isn't green, a window blends the reference with the live view and draws an arrow: nudge
-the tripod (or the LeKiwi) until the box turns green, then Enter. Moving it back keeps `T_cam_to_base` and
-both corrections valid; recalibrating sets the corrections aside. If a tile isn't found (by the RealSense
-at its spot, or in the wrist view at the hover), the check asks you to reposition it: the placing window
-opens again to chase green, then it looks again (Enter), or `s` skips the spot, `q` stops the tile test.
+If the camera check isn't green, a window shows the robot zoomed in, live, with the reference robot's outline in
+magenta. Line the robot up with the outline one step at a time, as the window says: **1 TURN** (a curved arrow,
+"turn it 0.8 deg clockwise (seen from above)") first, then **2 SLIDE** (a straight arrow, "slide it 4mm back and 2mm to
+its right"; forward is toward the tiles). Each step goes green inside its pass line (0.5°, 2mm) and then shows no
+arrow, so small noise can't swing it. The numbers are the median of the last 7 frames: move, then let it settle. Enter
+when it says "Lined up". Moving it back keeps `T_cam_to_base` and both corrections valid; recalibrating sets the
+corrections aside. If a tile isn't found (by the RealSense at its spot, or in the wrist view at the hover), the check
+asks you to reposition it: the placing window opens again to chase green, then it looks again (Enter), or `s` skips
+the spot, `q` stops the tile test.
+
+Two wrist-view problems are caught before that question:
+- **The wrist camera isn't on the arm.** The wrist and base cameras can only be told apart by USB port, so cables
+  swapped between ports make the "wrist camera" the base camera's view of the room. If the wrist view doesn't change
+  between rest and the hover, the tile test stops and says to swap the cables (the wrist camera goes in
+  `config.WRIST_USB_PORT`); `setup_wrist_camera_still` event.
+- **A weak match.** If the reference's tile matches only weakly (0.6 to 0.78, usually the light has changed since the
+  reference), the window shows the match's cross and asks whether it's on the tile: `y` grades it as found (logged as
+  `confirmed_by` a person, `setup_tile_confirmed`), anything else goes on to the reposition question. If this happens on
+  most runs, take a new reference in your usual light.
 
 The tile test asks only whether the RealSense and the arm still agree about where a tile is, so it leaves out
 what legitimately changes:

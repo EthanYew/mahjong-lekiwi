@@ -86,7 +86,10 @@ Cameras, the detector and telling what's on the mat. Evidence in `docs/invariant
 - **The wrist and base cameras can only be told apart by USB port.** They report the same ID and serial, and on 2026-11-05 `/dev/wristcam`
   pointed at the base camera. The udev rule names them by port (wrist **3-5**, base 3-9 on the NUC), so keep each cable in its port —
   and moving one means editing `/etc/udev/rules.d/99-mahjong-cameras.rules` and `config.WRIST_USB_PORT`, or `/dev/wristcam` simply
-  isn't there and every script stops at `hardware.connect`. `setup_check.py` doesn't check this yet. Evidence: `docs/face_down_plan.md`.
+  isn't there and every script stops at `hardware.connect`. **Swapped cables fail silently**: `/dev/wristcam` is then the base camera
+  (20261125_201151_setup hovered F2 five times "seeing no tile" in a view of the room). `setup_check.py` stops its tile test when the
+  wrist view doesn't change from rest to the hover (`setup_check.camera_stayed`); other scripts don't check, so run it after replugging.
+  Evidence: `docs/face_down_plan.md`, `docs/invariant_notes.md`.
 - **The wrist camera's USB trouble was the NUC's port 3-8, not the camera and not the cable** (2026-11-13). Same camera, same cable,
   a different receptacle on the same root hub: on 3-8 it enumerated fine and then timed out (`-110`) setting the UVC probe control, so it
   never streamed — in Cheese or anywhere; moved to 3-5 it gave 267 frames in 10s at 26.7fps, 0 failed reads, 0 kernel lines. So the 94

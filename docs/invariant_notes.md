@@ -306,6 +306,16 @@ The bullets below were shortened in CLAUDE.md (now `.claude/rules/`), to keep wh
   is none), and the setup check's wrist view matches the reference's own picture of the tile
   (`setup_check.match_tile`: same tile 0.82-0.96 on 14 pairs, no tile 0.68 on one frame; it can't tell which tile,
   another reached 0.84). The cutoff comes from one session's light and hasn't run on the arm.
+  It proved marginal across light: from 2026-11-11 to 11-23 every "no tile" on the standard mat (12 frames, the tile
+  plainly in view) matched 0.67-0.77 within 15px of the reference's place, against a reference from 2026-11-03, while
+  passes scored 0.78-0.82 at F2 and F3. So a match from `MATCH_ASK_SCORE` (0.6) up is shown to a person rather than
+  looped as "no tile". The tile detector is no help in the wrist view: it boxed nothing in the reference frames or any
+  of those (best 0.55, a tile cut by the image edge); it was trained on the RealSense's view from 0.87m.
+  **Swapped camera cables** (2026-11-25, `20261125_201151_setup`): both cameras replugged at 20:08, the base camera's
+  into the wrist's port 3-5, so the tile test hovered F2 five times over a tile the base camera couldn't see (match
+  0.36). The udev rule was right; only the port tells the two apart. The base camera's frames across those hovers were
+  0.94-1.00 alike (`setup_check.view_similarity`), real wrist frames 0.00-0.52 between spots (61 pairs), so a wrist
+  view that stays 0.75 alike from rest to the hover stops the tile test.
 
 - **The wrist camera can drop out mid-session** (2026-10-28: 8 blind misses scored against v3c). No frames
   for `camera.LOST_S` (1s) means it's lost in every script: `policy.run` stops (`stop_reason` "camera"), the
