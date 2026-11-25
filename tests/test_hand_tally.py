@@ -138,5 +138,7 @@ def test_a_voided_hand_is_listed_but_a_silent_error_or_a_resumed_one_unreviewed_
     assert [r["name"] for r in counted] == [names[1]] and not behind
     holds[names[0]] = [read(reviewed=False)]
     assert hand_tally.tally(tmp_path, review={})[0]["status"] == "waiting for review"
+    holds[names[0]] = [read(truth=None)]            # marked wrong with no right name
+    assert hand_tally.tally(tmp_path, review={})[0]["status"] == "waiting for review"
     holds[names[0]] = [read(filed="9C", truth="5C")]
     assert hand_tally.tally(tmp_path, review={})[0]["status"] == "silent error"

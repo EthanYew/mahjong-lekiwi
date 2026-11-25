@@ -366,7 +366,7 @@ def test_a_hand_that_stopped_at_its_end_check_is_finished_without_the_arm(monkey
     with pytest.raises(SystemExit, match="--end-check"):
         script.main(["--sim", "--station", "F", "--resume", str(folder)], ask=lambda text: "q")
     monkeypatch.setattr(face_down_rig, "Rig", None)        # no hardware: not even the sim's
-    assert script.main(["--end-check"], ask=lambda text: "ZONE=6D") == folder
+    assert script.main(["--sim", "--end-check"], ask=lambda text: "ZONE=6D") == folder
     (end,) = events_of(folder, "hand_end")
     assert end["result"] == "win" and end["winning"] == "5D" and end["turns"] == 1
     assert end["silent_errors"] == 1 and end["grade"] == "silent error" and end["end_check"]
@@ -424,3 +424,46 @@ def test_an_end_check_on_the_owners_word_asks_nothing_and_says_so_everywhere(mon
     assert not any("a person checked" in line for line in check["lines"])
     judged = hand_tally.judge(hand_log, [], read_events(folder))
     assert judged["status"] == "clean" and "the script crashed" in judged["why"]
+
+
+def test_a_late_end_check_takes_only_a_real_face_down_hand_unless_asked_for_a_sim_one(monkeypatch, tmp_path):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    stopped_at_the_end_check(script, ["--unattended"], [*LIGHT, ""])
+    with pytest.raises(SystemExit, match="no face-down play session"):
+        script.main(["--end-check"], ask=lambda text: "")                   # the only hand is simulated
+    face_up = tmp_path / "20991231_000000_play"
+    face_up.mkdir()
+    (face_up / "checkpoint.json").write_text(json.dumps({"phase": "won"}))
+    with pytest.raises(SystemExit, match="isn't a face-down hand"):
+        script.main(["--end-check", str(face_up)], ask=lambda text: "")
+    assert not (face_up / "events.jsonl").exists()                          # nothing written to it
+
+
+@pytest.mark.parametrize("truth", ["6D", None])
+def test_the_photo_review_outranks_the_owners_word(monkeypatch, tmp_path, truth):
+    script = script_in(monkeypatch, tmp_path, WINS_ON_5D + ["5D"])
+    folder = stopped_at_the_end_check(script, ["--unattended"], [*LIGHT, ""])
+    script.main(["--end-check", str(folder), "--on-my-word", "why"], ask=lambda text: "")
+    hand_log = play_log.hand(read_events(folder))
+    reads = [{"turn": 0, "where": "S3", "filed": "3C", "truth": truth, "reviewed": True}]
+    check = play_log.verdict(hand_log, reads)
+    assert check["status"] == "not verified" and "contradicts the owner's word" in check["lines"][-1]
+    pending = play_log.verdict(hand_log, [{**reads[0], "reviewed": False, "truth": None}])
+    assert pending["status"] == "verified" and "1 hold not reviewed yet" in pending["lines"][-1]
+
+
+def test_a_hand_that_ran_out_of_wall_says_it_rests_on_the_owners_word(monkeypatch, tmp_path, capsys):
+    import game_video
+    import session_report
+    script = script_in(monkeypatch, tmp_path, HAND + ["4D"])
+    folder = stopped_at_the_end_check(script, [], [*LIGHT, "", "", "", "end"])
+    before = game_video.Story(folder, read_events(folder)).stop
+    time.sleep(1.1)                     # the end check comes later: the game's length mustn't grow with it
+    script.main(["--end-check", str(folder), "--on-my-word", "tiles cleared"], ask=lambda text: "")
+    events = read_events(folder)
+    capsys.readouterr()
+    session_report.play_report(events, interventions.derive(events), folder)
+    assert "on the owner's word: tiles cleared" in capsys.readouterr().out
+    story = game_video.Story(folder, events)
+    assert story.stop == before and any("tiles cleared" in line for line in story.ending())
+

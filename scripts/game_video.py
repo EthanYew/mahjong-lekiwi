@@ -286,7 +286,8 @@ class Story:
         self.verdict = play_log.verdict(self.hand, reads)
         self.policy = next((e.get("policy") for e in events if e["type"] == "bench_setup"), None) \
             or next((e.get("policy") for e in events if e["type"] == "session_start"), None)
-        times = [seconds(e["time"]) for e in events if e.get("time")]
+        reopened = next((i for i, e in enumerate(events) if e["type"] == "session_reopened"), len(events))     # a late end check
+        times = [seconds(e["time"]) for e in events[:reopened] if e.get("time")]
         self.start, self.stop = (min(times), max(times)) if times else (0, 0)
 
     def counts(self, t=None):
@@ -383,6 +384,8 @@ class Story:
             out.append(f"A person checked {self.checked} of the reader's names")
         if self.verdict:
             out += self.verdict["lines"]
+        elif (line := play_log.word_line(self.hand)):
+            out.append(line)
         out.append(f"session {self.name}")
         return out
 

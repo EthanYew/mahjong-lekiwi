@@ -233,11 +233,19 @@ def winning_read(hand_log, reads):
     return rows[-1] if rows else None
 
 
+def word_line(hand_log):
+    """For a report on a hand with no verdict (the wall ran out): that its end check was taken on the owner's word, or None.
+    A win says it in its verdict's lines."""
+    word = (hand_log["audit"] or {}).get("on_word")
+    return f"End check not done at the table: the hand was taken as right on the owner's word: {word}" if word else None
+
+
 def verdict(hand_log, reads=None):
     """Whether the win stands: {"status": "verified" | "not verified" | "not a win", "lines": [why, ...]}, or None for a
     hand that wasn't won. A person's end check vouches for the tiles it covers; a winning tile it didn't cover (face down,
     before 2026-11-19) needs its photos reviewed (`reads`: face_down_play.scored_reads). The win stands when the 14 a
-    person vouched for still make one (game.is_win)."""
+    person vouched for still make one (game.is_win). An end check taken on the owner's word (no tile seen) gives way to the
+    photos' review: a reviewed read that is wrong, or marked wrong with no name, and the win isn't verified."""
     win, end = hand_log["win"], hand_log["end"] or {}
     if end.get("result") != "win":
         return None
@@ -280,7 +288,7 @@ def verdict(hand_log, reads=None):
             lines.append(f"Winning {drawn}: its photos were reviewed: " + ("it was " + truth_drawn if truth_drawn != drawn else "right"))
         elif drawn and word:
             drawn_checked = True
-            lines.append(f"Winning {drawn}: taken on the owner's word, its photos not reviewed")
+            lines.append(f"Winning {drawn}: taken on the owner's word, no reviewed name for its photos")
         elif drawn:
             by = read.get("by")
             if by == "person":
@@ -297,6 +305,10 @@ def verdict(hand_log, reads=None):
     known = thirteen is not None and truth_drawn is not None
     if known and not game.is_win(thirteen + [truth_drawn]) and (wrong or truth_drawn != drawn):
         return {"status": "not a win", "lines": lines + ["Not a win: the checked tiles don't make one"]}
+    doubted = [r for r in reads or [] if r.get("reviewed") and r.get("truth") != r.get("filed")] if word else []
+    if doubted:
+        said = "; ".join(f"{r['where']} read {r['filed']}, " + (f"really {r['truth']}" if r["truth"] else "marked wrong") for r in doubted)
+        return {"status": "not verified", "lines": lines + [f"Win not verified: the photo review contradicts the owner's word: {said}"]}
     if missing:
         return {"status": "not verified", "lines": lines + ["Win not verified yet: needs " + "; ".join(missing)]}
     if not drawn_checked:
@@ -306,5 +318,8 @@ def verdict(hand_log, reads=None):
             return {"status": "not verified", "lines": lines + [
                 f"Win not verified: the end check found {plural(len(wrong), 'tile')} wrong, and the log can't say if it still wins"]}
         return {"status": "verified", "lines": lines + ["Win verified: a person matched every tile to the robot's winning hand"]}
-    return {"status": "verified", "lines": lines + ["Win verified on the owner's word, not by an end check at the table" if word
-                                                     else "Win verified: a person vouched for all 14 tiles"]}
+    if not word:
+        return {"status": "verified", "lines": lines + ["Win verified: a person vouched for all 14 tiles"]}
+    pending = sum(not r.get("reviewed") for r in reads or [])
+    return {"status": "verified", "lines": lines + ["Win verified on the owner's word, not by an end check at the table"
+                                                    + (f"; {plural(pending, 'hold')} not reviewed yet" if pending else "")]}

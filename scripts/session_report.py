@@ -312,7 +312,7 @@ def all_sessions():
             check = play_log.verdict(h, fd_reads(folder, h, review))
             print(f"{folder.name:<24} {end['result']:<6} {end['turns']:>5} {end.get('grade') or '-':<12} {asks:>4} "
                   f"{rescues:>7} {check['status'] if check else '-':<12}  {setup_text(start)}"
-                  + ("  VOIDED" if void_reason(folder) else ""))
+                  + ("  VOIDED" if void_reason(folder) else "") + ("  ON THE OWNER'S WORD" if end.get("end_check_on_word") else ""))
 
 
 def hand_asks_rescues(events, end):
@@ -460,7 +460,7 @@ def play_report(events, found, folder=None):
         if winning and end["result"] == "win" and h["win"] and h["win"].get("before"):
             print(f"  winning hand: {play_log.melds_line(h['win']['before'] + [winning])}")
         check = play_log.verdict(h, fd_reads(folder, h) if folder else None)
-        for line in check["lines"] if check else []:
+        for line in check["lines"] if check else filter(None, [play_log.word_line(h)]):
             print(f"  {line}")
     asked = Counter(i["kind"] for i in found if i["class"] == interventions.ASK)
     if asked:

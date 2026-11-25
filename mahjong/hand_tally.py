@@ -10,8 +10,8 @@ A hand (a `*_play_fd` session, real and not voided) is one of:
   unfinished                   it started turns but never reached its end check, or a person quit it: a failed hand, not skipped
   not verified                 a win no person vouched for (play_log.verdict)
   voided                       stopped by something other than the robot (data/void_sessions.json, status.py --void): listed,
-                               not counted. A wrong name it used is still a silent error, and one that a later session resumed
-                               waits for its photos' review like any other
+                               not counted. A wrong name it used is still a silent error. It waits for review like any other while
+                               a photo is marked wrong with no name, or if a later session resumed it and one has no verdict
 Only hands before the first one waiting are counted, voided ones left out. The window is the last WINDOW of them."""
 from pathlib import Path
 
@@ -92,9 +92,11 @@ def tally(sessions_dir=None, review=None):
         if verdict is None:
             continue
         if (why := void_reason(folder)) and verdict["status"] != SILENT:
-            unreviewed = sum(not r["reviewed"] for r in reads)
-            verdict = {"status": WAITING, "why": f"voided, but a later session carried its hand on and {unreviewed} hold(s) have no verdict"} \
-                if unreviewed and folder.name in resumed else {"status": VOIDED, "why": why}
+            unnamed = sum(r["reviewed"] and r["truth"] is None for r in reads)
+            carried = sum(not r["reviewed"] for r in reads) if folder.name in resumed else 0
+            verdict = {"status": WAITING, "why": f"voided, but {unnamed} hold(s) are marked wrong with no name and {carried} of a hand "
+                                                 "a later session carried on have no verdict"} \
+                if unnamed or carried else {"status": VOIDED, "why": why}
         start = next((e for e in events if e["type"] == "session_start"), {})
         end = hand_log["end"] or {}
         rows.append({"name": folder.name, "mode": "unattended" if hand_log["unattended"] else "attended",

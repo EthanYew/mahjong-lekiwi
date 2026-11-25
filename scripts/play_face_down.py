@@ -44,7 +44,7 @@ from mahjong import (base_cam, base_cam_collect, config, crude_run, desk_video, 
                      interventions, layout, markers, play_log, privacy, takeover, wall_test)
 from mahjong.identity import parse_fixes
 from mahjong.perception import drain_stdin
-from mahjong.session import Session, read_events
+from mahjong.session import Session, is_sim, read_events
 
 LAY_WINDOW = "lay the hand and the wall (RealSense view)"
 ZONE = play_log.ZONE.upper()     # what a person types for the drop zone in the end check: a win's drawn tile lies there
@@ -85,21 +85,22 @@ def play_sessions():
     return sorted(config.SESSIONS.glob(f"*_{face_down_play.PLAY_KIND}"))
 
 
-def find_session(arg, need_checkpoint=False):
+def find_session(arg, need_checkpoint=False, sim=None):
     if arg != "latest":
         folder = Path(arg) if Path(arg).is_dir() else config.SESSIONS / arg
         if not folder.is_dir():
             raise SystemExit(f"no session {arg}")
         return folder
-    folders = [f for f in play_sessions() if not need_checkpoint or (f / "checkpoint.json").exists()]
+    folders = [f for f in play_sessions() if (not need_checkpoint or (f / "checkpoint.json").exists())
+               and (sim is None or is_sim(f) == sim)]
     if not folders:
         raise SystemExit(f"no face-down play session{' with a checkpoint' if need_checkpoint else ''} under {config.SESSIONS}")
     return folders[-1]
 
 
-def read_checkpoint(arg):
-    """(session folder, its checkpoint) of the hand named, or the latest with one."""
-    folder = find_session(arg, need_checkpoint=True)
+def read_checkpoint(arg, sim=None):
+    """(session folder, its checkpoint) of the hand named, or the latest with one (sim: the latest simulated or real one)."""
+    folder = find_session(arg, need_checkpoint=True, sim=sim)
     state = json.loads((folder / "checkpoint.json").read_text()) if (folder / "checkpoint.json").exists() else None
     if state is None:
         raise SystemExit(f"{folder.name} has no checkpoint.json: it stopped before the hand was checked, so start a new one")
@@ -509,11 +510,13 @@ def finish_hand(session, ask, result, unattended, played, on_word=None):
                       **{k: v for k, v in s.items() if k not in ("result", "turns", "grade", "silent_errors")})
 
 
-def late_end_check(arg, ask=input, on_word=None):
+def late_end_check(arg, ask=input, on_word=None, sim=False):
     """--end-check: finish a hand that was won, or ran out of wall, but never reached its hand_end (the script stopped at the
     end check). No hardware; the tiles have to be as the hand left them, unless on_word (--on-my-word) says why they're
     taken as right without looking."""
-    folder, state = read_checkpoint(arg)
+    folder, state = read_checkpoint(arg, sim=sim)
+    if not folder.name.endswith(f"_{face_down_play.PLAY_KIND}"):
+        raise SystemExit(f"{folder.name} isn't a face-down hand")
     if state["phase"] not in ("won", "end"):
         raise SystemExit(f"{folder.name}'s hand isn't over ({state['phase']}): carry it on with --resume")
     events = read_events(folder)
@@ -550,7 +553,7 @@ def main(argv=None, ask=input):
     if args.report is not None:
         return report(args.report)
     if args.end_check is not None:
-        return late_end_check(args.end_check, ask, args.on_my_word)
+        return late_end_check(args.end_check, ask, args.on_my_word, args.sim)
     privacy.require()           # the weights that blur faces in the base camera's photos: before any hardware
     spots = layout.load(args.layout)["spots"]
     slots = [s["id"] for s in spots]

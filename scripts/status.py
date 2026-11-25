@@ -175,15 +175,17 @@ def void_play(arg, why, sessions_dir=None):
         raise SystemExit(f"{folder.name} is already voided: {already}")
     end = play_log.hand(read_events(folder))["end"] or {}
     fd = folder.name.endswith("_play_fd")
-    if end.get("silent_errors") or (fd and hand_tally.wrong_reads(face_down_play.scored_reads(folder))):
+    reads = face_down_play.scored_reads(folder) if fd else []
+    if end.get("silent_errors") or hand_tally.wrong_reads(reads) or any(r["reviewed"] and r["truth"] is None for r in reads):
         raise SystemExit(f"{folder.name} used a wrong tile name: that's the robot's own result, so it stays")
     if end.get("result") in hand_tally.COMPLETE:
         raise SystemExit(f"{folder.name}'s hand ran to its end ({end['result']}): it wasn't stopped partway")
     checkpoint = folder / "checkpoint.json"
     phase = json.loads(checkpoint.read_text()).get("phase") if checkpoint.exists() else None
     if not end and phase in ("won", "end"):
-        raise SystemExit(f"{folder.name}'s hand finished ({phase}) and only its end check is missing"
-                         + (": python scripts/play_face_down.py --end-check " + folder.name if fd else ""))
+        raise SystemExit(f"{folder.name}'s hand finished ({phase}) and only its end check is missing: "
+                         + ("python scripts/play_face_down.py --end-check " + folder.name if fd else
+                            "face-up play can't do one afterwards, so it stays as a hand with no end check"))
     void(folder.name, why.strip())
     return folder.name
 
