@@ -70,6 +70,28 @@ def test_dropped_episodes_are_kept_per_dataset_with_their_reason(tmp_path):
     assert dropped_episodes("c/d", path) == {1: "other"}
 
 
+def test_no_dataset_lists_every_dropped_episode_with_its_reason(tmp_path, monkeypatch, capsys):
+    import quality_report
+    path = tmp_path / "dropped.json"
+    monkeypatch.setattr(quality, "DROPPED_FILE", path)
+    monkeypatch.setattr("sys.argv", ["quality_report.py"])
+    quality_report.main()
+    assert "No episodes" in capsys.readouterr().out
+    quality.drop_episodes("a/b", [39, 8], "searching")
+    quality.drop_episodes("a/b", [13], "closed high")
+    quality.drop_episodes("c/d", [1], "other")
+    quality.drop_episodes("e/f", [2], "undone")
+    quality.undrop_episodes("e/f", [2])
+    quality_report.main()
+    out = capsys.readouterr().out
+    assert "4 episodes in 2 datasets" in out and "e/f" not in out
+    assert "a/b: 3\n  8, 39: searching\n  13: closed high" in out and "c/d: 1\n  1: other" in out
+    monkeypatch.setattr("sys.argv", ["quality_report.py", "--drop", "3"])
+    with pytest.raises(SystemExit):                          # never drops without saying from what
+        quality_report.main()
+    assert "--dataset is required with --drop" in capsys.readouterr().err
+
+
 def test_gripper_fixes_and_undropping(tmp_path):
     from mahjong.quality import drop_episodes, fix_gripper, gripper_fixes, undrop_episodes
     fixes, drops = tmp_path / "fixes.json", tmp_path / "dropped.json"

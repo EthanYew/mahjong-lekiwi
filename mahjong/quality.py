@@ -394,6 +394,13 @@ def dropped_episodes(repo_id, path=None):
     return _listed(repo_id, Path(path or DROPPED_FILE))
 
 
+def all_dropped(path=None):
+    """{repo: {episode: reason}} for every dataset with an episode dropped after review."""
+    path = Path(path or DROPPED_FILE)
+    repos = json.loads(path.read_text()) if path.exists() else {}
+    return {repo: _listed(repo, path) for repo, entry in repos.items() if entry}     # undropping leaves empty entries
+
+
 def drop_episodes(repo_id, episodes, reason, path=None):
     """Add episodes to repo_id's dropped list (reason kept with each). Returns the whole list."""
     return _list(repo_id, episodes, reason, Path(path or DROPPED_FILE))
