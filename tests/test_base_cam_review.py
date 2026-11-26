@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -201,4 +202,17 @@ def test_a_photo_marked_wrong_with_no_name_can_be_named_in_a_later_run_with_all(
     assert reviewer.names == ["3B"] and reviewer.rows == [[photo]]
     reviewer.mark([photo], "wrong", "3D")
     assert photo_review.name_of(photo, photo_review.load_review(log)) == "3D"
+
+
+@pytest.mark.parametrize("unsaved, reminded", [(["data/holdup_review.jsonl"], True), (["data/hover_corrections.jsonl"], False),
+                                               ([], False)])
+def test_a_review_ends_by_reminding_to_push_verdicts_that_arent_committed(tmp_path, monkeypatch, capsys, unsaved, reminded):
+    import base_cam_review
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(base_cam, "REVIEW", tmp_path / "holdup_review.jsonl")
+    two_arrangements(tmp_path)
+    monkeypatch.setattr(photo_review.checkout, "unsaved_samples", lambda repo=None: unsaved)
+    monkeypatch.setattr(photo_review, "run", lambda *args: None)         # the window, quit straight away
+    base_cam_review.main([], ask=lambda prompt: "")
+    assert ("python scripts/push_session_data.py" in capsys.readouterr().out) == reminded
 

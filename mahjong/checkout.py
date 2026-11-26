@@ -108,7 +108,7 @@ def sample_files(repo=None):
 
 
 def unsaved_samples(repo=None):
-    """Sample files with changes this checkout hasn't committed (scripts/save_samples.py commits and pushes them)."""
+    """Sample files with changes this checkout hasn't committed (scripts/push_session_data.py commits and pushes them)."""
     samples = set(sample_files(repo))
     return [path for path in changed_data(repo) if path in samples]
 

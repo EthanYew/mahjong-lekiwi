@@ -15,8 +15,9 @@ row. Right-click renames (asked in the terminal). Shift+click opens a photo at f
 photos ok and moves on; p goes back; ] and [ change name; q quits.
 """
 from datetime import datetime
+from pathlib import Path
 
-from . import config
+from . import checkout, config
 from .session import append_jsonl, read_jsonl
 
 GREEN, RED, AMBER, WHITE, GREY = (0, 200, 0), (40, 40, 230), (0, 190, 255), (235, 235, 235), (150, 150, 150)
@@ -286,4 +287,11 @@ def run(reviewer, ask, window, names):
 def summary(review, path):
     wrong = [r for r in review.values() if r["verdict"] == "wrong"]
     return (f"{len(review)} photos reviewed, {len(wrong)} wrong ({sum(bool(r.get('name')) for r in wrong)} renamed). "
-            f"Verdicts in {path}: commit it.")
+            f"Verdicts in {path}.")
+
+
+def remind_to_push(log):
+    """Say so while the review log has verdicts that aren't committed: left on this machine, they're easy to forget."""
+    if any(Path(f).name == Path(log).name for f in checkout.unsaved_samples()):
+        print("\nREMINDER: your verdicts aren't on GitHub yet. From the main checkout, run:\n"
+              "  python scripts/push_session_data.py")

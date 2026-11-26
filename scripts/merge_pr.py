@@ -203,7 +203,7 @@ def pull_blockers(ref, touched, repo=None):
                  or checkout.git("diff", "--name-only", "--", path, repo=repo))]
     if both:
         problems.append(f"uncommitted changes to files this PR also changes: {', '.join(both)}"
-                        "\n  Commit and push them first: python scripts/save_samples.py (for samples), or git add <files> && "
+                        "\n  Commit and push them first: python scripts/push_session_data.py (for samples), or git add <files> && "
                         "git commit -m '<why>' && git pull --rebase --autostash origin main && git push origin main")
     return problems
 

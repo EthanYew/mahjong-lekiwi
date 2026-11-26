@@ -121,7 +121,7 @@ def items(repo=None, sessions_dir=None, quick=False):
                  lambda: [f"{n} merged branch(es) not closed: python scripts/merge_pr.py --close"]
                  if (n := len(checkout.leftovers(repo))) else [],
                  lambda: [] if quick else _held_prs(),
-                 lambda: [f"samples not saved to main: {', '.join(files)} (python scripts/save_samples.py)"]
+                 lambda: [f"samples not saved to main: {', '.join(files)} (python scripts/push_session_data.py)"]
                  if not checkout.is_worktree(repo) and (files := checkout.unsaved_samples(repo)) else [],
                  lambda: [f"{n} invariants still say Unconfirmed: /review-bench lists the ones a session settles"]
                  if (n := unconfirmed(repo)) else []):

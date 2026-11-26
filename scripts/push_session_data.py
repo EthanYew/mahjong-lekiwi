@@ -1,8 +1,9 @@
-"""Save a hardware session's logged samples to main, in one step (docs/usage.md, "Data files and merging").
+"""Commit and push a hardware session's logged data (samples, photo reviews) to main, in one step (docs/usage.md,
+"Data files and merging").
 
-    python scripts/save_samples.py                 # the samples changed here, named after the latest real session; asks first
-    python scripts/save_samples.py --dry-run       # what it would commit, without committing
-    python scripts/save_samples.py --session 20261113_100710_bench
+    python scripts/push_session_data.py                 # the samples changed here, named after the latest real session; asks first
+    python scripts/push_session_data.py --dry-run       # what it would commit, without committing
+    python scripts/push_session_data.py --session 20261113_100710_bench
 
 The scripts append samples to files in data/ as they run (hover and return corrections, photo reviews). They go to main from
 the main checkout, committed and pushed together so a commit never sits here without being on GitHub. This does docs/usage.md's

@@ -37,7 +37,7 @@ Quote exactly from `session_report.py`: clean counts and ranges for both policie
 **d. The decision and the record.** Only the user decides. On their word: `status.py --set-default ID --evidence "<sessions, scores, benefit>" --why "..."`, then ROADMAP.md's status in a branch (Claude Code does that).
 
 ## 5. Not requirements. Don't put these in the checklist
-- status.py's "Owed and overdue" list (unmerged branches, `save_samples.py`, Unconfirmed invariants): housekeeping. At most one line: "housekeeping, not needed to clear it".
+- status.py's "Owed and overdue" list (unmerged branches, `push_session_data.py`, Unconfirmed invariants): housekeeping. At most one line: "housekeeping, not needed to clear it".
 - The face-down hands tally ("10 hands, 8+ clean"): the play-readiness proof. The scorecard says the default is "the working best" and says nothing about being ready to play.
 - The offline close-timing gate: report-only since 2026-11-17. Offline scores are a screen only; say whether `data/offline_eval/<id>*` exists and whether it shows a freeze.
 - The default's old decision note (`evidence` / `why`): dated text. "No face-up bench yet" was true on the day it was written; check it against today's status lines before repeating it.
@@ -52,7 +52,7 @@ Asked "what is outstanding to clear v14 as the default" after a face-down paired
 - never said v14's result, which was the point of the question (28/28 clean against v13's 25/28; iteration check AHEAD 3-0; strict paired EXTEND p 0.25; play-ready face down PASS, with the setup check still the user's);
 - listed a face-up bench "to establish a baseline" quoting a stale note: the action was right (the scorecard requires the face-up round) but the reason and the source were wrong;
 - told the user to pass the offline close-timing gate, which is report-only, and v14's offline screen already existed;
-- listed the 11 Unconfirmed invariants and `save_samples.py` as ship requirements: housekeeping;
+- listed the 11 Unconfirmed invariants and `push_session_data.py` as ship requirements: housekeeping;
 - counted the face-down hands tally as a requirement: it is the play-ready proof;
 - missed the real review item: v14 closed higher (median 9.4 mm against 8.0, six attempts at 13 mm+ against none), a possible new failure type for the user to judge.
 Its quoted figures were accurate; what failed was relevance, staleness and the missing result. A good answer opens with the result, lists three to five items that each trace to the scorecard, and names the judgment calls with their facts. (Those numbers are from that day; always take current ones from the reports.)

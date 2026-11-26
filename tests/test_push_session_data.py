@@ -1,4 +1,4 @@
-"""scripts/save_samples.py: a session's samples committed and pushed to main in one step, nothing else with them."""
+"""scripts/push_session_data.py: a session's samples committed and pushed to main in one step, nothing else with them."""
 import json
 import subprocess
 import sys
@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import save_samples
+import push_session_data
 from mahjong import checkout
 
 ATTRIBUTES = "data/hover_corrections.jsonl merge=union\ndata/post_merge_reviews.jsonl merge=union\n"
@@ -46,7 +46,7 @@ def test_the_samples_go_to_github_named_after_the_last_real_session(repo, tmp_pa
     for name in ("data/hover_corrections.jsonl", "data/post_merge_reviews.jsonl", "data/layouts.json"):
         (repo / name).write_text("{}\n{}\n")
     assert checkout.unsaved_samples(repo) == ["data/hover_corrections.jsonl"]   # not the review log, not a layout
-    save_samples.main([], ask=lambda q: "y", repo=repo, sessions_dir=sessions)
+    push_session_data.main([], ask=lambda q: "y", repo=repo, sessions_dir=sessions)
     assert git(repo, "log", "-1", "--format=%s", "origin/main") == "Samples from 20261113_100710_bench"
     assert git(repo, "show", "--name-only", "--format=", "origin/main") == "data/hover_corrections.jsonl"
     assert checkout.changed_data(repo) == ["data/layouts.json", "data/post_merge_reviews.jsonl"]
@@ -54,8 +54,8 @@ def test_the_samples_go_to_github_named_after_the_last_real_session(repo, tmp_pa
 
 def test_a_dry_run_or_a_no_commits_nothing(repo, tmp_path):
     (repo / "data/hover_corrections.jsonl").write_text("{}\n{}\n")
-    save_samples.main(["--dry-run"], ask=lambda q: pytest.fail("a dry run asked"), repo=repo, sessions_dir=tmp_path)
-    save_samples.main([], ask=lambda q: "n", repo=repo, sessions_dir=tmp_path)
+    push_session_data.main(["--dry-run"], ask=lambda q: pytest.fail("a dry run asked"), repo=repo, sessions_dir=tmp_path)
+    push_session_data.main([], ask=lambda q: "n", repo=repo, sessions_dir=tmp_path)
     assert git(repo, "log", "--format=%s") == "start"
 
 
@@ -64,7 +64,7 @@ def test_another_unpushed_commit_stops_it_before_anything_is_committed(repo, tmp
     git(repo, "add", "mahjong.py"), git(repo, "commit", "-q", "-m", "local code, never meant for GitHub")
     (repo / "data/hover_corrections.jsonl").write_text("{}\n{}\n")
     with pytest.raises(SystemExit, match="1 commit"):
-        save_samples.main([], ask=lambda q: "y", repo=repo, sessions_dir=tmp_path)
+        push_session_data.main([], ask=lambda q: "y", repo=repo, sessions_dir=tmp_path)
     assert git(repo, "log", "-1", "--format=%s", "origin/main") == "start"
 
 
@@ -72,4 +72,4 @@ def test_a_worktree_is_refused(repo, tmp_path):
     tree = tmp_path / "tree"
     git(repo, "worktree", "add", "-q", "-b", "other", str(tree))
     with pytest.raises(SystemExit, match="main checkout"):
-        save_samples.main([], repo=tree, sessions_dir=tmp_path)
+        push_session_data.main([], repo=tree, sessions_dir=tmp_path)

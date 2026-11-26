@@ -1243,7 +1243,8 @@ click a row's label for the whole row (a wrong tile laid is wrong in all of them
 terminal), Shift+click for the whole frame. Space marks the page's unmarked photos ok and moves on; `p` back, `]` `[` change name, `q`
 quits. A verdict on a pose's photo goes for its other frames. Way up isn't reviewed (the reader learns names only).
 `--all-sessions` adds the sessions from before interleaving (nothing trains on them). Each verdict is a line in
-`data/holdup_review.jsonl` (commit it; it merges by union), and `base_cam_train.py` and `base_cam_collect.py`'s counts read the photos
+`data/holdup_review.jsonl` (it merges by union; push it with `python scripts/push_session_data.py`, which the window's end reminds
+you of while verdicts aren't committed), and `base_cam_train.py` and `base_cam_collect.py`'s counts read the photos
 through it: a renamed hold counts under its right name, a photo marked wrong without one is left out. The window and the log are
 shared with `wrist_review.py` (`mahjong/photo_review.py`).
 
@@ -1499,7 +1500,8 @@ python scripts/wrist_review.py --all            # reviewed photos too
 ```
 
 Nothing is moved or deleted: the photos stay in their sessions (the record), and each verdict is a
-line in `data/wrist_review.jsonl` (commit it; it merges by union). The counts in wrist_capture.py and
+line in `data/wrist_review.jsonl` (it merges by union; push it with `python scripts/push_session_data.py`, which the window's end
+reminds you of while verdicts aren't committed). The counts in wrist_capture.py and
 any training set read the photos through it (`mahjong/wrist_photos.py`): a renamed photo counts under
 its right name, one marked wrong without a name doesn't count.
 
@@ -1637,13 +1639,13 @@ The arm's scripts append to files in `data/` as they run, so this checkout is of
 | Samples the scripts log (`hover_corrections.jsonl`, `return_corrections.jsonl`, reviews) | straight to `main`, in one step below | after a hardware session |
 | A decision (the default policy, exam lists, scores, new weights) | a PR, with its evidence; commit an exam list the session it's added, so no training can pick those frames up | when it's made |
 
-Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub. `scripts/save_samples.py`
+Save a session's samples in one step, so a commit never sits on `main` here without being on GitHub. `scripts/push_session_data.py`
 does it, from the main checkout after a hardware session:
 
 ```
-python scripts/save_samples.py               # shows the changed sample files, asks, commits "Samples from <latest session>", pulls, pushes
-python scripts/save_samples.py --dry-run     # only shows them
-python scripts/save_samples.py --session 20261113_100710_bench   # name another session in the message
+python scripts/push_session_data.py               # shows the changed sample files, asks, commits "Samples from <latest session>", pulls, pushes
+python scripts/push_session_data.py --dry-run     # only shows them
+python scripts/push_session_data.py --session 20261113_100710_bench   # name another session in the message
 ```
 
 The sample files are the ones `.gitattributes` merges by union, less `data/post_merge_reviews.jsonl` (a review's PR writes it); it

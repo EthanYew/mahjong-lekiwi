@@ -25,7 +25,8 @@ photo, not a lost one. Shift+click shows the whole frame. Space marks the page's
 back; ] and [ change name; q quits. A verdict on a pose's photo goes for its other frames too. Way up (upright / turned) isn't
 reviewed: the reader learns names only.
 
-Nothing is moved or deleted: each verdict is a line in data/holdup_review.jsonl (commit it; it merges by union), and
+Nothing is moved or deleted: each verdict is a line in data/holdup_review.jsonl (push it with push_session_data.py, which the
+window's end reminds you of; it merges by union), and
 base_cam_train.py and base_cam_collect.py's counts read the photos through it. Run from the main checkout (sessions are per
 checkout).
 """
@@ -137,10 +138,12 @@ def main(argv=None, ask=None):
     reviewer = Reviewer(photos, base_cam.load_review(), names, show_all=args.all)
     if not reviewer.names:
         print(f"Nothing to review in {config.SESSIONS}" + ("" if args.all else " (--all shows reviewed photos too)"))
+        photo_review.remind_to_push(base_cam.REVIEW)
         return
     print(f"{len(photos)} photos (one per pose of each hold) in {len(folders)} session(s); reviewing {', '.join(reviewer.names)}")
     photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
     print(photo_review.summary(base_cam.load_review(), base_cam.REVIEW))
+    photo_review.remind_to_push(base_cam.REVIEW)
 
 
 if __name__ == "__main__":
