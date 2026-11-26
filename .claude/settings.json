@@ -17,7 +17,7 @@
     ],
     "ask": [
       "Bash(*scripts/status.py --set-default*)",
-      "Bash(*scripts/save_samples.py*)"
+      "Bash(*scripts/push_session_data.py*)"
     ],
     "deny": [
       "Bash(git push --force*)",

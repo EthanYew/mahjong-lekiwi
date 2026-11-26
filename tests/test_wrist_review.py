@@ -6,10 +6,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from mahjong import config, wrist_photos
+from mahjong import config, photo_review, wrist_photos
 
 
 def make_sessions(root):
@@ -97,6 +98,21 @@ def test_main_reviews_with_the_mouse_and_keys(tmp_path, monkeypatch):
     review = wrist_photos.load_review()
     assert sorted(r["verdict"] for r in review.values()) == ["ok", "ok", "ok", "wrong"]
     assert [r["name"] for r in review.values() if r["verdict"] == "wrong"] == ["2C"]
+
+
+@pytest.mark.parametrize("unsaved, reminded", [(["data/wrist_review.jsonl"], True), (["data/holdup_review.jsonl"], False),
+                                               ([], False)])
+def test_a_review_ends_by_reminding_to_push_verdicts_that_arent_committed(tmp_path, monkeypatch, capsys, unsaved, reminded):
+    import wrist_review
+    make_sessions(tmp_path)
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(wrist_photos, "REVIEW", tmp_path / "wrist_review.jsonl")
+    monkeypatch.setattr(photo_review.checkout, "unsaved_samples", lambda repo=None: unsaved)
+    monkeypatch.setattr(photo_review.checkout, "unpushed_files", lambda repo=None: [])
+    monkeypatch.setattr(photo_review.checkout, "is_worktree", lambda repo=None: False)
+    monkeypatch.setattr(photo_review, "run", lambda *args: None)         # the window, quit straight away
+    wrist_review.main([], ask=lambda prompt: "")
+    assert ("python scripts/push_session_data.py" in capsys.readouterr().out) == reminded
 
 
 def test_a_photo_no_scan_named_waits_for_a_persons_name():

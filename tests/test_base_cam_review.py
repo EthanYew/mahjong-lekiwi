@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -202,3 +203,40 @@ def test_a_photo_marked_wrong_with_no_name_can_be_named_in_a_later_run_with_all(
     reviewer.mark([photo], "wrong", "3D")
     assert photo_review.name_of(photo, photo_review.load_review(log)) == "3D"
 
+
+@pytest.mark.parametrize("unsaved, unpushed, worktree, said", [
+    (["data/holdup_review.jsonl"], [], False, "From the main checkout, run:\n  python scripts/push_session_data.py"),
+    (["data/holdup_review.jsonl"], [], True, "this worktree's data/holdup_review.jsonl"),
+    ([], ["data/holdup_review.jsonl"], False, "git push origin main"),
+    ([], ["data/holdup_review.jsonl"], True, None),                  # a worktree's branch: its commits go by its PR
+    (["data/hover_corrections.jsonl"], ["docs/usage.md"], False, None),
+    ([], [], False, None)])
+def test_a_review_ends_by_reminding_where_verdicts_not_on_github_are(tmp_path, monkeypatch, capsys, unsaved, unpushed,
+                                                                     worktree, said):
+    import base_cam_review
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(base_cam, "REVIEW", tmp_path / "holdup_review.jsonl")
+    two_arrangements(tmp_path)
+    checkout = photo_review.checkout
+    monkeypatch.setattr(checkout, "unsaved_samples", lambda repo=None: unsaved)
+    monkeypatch.setattr(checkout, "unpushed_files", lambda repo=None: unpushed)
+    monkeypatch.setattr(checkout, "is_worktree", lambda repo=None: worktree)
+    monkeypatch.setattr(photo_review, "run", lambda *args: None)         # the window, quit straight away
+    base_cam_review.main([], ask=lambda prompt: "")
+    out = capsys.readouterr().out
+    assert (said in out) if said else "REMINDER" not in out
+
+
+def test_a_review_stopped_with_ctrl_c_still_reminds(tmp_path, monkeypatch, capsys):
+    import base_cam_review
+    monkeypatch.setattr(config, "SESSIONS", tmp_path)
+    monkeypatch.setattr(base_cam, "REVIEW", tmp_path / "holdup_review.jsonl")
+    two_arrangements(tmp_path)
+    monkeypatch.setattr(photo_review.checkout, "unsaved_samples", lambda repo=None: ["data/holdup_review.jsonl"])
+
+    def stopped(*args):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(photo_review, "run", stopped)
+    with pytest.raises(KeyboardInterrupt):
+        base_cam_review.main([], ask=lambda prompt: "")
+    assert "REMINDER" in capsys.readouterr().out

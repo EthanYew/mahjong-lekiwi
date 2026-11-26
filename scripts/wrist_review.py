@@ -12,9 +12,9 @@ them). Click a photo to mark it wrong; click the row's label for the whole tile.
 at full size, to see which tile is between the jaws (several are in view). Space marks the page's
 unmarked photos ok and moves on; p goes back; ] and [ change name; q quits.
 
-Nothing is moved or deleted: each verdict is a line in data/wrist_review.jsonl (commit it), and the
-counts (wrist_capture.py) and any training set read the photos through it. Run from the main checkout
-(sessions are per checkout). The window and the verdict log are mahjong/photo_review.py, shared with
+Nothing is moved or deleted: each verdict is a line in data/wrist_review.jsonl (push it with push_session_data.py, which the
+window's end reminds you of), and the counts (wrist_capture.py) and any training set read the photos through it. Run from the
+main checkout (sessions are per checkout). The window and the verdict log are mahjong/photo_review.py, shared with
 base_cam_review.py.
 """
 import argparse
@@ -65,10 +65,14 @@ def main(argv=None, ask=None):
     reviewer = Reviewer(all_photos, wrist_photos.load_review(), names, show_all=args.all)
     if not reviewer.names:
         print(f"Nothing to review in {config.SESSIONS}" + ("" if args.all else " (--all shows reviewed photos too)"))
+        photo_review.remind_to_push(wrist_photos.REVIEW)
         return
     print(f"{len(all_photos)} photos; reviewing {', '.join(reviewer.names)}")
-    photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
-    print(photo_review.summary(wrist_photos.load_review(), wrist_photos.REVIEW))
+    try:
+        photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
+        print(photo_review.summary(wrist_photos.load_review(), wrist_photos.REVIEW))
+    finally:
+        photo_review.remind_to_push(wrist_photos.REVIEW)
 
 
 if __name__ == "__main__":
