@@ -46,8 +46,8 @@ constants. Git catches overlapping lines, not overlapping intent. So:
   sessions count what it hasn't seen. `tests/test_docs.py` checks the docs against `data/` and the scripts' options on every commit.
 - **Tests that catch a clean-but-broken merge** are end-to-end sim runs of a script's main path
   (`tests/test_bench.py`, `tests/test_record.py`). A new user-run script gets one.
-- `data/hover_corrections.jsonl`, `data/return_corrections.jsonl` and `data/wrist_review.jsonl` merge by union
-  (`.gitattributes`): both sides' samples are kept.
+- `data/hover_corrections.jsonl`, `data/return_corrections.jsonl`, `data/wrist_review.jsonl` and `data/holdup_review.jsonl`
+  merge by union (`.gitattributes`): both sides' samples are kept.
 - **An edit to a file another open branch changes gets a note** (`.claude/hooks/overlap_warning.py`, after every Edit and Write,
   once per file per session). 10 of the 12 PRs from #67 to #78 changed `play.py`, and `merge_pr.py` only shows an overlap at
   merge time. Open branches are `origin`'s as last fetched, less those on `main` and this branch's own base. It never blocks:

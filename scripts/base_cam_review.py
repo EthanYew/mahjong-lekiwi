@@ -141,9 +141,11 @@ def main(argv=None, ask=None):
         photo_review.remind_to_push(base_cam.REVIEW)
         return
     print(f"{len(photos)} photos (one per pose of each hold) in {len(folders)} session(s); reviewing {', '.join(reviewer.names)}")
-    photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
-    print(photo_review.summary(base_cam.load_review(), base_cam.REVIEW))
-    photo_review.remind_to_push(base_cam.REVIEW)
+    try:
+        photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
+        print(photo_review.summary(base_cam.load_review(), base_cam.REVIEW))
+    finally:
+        photo_review.remind_to_push(base_cam.REVIEW)
 
 
 if __name__ == "__main__":

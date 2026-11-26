@@ -291,7 +291,16 @@ def summary(review, path):
 
 
 def remind_to_push(log):
-    """Say so while the review log has verdicts that aren't committed: left on this machine, they're easy to forget."""
-    if any(Path(f).name == Path(log).name for f in checkout.unsaved_samples()):
-        print("\nREMINDER: your verdicts aren't on GitHub yet. From the main checkout, run:\n"
-              "  python scripts/push_session_data.py")
+    """Say so while the review log has verdicts that aren't on GitHub: left on this machine, they're easy to forget. In a
+    worktree the push script can't take them (it runs from the main checkout), and removing the worktree would lose them."""
+    name = Path(log).name
+    if any(Path(f).name == name for f in checkout.unsaved_samples()):
+        if checkout.is_worktree():
+            print(f"\nREMINDER: your verdicts are in this worktree's data/{name}, and removing the worktree loses them. Append the\n"
+                  "new lines to the main checkout's copy, then run there: python scripts/push_session_data.py")
+        else:
+            print("\nREMINDER: your verdicts aren't on GitHub yet. From the main checkout, run:\n"
+                  "  python scripts/push_session_data.py")
+    elif not checkout.is_worktree() and any(Path(f).name == name for f in checkout.unpushed_files()):
+        print("\nREMINDER: your verdicts are committed here but not on GitHub. From the main checkout, run:\n"
+              "  git pull --rebase --autostash origin main && git push origin main")

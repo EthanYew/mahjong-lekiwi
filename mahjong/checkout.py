@@ -55,6 +55,11 @@ def unpushed(repo=None, base=BASE):
     return git("log", "--format=%h %s", f"{base}..HEAD", repo=repo).splitlines()
 
 
+def unpushed_files(repo=None, base=BASE):
+    """The files HEAD's commits change that base (as last fetched) doesn't have, or [] if there's no base."""
+    return git("diff", "--name-only", f"{base}...HEAD", repo=repo).splitlines()
+
+
 def _changed(repo=None):
     lines = git("status", "--porcelain", "--untracked-files=no", repo=repo, strip=False).splitlines()
     return [line[3:] for line in lines if line[3:]]

@@ -73,3 +73,10 @@ def test_a_worktree_is_refused(repo, tmp_path):
     git(repo, "worktree", "add", "-q", "-b", "other", str(tree))
     with pytest.raises(SystemExit, match="main checkout"):
         push_session_data.main([], repo=tree, sessions_dir=tmp_path)
+
+
+def test_a_commit_that_never_reached_github_is_seen(repo):
+    assert checkout.unpushed_files(repo) == []
+    (repo / "data/hover_corrections.jsonl").write_text("{}\n{}\n")
+    git(repo, "commit", "-q", "-am", "Samples, the push failed")
+    assert checkout.unpushed_files(repo) == ["data/hover_corrections.jsonl"] and checkout.unsaved_samples(repo) == []

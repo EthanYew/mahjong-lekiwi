@@ -68,9 +68,11 @@ def main(argv=None, ask=None):
         photo_review.remind_to_push(wrist_photos.REVIEW)
         return
     print(f"{len(all_photos)} photos; reviewing {', '.join(reviewer.names)}")
-    photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
-    print(photo_review.summary(wrist_photos.load_review(), wrist_photos.REVIEW))
-    photo_review.remind_to_push(wrist_photos.REVIEW)
+    try:
+        photo_review.run(reviewer, ask, WINDOW, detector.TILE_NAMES)
+        print(photo_review.summary(wrist_photos.load_review(), wrist_photos.REVIEW))
+    finally:
+        photo_review.remind_to_push(wrist_photos.REVIEW)
 
 
 if __name__ == "__main__":

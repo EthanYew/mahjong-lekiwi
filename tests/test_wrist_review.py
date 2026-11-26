@@ -108,6 +108,8 @@ def test_a_review_ends_by_reminding_to_push_verdicts_that_arent_committed(tmp_pa
     monkeypatch.setattr(config, "SESSIONS", tmp_path)
     monkeypatch.setattr(wrist_photos, "REVIEW", tmp_path / "wrist_review.jsonl")
     monkeypatch.setattr(photo_review.checkout, "unsaved_samples", lambda repo=None: unsaved)
+    monkeypatch.setattr(photo_review.checkout, "unpushed_files", lambda repo=None: [])
+    monkeypatch.setattr(photo_review.checkout, "is_worktree", lambda repo=None: False)
     monkeypatch.setattr(photo_review, "run", lambda *args: None)         # the window, quit straight away
     wrist_review.main([], ask=lambda prompt: "")
     assert ("python scripts/push_session_data.py" in capsys.readouterr().out) == reminded

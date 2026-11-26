@@ -1652,13 +1652,13 @@ The sample files are the ones `.gitattributes` merges by union, less `data/post_
 never adds anything else. `status.py` and each hardware session say when samples are waiting. By hand, the same is:
 
 ```
-git add data/hover_corrections.jsonl data/return_corrections.jsonl
+git add data/hover_corrections.jsonl data/return_corrections.jsonl data/wrist_review.jsonl data/holdup_review.jsonl
 git commit -m "Samples from 20261104_150542_bench"
 git pull --rebase --autostash origin main && git push origin main
 ```
 
 Name only the files you mean to save, and don't start a merge between those commands. Branches don't carry samples: they reach
-`main` from this checkout, where the hardware runs, and these three files merge by union if two ever meet.
+`main` from this checkout, where the hardware runs, and these files merge by union if two ever meet.
 
 ## Asking the local model: `piq`
 
