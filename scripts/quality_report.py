@@ -4,7 +4,7 @@ detours, wobble), and optionally the hover→grasp move against another recordin
 
     python scripts/quality_report.py                                 # every dropped episode, all datasets, with why
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover
-    python scripts/quality_report.py --dataset ... --episode 37    # when each reversal happened
+    python scripts/quality_report.py --dataset ... --episode 37     # when each reversal happened
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases     # phases per episode
     python scripts/quality_report.py --dataset ... --drop 8,39 --reason "searching"   # never trained on
     python scripts/quality_report.py --dataset ... --fix-gripper 117 --reason "stopped at 5.5%"   # closed to 0 when built
@@ -73,13 +73,14 @@ def main():
         return grip_reach(args)
     if args.recipe or args.calibration:
         p.error("--recipe and --calibration go with --grip-reach")
-    if not args.dataset:
-        needs = [name for name in ("drop", "fix_gripper", "clean", "against", "episode", "csv")
-                 if getattr(args, name) is not None]
-        needs += ["phases"] * args.phases
+    if args.dataset is None:
+        needs = [name for name in ("drop", "fix_gripper", "clean", "against", "episode", "csv", "phases", "worst",
+                                   "flag", "reason", "sessions") if getattr(args, name) != p.get_default(name)]
         if needs:
             p.error("--dataset is required with " + ", ".join("--" + n.replace("_", "-") for n in needs))
         return print_all_dropped()
+    if not args.dataset:                                     # an unset shell variable, not a request for the list
+        p.error("--dataset is empty")
     if args.fix_gripper:
         fixed = fix_gripper(args.dataset, [int(e) for e in args.fix_gripper.split(",") if e.strip()], args.reason)
         print(f"Gripper closed to 0 when {args.dataset} is built: {sorted(fixed)}\n")
@@ -138,7 +139,7 @@ def print_all_dropped():
         print(f"\n{repo}: {len(dropped)}")
         for reason, episodes in reasons.items():
             print(f"  {', '.join(map(str, episodes))}: {reason}")
-    print("\nOne dataset's ranking, with these marked x: python scripts/quality_report.py --dataset REPO")
+    print("\nOne dataset's ranking and pickup phases: python scripts/quality_report.py --dataset REPO")
 
 
 def grip_reach(args):

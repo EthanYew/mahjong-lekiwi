@@ -1,8 +1,13 @@
 """Pickup phases and the hover→grasp check (mahjong/quality.py) on synthetic demos built with the IK."""
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from mahjong import config, kinematics, quality
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 FPS = 30
 X, Y = 0.20, 0.0
@@ -86,10 +91,13 @@ def test_no_dataset_lists_every_dropped_episode_with_its_reason(tmp_path, monkey
     out = capsys.readouterr().out
     assert "4 episodes in 2 datasets" in out and "e/f" not in out
     assert "a/b: 3\n  8, 39: searching\n  13: closed high" in out and "c/d: 1\n  1: other" in out
-    monkeypatch.setattr("sys.argv", ["quality_report.py", "--drop", "3"])
-    with pytest.raises(SystemExit):                          # never drops without saying from what
-        quality_report.main()
-    assert "--dataset is required with --drop" in capsys.readouterr().err
+    for argv, error in [(["--drop", "3"], "required with --drop"),     # never drops without saying from what
+                        (["--worst", "3"], "required with --worst"),
+                        (["--dataset", ""], "--dataset is empty")]:
+        monkeypatch.setattr("sys.argv", ["quality_report.py", *argv])
+        with pytest.raises(SystemExit):
+            quality_report.main()
+        assert error in capsys.readouterr().err
 
 
 def test_gripper_fixes_and_undropping(tmp_path):
