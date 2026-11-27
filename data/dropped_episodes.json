@@ -69,14 +69,62 @@
   "Yewy/mahjong_facedown_dagger_v9": {
     "2": "saved too early by accident (1.9s, no takeover; owner, 2026-11-11)",
     "63": "saved prematurely (owner, 2026-11-11)",
-    "72": "saved prematurely (owner, 2026-11-11)"
+    "72": "saved prematurely (owner, 2026-11-11)",
+    "81": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "83": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis"
   },
   "Yewy/mahjong_facedown_dagger_v10": {
+    "10": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "11": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "15": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "18": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "19": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
     "25": "erratic or over-long: high jerk/reversals",
     "27": "erratic or over-long: high jerk/reversals",
+    "28": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
     "30": "erratic or over-long: high jerk/reversals",
+    "31": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "32": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
     "33": "erratic or over-long: high jerk/reversals",
     "36": "erratic or over-long: high jerk/reversals",
     "38": "erratic or over-long: high jerk/reversals"
+  },
+  "Yewy/mahjong_facedown_dagger_v11": {
+    "2": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "4": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "7": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "8": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "9": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "15": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "16": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "17": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "18": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "20": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "25": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "27": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "28": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "29": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "30": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "31": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "32": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "33": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "34": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis"
+  },
+  "Yewy/mahjong_facedown_dagger_v13": {
+    "14": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "15": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "18": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "19": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "38": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "41": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "42": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "44": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "45": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "61": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "62": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "63": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "64": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "65": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis",
+    "66": "near-row wrist pre-tilted at takeover/descent: v10-v13 DAgger loop taught overshoot (gripped high) at S6/S8/S10; 20261127_112000_bench analysis"
   }
 }
