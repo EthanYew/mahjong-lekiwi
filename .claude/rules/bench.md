@@ -32,6 +32,13 @@ Running and counting the bench, what a person did, what a session records.
   changes are settled by the next scans. No questions wait for the end of a batch. "Touched the tile" is a rescue; "the
   arm bumped a tile, no one helped" is a failure. The scorecard's numbers: `docs/scorecard.md`. Rules and cases:
   `docs/invariant_notes.md`.
+- **A tile the detector missed and then finds is no knock.** On 2026-11-20 two of v13's face-down knocks were that
+  (`20261120_181225_bench`, attempts 012 and 053): a faint box showed one tile still there but was remembered for only
+  one scan, and a returned tile first seen two scans later read as new. `MatWatch.waiting` holds both places for 3 scans,
+  only on scans that log `interventions.SCAN_MEMORY`: a wider first version, replayed on the older sessions, changed
+  counts in over 20, answers people had given among them. A new script that logs `detections` logs it too. Don't put
+  remembered tiles into the scans to compare with: their old boxes read as turns. Correct an old session with
+  `bump_report.py` verdicts. Unconfirmed on the arm.
 - Unattended: `bench.py --unattended --layout NAME --trials N` asks nothing once the trials start. A neighbour the scans
   see move is a self-reported bump (settled by later scans; counts as a knock); a person checks them afterwards with
   `python scripts/bump_report.py`, whose verdicts (`scan_verdict` events) `interventions.derive` applies. `docs/usage.md` has what
