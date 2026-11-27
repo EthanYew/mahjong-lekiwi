@@ -323,9 +323,9 @@ class MatWatch:
         self.waiting.append({"xy": list(xy), "radius_m": radius_m, "scans_left": SETTLE_SCANS})
 
     def restore(self, tile):
-        """A tile the latest scan missed that the wrist camera saw where it was (the bench's `wrist_check`): the
-        next scan is compared with it there. At confidence 0, so a tile the detector keeps missing isn't "gone"
-        again at every scan, while one it sees again still matches it."""
+        """A tile the latest scan missed that the wrist camera or a faint box saw where it was (`wrist_check` /
+        `tile_faint`): the next scan is compared with it there. At confidence 0, so a tile the detector keeps missing
+        isn't "gone" again at every scan, while one it sees again still matches it."""
         if self.previous is not None:
             restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0}
             self.previous = {**self.previous, "tiles": self.previous["tiles"] + [restored]}
