@@ -67,6 +67,7 @@ not a worktree, or the sessions go when the worktree does.
 | Measure the hover's real error with the gamepad (first step of the loop; after a recalibration) | `python scripts/collect_corrections.py` |
 | Record demonstrations | `python scripts/record.py --dataset Yewy/<new_name>` |
 | Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
+| See every episode left out of training after review, and why | `python scripts/quality_report.py` |
 | Find the demos that gripped short of the tile's middle ("gripped low") | `python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13` |
 | Add hover-correction samples from demos or older bench sessions | `python scripts/hover_samples.py --dataset Yewy/<name>` / `--sessions` |
 | Add return-correction samples from older bench sessions | `python scripts/return_samples.py` |
@@ -724,7 +725,11 @@ pickup phases per slice: gripper narrowing, wait at the hover, approach to the c
 reversals and detour: path over the straight line), time after the close, and wobble. Wobble has been
 ~0.3 mm in every recording: what looks jittery is stop-go corrections, not noise a filter would remove.
 
+With no `--dataset`, it lists every dropped episode in every dataset, with the reason (held-out eval episodes
+are left out of training too, but aren't drops: they're in `data/eval_split.json`).
+
 ```
+python scripts/quality_report.py                                                     # all dropped episodes, and why
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_v3 --episode 37   # when each reversal happened
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases          # phases per episode
