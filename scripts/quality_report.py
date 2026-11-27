@@ -2,6 +2,7 @@
 worst before training; with each slice's pickup phases (wait at the hover, approach, pauses, reversals,
 detours, wobble), and optionally the hover→grasp move against another recording at the same places.
 
+    python scripts/quality_report.py                                 # every dropped episode, all datasets, with why
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_lekiwi_cl_hover
     python scripts/quality_report.py --dataset ... --episode 37     # when each reversal happened
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --phases     # phases per episode
@@ -30,14 +31,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mahjong import config, recipe
 from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, REACH_SHORT_MM, REACH_SPOT_ONLY_SHORT_MM,
-                             ReachReference, bench_reach_labels, clean_copy, drift_table, drop_episodes, dropped_episodes,
-                             fix_gripper, grip_reach_table, load_episodes, phase_table, quality_table, reach_calibration,
-                             thin_spots)
+                             ReachReference, all_dropped, bench_reach_labels, clean_copy, drift_table, drop_episodes,
+                             dropped_episodes, fix_gripper, grip_reach_table, load_episodes, phase_table, quality_table,
+                             reach_calibration, thin_spots)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--dataset", help="recorded dataset repo id, e.g. Yewy/mahjong_mat_pickup_v3")
+    p.add_argument("--dataset", help="recorded dataset repo id, e.g. Yewy/mahjong_mat_pickup_v3; "
+                                     "without it, lists every dataset's dropped episodes")
     p.add_argument("--worst", type=int, default=15, help="rows of the ranking shown (default %(default)s)")
     p.add_argument("--flag", type=float, default=DEFAULT_FLAG_SCORE,
                    help="score at which an episode is flagged (default %(default)s)")
@@ -71,8 +73,14 @@ def main():
         return grip_reach(args)
     if args.recipe or args.calibration:
         p.error("--recipe and --calibration go with --grip-reach")
-    if not args.dataset:
-        p.error("--dataset is required (--recipe goes with --grip-reach)")
+    if args.dataset is None:
+        needs = [name for name in ("drop", "fix_gripper", "clean", "against", "episode", "csv", "phases", "worst",
+                                   "flag", "reason", "sessions") if getattr(args, name) != p.get_default(name)]
+        if needs:
+            p.error("--dataset is required with " + ", ".join("--" + n.replace("_", "-") for n in needs))
+        return print_all_dropped()
+    if not args.dataset:                                     # an unset shell variable, not a request for the list
+        p.error("--dataset is empty")
     if args.fix_gripper:
         fixed = fix_gripper(args.dataset, [int(e) for e in args.fix_gripper.split(",") if e.strip()], args.reason)
         print(f"Gripper closed to 0 when {args.dataset} is built: {sorted(fixed)}\n")
@@ -114,6 +122,24 @@ def main():
     print_phases(phase_table(args.dataset), args.phases)
     if args.against:
         print_drift(args.dataset, args.against)
+
+
+def print_all_dropped():
+    """Every dataset's dropped episodes, those with the same reason on one line."""
+    datasets = all_dropped()
+    if not datasets:
+        print("No episodes have been dropped after review.")
+        return
+    total = sum(len(dropped) for dropped in datasets.values())
+    print(f"{total} episodes in {len(datasets)} datasets dropped after review, not trained on (data/dropped_episodes.json)")
+    for repo, dropped in datasets.items():
+        reasons = {}
+        for ep, reason in sorted(dropped.items()):
+            reasons.setdefault(reason, []).append(ep)
+        print(f"\n{repo}: {len(dropped)}")
+        for reason, episodes in reasons.items():
+            print(f"  {', '.join(map(str, episodes))}: {reason}")
+    print("\nOne dataset's ranking and pickup phases: python scripts/quality_report.py --dataset REPO")
 
 
 def grip_reach(args):

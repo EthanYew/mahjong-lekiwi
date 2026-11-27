@@ -1,8 +1,13 @@
 """Pickup phases and the hover→grasp check (mahjong/quality.py) on synthetic demos built with the IK."""
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from mahjong import config, kinematics, quality
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 FPS = 30
 X, Y = 0.20, 0.0
@@ -68,6 +73,31 @@ def test_dropped_episodes_are_kept_per_dataset_with_their_reason(tmp_path):
     assert dropped_episodes("a/b", path) == {8: "searching", 39: "searching"}
     assert drop_episodes("a/b", [8, 2], "again", path) == {2: "again", 8: "again", 39: "searching"}
     assert dropped_episodes("c/d", path) == {1: "other"}
+
+
+def test_no_dataset_lists_every_dropped_episode_with_its_reason(tmp_path, monkeypatch, capsys):
+    import quality_report
+    path = tmp_path / "dropped.json"
+    monkeypatch.setattr(quality, "DROPPED_FILE", path)
+    monkeypatch.setattr("sys.argv", ["quality_report.py"])
+    quality_report.main()
+    assert "No episodes" in capsys.readouterr().out
+    quality.drop_episodes("a/b", [39, 8], "searching")
+    quality.drop_episodes("a/b", [13], "closed high")
+    quality.drop_episodes("c/d", [1], "other")
+    quality.drop_episodes("e/f", [2], "undone")
+    quality.undrop_episodes("e/f", [2])
+    quality_report.main()
+    out = capsys.readouterr().out
+    assert "4 episodes in 2 datasets" in out and "e/f" not in out
+    assert "a/b: 3\n  8, 39: searching\n  13: closed high" in out and "c/d: 1\n  1: other" in out
+    for argv, error in [(["--drop", "3"], "required with --drop"),     # never drops without saying from what
+                        (["--worst", "3"], "required with --worst"),
+                        (["--dataset", ""], "--dataset is empty")]:
+        monkeypatch.setattr("sys.argv", ["quality_report.py", *argv])
+        with pytest.raises(SystemExit):
+            quality_report.main()
+        assert error in capsys.readouterr().err
 
 
 def test_gripper_fixes_and_undropping(tmp_path):
