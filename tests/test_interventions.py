@@ -401,8 +401,7 @@ def test_a_remembered_tile_seen_somewhere_else_is_still_a_knock():
                      {"type": "tile_faint", "tile": "2D", "xy": twod["xy"]},
                      remembering("choose", [ww, nined]),
                      remembering("after_pickup", [shifted, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
-    (knock,) = knocks(events)
-    assert iv.changes_text(knock["changes"]) == "2D moved 15mm"
+    assert [iv.changes_text(k["changes"]) for k in knocks(events)] == ["2D appeared"]
 
 
 def test_a_returned_tile_first_seen_during_a_later_attempt_is_not_a_knock():
@@ -431,11 +430,11 @@ def test_the_arm_handling_a_place_forgets_what_was_remembered_there():
     watch.advance(remembering("choose", [ww, nined]))
     watch.restore(twod)
     watch.advance(remembering("after_pickup", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
-    assert watch.hidden == []
+    assert watch.waiting == []
     watch.advance(remembering("after_return", [ww], attempt_dir="002_9D", target_xy=nined["xy"]))
-    assert [p["xy"] for p in watch.put_down] == [nined["xy"]]
+    assert [w["xy"] for w in watch.waiting] == [nined["xy"]]
     watch.advance(remembering("after_pickup", [ww], attempt_dir="003_9D", target_xy=nined["xy"]))
-    assert watch.put_down == []
+    assert watch.waiting == []
 
 
 def test_logs_from_before_scans_were_remembered_are_read_as_they_were():
@@ -452,39 +451,6 @@ def test_a_set_down_tile_first_seen_between_attempts_is_still_listed():
     assert [i["kind"] for i in iv.derive(events)] == ["tile_reset"]
 
 
-def test_a_remembered_tile_that_comes_back_turned_is_still_a_knock():
-    ww, twod, nined = ({**t, "box_px": [24, 29]} for t in MAT)
-    events = session(remembering("choose", [ww, twod, nined], scan=1), remembering("choose", [ww, nined], scan=2),
-                     {"type": "tile_faint", "tile": "2D", "xy": twod["xy"]},
-                     remembering("choose", [ww, nined], scan=3),
-                     remembering("after_pickup", [{**twod, "box_px": [31, 32]}, nined], scan=4, attempt_dir="001_WW",
-                                 target_xy=ww["xy"]))
-    assert [iv.changes_text(k["changes"]) for k in knocks(events)] == ["2D turned"]
-
-
-def test_a_remembered_tile_a_faint_box_shows_elsewhere_is_forgotten():
-    ww, twod, nined = MAT
-    shifted = tile("2D", twod["xy"][0], twod["xy"][1] + 0.015, confidence=0.55)
-    watch = iv.MatWatch()
-    watch.advance(remembering("choose", [ww, nined]))
-    watch.restore(twod)
-    watch.advance(remembering("after_pickup", [shifted, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
-    assert watch.hidden == []
-
-
-def test_a_box_from_before_the_arm_handled_a_place_isnt_given_to_a_restored_tile():
-    """A returned tile can lie at another angle: restored with its old box, its next sighting would read as turned."""
-    ww, twod, nined = ({**t, "box_px": [24, 29]} for t in MAT)
-    watch = iv.MatWatch()
-    watch.advance(remembering("choose", [ww, twod, nined]))
-    watch.advance(remembering("after_pickup", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
-    watch.advance(remembering("after_return", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
-    watch.restore(twod)
-    proposal = watch.propose(remembering("after_pickup", [{**twod, "box_px": [31, 32]}, nined], attempt_dir="002_WW",
-                                         target_xy=ww["xy"]))
-    assert proposal is None
-
-
 @pytest.mark.parametrize("unseen_scans, knocked", [(iv.SETTLE_SCANS - 1, False), (iv.SETTLE_SCANS, True)])
 def test_a_set_down_tile_is_only_looked_out_for_over_the_next_few_scans(unseen_scans, knocked):
     """It may have landed further off, seen only faintly: a knock bringing it back later must show."""
@@ -493,3 +459,16 @@ def test_a_set_down_tile_is_only_looked_out_for_over_the_next_few_scans(unseen_s
                      *[remembering("choose", [ww, twod]) for _ in range(unseen_scans)],
                      remembering("after_pickup", [twod, nined], attempt_dir="002_WW", target_xy=ww["xy"]))
     assert bool(knocks(events)) == knocked
+
+
+@pytest.mark.parametrize("unseen_scans, knocked", [(iv.SETTLE_SCANS - 1, False), (iv.SETTLE_SCANS, True)])
+def test_a_tile_another_check_saw_is_only_waited_for_over_the_next_few_scans(unseen_scans, knocked):
+    ww, twod, nined = MAT
+    watch = iv.MatWatch()
+    watch.advance(remembering("choose", [ww, nined]))
+    watch.restore(twod)
+    for _ in range(unseen_scans):
+        watch.advance(remembering("choose", [ww, nined]))
+    proposal = watch.propose(remembering("after_pickup", [twod, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
+    assert bool(proposal) == knocked
+

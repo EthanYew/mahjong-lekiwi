@@ -86,11 +86,14 @@ about 2mm), and the owner judged both false.
 The fix is gated on `interventions.SCAN_MEMORY`, logged by scans from 2026-11-27. A first version without the gate, and
 applied between attempts too, was replayed over the 211 sessions that had scans: knocks went from 272 to 261, and answers
 people had given ("put tiles back") disappeared. With the gate, every older session derives as before. The two verdicts are
-`scan_verdict` events in the session. An unseen set-down tile is looked out for over `SETTLE_SCANS` (3) scans only
-(053 needed 2): a return that landed 25-50mm off, seen only faintly there, and knocked back onto its home inside that
-window would still count for nothing (found in review, shown in a sim of the scans, not seen in a session). Not yet run
-on the arm. Still counted as before: a set-down tile first seen between
-attempts is a `tile_reset`.
+`scan_verdict` events in the session.
+
+A second version put the remembered tiles back into the previous scan, with their last box, until seen again. Replayed on
+this session with the marker added, it proposed three false "turned" changes (scans 42, 47, 50) on a flickering tile, from a
+box that had been a one-off. So only places are remembered (`MatWatch.waiting`), for `SETTLE_SCANS` (3) scans: 012 and 053
+each needed 2. What that leaves uncounted, from reading the code and not seen in a session: a tile that turned in place
+while missed, and one knocked onto a waiting place whose departure no scan showed (it had been seen only faintly). Still
+counted as before: a set-down tile first seen between attempts is a `tile_reset`. Not yet run on the arm.
 
 ## The wrist camera can drop out mid-session
 

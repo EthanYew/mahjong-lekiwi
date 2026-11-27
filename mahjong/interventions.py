@@ -248,15 +248,15 @@ def _to_points(diff):
 # --- the session's interventions ---
 
 ATTEMPT_SCANS = ("after_pickup", "after_return")      # the arm handled tiles on the mat since the last scan
-# Logged on a `detections` event (detector.log_scan, record.py) for MatWatch to remember tiles across missed scans.
-# Only sessions that logged it are read that way: replayed on older logs it dropped answers people had given.
+# Logged on a `detections` event (detector.log_scan, record.py) for MatWatch to remember places across missed scans.
+# Only scans that logged it are read that way: replayed on older logs, a first version dropped answers people had given.
 SCAN_MEMORY = {"scan_memory": True}
 
 
 def handled_points(scan):
     """Where the arm handled tiles since the previous scan: this scan's target, and a pickup that had no scan of its own
     (`handled_xy`: play goes straight from a pickup to where the tile is set down)."""
-    if scan.get("label") not in ATTEMPT_SCANS:
+    if scan["label"] not in ATTEMPT_SCANS:
         return []
     return ([scan["target_xy"]] if scan.get("target_xy") else []) + list(scan.get("handled_xy", ()))
 
@@ -265,15 +265,13 @@ class MatWatch:
     """What the scans say changed on the mat, scan by scan. derive() replays a session through it; the
     bench feeds it live, so a person can confirm or correct a change (ask_scan) while it's in front of them.
 
-    Where scans log SCAN_MEMORY it also keeps, for as long as the detector goes on missing them, two things whose
-    first sighting again would otherwise count as a knock (attempts 012 and 053 of 20261120_181225_bench, which the
-    owner judged false): `hidden`, tiles another check saw still in place (restore), and `put_down`, where the arm set
-    a tile down that the scan after it didn't see, looked out for over the next SETTLE_SCANS scans only: the tile may
-    have landed further off, and a knock that brings it back must show. The arm handling a place forgets both."""
+    On scans with SCAN_MEMORY it also lists, in `waiting`, places where a tile is known to be though the detector
+    isn't seeing it, so that its first sighting there during an attempt isn't a knock (attempts 012 and 053 of
+    20261120_181225_bench, which the owner judged false): where another check saw a tile still in place (restore), and
+    where the arm set one down that the scan after didn't see. A place is dropped once a tile is seen or handled
+    there, and after SETTLE_SCANS scans: a tile that isn't where it's thought to be must show again."""
     def __init__(self):
-        self.previous, self.knocked_to = None, []
-        self.hidden, self.put_down = [], []
-        self.last_seen = []     # each place's latest sure detection: its box, for a restored tile to be compared with
+        self.previous, self.knocked_to, self.waiting = None, [], []
 
     def propose(self, scan):
         """(kind, diff) the scans suggest for this `detections` event against the previous one, or None.
@@ -284,9 +282,8 @@ class MatWatch:
             return None
         if scan["label"] in ATTEMPT_SCANS:
             diff = scene_diff(self.previous["tiles"], scan["tiles"], handled_points(scan))
-            # first sight of a tile the arm set down: nothing says it has moved since, so it's no knock
-            waiting = [p["xy"] for p in self.put_down]
-            diff = without(diff, appeared=[t for t in diff["appeared"] if _within(t["xy"], waiting)])
+            diff = without(diff, appeared=[t for t in diff["appeared"]
+                                           if any(math.dist(t["xy"], w["xy"]) <= w["radius_m"] for w in self.waiting)])
             return ("knocked", diff) if changed(diff) else None
         diff = scene_diff(self.previous["tiles"], scan["tiles"])
         if not changed(diff):
@@ -311,45 +308,29 @@ class MatWatch:
         straighten a tile later)."""
         if knocked:
             self.knocked_to += _to_points(knocked) + [t["xy"] for t in knocked["gone"]]
+        self.previous = scan
         if not scan.get("scan_memory"):
-            self.previous = scan
             return
-        handled = handled_points(scan)
-        sure = [t for t in scan["tiles"] if t["confidence"] >= CHANGE_CONFIDENCE]
-        seen = [t["xy"] for t in sure]
-
-        def moved(xy):      # even a faint sighting well off the remembered place: compare with what's there now
-            return any(KNOCK_M < math.dist(xy, t["xy"]) <= config.TILE_MERGE_RADIUS_M for t in scan["tiles"])
-        self.hidden = [t for t in self.hidden
-                       if not (_within(t["xy"], handled) or _within(t["xy"], seen) or moved(t["xy"]))]
-        self.put_down = [{**p, "scans_left": p["scans_left"] - 1} for p in self.put_down
-                         if p["scans_left"] > 1 and not (_within(p["xy"], handled) or _within(p["xy"], seen))]
+        seen = [t["xy"] for t in scan["tiles"] if t["confidence"] >= CHANGE_CONFIDENCE]
+        over = seen + handled_points(scan)
+        self.waiting = [{**w, "scans_left": w["scans_left"] - 1} for w in self.waiting
+                        if w["scans_left"] > 1 and not _within(w["xy"], over)]
         target = scan.get("target_xy")
         if scan.get("label") == "after_return" and target and not _within(target, seen):
-            self.put_down.append({"xy": list(target), "scans_left": SETTLE_SCANS})
-        # a box from before the arm handled a place says nothing about how a tile lies there now
-        self.last_seen = [t for t in self.last_seen if not (_within(t["xy"], seen) or _within(t["xy"], handled))] + sure
-        self.previous = {**scan, "tiles": scan["tiles"] + self.hidden} if self.hidden else scan
+            self._wait(target, config.TILE_MERGE_RADIUS_M)      # where in there it landed was never seen
+
+    def _wait(self, xy, radius_m):
+        self.waiting.append({"xy": list(xy), "radius_m": radius_m, "scans_left": SETTLE_SCANS})
 
     def restore(self, tile):
-        """A tile the latest scan missed that the wrist camera or a faint box saw where it was (the bench's
-        `wrist_check` / `tile_faint`): the next scan is compared with it there, and on scans with SCAN_MEMORY every
-        later one until the detector sees it again or the arm handles it, with the box it last had so a turn still
-        shows. At confidence 0, so a tile the detector keeps missing isn't "gone" again at every scan, while one it
-        sees again still matches it."""
-        if self.previous is None:
-            return
-        restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0}
-        tiles = self.previous["tiles"]
-        if self.previous.get("scan_memory"):
-            last = [t for t in self.last_seen if math.dist(t["xy"], restored["xy"]) <= FAINT_SAME_M]
-            if last:
-                nearest = min(last, key=lambda t: math.dist(t["xy"], restored["xy"]))
-                restored.update({k: nearest[k] for k in ("box_px", "pixel") if k in nearest})
-            old = [t for t in self.hidden if _within(t["xy"], [restored["xy"]])]
-            tiles = [t for t in tiles if t not in old]
-            self.hidden = [t for t in self.hidden if t not in old] + [restored]
-        self.previous = {**self.previous, "tiles": tiles + [restored]}
+        """A tile the latest scan missed that the wrist camera saw where it was (the bench's `wrist_check`): the
+        next scan is compared with it there. At confidence 0, so a tile the detector keeps missing isn't "gone"
+        again at every scan, while one it sees again still matches it."""
+        if self.previous is not None:
+            restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0}
+            self.previous = {**self.previous, "tiles": self.previous["tiles"] + [restored]}
+            if self.previous.get("scan_memory"):
+                self._wait(restored["xy"], FAINT_SAME_M)        # unmoved, as far as a detection can tell
 
 
 def split(diff, keep):

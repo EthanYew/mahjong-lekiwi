@@ -373,9 +373,8 @@ glitch, with the wrist frame in the session's `wrist_checks/`. What else changed
   attempt), it happened: a knock near the arm, "moved by something else" further away (you straightening
   it, if it started where a knock left a tile), a reset between attempts. The end of the trials lists the
   tiles whose detections flickered (`3B x2`);
-- **a tile found again isn't a knock**: one the wrist camera or a faint box saw still in place is remembered
-  while the detector goes on missing it. A tile the arm set down that no scan saw is looked out for over the next
-  3 scans.
+- **a tile found again isn't a knock**: one the wrist camera or a faint box saw still in place, or one the arm
+  set down that the next scan didn't see, can turn up there over the next 3 scans without counting as one.
 
 Moved tiles between commands? `note` → straightened / put back: the next scan's changes are yours, not
 counted again. The same goes for a discard you said missed, and in `play.py` for a tile you moved after the
