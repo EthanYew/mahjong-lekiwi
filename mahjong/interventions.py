@@ -268,7 +268,8 @@ class MatWatch:
     Where scans log SCAN_MEMORY it also keeps, for as long as the detector goes on missing them, two things whose
     first sighting again would otherwise count as a knock (attempts 012 and 053 of 20261120_181225_bench, which the
     owner judged false): `hidden`, tiles another check saw still in place (restore), and `put_down`, where the arm set
-    a tile down that no scan has seen since. The arm handling a place forgets both."""
+    a tile down that the scan after it didn't see, looked out for over the next SETTLE_SCANS scans only: the tile may
+    have landed further off, and a knock that brings it back must show. The arm handling a place forgets both."""
     def __init__(self):
         self.previous, self.knocked_to = None, []
         self.hidden, self.put_down = [], []
@@ -284,7 +285,8 @@ class MatWatch:
         if scan["label"] in ATTEMPT_SCANS:
             diff = scene_diff(self.previous["tiles"], scan["tiles"], handled_points(scan))
             # first sight of a tile the arm set down: nothing says it has moved since, so it's no knock
-            diff = without(diff, appeared=[t for t in diff["appeared"] if _within(t["xy"], self.put_down)])
+            waiting = [p["xy"] for p in self.put_down]
+            diff = without(diff, appeared=[t for t in diff["appeared"] if _within(t["xy"], waiting)])
             return ("knocked", diff) if changed(diff) else None
         diff = scene_diff(self.previous["tiles"], scan["tiles"])
         if not changed(diff):
@@ -320,10 +322,11 @@ class MatWatch:
             return any(KNOCK_M < math.dist(xy, t["xy"]) <= config.TILE_MERGE_RADIUS_M for t in scan["tiles"])
         self.hidden = [t for t in self.hidden
                        if not (_within(t["xy"], handled) or _within(t["xy"], seen) or moved(t["xy"]))]
-        self.put_down = [xy for xy in self.put_down if not (_within(xy, handled) or _within(xy, seen))]
+        self.put_down = [{**p, "scans_left": p["scans_left"] - 1} for p in self.put_down
+                         if p["scans_left"] > 1 and not (_within(p["xy"], handled) or _within(p["xy"], seen))]
         target = scan.get("target_xy")
         if scan.get("label") == "after_return" and target and not _within(target, seen):
-            self.put_down.append(list(target))
+            self.put_down.append({"xy": list(target), "scans_left": SETTLE_SCANS})
         # a box from before the arm handled a place says nothing about how a tile lies there now
         self.last_seen = [t for t in self.last_seen if not (_within(t["xy"], seen) or _within(t["xy"], handled))] + sure
         self.previous = {**scan, "tiles": scan["tiles"] + self.hidden} if self.hidden else scan
