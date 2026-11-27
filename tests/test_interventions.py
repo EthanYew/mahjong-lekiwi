@@ -370,3 +370,83 @@ def test_s_flags_a_shallow_grip_which_is_counted_but_leaves_the_attempt_clean():
               {"type": "session_end", "reason": "quit"}]
     found = iv.derive(events)
     assert iv.summary(found, events[:1])["shallow_grips"] == 1
+
+
+def knocks(events):
+    return [i for i in iv.derive(events) if i["kind"] == "knocked"]
+
+
+def remembering(label, tiles, **fields):
+    """A scan as sessions log them now (SCAN_MEMORY)."""
+    return scan(label, tiles, **iv.SCAN_MEMORY, **fields)
+
+
+def test_a_tile_another_check_saw_is_remembered_while_the_detector_keeps_missing_it():
+    """Attempt 012 of 20261120_181225_bench: a faint box showed 2D still there, the next scan missed it too, and its
+    return to the scans was counted as a knock."""
+    ww, twod, nined = MAT
+    events = session(remembering("choose", MAT, scan=1),
+                     remembering("after_return", [ww, nined], scan=2, attempt_dir="001_9D", target_xy=nined["xy"]),
+                     {"type": "tile_faint", "tile": "2D", "xy": twod["xy"]},
+                     {"type": "scan_review", "scan": 2, "kinds": ["scan_glitch"]},
+                     remembering("choose", [ww, nined], scan=3),
+                     remembering("after_pickup", [twod, nined], scan=4, attempt_dir="002_WW", target_xy=ww["xy"]))
+    assert knocks(events) == []
+
+
+def test_a_remembered_tile_seen_somewhere_else_is_still_a_knock():
+    ww, twod, nined = MAT
+    shifted = tile("2D", twod["xy"][0], twod["xy"][1] + 0.015)
+    events = session(remembering("choose", MAT), remembering("choose", [ww, nined]),
+                     {"type": "tile_faint", "tile": "2D", "xy": twod["xy"]},
+                     remembering("choose", [ww, nined]),
+                     remembering("after_pickup", [shifted, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
+    (knock,) = knocks(events)
+    assert iv.changes_text(knock["changes"]) == "2D moved 15mm"
+
+
+def test_a_returned_tile_first_seen_during_a_later_attempt_is_not_a_knock():
+    """Attempt 053 of 20261120_181225_bench: the return before it set its tile 12mm off home, no scan saw it for two
+    scans, and its first sighting was counted against the next attempt."""
+    ww, twod, nined = MAT
+    landed = tile("9D", nined["xy"][0] - 0.009, nined["xy"][1] + 0.007)
+    events = session(remembering("after_pickup", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
+                     remembering("after_return", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
+                     remembering("choose", [ww, twod]),
+                     remembering("after_pickup", [twod, landed], attempt_dir="002_WW", target_xy=ww["xy"]))
+    assert knocks(events) == []
+
+
+def test_a_tile_appearing_away_from_where_one_was_set_down_is_still_a_knock():
+    ww, twod, nined = MAT
+    elsewhere = tile("9D", nined["xy"][0] - 0.040, nined["xy"][1])
+    events = session(remembering("after_return", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
+                     remembering("after_pickup", [twod, elsewhere], attempt_dir="002_WW", target_xy=ww["xy"]))
+    assert [iv.changes_text(k["changes"]) for k in knocks(events)] == ["9D appeared"]
+
+
+def test_the_arm_handling_a_place_forgets_what_was_remembered_there():
+    ww, twod, nined = MAT
+    watch = iv.MatWatch()
+    watch.advance(remembering("choose", [ww, nined]))
+    watch.restore(twod)
+    watch.advance(remembering("after_pickup", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
+    assert watch.hidden == []
+    watch.advance(remembering("after_return", [ww], attempt_dir="002_9D", target_xy=nined["xy"]))
+    assert watch.put_down == [nined["xy"]]
+    watch.advance(remembering("after_pickup", [ww], attempt_dir="003_9D", target_xy=nined["xy"]))
+    assert watch.put_down == []
+
+
+def test_logs_from_before_scans_were_remembered_are_read_as_they_were():
+    ww, twod, nined = MAT
+    events = session(scan("after_return", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
+                     scan("after_pickup", [twod, nined], attempt_dir="002_WW", target_xy=ww["xy"]))
+    assert [iv.changes_text(k["changes"]) for k in knocks(events)] == ["9D appeared"]
+
+
+def test_a_set_down_tile_first_seen_between_attempts_is_still_listed():
+    ww, twod, nined = MAT
+    events = session(remembering("after_return", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
+                     remembering("choose", MAT))
+    assert [i["kind"] for i in iv.derive(events)] == ["tile_reset"]

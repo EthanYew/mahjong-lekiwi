@@ -109,7 +109,7 @@ jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
 `pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub; face down it led v10 25/28 to 23/28 clean in `20261116_213816_bench`),
 `pickup_mat_cl_v15` (v14's data + 48 face-down DAgger episodes on v14, `Yewy/mahjong_facedown_dagger_v14`, 30 with a takeover, some picking turned tiles; 116732 frames, 159000 steps; trained 2026-11-27, public on the Hub; registered, not benched),
-`pickup_mat_cl_v14` (v13's data + 73 face-down DAgger corrections of v13 at the near row, the corners and recoveries from shallow/low grips, `Yewy/mahjong_facedown_dagger_v13`, 58 with a takeover; 109185 frames, 149000 steps; trained 2026-11-20, public on the Hub; not the default; benched against v13: face down 28/28 clean to 25/28 in `20261120_181225_bench`, two of v13's three unclean being scan-called knocks not yet reviewed; face up behind in the morning round, 13/28 to 16/28, and level or ahead in three partial evening sessions; ROADMAP.md has the detail),
+`pickup_mat_cl_v14` (v13's data + 73 face-down DAgger corrections of v13 at the near row, the corners and recoveries from shallow/low grips, `Yewy/mahjong_facedown_dagger_v13`, 58 with a takeover; 109185 frames, 149000 steps; trained 2026-11-20, public on the Hub; not the default; benched against v13: face down 28/28 clean to 27/28 in `20261120_181225_bench`, after the owner judged two scan-called knocks on v13 false; face up behind in the morning round, 13/28 to 16/28, and level or ahead in three partial evening sessions; ROADMAP.md has the detail),
 `pickup_mat_cl_v13` (v11's data + 44 DAgger corrections of v11 face down, `Yewy/mahjong_facedown_dagger_v11`, 32 with a takeover; 97446 frames, 133000 steps; trained 2026-11-17, private on the Hub; face down it led v11 27/28 to 25/28 clean in `20261117_093921_bench`),
 `pickup_mat_cl_v10` (v9's data + 80 DAgger corrections of v9 face down: the hand's spots green side up and station L; trained 2026-11-12, private on the Hub, one crude run so far),
 `pickup_mat_cl_v7` (`pickup_mat_cl_v6`'s data + 52 brown/white paper demos, 30 of them closing short as recorded, the default on 2026-11-04),
@@ -371,7 +371,9 @@ glitch, with the wrist frame in the session's `wrist_checks/`. What else changed
   tiles (`r`, or a `note`): then it was a knocked tile you put back; still so 3 scans later (about one
   attempt), it happened: a knock near the arm, "moved by something else" further away (you straightening
   it, if it started where a knock left a tile), a reset between attempts. The end of the trials lists the
-  tiles whose detections flickered (`3B x2`).
+  tiles whose detections flickered (`3B x2`);
+- **a tile found again isn't a knock**: one the wrist camera or a faint box saw still in place is remembered
+  while the detector goes on missing it, and so is a tile the arm set down that no scan has seen since.
 
 Moved tiles between commands? `note` → straightened / put back: the next scan's changes are yours, not
 counted again. The same goes for a discard you said missed, and in `play.py` for a tile you moved after the

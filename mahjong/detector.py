@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
+from .interventions import SCAN_MEMORY
 from .session import is_sim, read_events  # noqa: F401 (is_sim: callers use detector.is_sim)
 
 # the deployed detector's classes (assets/tile_detector.pt), for the sim and tests
@@ -95,7 +96,7 @@ def log_scan(realsense, session, scan_n, label, **fields):
     (tiles, the event)."""
     tiles = realsense.detect_tiles()
     frames = save_session_scan(realsense, session, scan_n, label)
-    event = session.event("detections", label=label, scan=scan_n, **fields, **frames,
+    event = session.event("detections", label=label, scan=scan_n, **fields, **frames, **SCAN_MEMORY,
                           tiles=[{k: t[k] for k in ("tile_name", "xy", "confidence", "reads", "box_px", "pixel", "votes", "frames_seen") if k in t}
                                  for t in tiles], faint=realsense.faint)
     return tiles, event

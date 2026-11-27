@@ -73,6 +73,7 @@ from mahjong.camera import LOST_S, TORN_STOP_FRAMES, torn
 from mahjong.dataset import EPISODE_LOG
 from mahjong.gamepad import DEADZONE, LEFT_STICK_MAX_MM_S, draw_input, warn_if_at_reach, warn_off_centre
 from mahjong.hover_correction import HoverCorrection, parse_offsets, random_offset
+from mahjong.interventions import SCAN_MEMORY
 from mahjong.perception import choose_tile, drain_stdin
 from mahjong.return_correction import Homes, ReturnCorrection, check_landing
 from mahjong.session import Session, append_jsonl, ask_one
@@ -548,7 +549,7 @@ def return_tile(arm, actions, hovered, held, returns, realsense, session, correc
     session.event("return", tile=name, asked_xy=[tx, ty], home_xy=home, toward_hover=k, grasp_clearance_m=closed_at,
                   return_correction=returns.name, **placed)
     tiles = realsense.detect_tiles()
-    session.event("detections", label="after_return", target_xy=home,
+    session.event("detections", label="after_return", target_xy=home, **SCAN_MEMORY,
                   tiles=[{f: t[f] for f in ("tile_name", "xy", "confidence") if f in t} for t in tiles])
     _, reset = check_landing(held, placed["xy"], tiles, session, config.RETURN_CORRECTIONS, correction, hover,
                              policy=policy_id, source="record", return_correction=returns.name)
