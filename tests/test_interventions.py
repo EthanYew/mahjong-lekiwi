@@ -472,10 +472,14 @@ def test_a_remembered_tile_a_faint_box_shows_elsewhere_is_forgotten():
     assert watch.hidden == []
 
 
-def test_a_return_seen_to_land_off_home_leaves_nothing_to_look_out_for():
-    ww, twod, nined = MAT
-    landed = tile("9D", nined["xy"][0] - 0.035, nined["xy"][1])
+def test_a_box_from_before_the_arm_handled_a_place_isnt_given_to_a_restored_tile():
+    """A returned tile can lie at another angle: restored with its old box, its next sighting would read as turned."""
+    ww, twod, nined = ({**t, "box_px": [24, 29]} for t in MAT)
     watch = iv.MatWatch()
-    watch.advance(remembering("after_pickup", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]))
-    watch.advance(remembering("after_return", [ww, twod, landed], attempt_dir="001_9D", target_xy=nined["xy"]))
-    assert watch.put_down == []
+    watch.advance(remembering("choose", [ww, twod, nined]))
+    watch.advance(remembering("after_pickup", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
+    watch.advance(remembering("after_return", [ww, nined], attempt_dir="001_2D", target_xy=twod["xy"]))
+    watch.restore(twod)
+    proposal = watch.propose(remembering("after_pickup", [{**twod, "box_px": [31, 32]}, nined], attempt_dir="002_WW",
+                                         target_xy=ww["xy"]))
+    assert proposal is None

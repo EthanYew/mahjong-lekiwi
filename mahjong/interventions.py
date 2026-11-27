@@ -26,7 +26,6 @@ from collections import Counter
 from functools import lru_cache
 
 from . import config, kinematics, session
-from .return_correction import LANDED_WITHIN_M
 
 RESCUE, RESET, OVERRIDE, FAILURE, OBSERVATION, ASK = "rescue", "reset", "override", "failure", "observation", "ask"
 
@@ -324,11 +323,9 @@ class MatWatch:
         self.put_down = [xy for xy in self.put_down if not (_within(xy, handled) or _within(xy, seen))]
         target = scan.get("target_xy")
         if scan.get("label") == "after_return" and target and not _within(target, seen):
-            before = [t["xy"] for t in self.previous["tiles"]] if self.previous else []
-            # a tile new to the mat near home is the returned one, seen where it landed (check_landing's reach)
-            if not any(math.dist(xy, target) <= LANDED_WITHIN_M and not _within(xy, before) for xy in seen):
-                self.put_down.append(list(target))
-        self.last_seen = [t for t in self.last_seen if not _within(t["xy"], seen)] + sure
+            self.put_down.append(list(target))
+        # a box from before the arm handled a place says nothing about how a tile lies there now
+        self.last_seen = [t for t in self.last_seen if not (_within(t["xy"], seen) or _within(t["xy"], handled))] + sure
         self.previous = {**scan, "tiles": scan["tiles"] + self.hidden} if self.hidden else scan
 
     def restore(self, tile):

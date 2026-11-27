@@ -176,7 +176,9 @@ def build_images(session_dir, phase):
     near = [xy for item in phase["items"] for xy in iv.where(item["change"])] + ([phase["target"]] if phase["target"] else [])
     placed = []             # per scan: (tile, its pixel) for the tiles in the picture
     for scan, read in zip(scans, reads):
-        tiles = [t for t in scan["tiles"] if iv.near_any({"xy": t["xy"]}, near, 2 * iv.KNOCK_M)]
+        # a restored tile (confidence 0) with no pixel has no box here: looked up by name, it would be another tile's
+        tiles = [t for t in scan["tiles"] if (t.get("confidence") != 0 or t.get("pixel"))
+                 and iv.near_any({"xy": t["xy"]}, near, 2 * iv.KNOCK_M)]
         placed.append([(t, p) for t in tiles if (p := _pixel(t, read)) is not None])
     h, w = frames[0].shape[:2]
     x0, y0, x1, y1 = _crop([p for tiles in placed for _, p in tiles], w, h)
