@@ -72,6 +72,23 @@ record incl. DAgger takeovers, bench's teach-discard) and warns of a stick off c
 (`gamepad.warn_off_centre`); collect_corrections and record show the stick readings in the wrist window while
 you drive (`gamepad.draw_input`).
 
+## A tile the detector missed and then finds is no knock (2026-11-27)
+
+`20261120_181225_bench` (face down, v14 against v13) read v13 25/28 clean. Two of its three unclean attempts were knocks only
+the scans called; the frames show neither tile moving during the attempt blamed (no shift measured by template match, under
+about 2mm), and the owner judged both false.
+
+- **012** (the tile at S6): missed at scan 34, where a faint box showed it still there, and again at 35. `MatWatch` had
+  remembered it for one scan, so at 36, 0.2mm from where it was, it "appeared".
+- **053** (the tile at S13): the return before, 052, set it about 11mm off home. Scans 160 and 161 missed it, and its first
+  sighting, at 162, was counted against 053.
+
+The fix is gated on `interventions.SCAN_MEMORY`, logged by scans from 2026-11-27. A first version without the gate, and
+applied between attempts too, was replayed over the 211 sessions that had scans: knocks went from 272 to 261, and answers
+people had given ("put tiles back") disappeared. With the gate, every older session derives as before. The two verdicts are
+`scan_verdict` events in the session. Not yet run on the arm. Still counted as before: a set-down tile first seen between
+attempts is a `tile_reset`.
+
 ## The wrist camera can drop out mid-session
 
 2026-10-28: from the 3rd of 10 v3c trials every read failed, and the policy ran blind to the 16s cap, so 8

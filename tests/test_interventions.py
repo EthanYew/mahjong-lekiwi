@@ -450,3 +450,32 @@ def test_a_set_down_tile_first_seen_between_attempts_is_still_listed():
     events = session(remembering("after_return", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]),
                      remembering("choose", MAT))
     assert [i["kind"] for i in iv.derive(events)] == ["tile_reset"]
+
+
+def test_a_remembered_tile_that_comes_back_turned_is_still_a_knock():
+    ww, twod, nined = ({**t, "box_px": [24, 29]} for t in MAT)
+    events = session(remembering("choose", [ww, twod, nined], scan=1), remembering("choose", [ww, nined], scan=2),
+                     {"type": "tile_faint", "tile": "2D", "xy": twod["xy"]},
+                     remembering("choose", [ww, nined], scan=3),
+                     remembering("after_pickup", [{**twod, "box_px": [31, 32]}, nined], scan=4, attempt_dir="001_WW",
+                                 target_xy=ww["xy"]))
+    assert [iv.changes_text(k["changes"]) for k in knocks(events)] == ["2D turned"]
+
+
+def test_a_remembered_tile_a_faint_box_shows_elsewhere_is_forgotten():
+    ww, twod, nined = MAT
+    shifted = tile("2D", twod["xy"][0], twod["xy"][1] + 0.015, confidence=0.55)
+    watch = iv.MatWatch()
+    watch.advance(remembering("choose", [ww, nined]))
+    watch.restore(twod)
+    watch.advance(remembering("after_pickup", [shifted, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
+    assert watch.hidden == []
+
+
+def test_a_return_seen_to_land_off_home_leaves_nothing_to_look_out_for():
+    ww, twod, nined = MAT
+    landed = tile("9D", nined["xy"][0] - 0.035, nined["xy"][1])
+    watch = iv.MatWatch()
+    watch.advance(remembering("after_pickup", [ww, twod], attempt_dir="001_9D", target_xy=nined["xy"]))
+    watch.advance(remembering("after_return", [ww, twod, landed], attempt_dir="001_9D", target_xy=nined["xy"]))
+    assert watch.put_down == []

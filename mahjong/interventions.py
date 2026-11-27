@@ -26,6 +26,7 @@ from collections import Counter
 from functools import lru_cache
 
 from . import config, kinematics, session
+from .return_correction import LANDED_WITHIN_M
 
 RESCUE, RESET, OVERRIDE, FAILURE, OBSERVATION, ASK = "rescue", "reset", "override", "failure", "observation", "ask"
 
@@ -272,6 +273,7 @@ class MatWatch:
     def __init__(self):
         self.previous, self.knocked_to = None, []
         self.hidden, self.put_down = [], []
+        self.last_seen = []     # each place's latest sure detection: its box, for a restored tile to be compared with
 
     def propose(self, scan):
         """(kind, diff) the scans suggest for this `detections` event against the previous one, or None.
@@ -312,27 +314,42 @@ class MatWatch:
             self.previous = scan
             return
         handled = handled_points(scan)
-        seen = [t["xy"] for t in scan["tiles"] if t["confidence"] >= CHANGE_CONFIDENCE]
+        sure = [t for t in scan["tiles"] if t["confidence"] >= CHANGE_CONFIDENCE]
+        seen = [t["xy"] for t in sure]
 
-        def still_unseen(xy):
-            return not (_within(xy, handled) or _within(xy, seen))
-        self.hidden = [t for t in self.hidden if still_unseen(t["xy"])]
-        self.put_down = [xy for xy in self.put_down if still_unseen(xy)]
+        def moved(xy):      # even a faint sighting well off the remembered place: compare with what's there now
+            return any(KNOCK_M < math.dist(xy, t["xy"]) <= config.TILE_MERGE_RADIUS_M for t in scan["tiles"])
+        self.hidden = [t for t in self.hidden
+                       if not (_within(t["xy"], handled) or _within(t["xy"], seen) or moved(t["xy"]))]
+        self.put_down = [xy for xy in self.put_down if not (_within(xy, handled) or _within(xy, seen))]
         target = scan.get("target_xy")
         if scan.get("label") == "after_return" and target and not _within(target, seen):
-            self.put_down.append(list(target))
+            before = [t["xy"] for t in self.previous["tiles"]] if self.previous else []
+            # a tile new to the mat near home is the returned one, seen where it landed (check_landing's reach)
+            if not any(math.dist(xy, target) <= LANDED_WITHIN_M and not _within(xy, before) for xy in seen):
+                self.put_down.append(list(target))
+        self.last_seen = [t for t in self.last_seen if not _within(t["xy"], seen)] + sure
         self.previous = {**scan, "tiles": scan["tiles"] + self.hidden} if self.hidden else scan
 
     def restore(self, tile):
         """A tile the latest scan missed that the wrist camera or a faint box saw where it was (the bench's
-        `wrist_check` / `tile_faint`): later scans are compared with it there until the detector sees it again or
-        the arm handles it. At confidence 0, so a tile the detector keeps missing isn't "gone" again at every scan,
-        while one it sees again still matches it."""
-        if self.previous is not None:
-            restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0, "restored": True}
-            if self.previous.get("scan_memory"):
-                self.hidden = [t for t in self.hidden if not _within(t["xy"], [restored["xy"]])] + [restored]
-            self.previous = {**self.previous, "tiles": self.previous["tiles"] + [restored]}
+        `wrist_check` / `tile_faint`): the next scan is compared with it there, and on scans with SCAN_MEMORY every
+        later one until the detector sees it again or the arm handles it, with the box it last had so a turn still
+        shows. At confidence 0, so a tile the detector keeps missing isn't "gone" again at every scan, while one it
+        sees again still matches it."""
+        if self.previous is None:
+            return
+        restored = {"tile_name": tile["tile_name"], "xy": list(tile["xy"]), "confidence": 0.0}
+        tiles = self.previous["tiles"]
+        if self.previous.get("scan_memory"):
+            last = [t for t in self.last_seen if math.dist(t["xy"], restored["xy"]) <= FAINT_SAME_M]
+            if last:
+                nearest = min(last, key=lambda t: math.dist(t["xy"], restored["xy"]))
+                restored.update({k: nearest[k] for k in ("box_px", "pixel") if k in nearest})
+            old = [t for t in self.hidden if _within(t["xy"], [restored["xy"]])]
+            tiles = [t for t in tiles if t not in old]
+            self.hidden = [t for t in self.hidden if t not in old] + [restored]
+        self.previous = {**self.previous, "tiles": tiles + [restored]}
 
 
 def split(diff, keep):
