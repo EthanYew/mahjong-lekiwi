@@ -17,11 +17,17 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import config
+from . import checkout, config
 
 OPTIONS = ("augment", "replace_mat", "trim_narrowing")
-# Ends a line of docs/usage.md's policy list; new registrations go on the line after it (tests/test_docs.py keeps it there)
+# Ends a line of docs/usage.md's policy list; new registrations go on the line after it (tests/test_recipe.py checks the
+# guide still has it, once)
 USAGE_MARKER = "<!-- new policies are added below this line (mahjong/recipe.py) -->"
+# Said when the line is written in the main checkout, where merge_pr.py refuses to run with docs/ changed
+MAIN_CHECKOUT_NOTE = ("This is the main checkout: take data/policies.json, data/offline_eval/ and docs/usage.md to a branch "
+                      "and open its PR, then restore them here (git checkout -- data/policies.json docs/usage.md, and remove "
+                      "the new eval files). Until then merge_pr.py won't run from here, and a pull can stop. Next time, "
+                      "register from a worktree.")
 
 
 def registry():
@@ -141,8 +147,9 @@ def scale(reg):
 
 
 def usage_line(policy_id, entry, date):
-    """A new policy's line for docs/usage.md's list: only what its registry entry says. What it did on the bench is for
-    a person to write once there's a session to cite."""
+    """A new policy's line for docs/usage.md's list: what its registry entry says, and `date`, the day it was listed (a
+    sync can come days after the training). What it did on the bench is for a person to write once there's a session to
+    cite."""
     datasets, (frames, steps) = registered_datasets(entry), scale_of(entry)
     facts = []
     if datasets:
@@ -151,7 +158,7 @@ def usage_line(policy_id, entry, date):
         facts.append(f"{frames} frames")
     if steps:
         facts.append(f"{steps} steps")
-    facts.append(f"registered {date}")
+    facts.append(f"listed {date}")
     return f"`{policy_id}` ({'; '.join(facts)}),"
 
 
@@ -174,7 +181,8 @@ def list_in_usage(policy_id, entry, path=None, date=None):
         path.write_text("\n".join(lines))
     except (OSError, UnicodeError) as e:
         return f"Couldn't update docs/usage.md ({e}). {by_hand}"
-    return f"Added `{policy_id}` to docs/usage.md's policy list:\n  {line}"
+    note = "" if checkout.is_worktree(path.parent.parent) else f"\n{MAIN_CHECKOUT_NOTE}"
+    return f"Added `{policy_id}` to docs/usage.md's policy list:\n  {line}{note}"
 
 
 def default_mismatch(here, mains):

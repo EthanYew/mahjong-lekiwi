@@ -294,8 +294,9 @@ def main():
     if not args.no_usage_line:
         print(recipe.list_in_usage(n["policy_id"], entry))
         if args.default:
-            print("--default: docs/usage.md's '(default: ...)' sentence and ROADMAP.md's status still name the old default: "
-                  "rewrite them by hand (tests/test_docs.py fails until then)")
+            print("--default: docs/usage.md's '(default: ...)' sentence, its and the rules' `record.py --policy` DAgger "
+                  "examples, and ROADMAP.md's status still name the old default: rewrite them by hand (tests/test_docs.py "
+                  "fails until then)")
     print(f"Done. Try it: python scripts/bench.py --policy {n['policy_id']} --trials 5 --tile 8D")
 
 

@@ -164,7 +164,7 @@ def test_sync_registers_the_policy_and_lists_it_in_the_usage_guide(tmp_path, mon
     guide.write_text(f"`old`,{train_remote.recipe.USAGE_MARKER}\n")
     monkeypatch.setattr(train_remote.config, "DATA", tmp_path / "data")
     monkeypatch.setattr(train_remote.config, "POLICIES", policies)
-    monkeypatch.setattr(train_remote.checkout, "is_worktree", lambda repo=None: worktree)
+    monkeypatch.setattr(train_remote.recipe.checkout, "is_worktree", lambda repo=None: worktree)
 
     def fake_wsl_run(cfg, cmd, check=True):
         if "_exit" in cmd:
@@ -177,7 +177,7 @@ def test_sync_registers_the_policy_and_lists_it_in_the_usage_guide(tmp_path, mon
     monkeypatch.setattr(train_remote, "wsl_run", fake_wsl_run)
     train_remote.cmd_sync(train_remote.parse_args(["--version", "v99", "--sync"]), FAKE_CFG)
     assert "pickup_mat_cl_v99" in json.loads(policies.read_text())["policies"]
-    assert "\n`pickup_mat_cl_v99` (data: `src`; 5 frames; 6 steps; registered " in guide.read_text()
+    assert "\n`pickup_mat_cl_v99` (data: `src`; 5 frames; 6 steps; listed " in guide.read_text()
     assert ("This is the main checkout" in capsys.readouterr().out) != worktree
 
 

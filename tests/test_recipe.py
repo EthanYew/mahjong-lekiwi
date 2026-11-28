@@ -147,7 +147,7 @@ def test_a_new_policy_goes_under_the_marker_with_only_what_its_entry_says(tmp_pa
     guide = tmp_path / "usage.md"
     guide.write_text(GUIDE)
     said = recipe.list_in_usage("new_policy", ENTRY, path=guide, date="2026-11-28")
-    line = "`new_policy` (data: `src` + `Yewy/dagger_v99`; 120 frames; 40 steps; registered 2026-11-28),"
+    line = "`new_policy` (data: `src` + `Yewy/dagger_v99`; 120 frames; 40 steps; listed 2026-11-28),"
     assert said.startswith("Added `new_policy`") and line in said
     assert guide.read_text() == GUIDE.replace(f"{recipe.USAGE_MARKER}\n", f"{recipe.USAGE_MARKER}\n{line}\n")
 
@@ -162,8 +162,8 @@ def test_a_policy_the_guide_names_is_left_alone(tmp_path):
 def test_an_older_entry_is_listed_from_its_notes():
     entry = {"notes": "make_policy.py from a + Yewy/b; 10 frames, 20 steps; colour jitter"}
     assert recipe.usage_line("p", entry, "2026-11-28") == \
-        "`p` (data: `a` + `Yewy/b`; 10 frames; 20 steps; registered 2026-11-28),"
-    assert recipe.usage_line("p", {}, "2026-11-28") == "`p` (registered 2026-11-28),"
+        "`p` (data: `a` + `Yewy/b`; 10 frames; 20 steps; listed 2026-11-28),"
+    assert recipe.usage_line("p", {}, "2026-11-28") == "`p` (listed 2026-11-28),"
 
 
 @pytest.mark.parametrize("text", [None, "a guide with no marker\n"])

@@ -873,11 +873,11 @@ synced: use it there only when the sync can wait until it's switched on again.
 The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--leave-out`, `--trim-narrowing`,
 `--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
 
-`--sync` adds the new policy's line to this file's policy list (its datasets, frames, steps and the date, from its
-registry entry), so the fast tests pass with it; `make_policy.py` does the same for a run on this machine, and the
+`--sync` adds the new policy's line to this file's policy list (its datasets, frames and steps from its registry
+entry, and the day it was listed), so the fast tests pass with it; `make_policy.py` does the same for a run on this machine, and the
 remote run is told not to (`--no-usage-line`). Add what it was recorded for, and later what the bench showed, by hand.
-Run the sync from a worktree and merge it through a PR: in the main checkout the uncommitted files can stop the next
-pull, and the sync says so.
+Run the sync from a worktree and merge it through a PR: in the main checkout the uncommitted files stop `merge_pr.py`
+and can stop the next pull, and the sync says how to clear them.
 
 `data/train_machine.example.json` documents the config keys (`ssh`, `wsl_distro`, `wsl_home`,
 `windows_home`, `repo`, `lerobot`). Keep `data/train_machine.json` out of commits — it holds the

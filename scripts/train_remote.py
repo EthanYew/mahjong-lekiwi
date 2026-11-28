@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mahjong import checkout, config, recipe  # noqa: E402
+from mahjong import config, recipe  # noqa: E402
 
 CONFIG_PATH = config.DATA / "train_machine.json"
 EXAMPLE_PATH = config.DATA / "train_machine.example.json"
@@ -223,13 +223,14 @@ def cmd_start(args, cfg):
     ps1_remote = f"{cfg['windows_home']}\\{version}_keepawake.ps1"
     log_remote = f"{cfg['lerobot']}/outputs/train/{version}_make_policy.log"
 
-    # Check the remote's data/ for uncommitted changes that would be overwritten
-    result = wsl_run(cfg, f"cd {cfg['repo']} && git status --short data/", check=False)
+    # Check the remote for uncommitted changes the checkout of main would trip on: its data/, and the usage guide (which
+    # a make_policy.py run there by hand adds a line to)
+    result = wsl_run(cfg, f"cd {cfg['repo']} && git status --short data/ docs/usage.md", check=False)
     if result.stdout.strip():
-        print(f"Warning: remote {cfg['repo']} has uncommitted data/ changes:")
+        print(f"Warning: remote {cfg['repo']} has uncommitted changes:")
         for line in result.stdout.strip().splitlines():
             print(f"  {line}")
-        print("These will be overwritten by 'git pull'. Check the remote first if this matters.")
+        print("Checking out main there can stop on them or leave them in the run. Check the remote first if this matters.")
         answer = input("Continue? [y/N] ").strip().lower()
         if answer != "y":
             raise SystemExit("Aborted.")
@@ -342,9 +343,6 @@ def cmd_sync(args, cfg):
 
     # The guide's line for it, which the fast tests require (never raises: the shutdowns below must still run)
     print("\n" + recipe.list_in_usage(policy_id, remote_reg["policies"][policy_id]))
-    if not checkout.is_worktree(config.DATA.parent):
-        print("This is the main checkout: these uncommitted files can stop its next pull. Take them to a branch and "
-              "merge it (or sync from a worktree next time).")
 
     if args.shutdown_train:
         print("\nShutting down the training machine in 60 seconds.")
