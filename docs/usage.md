@@ -344,6 +344,7 @@ prompt or the menu don't count.
 |---|---|---|
 | `b` | the arm bumped another tile | a collision (failure; the success stays clean), and a neighbour that moved is a knock without asking |
 | `p` | the arm pushed or turned the tile it's picking up | a failure |
+| `e` | the jaws closed too early: in the air, or on the tile's top edge (often shoving it, so press `p` too if it moved) | a failure: the attempt isn't clean even if the tile still comes up. The report's "where to record more" table has an `early` column, and its close-height table shows how high each close was |
 | `d` | gripped low on the tile (near its bottom) | precarious, it may slip: counted ("gripped low") but the attempt stands; works during the return too, while you watch it carried |
 | `u` | gripped high on the tile (near its top) | the same, "gripped high" |
 | `s` | gripped shallow: held, but only by the jaw tips (the tile didn't go deep enough between the jaws) | the same, "gripped shallow": it may drop, but the attempt stands |

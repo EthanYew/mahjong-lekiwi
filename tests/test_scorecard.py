@@ -42,7 +42,7 @@ def test_mcnemar_is_exact():
     assert scorecard.mcnemar_p(0, 0) == 1.0
 
 
-@pytest.mark.parametrize("kind", ["collided", "pushed_target"])
+@pytest.mark.parametrize("kind", ["collided", "pushed_target", "closed_early"])
 def test_a_picked_tile_that_bumped_something_is_not_clean(kind):
     events = [attempt(0, "a", "S1"), bump(0, kind), attempt(1, "a", "S1"), attempt(2, "a", "S1", success=False)]
     assert scorecard.clean_flags(events) == {"000": False, "001": True, "002": False}

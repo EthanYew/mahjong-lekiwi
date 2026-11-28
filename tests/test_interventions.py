@@ -472,3 +472,20 @@ def test_a_tile_another_check_saw_is_only_waited_for_over_the_next_few_scans(uns
     proposal = watch.propose(remembering("after_pickup", [twod, nined], attempt_dir="001_WW", target_xy=ww["xy"]))
     assert bool(proposal) == knocked
 
+
+
+def test_e_flags_an_early_close_a_failure_that_makes_even_a_picked_tile_not_clean():
+    from mahjong import scorecard
+    assert iv.KEYS["e"] == "closed_early" and iv.class_of("closed_early") == iv.FAILURE
+    assert "closed_early" in scorecard.NOT_CLEAN
+    events = [{"type": "attempt", "attempt_dir": "001", "tile": "back", "success": True, "stop_reason": "done"},
+              {"type": "keys", "attempt_dir": "001", "during": "pickup", "presses": [{"key": "e", "kind": "closed_early", "t_s": 4.2}]},
+              {"type": "session_end", "reason": "quit"}]
+    found = iv.derive(events)
+    assert [(i["kind"], i["class"], i["source"]) for i in found] == [("closed_early", iv.FAILURE, "key")]
+    assert iv.summary(found, events[:1])["early_closes"] == 1
+
+
+def test_a_closing_early_abort_keeps_the_older_reasons_numbers():
+    assert list(iv.ABORT_REASONS)[:5] == ["frozen", "wrong_place", "knocking", "pressing", "bad_grip"]
+    assert "closing_early" in iv.ABORT_REASONS

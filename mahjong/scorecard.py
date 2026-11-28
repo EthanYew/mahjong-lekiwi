@@ -15,7 +15,7 @@ from .session import read_events, void_reason
 # What makes an attempt not clean, when attributed to it. Left out on purpose: `straightened` (a person fixing a knock
 # that already counted), grip_low / grip_high / grip_shallow (precarious, but the attempt stands), and rescan, interrupted, crashed and
 # killed, which derive() pins on the most recent attempt whatever caused them.
-NOT_CLEAN = {"knocked", "collided", "pushed_target", "aborted", "touched_tile", "helped_arm", "caught_drop", "other",
+NOT_CLEAN = {"knocked", "collided", "pushed_target", "closed_early", "aborted", "touched_tile", "helped_arm", "caught_drop", "other",
              "unspecified", "discard_missed", "takeover"}
 MIN_PAIRS = 20          # inherited from the 2026-10-23 draft's 4 spots x 5, not calculated (docs/scorecard.md, which has the odds)
 ALPHA = 0.1             # exact McNemar: 5-0 pairs is p 0.06, 6-1 is 0.125, 7-1 is 0.07
