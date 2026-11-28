@@ -18,7 +18,7 @@ Check whether a detached run has finished:
     python scripts/train_remote.py --status --version vN
 
 Sync results back after a detached run (updates data/policies.json and
-data/offline_eval/; prints what docs/usage.md still needs), then power both machines off:
+data/offline_eval/, and adds the policy's line to docs/usage.md), then power both machines off:
 
     python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 
@@ -30,7 +30,6 @@ Dry-run to see what would be generated without connecting:
 """
 import argparse
 import json
-import re
 import subprocess
 import sys
 import textwrap
@@ -73,6 +72,9 @@ def run_script(cfg, version, make_policy_args, comment=""):
     log = f"{cfg['lerobot']}/outputs/train/{version}_make_policy.log"
     cmd = ("python -u scripts/make_policy.py "
            + " ".join(f"'{a}'" if " " in a else a for a in make_policy_args))
+    # The guide's line is written here, by --sync: an edit to docs/ on the training machine would sit uncommitted and
+    # could stop the next run's `git checkout -B main origin/main` there
+    cmd += " --no-usage-line"
     lines = ["#!/bin/bash"]
     if comment:
         lines.append(f"# {comment}")
@@ -221,13 +223,14 @@ def cmd_start(args, cfg):
     ps1_remote = f"{cfg['windows_home']}\\{version}_keepawake.ps1"
     log_remote = f"{cfg['lerobot']}/outputs/train/{version}_make_policy.log"
 
-    # Check the remote's data/ for uncommitted changes that would be overwritten
-    result = wsl_run(cfg, f"cd {cfg['repo']} && git status --short data/", check=False)
+    # Check the remote for uncommitted changes the checkout of main would trip on: its data/, and the usage guide (which
+    # a make_policy.py run there by hand adds a line to)
+    result = wsl_run(cfg, f"cd {cfg['repo']} && git status --short data/ docs/usage.md", check=False)
     if result.stdout.strip():
-        print(f"Warning: remote {cfg['repo']} has uncommitted data/ changes:")
+        print(f"Warning: remote {cfg['repo']} has uncommitted changes:")
         for line in result.stdout.strip().splitlines():
             print(f"  {line}")
-        print("These will be overwritten by 'git pull'. Check the remote first if this matters.")
+        print("Checking out main there can stop on them or leave them in the run. Check the remote first if this matters.")
         answer = input("Continue? [y/N] ").strip().lower()
         if answer != "y":
             raise SystemExit("Aborted.")
@@ -338,30 +341,8 @@ def cmd_sync(args, cfg):
     else:
         print("No offline eval files found on remote.")
 
-    # Print the usage guide reminder
-    usage_path = config.DATA.parent / "docs" / "usage.md"
-    usage = usage_path.read_text() if usage_path.exists() else None     # advisory: never stop the sync or the shutdown
-    if usage is None:
-        pass
-    elif f"`{policy_id}`" not in usage:
-        print(f"\ndocs/usage.md does not yet name `{policy_id}`.")
-        entry = remote_reg["policies"][policy_id]
-        datasets, (frames, steps) = entry.get("datasets"), recipe.scale_of(entry)
-        if datasets is None:        # registered before the field: the notes' list, as written
-            found = re.search(r"make_policy\.py from ([^;]+)", entry.get("notes", ""))
-            datasets = found.group(1).split(" + ") if found else None
-        hint = []
-        if datasets:
-            hint.append(f"data: {' + '.join(datasets)}")
-        if frames:
-            hint.append(f"{frames} frames")
-        if steps:
-            hint.append(f"{steps} steps")
-        hint.append(f"trained {time.strftime('%Y-%m-%d')}")
-        print("Add this to the policies list in docs/usage.md (then run the fast tests):")
-        print(f"  `{policy_id}` ({'; '.join(hint)}),")
-    else:
-        print(f"docs/usage.md already names `{policy_id}`.")
+    # The guide's line for it, which the fast tests require (never raises: the shutdowns below must still run)
+    print("\n" + recipe.list_in_usage(policy_id, remote_reg["policies"][policy_id]))
 
     if args.shutdown_train:
         print("\nShutting down the training machine in 60 seconds.")

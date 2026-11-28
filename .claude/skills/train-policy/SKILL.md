@@ -38,8 +38,9 @@ Asked whether it's finished: skip to step 4. Check once per ask; don't sit in a 
 5. **Once it has finished**, register it in a worktree branched from an up-to-date `main` (the sync adds its entry to that
    checkout's `data/policies.json`, so a stale one would undo entries merged since; edit only there) and merge it through the queue (it isn't made the default). Copy `data/train_machine.json` into the worktree
    first: it's gitignored, and the sync reads it.
-   - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`.
-   - Add the line it prints to docs/usage.md's policy list and a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
+   - `python scripts/train_remote.py --sync --version vN` brings back `data/policies.json` and `data/offline_eval/<id>@*.json`,
+     and adds the policy's line to docs/usage.md's policy list.
+   - Say in that line what the new recording was for, add a ROADMAP.md status row (registered, bench pending), then `/hand-back`:
      a ready PR, and `merge_pr.py --auto N` merges it. Registering isn't the owner's decision (`merge_pr.py` holds
      `assets/*.pt` and changes to the default, which a registration doesn't touch); making it the default is (`status.py --set-default`, via `/should-ship`).
      Don't leave it as a draft: v13 (2026-11-17) sat unmerged in one, and the bench that decides it runs from `main`, which lacked it.

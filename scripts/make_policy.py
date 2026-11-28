@@ -72,6 +72,9 @@ def parse_args():
     p.add_argument("--skip-upload", action="store_true",
                    help="don't push the training dataset (training still pushes the policy)")
     p.add_argument("--skip-train", action="store_true", help="evaluate/register an existing training run")
+    p.add_argument("--no-usage-line", action="store_true",
+                   help="don't add the new policy to docs/usage.md's list (train_remote.py passes it: --sync adds the line "
+                        "on the machine that commits it)")
     p.add_argument("--dry-run", action="store_true", help="print the plan and stop")
     return p.parse_args()
 
@@ -278,16 +281,22 @@ def main():
         results.append((checkpoint.name, mae, onset, slices))
     print(f"7. register {n['policy_id']}")
     from mahjong.policy import register
-    register(n["policy_id"], {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
-                              "datasets": [args.source, *args.add],     # mahjong/recipe.py checks the next version against these
-                              "options": run_options(args), "frames": summary["frames"], "steps": steps,
-                              **({"left_out": args.leave_out} if args.leave_out else {}),     # for the record
-                              "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
-                                       + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
-                                       + ("colour jitter (AUGMENT); " if args.augment else "")
-                                       + f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
-                                       f"{[(c, round(m, 2), o, sl) for c, m, o, sl in results]}"},
-             make_default=args.default)
+    entry = {"repo": n["policy_repo"], "dataset": n["dataset"], "hover": hover,
+             "datasets": [args.source, *args.add],     # mahjong/recipe.py checks the next version against these
+             "options": run_options(args), "frames": summary["frames"], "steps": steps,
+             **({"left_out": args.leave_out} if args.leave_out else {}),     # for the record
+             "notes": f"make_policy.py from {' + '.join([args.source, *args.add])}; {summary['frames']} frames, {steps} steps; "
+                      + (f"mat swapped in {summary.get('replace_mat', 0):.0%} of episodes; " if summary.get("replace_mat") else "")
+                      + ("colour jitter (AUGMENT); " if args.augment else "")
+                      + f"held out: {len(heldout)} episodes; checkpoints (replay, onset, eval slices): "
+                      f"{[(c, round(m, 2), o, sl) for c, m, o, sl in results]}"}
+    register(n["policy_id"], entry, make_default=args.default)
+    if not args.no_usage_line:
+        print(recipe.list_in_usage(n["policy_id"], entry))
+        if args.default:
+            print("--default: docs/usage.md's '(default: ...)' sentence, its and the rules' `record.py --policy` DAgger "
+                  "examples, and ROADMAP.md's status still name the old default: rewrite them by hand (tests/test_docs.py "
+                  "fails until then)")
     print(f"Done. Try it: python scripts/bench.py --policy {n['policy_id']} --trials 5 --tile 8D")
 
 
