@@ -11,6 +11,11 @@ detours, wobble), and optionally the hover→grasp move against another recordin
     python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Yewy/mahjong_mat_pickup_lekiwi_cl_hover
     python scripts/quality_report.py --dataset ... --clean Yewy/<name>_clean     # a copy without pauses or dropped episodes
     python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13 --calibration   # demos that gripped short
+    python scripts/quality_report.py --turned --recipe pickup_mat_cl_v16      # demos of tiles turned on purpose, and their videos
+
+Tiles turned on purpose are marked in every table from the wrist roll at the close: "sideways" from 60 deg, "turned" 20-60.
+A quarter turn takes longer and closes elsewhere, so the scores, fitted on upright tiles, never flag or propose a sideways
+episode; a turned one is only marked (mahjong/quality.py).
 
 The hover→grasp check compares only demos that steered: one lowered straight down says "close enough for the
 jaws", not where the tile was. A shift beyond the jaws' ~6 mm at most spots, in one direction, is worth a
@@ -32,8 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, recipe
 from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, REACH_SHORT_MM, REACH_SPOT_ONLY_SHORT_MM,
                              ReachReference, all_dropped, bench_reach_labels, clean_copy, drift_table, drop_episodes,
-                             dropped_episodes, fix_gripper, grip_reach_table, load_episodes, phase_table, quality_table,
-                             reach_calibration, thin_spots)
+                             SIDEWAYS, SIDEWAYS_ROLL_DEG, TURNED_ROLL_DEG, clock, dropped_episodes, fix_gripper, grip_reach_table,
+                             load_episodes, phase_table, quality_table, reach_calibration, thin_spots, turn_table)
 
 
 def main():
@@ -57,8 +62,11 @@ def main():
     p.add_argument("--reason", default="reviewed", help="with --drop / --fix-gripper: why, kept with each episode")
     p.add_argument("--grip-reach", action="store_true",
                    help="demos that closed short of the tile's middle, against the bench attempts not marked gripped low")
+    p.add_argument("--turned", action="store_true",
+                   help="list the episodes whose tile was turned on purpose (wrist roll at the close), with where each "
+                        "one's video starts")
     p.add_argument("--recipe", metavar="POLICY",
-                   help="with --grip-reach: every dataset this registered policy trained on, instead of --dataset")
+                   help="with --grip-reach or --turned: every dataset this registered policy trained on, instead of --dataset")
     p.add_argument("--calibration", action="store_true",
                    help="with --grip-reach: how many marked-low and unmarked bench attempts each cutoff would catch")
     p.add_argument("--sessions", default=str(config.SESSIONS),
@@ -71,8 +79,14 @@ def main():
             p.error("--grip-reach only reports; it can't go with " + ", ".join("--" + o.replace("_", "-") for o in others)
                     + " (run --drop after looking at the proposals)")
         return grip_reach(args)
+    if args.turned:
+        others = [name for name in ("drop", "fix_gripper", "clean", "against", "episode") if getattr(args, name) is not None]
+        others += ["phases"] * args.phases + ["calibration"] * args.calibration
+        if others:
+            p.error("--turned only reports; it can't go with " + ", ".join("--" + o.replace("_", "-") for o in others))
+        return turned(args)
     if args.recipe or args.calibration:
-        p.error("--recipe and --calibration go with --grip-reach")
+        p.error("--recipe goes with --grip-reach or --turned, --calibration with --grip-reach")
     if args.dataset is None:
         needs = [name for name in ("drop", "fix_gripper", "clean", "against", "episode", "csv", "phases", "worst",
                                    "flag", "reason", "sessions") if getattr(args, name) != p.get_default(name)]
@@ -106,15 +120,20 @@ def main():
     scored, dropped = "score" in table, dropped_episodes(args.dataset)
     if dropped:
         print(f"Dropped after review, not trained on (x below): {sorted(dropped)}\n")
-    print(f"{'ep':>4} {'score':>6} {'worst':<9} {'dur s':>6} {'tip_rev':>7} {'grip_rev':>8} {'jerk':>7} {'idle':>5}  tile")
+    print(f"{'ep':>4} {'score':>6} {'worst':<9} {'dur s':>6} {'tip_rev':>7} {'grip_rev':>8} {'jerk':>7} {'idle':>5}  "
+          f"{'turn':<8}  tile")
     for ep, r in (table.head(args.worst) if scored else table).iterrows():
         print(f"{ep:>4} {r.get('score', float('nan')):>6.1f} {r.get('worst', ''):<9} {r['duration']:>6.1f} "
-              f"{r['tip_rev']:>7} {r['grip_rev']:>8} {r['jerk']:>7.1f} {r['idle']:>5.0%}  {r['tile']}"
+              f"{r['tip_rev']:>7} {r['grip_rev']:>8} {r['jerk']:>7.1f} {r['idle']:>5.0%}  {r['turn'] or '-':<8}  {r['tile']}"
               + ("  x" if ep in dropped else ""))
     if args.csv:
         table.to_csv(args.csv)
     if scored:
-        flagged = sorted(int(e) for e in table.index[table["score"] >= args.flag] if int(e) not in dropped)
+        high = [int(e) for e in table.index[table["score"] >= args.flag] if int(e) not in dropped]
+        flagged = sorted(e for e in high if table.loc[e, "turn"] != SIDEWAYS)
+        sideways_high = sorted(e for e in high if table.loc[e, "turn"] == SIDEWAYS)
+        if sideways_high:
+            print(f"\nNot flagged, the tile was sideways (turning to it takes longer): {sideways_high}")
         print(f"\n{len(flagged)} scored >= {args.flag}{' (not yet dropped)' if dropped else ''}: {flagged}")
         if flagged:
             print(f"Review them (--episode N), then leave the bad ones out of training:\n  "
@@ -142,16 +161,45 @@ def print_all_dropped():
     print("\nOne dataset's ranking and pickup phases: python scripts/quality_report.py --dataset REPO")
 
 
-def grip_reach(args):
+def dataset_repos(args, flag):
+    """The datasets a --grip-reach / --turned report reads: --dataset, or every dataset --recipe's policy trained on."""
     if bool(args.dataset) == bool(args.recipe):
-        raise SystemExit("--grip-reach takes --dataset REPO or --recipe POLICY")
-    if args.recipe:
-        entry = recipe.registry()["policies"].get(args.recipe)
-        repos = recipe.registered_datasets(entry) if entry else None
-        if not repos:
-            raise SystemExit(f"can't tell which datasets {args.recipe} trained on (data/policies.json)")
-    else:
-        repos = [args.dataset]
+        raise SystemExit(f"{flag} takes --dataset REPO or --recipe POLICY")
+    if not args.recipe:
+        return [args.dataset]
+    entry = recipe.registry()["policies"].get(args.recipe)
+    repos = recipe.registered_datasets(entry) if entry else None
+    if not repos:
+        raise SystemExit(f"can't tell which datasets {args.recipe} trained on (data/policies.json)")
+    return repos
+
+
+def turned(args):
+    """Every episode whose tile was turned on purpose, per dataset, with its roll and where its video starts."""
+    print(f"Tiles turned on purpose: the wrist rolled {SIDEWAYS_ROLL_DEG:.0f} deg or more to the close (sideways), or "
+          f"{TURNED_ROLL_DEG:.0f}-{SIDEWAYS_ROLL_DEG:.0f} (turned). Videos are under each dataset's folder in the "
+          "lerobot cache; open one at its start time, or: lerobot-dataset-viz --repo-id REPO --episode-index N")
+    tables = {}
+    for repo in dataset_repos(args, "--turned"):
+        try:
+            t = turn_table(repo)
+        except SystemExit as e:
+            print(f"\n{repo}: skipped ({e})")
+            continue
+        tables[repo] = t
+        marked = t[t["turn"] != ""]
+        print(f"\n{repo}: {int((t['turn'] == 'sideways').sum())} sideways, {int((t['turn'] == 'turned').sum())} turned, "
+              f"of {len(t)} episodes")
+        if len(marked):
+            print(f"{'ep':>5} {'spot':<5} {'roll':>7} {'mark':<9} {'starts':>7}  video")
+            for ep, r in marked.iterrows():
+                print(f"{ep:>5} {r['spot']:<5} {r['roll_deg']:>+6.0f}° {r['turn']:<9} {clock(r['start_s']):>7}  {r['video']}")
+    if args.csv and tables:
+        pd.concat(tables, names=["dataset"]).to_csv(args.csv)
+
+
+def grip_reach(args):
+    repos = dataset_repos(args, "--grip-reach")
     labels = bench_reach_labels(args.sessions)
     if not labels:
         raise SystemExit(f"no face-up bench attempts with a gripped-low mark under {args.sessions}: run from the main "
@@ -166,20 +214,22 @@ def grip_reach(args):
         for mm, caught, flagged in reach_calibration(labels, reference):
             print(f"  {mm:>2} mm short: {caught:4.0%} of marked low, {flagged:4.0%} of unmarked")
     print(f"\nProposed: {REACH_SHORT_MM:.0f}+ mm short of the reference ({REACH_SPOT_ONLY_SHORT_MM:.0f}+ where the log has "
-          "only the spot's saved position, 'spot-only'). 'outside': no bench attempts near that tile, not judged.")
+          "only the spot's saved position, 'spot-only'). 'outside': no bench attempts near that tile, not judged. "
+          "'sideways': the tile was turned a quarter, so it closes elsewhere; not judged.")
     tables = {}
     for repo in repos:
         try:
             tables[repo] = grip_reach_table(repo, reference)
         except SystemExit as e:
             print(f"\n{repo}: skipped ({e})")
-    print(f"\n{'dataset':<40} {'eps':>4} {'judged':>6} {'outside':>7} {'median':>7} {'proposed':>8}")
+    print(f"\n{'dataset':<40} {'eps':>4} {'judged':>6} {'outside':>7} {'sideways':>8} {'median':>7} {'proposed':>8}")
     for repo, t in tables.items():
         kept = t[~t["dropped"]]
         judged = kept[kept["basis"].isin(["measured", "spot-only"])]
         median = f"{judged['shortfall_mm'].median():+.1f}" if len(judged) else "-"
-        print(f"{repo:<40} {len(kept):>4} {len(judged):>6} {int((kept['basis'] == 'outside').sum()):>7} {median:>7} "
-              f"{int(t['propose'].sum()):>8}")
+        turns = int((kept["basis"] == SIDEWAYS).sum())
+        print(f"{repo:<40} {len(kept):>4} {len(judged):>6} {int((kept['basis'] == 'outside').sum()):>7} {turns:>8} "
+              f"{median:>7} {int(t['propose'].sum()):>8}")
     print("  (episodes not already dropped; median shortfall in mm, negative is short)")
     for repo, t in tables.items():
         proposed = t[t["propose"]].sort_values("shortfall_mm")
@@ -211,12 +261,16 @@ def print_phases(phases, per_episode):
     print("\nPickup phases (median): narrowing, wait at the hover, approach to the close and its pauses, reversals,"
           "\npath over the straight line, after the close, wobble (the tip less a 7-frame average)")
     print(header)
-    for name, group in phases.groupby("slice"):
+    upright = phases["turn"] != SIDEWAYS
+    for name, group in phases[upright].groupby("slice"):
         print(line(name, group[PHASE_COLUMNS].median()))
+    if (~upright).any():                   # a quarter turn: longer and wider by design, so apart from the slices
+        print(line(SIDEWAYS, phases[~upright][PHASE_COLUMNS].median()) + f"  ({int((~upright).sum())} episodes)")
     if per_episode:
-        print(f"\n{'ep':>4} {'slice':<9} {'spot':<7}" + header[9:])
+        print(f"\n{'ep':>4} {'slice':<9} {'spot':<7}" + header[9:] + f"  {'turn':<8} {'starts':>7}  video")
         for ep, r in phases.iterrows():
-            print(f"{ep:>4} {r['slice']:<9} {r['spot']:<7}" + line("", r)[9:])
+            print(f"{ep:>4} {r['slice']:<9} {r['spot']:<7}" + line("", r)[9:]
+                  + f"  {r['turn'] or '-':<8} {clock(r['start_s']):>7}  {Path(r['video']).name}")
 
 
 def print_drift(repo, reference):

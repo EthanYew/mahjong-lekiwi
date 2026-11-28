@@ -215,3 +215,51 @@ def test_grip_reach_review_fixes(tmp_path, monkeypatch):
     t = pd.DataFrame({"spot": ["S1"] * 4, "slice": ["train", "train", "familiar", "familiar"],
                       "propose": [True, False, False, False], "dropped": False, "heldout": False})
     assert quality.thin_spots(t) == {"S1": (2, 1)}
+
+
+# --- tiles turned on purpose, read from the wrist roll (2026-11-28) ---
+
+def rolled(degrees, open_frames=10, frames=20):
+    """A demo at one pose that rolls the wrist `degrees` before the close, then shuts."""
+    joints = closing_at(X, Y, frames=frames, open_frames=open_frames).copy()
+    joints[open_frames // 2:, config.JOINTS.index("wrist_roll")] += degrees
+    return joints
+
+
+@pytest.mark.parametrize("degrees, mark", [(0, ""), (12, ""), (40, "turned"), (-40, "turned"), (95, "sideways")])
+def test_the_roll_at_the_close_says_how_far_the_tile_was_turned(degrees, mark):
+    assert quality.roll_at_close(rolled(degrees)) == pytest.approx(degrees)
+    assert quality.tile_turn(quality.roll_at_close(rolled(degrees))) == mark
+
+
+def test_a_dagger_episodes_roll_is_at_the_persons_close_counted_from_the_first_frame():
+    # the policy shut unrolled at frame 10; the person took over at 30, rolled 90 and closed: the person's close counts
+    dagger = np.vstack([closing_at(X, Y), rolled(90)])
+    assert quality.roll_at_close(dagger, {"policy": "v16", "takeover_frame": 30}) == pytest.approx(90)
+    assert quality.roll_at_close(dagger) == pytest.approx(0)               # not DAgger: the first close is the demo's
+    assert quality.roll_at_close(closing_at(X, Y)[:10]) is None              # never shut
+    assert quality.tile_turn(None) == ""
+
+
+def test_a_sideways_tile_is_shown_but_never_proposed_and_a_turned_one_is_judged_as_before():
+    ref = quality.ReachReference(labels())
+    row = lambda turn: quality.reach_row(1, {"detection_xy": [0.16, 0.0]}, 30.0, 5.0, ref, turn=turn)
+    assert row("sideways")["basis"] == "sideways" and not row("sideways")["propose"]
+    assert row("sideways")["shortfall_mm"] == pytest.approx(-10.0)            # still shown
+    assert row("turned")["basis"] == "measured" and row("turned")["propose"]
+    assert row("")["propose"]
+
+
+def test_video_starts_read_where_each_episode_sits_in_the_videos(tmp_path, monkeypatch):
+    import pandas as pd
+    folder = tmp_path / "meta" / "episodes" / "chunk-000"
+    folder.mkdir(parents=True)
+    cam = "videos/observation.images.wrist"
+    pd.DataFrame({"episode_index": [0, 1], f"{cam}/chunk_index": [0, 0], f"{cam}/file_index": [0, 1],
+                  f"{cam}/from_timestamp": [0.0, 117.5]}).to_parquet(folder / "file-000.parquet")
+    monkeypatch.setattr(quality, "dataset_root", lambda repo: tmp_path)
+    assert quality.video_starts("r") == {0: (f"{cam}/chunk-000/file-000.mp4", 0.0),
+                                         1: (f"{cam}/chunk-000/file-001.mp4", 117.5)}
+    assert quality.clock(117.5) == "1:57.5" and quality.clock(float("nan")) == "-"
+    monkeypatch.setattr(quality, "dataset_root", lambda repo: tmp_path / "none")
+    assert quality.video_starts("r") == {}

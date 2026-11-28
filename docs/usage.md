@@ -69,6 +69,7 @@ not a worktree, or the sessions go when the worktree does.
 | Find the hesitant / jerky demos and leave them out of training | `python scripts/quality_report.py --dataset Yewy/<name>` (then `--drop 8,39 --reason "..."`) |
 | See every episode left out of training after review, and why | `python scripts/quality_report.py` |
 | Find the demos that gripped short of the tile's middle ("gripped low") | `python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13` |
+| Find the demos of tiles turned on purpose (sideways), and where to watch each one | `python scripts/quality_report.py --turned --recipe pickup_mat_cl_v16` |
 | Add hover-correction samples from demos or older bench sessions | `python scripts/hover_samples.py --dataset Yewy/<name>` / `--sessions` |
 | Add return-correction samples from older bench sessions | `python scripts/return_samples.py` |
 | Train a policy | `python scripts/make_policy.py --source <the default's source> --add <each dataset it added> --add Yewy/<new> <its options> --version <next> --dry-run` (then drop `--dry-run`; it stops if one of the default's datasets is missing) |
@@ -740,7 +741,17 @@ python scripts/quality_report.py --dataset Yewy/mahjong_mat_eval_v1 --against Ye
 python scripts/quality_report.py --dataset Yewy/mahjong_mat_pickup_jitter_v3 --drop 8,39 --reason "searching"
 python scripts/quality_report.py --dataset mahjong_surfaces_standard_mat_eval_v1 --clean Yewy/mahjong_surfaces_standard_mat_eval_v1_clean
 python scripts/quality_report.py --grip-reach --recipe pickup_mat_cl_v13 --calibration   # demos that gripped short
+python scripts/quality_report.py --turned --recipe pickup_mat_cl_v16      # tiles turned on purpose, and where each video starts
 ```
+
+**Tiles turned on purpose are marked, from the wrist roll at the close** (face-down backs have no detected angle):
+`sideways` when it rolled 60° or more, `turned` from 20° to 60°. A quarter turn takes longer and closes elsewhere, so
+a sideways episode is never flagged in the ranking (it's listed apart), is left out of the median the scores are measured
+against, has its own line in the phases, and isn't judged by `--grip-reach` (its basis reads `sideways`). A `turned`
+one is only marked: the 20-60° rolls in the older sets go both ways and haven't been checked by eye. Training is
+unchanged: they stay in the mix. `--turned` lists them per dataset, and `--phases` gives every episode's video file and
+start time. The files are under the dataset's folder in `~/.cache/huggingface/lerobot/`, with several episodes back to back
+in each. To watch one episode with its joint plots: `lerobot-dataset-viz --repo-id REPO --episode-index N`.
 
 `--drop EPS` leaves reviewed episodes out of training without deleting them: they're listed in
 `data/dropped_episodes.json` (with `--reason`), marked `x` in the table, and `make_policy.py` skips them.
