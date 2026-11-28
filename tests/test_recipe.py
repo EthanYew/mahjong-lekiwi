@@ -185,6 +185,18 @@ def test_the_real_guide_takes_a_new_policy_and_then_names_it(tmp_path):
     assert "`pickup_mat_cl_v999`" in guide.read_text()
 
 
+@pytest.mark.parametrize("text", [GUIDE, "no marker\n", None])
+@pytest.mark.parametrize("worktree", [False, True])
+def test_the_main_checkout_is_told_how_to_clear_it_whatever_happened_to_the_line(tmp_path, monkeypatch, text, worktree):
+    # the registry changed there even when the guide didn't (a re-sync, a lost marker, no guide)
+    guide = tmp_path / "usage.md"
+    if text:
+        guide.write_text(text)
+    monkeypatch.setattr(recipe.checkout, "is_worktree", lambda repo=None: worktree)
+    for policy in ("new_policy", "old"):
+        assert (recipe.MAIN_CHECKOUT_NOTE in recipe.list_in_usage(policy, ENTRY, path=guide)) != worktree
+
+
 def test_the_default_guide_is_the_one_beside_the_registry(tmp_path, monkeypatch):
     # so a test (or a worktree) that moves the registry never writes another checkout's guide
     (tmp_path / "docs").mkdir()

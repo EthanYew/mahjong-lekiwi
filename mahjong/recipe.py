@@ -23,11 +23,11 @@ OPTIONS = ("augment", "replace_mat", "trim_narrowing")
 # Ends a line of docs/usage.md's policy list; new registrations go on the line after it (tests/test_recipe.py checks the
 # guide still has it, once)
 USAGE_MARKER = "<!-- new policies are added below this line (mahjong/recipe.py) -->"
-# Said when the line is written in the main checkout, where merge_pr.py refuses to run with docs/ changed
-MAIN_CHECKOUT_NOTE = ("This is the main checkout: take data/policies.json, data/offline_eval/ and docs/usage.md to a branch "
-                      "and open its PR, then restore them here (git checkout -- data/policies.json docs/usage.md, and remove "
-                      "the new eval files). Until then merge_pr.py won't run from here, and a pull can stop. Next time, "
-                      "register from a worktree.")
+# Said after a registration in the main checkout, whatever happened to the guide's line: the registry has changed there
+MAIN_CHECKOUT_NOTE = ("This is the main checkout: take what registering changed (data/policies.json, data/offline_eval/, "
+                      "docs/usage.md; git status shows which) to a branch and open its PR, then restore them here (git "
+                      "checkout -- the changed files, and remove the new eval files). Until then a pull can stop, and with "
+                      "docs/usage.md changed merge_pr.py won't run from here. Next time, register from a worktree.")
 
 
 def registry():
@@ -163,11 +163,16 @@ def usage_line(policy_id, entry, date):
 
 
 def list_in_usage(policy_id, entry, path=None, date=None):
-    """Add `policy_id` to docs/usage.md's policy list unless it's named there already; returns what to tell the person.
-    Never raises: it runs after hours of training, and before a sync that may shut machines down. `path`: the usage
-    guide beside the registry (config.POLICIES), so a test that moves the registry can't write the real guide."""
+    """Add `policy_id` to docs/usage.md's policy list unless it's named there already; returns what to tell the person
+    after registering it, MAIN_CHECKOUT_NOTE included when that's where the guide is. Never raises: it runs after hours of
+    training, and before a sync that may shut machines down. `path`: the usage guide beside the registry
+    (config.POLICIES), so a test that moves the registry can't write the real guide."""
     path = path or config.POLICIES.parent.parent / "docs" / "usage.md"
-    line = usage_line(policy_id, entry, date or time.strftime("%Y-%m-%d"))
+    said = _add_to_list(policy_id, usage_line(policy_id, entry, date or time.strftime("%Y-%m-%d")), path)
+    return said if checkout.is_worktree(path.parent.parent) else f"{said}\n{MAIN_CHECKOUT_NOTE}"
+
+
+def _add_to_list(policy_id, line, path):
     by_hand = f"Add this to the policies list in docs/usage.md by hand (the fast tests fail without it):\n  {line}"
     try:
         text = path.read_text()
@@ -181,8 +186,7 @@ def list_in_usage(policy_id, entry, path=None, date=None):
         path.write_text("\n".join(lines))
     except (OSError, UnicodeError) as e:
         return f"Couldn't update docs/usage.md ({e}). {by_hand}"
-    note = "" if checkout.is_worktree(path.parent.parent) else f"\n{MAIN_CHECKOUT_NOTE}"
-    return f"Added `{policy_id}` to docs/usage.md's policy list:\n  {line}{note}"
+    return f"Added `{policy_id}` to docs/usage.md's policy list:\n  {line}"
 
 
 def default_mismatch(here, mains):
