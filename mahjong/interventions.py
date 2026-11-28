@@ -36,6 +36,10 @@ KINDS = {
     # not a step-in: the attempt can still be a clean success, but the collision is counted
     "collided": ("the arm bumped another tile, no one helped", FAILURE),
     "pushed_target": ("the arm pushed or turned the tile it was picking up", FAILURE),
+    # the jaws shut before they were down around the tile: in the air or on its top edge, which shoves it (key e). 2026-11-28:
+    # v16 closed 13-25mm up at S1-S4 in morning daylight and picked 1 of 7, each miss also keyed p (20261128_095939_bench).
+    # Not clean even when the tile still comes up: the close it was saved from is the one that crashes into the tile
+    "closed_early": ("the jaws closed before reaching the tile (in the air or on its top)", FAILURE),
     "helped_arm": ("held or steadied the arm or base", RESCUE),
     "caught_drop": ("caught a drop", RESCUE),
     "look": ("nothing touched, just look at this", OBSERVATION),
@@ -80,7 +84,8 @@ KINDS = {
     "fd_by_hand": ("did a step by hand that the arm couldn't (a pick, a set-down, a lost tile)", RESCUE),
     "fd_conflict": ("unattended: a read made a fifth copy of a tile, and play went on with it", OBSERVATION),
 }
-MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other"]
+MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other",
+              "closed_early"]   # added last, so the menu's older numbers stay what people type
 # Pressed during a pickup or a return (the bench's KeyMarks): what happened, said as it happens. 2026-10-30: the
 # questions at the end of a batch couldn't be answered accurately, nor told apart by attempt. Only what the arm
 # does: a person helping (touched the tile, held the arm, caught a drop) never happens on the bench, and is
@@ -88,15 +93,22 @@ MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught
 # r says what the scan after it will show (a person moved tiles: putting a knocked one back for the next run),
 # so it's no intervention by itself (BY_HAND): the scan's changes become straightened / tile_reset.
 BY_HAND = "by_hand"
-KEYS = {"b": "collided", "p": "pushed_target", "r": BY_HAND, "d": "grip_low", "u": "grip_high",
+KEYS = {"b": "collided", "p": "pushed_target", "e": "closed_early", "r": BY_HAND, "d": "grip_low", "u": "grip_high",
         "s": "grip_shallow", "l": "look"}
-KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "r": "I moved a tile by hand",
+KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up", "e": "closed too early",
+              "r": "I moved a tile by hand",
               "d": "gripped low", "u": "gripped high", "s": "gripped shallow",
               "l": "look at this"}
+PICKUP_ONLY_KEYS = {"e"}        # a return opens the jaws, it doesn't close them: not offered or heard then
+
+
+def keys_for(phase):
+    """The KEYS a person can press during `phase` (pickup or return)."""
+    return {k: v for k, v in KEYS.items() if phase == "pickup" or k not in PICKUP_ONLY_KEYS}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",
-                 "bad_grip": "bad grip", "other": "other"}
+                 "bad_grip": "bad grip", "closing_early": "closing before it reaches the tile", "other": "other"}
 
 # A tile counts as moved beyond this. 2026-10-23: untouched tiles' detections moved 1-1.5mm scan to scan,
 # tiles put back by hand 3.2mm at most; the 7B pickup nudged 8D (rotated, visible in overview_after)
@@ -580,6 +592,7 @@ def summary(interventions, attempts):
             "knocks": sum(i["kind"] == "knocked" for i in interventions),
             "collisions": sum(i["kind"] == "collided" for i in interventions),
             "target_pushes": sum(i["kind"] == "pushed_target" for i in interventions),
+            "early_closes": sum(i["kind"] == "closed_early" for i in interventions),
             "low_grips": sum(i["kind"] == "grip_low" for i in interventions),
             "high_grips": sum(i["kind"] == "grip_high" for i in interventions),
             "shallow_grips": sum(i["kind"] == "grip_shallow" for i in interventions),

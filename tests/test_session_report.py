@@ -108,8 +108,9 @@ def test_where_to_record_lists_spots_with_misses_remarks_and_the_camera(capsys):
     session_report.recording_focus(events, [e for e in events if e["type"] == "attempt"], found)
     lines = capsys.readouterr().out.splitlines()
     row = lambda spot: next(line for line in lines if line.strip().startswith(spot + " ")).split()
-    assert row("S6") == ["S6", "2/2", "1", "-", "-", "-", "-", "-", "1", "stopped"]
-    assert row("S10") == ["S10", "0/1", "-", "-", "-", "-", "1", "-", "1", "voided"]    # attempts, not presses
+    # columns: missed, pushed, early, bumped, low, high, shallow, 20mm+, camera
+    assert row("S6") == ["S6", "2/2", "1", "-", "-", "-", "-", "-", "-", "1", "stopped"]
+    assert row("S10") == ["S10", "0/1", "-", "-", "-", "-", "-", "1", "-", "1", "voided"]    # attempts, not presses
     focus = lines[lines.index("  record more at (attempts with trouble, most first):") + 1:]
     assert [line.split(":")[0].strip() for line in focus] == ["S6", "S10", "S12"]      # S1 had no trouble
     assert "the camera stopped 1 of them" in focus[0]

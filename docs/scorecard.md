@@ -145,6 +145,7 @@ A **clean attempt** picked up the tile, knocked or bumped nothing, and needed no
 | Not picked up | Gripped low, high or shallow (`d` / `u` / `s`: precarious, but the attempt stands) |
 | A tile knocked (scans) or bumped (`b`), during the pickup or the return | Straightening a knock afterwards (the knock already counted) |
 | The target pushed or turned (`p`) | Tiles reset as part of the protocol |
+| The jaws closed too early, in the air or on the tile's top (`e`), even if it still came up | |
 | Esc, a hand on the tile or arm, a caught drop, an unexplained mark, a takeover on the gamepad (`--dagger-dataset`) | Key presses later voided as noise (`keys_void`) |
 | A discard that missed the container | Crashes and rescans, which the log can't pin on one attempt |
 

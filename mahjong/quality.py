@@ -47,6 +47,84 @@ def dataset_root(repo_id):
     return Path(HF_LEROBOT_HOME) / repo_id
 
 
+# --- a tile turned sideways: the wrist rolls to meet it (2026-11-28) ---
+#
+# Face-down backs have no detected angle (record.py logs placed_yaw_deg None for them), so which demos picked a tile turned
+# on purpose is read from the wrist roll at the close, less the episode's first frame. Upright tiles: under 20 deg in every
+# set checked; partly turned ones 31-41 deg (mahjong_facedown_dagger_v14 38-40); sideways ones 85-103 deg (daytime 29, 31,
+# 37, 39, 43, 45, 49, 55: 90-103; dagger_v14 41-44: 85-95). A turn takes longer and lands the close elsewhere, so the hesitation scores
+# and the grip reach, both fitted on upright tiles, would read a deliberate turn as a bad demo: sideways episodes are marked,
+# shown, and never flagged or proposed on those numbers. "turned" (20-60 deg) is only shown: jitter_v3 and dagger_v9/v10 have
+# 37 of them, both ways (-45 to +55 deg), not checked by eye, so they're still judged as before. Training is unchanged.
+TURNED_ROLL_DEG = 20.0
+SIDEWAYS_ROLL_DEG = 60.0
+SIDEWAYS = "sideways"
+
+
+def roll_at_close(actions, record=None):
+    """Degrees the wrist rolled from the episode's first frame to the close, or None without one. A DAgger episode's close
+    is the person's, after the takeover (dataset.takeover_frame); its roll still counts from the first frame, since the
+    tile's turn is what's measured, whoever started rolling toward it."""
+    from .dataset import takeover_frame
+    actions = np.asarray(actions)
+    start = takeover_frame(record or {})[1] or 0
+    close = kinematics.grasp_frame(actions[start:])
+    if close is None:
+        return None
+    roll = config.JOINTS.index("wrist_roll")
+    return float(actions[start + close, roll] - actions[0, roll])
+
+
+def tile_turn(roll_deg):
+    """"sideways", "turned" or "" (upright) for a roll at the close (roll_at_close); "" without one."""
+    if roll_deg is None or np.isnan(roll_deg):
+        return ""
+    return SIDEWAYS if abs(roll_deg) >= SIDEWAYS_ROLL_DEG else "turned" if abs(roll_deg) >= TURNED_ROLL_DEG else ""
+
+
+def video_starts(repo_id):
+    """{episode: (video file under the dataset's folder, start in seconds)} for its wrist camera (else its first), from
+    meta/episodes; {} if the dataset doesn't say."""
+    root = dataset_root(repo_id)
+    files = sorted((root / "meta" / "episodes").glob("*/*.parquet"))
+    if not files:
+        return {}
+    meta = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    cameras = sorted(c[len("videos/"):-len("/file_index")] for c in meta.columns
+                     if c.startswith("videos/") and c.endswith("/file_index"))
+    if not cameras:
+        return {}
+    cam = next((c for c in cameras if "wrist" in c), cameras[0])
+    col = lambda name: meta[f"videos/{cam}/{name}"]
+    return {int(ep): (f"videos/{cam}/chunk-{int(chunk):03d}/file-{int(file):03d}.mp4", float(start))
+            for ep, chunk, file, start in zip(meta["episode_index"], col("chunk_index"), col("file_index"),
+                                              col("from_timestamp"))}
+
+
+def clock(seconds):
+    """m:ss.s, a video player's time."""
+    return "-" if seconds != seconds else f"{int(seconds // 60)}:{seconds % 60:04.1f}"
+
+
+def turn_table(repo_id):
+    """Per episode: spot, roll at the close (deg), its mark (tile_turn) and where its video starts."""
+    root = dataset_root(repo_id)
+    files = sorted((root / "data").glob("*/*.parquet"))
+    if not files:
+        raise SystemExit(f"no recording at {root}")
+    df = pd.concat([pd.read_parquet(f, columns=["episode_index", "frame_index", "action_raw"]) for f in files],
+                   ignore_index=True)
+    log, starts = episode_log(repo_id), video_starts(repo_id)
+    rows = []
+    for ep, frames in df.groupby("episode_index"):
+        record = log.get(int(ep), {})
+        roll = roll_at_close(np.stack(frames.sort_values("frame_index")["action_raw"].to_numpy()), record)
+        video, start = starts.get(int(ep), ("", float("nan")))
+        rows.append({"episode": int(ep), "spot": record.get("spot") or "", "roll_deg": roll, "turn": tile_turn(roll),
+                     "video": video, "start_s": start})
+    return pd.DataFrame(rows).set_index("episode")
+
+
 def episode_metrics(joints, fps):
     tips = np.array([kinematics.pincer_tip(dict(zip(config.JOINTS, q))) for q in joints]) * 1000
     dt = 1.0 / fps
@@ -71,13 +149,18 @@ def quality_table(repo_id):
     for episode, frames in df.groupby("episode_index"):
         joints = np.stack(frames.sort_values("frame_index")["action_raw"].to_numpy())
         metrics, events[episode] = episode_metrics(joints, fps)
-        rows.append({"episode": episode, **metrics, "tile": log.get(episode, {}).get("tile_name", "")})
+        record = log.get(episode, {})
+        rows.append({"episode": episode, **metrics, "tile": record.get("tile_name", ""),
+                     "turn": tile_turn(roll_at_close(joints, record))})
     table = pd.DataFrame(rows).set_index("episode")
+    upright = table["turn"] != SIDEWAYS    # a sideways tile's longer pickup isn't hesitation: the baseline leaves it out
+    if upright.sum() < MIN_EPISODES_FOR_SCORES:
+        upright[:] = True                  # too few upright ones for a baseline of their own: all of them, as before
     if len(table) >= MIN_EPISODES_FOR_SCORES:
         for metric, floor in SCORED_METRICS.items():
             values = table[metric].astype(float)
-            median = values.median()
-            spread = max(1.4826 * (values - median).abs().median(),
+            median = values[upright].median()
+            spread = max(1.4826 * (values[upright] - median).abs().median(),
                          floor if floor is not None else RELATIVE_SPREAD_FLOOR * abs(median), 1e-9)
             table[f"z_{metric}"] = ((values - median) / spread).clip(lower=0)
         z = [f"z_{m}" for m in SCORED_METRICS]
@@ -85,6 +168,16 @@ def quality_table(repo_id):
         table["worst"] = table[z].idxmax(axis=1).str[2:].where(table["score"] > 0, "")
         table = table.sort_values("score", ascending=False)
     return table, events, fps
+
+
+def flagged(table, flag=DEFAULT_FLAG_SCORE, dropped=()):
+    """(episodes scored `flag` or more, worth reviewing; those of them left alone because their tile was sideways), both
+    sorted, without `dropped`. ([], []) for a table too small to score."""
+    if "score" not in table:
+        return [], []
+    high = [int(e) for e in table.index[table["score"] >= flag] if int(e) not in dropped]
+    return (sorted(e for e in high if table.loc[e, "turn"] != SIDEWAYS),
+            sorted(e for e in high if table.loc[e, "turn"] == SIDEWAYS))
 
 
 # --- phases of a pickup, and the hover→grasp move (2026-10-26 golden set review) ---
@@ -155,11 +248,14 @@ def load_episodes(repo_id):
 def phase_table(repo_id):
     """Per-episode phases (see phases()) with each episode's slice and spot."""
     episodes, fps = load_episodes(repo_id)
+    starts = video_starts(repo_id)
     rows = []
     for ep, (joints, record) in episodes.items():
         p = phases(joints, fps)
         if p is not None:
-            rows.append({"episode": ep, "slice": record.get("slice", "train"), "spot": spot_label(record), **p})
+            video, start = starts.get(int(ep), ("", float("nan")))
+            rows.append({"episode": ep, "slice": record.get("slice", "train"), "spot": spot_label(record), **p,
+                         "turn": tile_turn(roll_at_close(joints, record)), "video": video, "start_s": start})
     return pd.DataFrame(rows).set_index("episode")
 
 
@@ -313,8 +409,11 @@ def episode_reach(actions, states, record):
     return (xy[0] - record["detection_xy"][0]) * 1000, None if clearance is None else clearance * 1000
 
 
-def reach_row(episode, record, reach_mm, height_mm, reference, excluded=(), dropped=()):
-    """One episode's verdict: its shortfall, how far the reference can be trusted there (`basis`), and whether it's proposed."""
+def reach_row(episode, record, reach_mm, height_mm, reference, excluded=(), dropped=(), turn=""):
+    """One episode's verdict: its shortfall, how far the reference can be trusted there (`basis`), and whether it's proposed.
+    A sideways tile (`turn`, tile_turn) closes elsewhere than the upright tiles the reference is fitted on: its basis is
+    "sideways", and it's never proposed. A partly turned one is judged as before."""
+    sideways = turn == SIDEWAYS
     row = {"episode": int(episode), "spot": record.get("spot") or "", "slice": record.get("slice", "train"),
            "tile": record.get("tile_name", ""), "reach_mm": reach_mm, "close_mm": height_mm, "shortfall_mm": np.nan,
            "heldout": int(episode) in excluded, "dropped": int(episode) in dropped, "propose": False}
@@ -326,10 +425,10 @@ def reach_row(episode, record, reach_mm, height_mm, reference, excluded=(), drop
     else:
         row["shortfall_mm"] = reference.shortfall(xy, reach_mm)
         spot_only = record.get("placement_status") == "saved_position"
-        row["basis"] = "spot-only" if spot_only else "measured"
+        row["basis"] = SIDEWAYS if sideways else "spot-only" if spot_only else "measured"
     limit = REACH_SPOT_ONLY_SHORT_MM if row["basis"] == "spot-only" else REACH_SHORT_MM
     row["propose"] = bool(row["shortfall_mm"] <= -limit and row["slice"] == "train" and not row["heldout"]
-                          and not row["dropped"])
+                          and not row["dropped"] and not sideways)
     return row
 
 
@@ -348,9 +447,10 @@ def grip_reach_table(repo_id, reference):
     for ep, frames in df.groupby("episode_index"):
         frames = frames.sort_values("frame_index")
         record = log.get(int(ep), {})
-        reach, height = episode_reach(np.stack(frames["action_raw"].to_numpy()),
-                                      np.stack(frames["observation.state_raw"].to_numpy()), record)
-        rows.append(reach_row(ep, record, reach, height, reference, excluded, dropped))
+        actions = np.stack(frames["action_raw"].to_numpy())
+        reach, height = episode_reach(actions, np.stack(frames["observation.state_raw"].to_numpy()), record)
+        rows.append(reach_row(ep, record, reach, height, reference, excluded, dropped,
+                              turn=tile_turn(roll_at_close(actions, record))))
     return pd.DataFrame(rows).set_index("episode")
 
 

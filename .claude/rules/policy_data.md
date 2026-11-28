@@ -91,3 +91,7 @@ Recording, datasets, training and scoring a policy. Evidence in `docs/invariant_
   at S14 with no neighbours steered about 10mm further out, closed about 12mm high, and picked 4 of 10, so some short grips
   may be keeping clear of the next tile out. Drop short demos only where the spot keeps enough of them (the report warns),
   and bench a filtered policy with its neighbours in place. Evidence: `docs/retrospectives/2026-11-23_v13_grip_and_wrist_calibration.md`.
+- **A sideways tile looks like a bad demo to every score fitted on upright ones** (2026-11-28). The 8 sideways episodes of
+  `mahjong_facedown_daytime` (wrist roll 90-103° at the close) were all 8 of its slowest, and 7 of them looked 10-16mm
+  "short" to `--grip-reach`. Face-down backs log no angle, so `quality.tile_turn` reads it from the roll: sideways episodes
+  are marked and never flagged or proposed. Before dropping a demo on a score, check its `turn` column.

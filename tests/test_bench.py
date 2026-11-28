@@ -946,6 +946,29 @@ def test_a_grip_keyed_low_in_the_pickup_and_high_in_the_return_are_counted_and_t
     assert (s["low_grips"], s["high_grips"], s["clean_successes"], s["rescues"]) == (1, 1, 1, 0)
 
 
+def test_an_early_close_keyed_in_the_pickup_makes_it_not_clean_and_the_return_doesnt_hear_e(tmp_path, monkeypatch):
+    from mahjong import interventions, scorecard
+    b = sim_bench(tmp_path, monkeypatch, trials=1)
+    after_each_run(b, lambda: b.keys.press("e"))
+    place = b.arm.place
+
+    def carried(*args, **kwargs):
+        b.keys.press("e")                   # a return opens the jaws: not an early close
+        return place(*args, **kwargs)
+    b.arm.place = carried
+    asked = no_questions(monkeypatch)
+    try:
+        b.trials(1, "8D")
+    finally:
+        b.close()
+    assert asked == []
+    events = read_events(b.session.dir)
+    found = interventions.derive(events)
+    assert [(i["kind"], i["class"], i["during"]) for i in found] == [("closed_early", "failure", "pickup")]
+    assert interventions.summary(found, [e for e in events if e["type"] == "attempt"])["early_closes"] == 1
+    assert list(scorecard.clean_flags(events).values()) == [False]
+
+
 def test_a_tile_the_scans_keep_losing_is_looked_at_every_time(tmp_path, monkeypatch):
     from mahjong import interventions
     b = sim_bench(tmp_path, monkeypatch, trials=5)

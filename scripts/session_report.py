@@ -199,7 +199,7 @@ def interventions_report(events, trials, unit):
                 + (f", one per {s['attempts_per_rescue']:.1f}" if s["attempts_per_rescue"] else ""))
         print(f"  rescues: {s['rescues']} in {len(trials)} {unit}s ({rate}); resets {s['resets']}, "
               f"overrides {s['overrides']}, knocked {s['knocks']}, collided {s['collisions']}, "
-              f"pushed the target {s['target_pushes']}, gripped low {s['low_grips']}, high {s['high_grips']}, "
+              f"pushed the target {s['target_pushes']}, closed early {s['early_closes']}, gripped low {s['low_grips']}, high {s['high_grips']}, "
               f"shallow {s['shallow_grips']}, "
               f"observations {s['observations']}")
         if unit == "attempt":
@@ -210,7 +210,7 @@ def interventions_report(events, trials, unit):
 
 
 # What a person's keys (or the scans) said about an attempt that points at the policy, in the order the table shows them
-REMARKS = {"pushed_target": "pushed", "collided": "bumped", "knocked": "knocked", "grip_low": "low", "grip_high": "high",
+REMARKS = {"pushed_target": "pushed", "closed_early": "early", "collided": "bumped", "knocked": "knocked", "grip_low": "low", "grip_high": "high",
            "grip_shallow": "shallow", "aborted": "Esc", "touched_tile": "helped", "takeover": "takeover"}
 KEYED = set(interventions.KEYS.values()) & set(REMARKS)     # always a column: a dash says no one pressed it
 
