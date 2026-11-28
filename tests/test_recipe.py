@@ -135,3 +135,69 @@ def test_make_policy_checks_the_recipe_unless_it_only_registers(monkeypatch, ski
     monkeypatch.setattr(mahjong.quality, "quality_table", raising(PastTheCheck))
     with pytest.raises(PastTheCheck if skip_train else Checked):
         make_policy.main()
+
+
+# --- the new policy's line in docs/usage.md (2026-11-28: v16 was registered without one, and main's tests failed) ---
+
+ENTRY = {"datasets": ["src", "Yewy/dagger_v99"], "frames": 120, "steps": 40}
+GUIDE = f"Registered policies live in data/policies.json,\n`old` (the first),{recipe.USAGE_MARKER}\n`older` (before it),\n"
+
+
+def test_a_new_policy_goes_under_the_marker_with_only_what_its_entry_says(tmp_path):
+    guide = tmp_path / "usage.md"
+    guide.write_text(GUIDE)
+    said = recipe.list_in_usage("new_policy", ENTRY, path=guide, date="2026-11-28")
+    line = "`new_policy` (data: `src` + `Yewy/dagger_v99`; 120 frames; 40 steps; registered 2026-11-28),"
+    assert said.startswith("Added `new_policy`") and line in said
+    assert guide.read_text() == GUIDE.replace(f"{recipe.USAGE_MARKER}\n", f"{recipe.USAGE_MARKER}\n{line}\n")
+
+
+def test_a_policy_the_guide_names_is_left_alone(tmp_path):
+    guide = tmp_path / "usage.md"
+    guide.write_text(GUIDE)
+    assert "already names `old`" in recipe.list_in_usage("old", ENTRY, path=guide)
+    assert guide.read_text() == GUIDE
+
+
+def test_an_older_entry_is_listed_from_its_notes():
+    entry = {"notes": "make_policy.py from a + Yewy/b; 10 frames, 20 steps; colour jitter"}
+    assert recipe.usage_line("p", entry, "2026-11-28") == \
+        "`p` (data: `a` + `Yewy/b`; 10 frames; 20 steps; registered 2026-11-28),"
+    assert recipe.usage_line("p", {}, "2026-11-28") == "`p` (registered 2026-11-28),"
+
+
+@pytest.mark.parametrize("text", [None, "a guide with no marker\n"])
+def test_a_guide_that_cant_take_the_line_never_stops_a_run_and_prints_it(tmp_path, text):
+    guide = tmp_path / "usage.md"
+    if text:
+        guide.write_text(text)
+    said = recipe.list_in_usage("new_policy", ENTRY, path=guide, date="2026-11-28")
+    assert "by hand" in said and "`new_policy` (data:" in said
+    assert (guide.read_text() == text) if text else not guide.exists()
+
+
+def test_the_real_guide_takes_a_new_policy_and_then_names_it(tmp_path):
+    """What tests/test_docs.py asks of every registered policy, met by the writer on today's docs/usage.md."""
+    guide = tmp_path / "usage.md"
+    guide.write_text((config.REPO / "docs" / "usage.md").read_text())
+    assert guide.read_text().count(recipe.USAGE_MARKER) == 1
+    assert recipe.list_in_usage("pickup_mat_cl_v999", ENTRY, path=guide).startswith("Added")
+    assert "`pickup_mat_cl_v999`" in guide.read_text()
+
+
+def test_the_default_guide_is_the_one_beside_the_registry(tmp_path, monkeypatch):
+    # so a test (or a worktree) that moves the registry never writes another checkout's guide
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "usage.md").write_text(GUIDE)
+    monkeypatch.setattr(config, "POLICIES", tmp_path / "data" / "policies.json")
+    recipe.list_in_usage("new_policy", ENTRY)
+    assert "`new_policy`" in (tmp_path / "docs" / "usage.md").read_text()
+
+
+@pytest.mark.parametrize("flag", [[], ["--no-usage-line"]])
+def test_make_policy_takes_no_usage_line(monkeypatch, flag):
+    spec = importlib.util.spec_from_file_location("make_policy", config.REPO / "scripts" / "make_policy.py")
+    make_policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_policy)
+    monkeypatch.setattr(sys, "argv", ["make_policy.py", "--source", "s", "--version", "v99", *flag])
+    assert make_policy.parse_args().no_usage_line == bool(flag)

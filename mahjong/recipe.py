@@ -8,14 +8,20 @@ Everything here reads a registry dict (data/policies.json's shape) and returns v
 train_remote.py share one check and the tests pass registries in. A registration records `datasets`, `options`,
 `frames` and `steps` (since 2026-11-17); older entries are read from their notes ("make_policy.py from A + B; N frames,
 M steps; mat swapped in 70% ...; colour jitter ..."), which never noted --trim-narrowing.
+
+list_in_usage() is the one writer: a new registration's line in docs/usage.md's policy list, which tests/test_docs.py
+requires. v16's sync (2026-11-28) only printed the line to add; nobody did, and the fast tests failed on main.
 """
 import json
 import re
+import time
 from dataclasses import dataclass, field
 
 from . import config
 
 OPTIONS = ("augment", "replace_mat", "trim_narrowing")
+# Ends a line of docs/usage.md's policy list; new registrations go on the line after it (tests/test_docs.py keeps it there)
+USAGE_MARKER = "<!-- new policies are added below this line (mahjong/recipe.py) -->"
 
 
 def registry():
@@ -132,6 +138,43 @@ def scale(reg):
     """'<id>: N frames, M steps' for the default, to set a dry run's estimate against."""
     frames, steps = scale_of(reg["policies"][reg["default"]])
     return f"{reg['default']}: {frames or '?'} frames, {steps or '?'} steps"
+
+
+def usage_line(policy_id, entry, date):
+    """A new policy's line for docs/usage.md's list: only what its registry entry says. What it did on the bench is for
+    a person to write once there's a session to cite."""
+    datasets, (frames, steps) = registered_datasets(entry), scale_of(entry)
+    facts = []
+    if datasets:
+        facts.append(f"data: {' + '.join(f'`{name}`' for name in datasets)}")
+    if frames:
+        facts.append(f"{frames} frames")
+    if steps:
+        facts.append(f"{steps} steps")
+    facts.append(f"registered {date}")
+    return f"`{policy_id}` ({'; '.join(facts)}),"
+
+
+def list_in_usage(policy_id, entry, path=None, date=None):
+    """Add `policy_id` to docs/usage.md's policy list unless it's named there already; returns what to tell the person.
+    Never raises: it runs after hours of training, and before a sync that may shut machines down. `path`: the usage
+    guide beside the registry (config.POLICIES), so a test that moves the registry can't write the real guide."""
+    path = path or config.POLICIES.parent.parent / "docs" / "usage.md"
+    line = usage_line(policy_id, entry, date or time.strftime("%Y-%m-%d"))
+    by_hand = f"Add this to the policies list in docs/usage.md by hand (the fast tests fail without it):\n  {line}"
+    try:
+        text = path.read_text()
+        if f"`{policy_id}`" in text:
+            return f"docs/usage.md already names `{policy_id}`."
+        lines = text.split("\n")
+        at = next((i for i, current in enumerate(lines) if current.endswith(USAGE_MARKER)), None)
+        if at is None:
+            return f"docs/usage.md has lost the marker new policies go under ({USAGE_MARKER}). {by_hand}"
+        lines.insert(at + 1, line)
+        path.write_text("\n".join(lines))
+    except (OSError, UnicodeError) as e:
+        return f"Couldn't update docs/usage.md ({e}). {by_hand}"
+    return f"Added `{policy_id}` to docs/usage.md's policy list:\n  {line}"
 
 
 def default_mismatch(here, mains):

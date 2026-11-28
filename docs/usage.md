@@ -109,7 +109,7 @@ Registered policies live in `data/policies.json` (default: `pickup_mat_cl_v13`, 
 against v11, `status.py` has the evidence; before it `pickup_mat_cl_v11` (2026-11-16), before that `pickup_mat_cl_v10` (2026-11-12, for the face-down turn), and before that `pickup_mat_cl_v8`, 37 standard-mat demos + other surfaces + black-top
 jittered demos, no DAgger, `--trim-narrowing`, hover 20.6%;
 also `pickup_mat_cl_v9` (v8's data + 80 DAgger corrections of v8 on wall picks at station F, 16 of them with the green hand in view; trained 2026-11-10, private on the Hub, not benched yet),
-`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub; face down it led v10 25/28 to 23/28 clean in `20261116_213816_bench`),
+`pickup_mat_cl_v11` (v10's data + 39 DAgger corrections of v10 face down at station L2 and even-hand14 spots; 88075 frames, 120000 steps; trained 2026-11-12, private on the Hub; face down it led v10 25/28 to 23/28 clean in `20261116_213816_bench`),<!-- new policies are added below this line (mahjong/recipe.py) -->
 `pickup_mat_cl_v16` (v15's data + 56 face-down demos driven by hand in bright daylight, ceiling and lamp off, `Yewy/mahjong_facedown_daytime`, 8 of them on sideways tiles, with 44 near-row face-down corrections dropped; 122009 frames, 166000 steps; registered 2026-11-28, not the default; benched face down on even-hand14: 28/28 picked in two full runs and 25/28 in a third, but 1/7 against v13's 7/7 at S1-S4 in morning daylight with the lights off, `20261128_095939_bench`; ROADMAP.md has the detail),
 `pickup_mat_cl_v15` (v14's data + 48 face-down DAgger episodes on v14, `Yewy/mahjong_facedown_dagger_v14`, 30 with a takeover, some picking turned tiles; 116732 frames, 159000 steps; trained 2026-11-27, public on the Hub; registered, not benched),
 `pickup_mat_cl_v14` (v13's data + 73 face-down DAgger corrections of v13 at the near row, the corners and recoveries from shallow/low grips, `Yewy/mahjong_facedown_dagger_v13`, 58 with a takeover; 109185 frames, 149000 steps; trained 2026-11-20, public on the Hub; not the default; benched against v13: face down 28/28 clean to 27/28 in `20261120_181225_bench`, after the owner judged two scan-called knocks on v13 false; face up behind in the morning round, 13/28 to 16/28, and level or ahead in three partial evening sessions; ROADMAP.md has the detail),
@@ -820,6 +820,7 @@ registered since 2026-11-17: older notes never recorded it). `--leave-out REPO` 
 | `--steps N` | training steps (default ~131 passes over the data) |
 | `--private` | upload as private (default is public under `Yewy/`) |
 | `--skip-build`, `--skip-upload`, `--skip-train` | resume a run partway through |
+| `--no-usage-line` | don't add the new policy to this file's policy list (registering adds its line otherwise; `train_remote.py` passes this to the training machine) |
 
 **What the names mean.** There are three kinds of repo under `Yewy/`, and only the first is yours to name:
 
@@ -858,7 +859,7 @@ python scripts/train_remote.py --source <the default's source> --add Yewy/<each 
 # Check whether a detached run has finished
 python scripts/train_remote.py --status --version vN
 
-# Sync results back (data/policies.json + data/offline_eval/), then power both machines off
+# Sync results back (data/policies.json, data/offline_eval/ and this file's policy list), then power both machines off
 python scripts/train_remote.py --sync --version vN --shutdown-train --shutdown-local
 ```
 
@@ -872,8 +873,11 @@ synced: use it there only when the sync can wait until it's switched on again.
 The same `make_policy.py` options apply: `--source`, `--version`, `--add`, `--leave-out`, `--trim-narrowing`,
 `--augment`, `--replace-mat`, `--steps`, `--private`, `--default`, `--policy-id`.
 
-After `--sync`, this file still needs a manual line for the new policy (the fast tests will say if it's
-missing). The sync step prints the suggested line.
+`--sync` adds the new policy's line to this file's policy list (its datasets, frames, steps and the date, from its
+registry entry), so the fast tests pass with it; `make_policy.py` does the same for a run on this machine, and the
+remote run is told not to (`--no-usage-line`). Add what it was recorded for, and later what the bench showed, by hand.
+Run the sync from a worktree and merge it through a PR: in the main checkout the uncommitted files can stop the next
+pull, and the sync says so.
 
 `data/train_machine.example.json` documents the config keys (`ssh`, `wsl_distro`, `wsl_home`,
 `windows_home`, `repo`, `lerobot`). Keep `data/train_machine.json` out of commits — it holds the

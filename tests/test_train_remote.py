@@ -154,6 +154,37 @@ def test_sync_nonzero_exit_raises(tmp_path, monkeypatch):
         train_remote.cmd_sync(args, FAKE_CFG)
 
 
+@pytest.mark.parametrize("worktree", [False, True])
+def test_sync_registers_the_policy_and_lists_it_in_the_usage_guide(tmp_path, monkeypatch, capsys, worktree):
+    entry = {"datasets": ["src"], "frames": 5, "steps": 6}
+    (tmp_path / "data" / "offline_eval").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    policies, guide = tmp_path / "data" / "policies.json", tmp_path / "docs" / "usage.md"
+    policies.write_text(json.dumps({"default": "old", "policies": {"old": {}}}))
+    guide.write_text(f"`old`,{train_remote.recipe.USAGE_MARKER}\n")
+    monkeypatch.setattr(train_remote.config, "DATA", tmp_path / "data")
+    monkeypatch.setattr(train_remote.config, "POLICIES", policies)
+    monkeypatch.setattr(train_remote.checkout, "is_worktree", lambda repo=None: worktree)
+
+    def fake_wsl_run(cfg, cmd, check=True):
+        if "_exit" in cmd:
+            out = "0\n"
+        elif "policies.json" in cmd:
+            out = json.dumps({"policies": {"pickup_mat_cl_v99": entry}})
+        else:
+            out = ""
+        return type("R", (), {"stdout": out, "returncode": 0})()
+    monkeypatch.setattr(train_remote, "wsl_run", fake_wsl_run)
+    train_remote.cmd_sync(train_remote.parse_args(["--version", "v99", "--sync"]), FAKE_CFG)
+    assert "pickup_mat_cl_v99" in json.loads(policies.read_text())["policies"]
+    assert "\n`pickup_mat_cl_v99` (data: `src`; 5 frames; 6 steps; registered " in guide.read_text()
+    assert ("This is the main checkout" in capsys.readouterr().out) != worktree
+
+
+def test_the_remote_run_leaves_the_usage_guide_to_the_sync():
+    assert "--no-usage-line" in train_remote.run_script(FAKE_CFG, "v99", ["--source", "ds", "--version", "v99"])
+
+
 def test_wsl_command_has_no_single_quotes_and_round_trips():
     import base64
     cmd = "cd ~/repo && git fetch origin && echo 'it''s' | grep \"x\" $HOME"
