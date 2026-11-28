@@ -37,8 +37,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mahjong import config, recipe
 from mahjong.quality import (DEFAULT_FLAG_SCORE, JAW_TOLERANCE_MM, PHASE_COLUMNS, REACH_SHORT_MM, REACH_SPOT_ONLY_SHORT_MM,
                              ReachReference, all_dropped, bench_reach_labels, clean_copy, drift_table, drop_episodes,
-                             SIDEWAYS, SIDEWAYS_ROLL_DEG, TURNED_ROLL_DEG, clock, dropped_episodes, fix_gripper, grip_reach_table,
-                             load_episodes, phase_table, quality_table, reach_calibration, thin_spots, turn_table)
+                             SIDEWAYS, SIDEWAYS_ROLL_DEG, TURNED_ROLL_DEG, clock, dropped_episodes, fix_gripper,
+                             grip_reach_table, load_episodes, phase_table, quality_table, reach_calibration, thin_spots,
+                             turn_table)
+from mahjong.quality import flagged as flagged_episodes
 
 
 def main():
@@ -80,8 +82,8 @@ def main():
                     + " (run --drop after looking at the proposals)")
         return grip_reach(args)
     if args.turned:
-        others = [name for name in ("drop", "fix_gripper", "clean", "against", "episode") if getattr(args, name) is not None]
-        others += ["phases"] * args.phases + ["calibration"] * args.calibration
+        others = [name for name in ("drop", "fix_gripper", "clean", "against", "episode", "phases", "calibration", "worst",
+                                    "flag", "reason", "sessions") if getattr(args, name) != p.get_default(name)]
         if others:
             p.error("--turned only reports; it can't go with " + ", ".join("--" + o.replace("_", "-") for o in others))
         return turned(args)
@@ -129,9 +131,7 @@ def main():
     if args.csv:
         table.to_csv(args.csv)
     if scored:
-        high = [int(e) for e in table.index[table["score"] >= args.flag] if int(e) not in dropped]
-        flagged = sorted(e for e in high if table.loc[e, "turn"] != SIDEWAYS)
-        sideways_high = sorted(e for e in high if table.loc[e, "turn"] == SIDEWAYS)
+        flagged, sideways_high = flagged_episodes(table, args.flag, dropped)
         if sideways_high:
             print(f"\nNot flagged, the tile was sideways (turning to it takes longer): {sideways_high}")
         print(f"\n{len(flagged)} scored >= {args.flag}{' (not yet dropped)' if dropped else ''}: {flagged}")
@@ -270,7 +270,10 @@ def print_phases(phases, per_episode):
         print(f"\n{'ep':>4} {'slice':<9} {'spot':<7}" + header[9:] + f"  {'turn':<8} {'starts':>7}  video")
         for ep, r in phases.iterrows():
             print(f"{ep:>4} {r['slice']:<9} {r['spot']:<7}" + line("", r)[9:]
-                  + f"  {r['turn'] or '-':<8} {clock(r['start_s']):>7}  {Path(r['video']).name}")
+                  + f"  {r['turn'] or '-':<8} {clock(r['start_s']):>7}  {'/'.join(Path(r['video']).parts[-2:])}")
+        cameras = {str(Path(v).parent.parent) for v in phases["video"] if v}
+        if cameras:
+            print(f"  (videos under the dataset's folder, in {', '.join(sorted(cameras))}/)")
 
 
 def print_drift(repo, reference):

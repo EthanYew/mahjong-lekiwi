@@ -250,6 +250,38 @@ def test_a_sideways_tile_is_shown_but_never_proposed_and_a_turned_one_is_judged_
     assert row("")["propose"]
 
 
+def test_flagged_leaves_sideways_episodes_apart_and_dropped_ones_out():
+    import pandas as pd
+    t = pd.DataFrame({"score": [9.0, 6.0, 5.0, 1.0], "turn": ["sideways", "", "turned", ""]}, index=[3, 1, 7, 2])
+    assert quality.flagged(t, 4.0) == ([1, 7], [3])
+    assert quality.flagged(t, 4.0, dropped={7}) == ([1], [3])
+    assert quality.flagged(t.drop(columns="score")) == ([], [])
+
+
+def scored_table(monkeypatch, tmp_path, turns):
+    """quality_table on synthetic episodes, one per entry of `turns` (a roll in degrees), the slowest the last."""
+    import json
+    import pandas as pd
+    (tmp_path / "data" / "chunk-000").mkdir(parents=True)
+    (tmp_path / "meta").mkdir()
+    (tmp_path / "meta" / "info.json").write_text(json.dumps({"fps": FPS}))
+    rows = []
+    for ep, degrees in enumerate(turns):
+        joints = rolled(degrees, open_frames=10 + 10 * ep)
+        rows += [{"episode_index": ep, "frame_index": i, "action_raw": q} for i, q in enumerate(joints)]
+    pd.DataFrame(rows).to_parquet(tmp_path / "data" / "chunk-000" / "file-000.parquet")
+    monkeypatch.setattr(quality, "dataset_root", lambda repo: tmp_path)
+    monkeypatch.setattr(quality, "episode_log", lambda repo: {})
+    return quality.quality_table("r")[0]
+
+
+def test_a_sideways_episode_is_marked_and_scores_still_come_with_too_few_upright_ones(tmp_path, monkeypatch):
+    few = quality.MIN_EPISODES_FOR_SCORES
+    table = scored_table(monkeypatch, tmp_path, [0] * (few - 1) + [95])
+    assert table.loc[few - 1, "turn"] == "sideways" and (table["turn"] == "").sum() == few - 1
+    assert "score" in table                 # too few upright ones for their own baseline: all of them, as before
+
+
 def test_video_starts_read_where_each_episode_sits_in_the_videos(tmp_path, monkeypatch):
     import pandas as pd
     folder = tmp_path / "meta" / "episodes" / "chunk-000"

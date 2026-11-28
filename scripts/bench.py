@@ -141,11 +141,11 @@ class KeyMarks:
         self.phase, self.presses, self.t0 = phase, [], time.time()
         if self.terminal:
             self.terminal.start()
-        keys = "  ".join(f"{k} {label}" for k, label in interventions.KEY_LABELS.items())
+        keys = "  ".join(f"{k} {interventions.KEY_LABELS[k]}" for k in interventions.keys_for(phase))
         print(f"  keys: {keys}" + ("  |  → mark  Esc stop" if phase == "pickup" else ""))
 
     def press(self, char):
-        kind = interventions.KEYS.get((char or "").lower())
+        kind = interventions.keys_for(self.phase).get((char or "").lower())
         if self.phase is None or kind is None:
             return
         self.presses.append({"key": char.lower(), "kind": kind, "t_s": round(time.time() - self.t0, 2)})

@@ -84,7 +84,8 @@ KINDS = {
     "fd_by_hand": ("did a step by hand that the arm couldn't (a pick, a set-down, a lost tile)", RESCUE),
     "fd_conflict": ("unattended: a read made a fifth copy of a tile, and play went on with it", OBSERVATION),
 }
-MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other"]
+MARK_KINDS = ["touched_tile", "collided", "pushed_target", "helped_arm", "caught_drop", "look", "other",
+              "closed_early"]   # added last, so the menu's older numbers stay what people type
 # Pressed during a pickup or a return (the bench's KeyMarks): what happened, said as it happens. 2026-10-30: the
 # questions at the end of a batch couldn't be answered accurately, nor told apart by attempt. Only what the arm
 # does: a person helping (touched the tile, held the arm, caught a drop) never happens on the bench, and is
@@ -98,6 +99,12 @@ KEY_LABELS = {"b": "bumped another tile", "p": "pushed the tile it's picking up"
               "r": "I moved a tile by hand",
               "d": "gripped low", "u": "gripped high", "s": "gripped shallow",
               "l": "look at this"}
+PICKUP_ONLY_KEYS = {"e"}        # a return opens the jaws, it doesn't close them: not offered or heard then
+
+
+def keys_for(phase):
+    """The KEYS a person can press during `phase` (pickup or return)."""
+    return {k: v for k, v in KEYS.items() if phase == "pickup" or k not in PICKUP_ONLY_KEYS}
 NOTE_KINDS = ["straightened", "tile_reset", "helped_arm", "discard_missed", "other", "note"]
 ABORT_REASONS = {"frozen": "frozen at the hover", "wrong_place": "heading for the wrong place",
                  "knocking": "about to knock a neighbour", "pressing": "pressing into the table",

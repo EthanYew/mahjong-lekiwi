@@ -173,13 +173,13 @@ def main():
     reg = recipe.registry()
     if not args.skip_train:     # --skip-train registers a run already trained: its recipe was settled then
         recipe.check(reg, args.source, args.add, args.leave_out, run_options(args))
-    from mahjong.quality import dropped_episodes, gripper_fixes, quality_table
+    from mahjong.quality import dropped_episodes, flagged, gripper_fixes, quality_table
     from mahjong.dataset import build, episode_log, hover_settings
     from mahjong import offline_eval
     table, _, _ = quality_table(args.source)
     frames = int(table["frames"].sum())
     print(f"1. quality: {args.source}: {len(table)} episodes, {frames} frames"
-          + (f", {int((table['score'] >= 4).sum())} flagged (scripts/quality_report.py to review)" if "score" in table else ""))
+          + (f", {len(flagged(table)[0])} flagged (scripts/quality_report.py to review)" if "score" in table else ""))
     heldout = offline_eval.excluded_episodes(args.source)
     dropped = dropped_episodes(args.source)
     train_episodes = sorted(int(e) for e in set(table.index) - set(heldout) - set(dropped))

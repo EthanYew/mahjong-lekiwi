@@ -52,7 +52,7 @@ def dataset_root(repo_id):
 # Face-down backs have no detected angle (record.py logs placed_yaw_deg None for them), so which demos picked a tile turned
 # on purpose is read from the wrist roll at the close, less the episode's first frame. Upright tiles: under 20 deg in every
 # set checked; partly turned ones 31-41 deg (mahjong_facedown_dagger_v14 38-40); sideways ones 85-103 deg (daytime 29, 31,
-# 37, 39, 43, 45, 49, 55; dagger_v14 41-44). A turn takes longer and lands the close elsewhere, so the hesitation scores
+# 37, 39, 43, 45, 49, 55: 90-103; dagger_v14 41-44: 85-95). A turn takes longer and lands the close elsewhere, so the hesitation scores
 # and the grip reach, both fitted on upright tiles, would read a deliberate turn as a bad demo: sideways episodes are marked,
 # shown, and never flagged or proposed on those numbers. "turned" (20-60 deg) is only shown: jitter_v3 and dagger_v9/v10 have
 # 37 of them, both ways (-45 to +55 deg), not checked by eye, so they're still judged as before. Training is unchanged.
@@ -154,7 +154,9 @@ def quality_table(repo_id):
                      "turn": tile_turn(roll_at_close(joints, record))})
     table = pd.DataFrame(rows).set_index("episode")
     upright = table["turn"] != SIDEWAYS    # a sideways tile's longer pickup isn't hesitation: the baseline leaves it out
-    if upright.sum() >= MIN_EPISODES_FOR_SCORES:
+    if upright.sum() < MIN_EPISODES_FOR_SCORES:
+        upright[:] = True                  # too few upright ones for a baseline of their own: all of them, as before
+    if len(table) >= MIN_EPISODES_FOR_SCORES:
         for metric, floor in SCORED_METRICS.items():
             values = table[metric].astype(float)
             median = values[upright].median()
@@ -166,6 +168,16 @@ def quality_table(repo_id):
         table["worst"] = table[z].idxmax(axis=1).str[2:].where(table["score"] > 0, "")
         table = table.sort_values("score", ascending=False)
     return table, events, fps
+
+
+def flagged(table, flag=DEFAULT_FLAG_SCORE, dropped=()):
+    """(episodes scored `flag` or more, worth reviewing; those of them left alone because their tile was sideways), both
+    sorted, without `dropped`. ([], []) for a table too small to score."""
+    if "score" not in table:
+        return [], []
+    high = [int(e) for e in table.index[table["score"] >= flag] if int(e) not in dropped]
+    return (sorted(e for e in high if table.loc[e, "turn"] != SIDEWAYS),
+            sorted(e for e in high if table.loc[e, "turn"] == SIDEWAYS))
 
 
 # --- phases of a pickup, and the hover→grasp move (2026-10-26 golden set review) ---

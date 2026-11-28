@@ -486,6 +486,12 @@ def test_e_flags_an_early_close_a_failure_that_makes_even_a_picked_tile_not_clea
     assert iv.summary(found, events[:1])["early_closes"] == 1
 
 
+def test_e_is_heard_only_during_a_pickup_and_a_mark_can_say_it_too():
+    assert iv.keys_for("pickup")["e"] == "closed_early" and "e" not in iv.keys_for("return")
+    assert iv.keys_for("return")["p"] == "pushed_target"
+    assert iv.MARK_KINDS.index("other") == 6 and iv.MARK_KINDS[-1] == "closed_early"   # older numbers unchanged
+
+
 def test_a_closing_early_abort_keeps_the_older_reasons_numbers():
     assert list(iv.ABORT_REASONS)[:5] == ["frozen", "wrong_place", "knocking", "pressing", "bad_grip"]
     assert "closing_early" in iv.ABORT_REASONS
